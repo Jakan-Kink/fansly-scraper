@@ -1,5 +1,3 @@
 """Download Module"""
 
-
-__all__: list[str] = [
-]
+__all__: list[str] = []

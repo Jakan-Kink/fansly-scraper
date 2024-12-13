@@ -1,7 +1,8 @@
 """Download Types"""
 
-from strenum import StrEnum
 from enum import auto
+
+from strenum import StrEnum
 
 
 class DownloadType(StrEnum):

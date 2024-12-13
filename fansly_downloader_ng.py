@@ -2,24 +2,24 @@
 
 """Fansly Downloader NG"""
 
-__version__ = '0.9.9'
-__date__ = '2024-06-28T15:08:00+02'
-__maintainer__ = 'prof79'
-__copyright__ = f'Copyright (C) 2023-2024 by {__maintainer__}'
+__version__ = "0.9.9"
+__date__ = "2024-06-28T15:08:00+02"
+__maintainer__ = "prof79"
+__copyright__ = f"Copyright (C) 2023-2024 by {__maintainer__}"
 __authors__ = [
-    'prof79',
-    'Avnsx',
-    'pawnstar81',
-    'UpAndDown666',
-    'icewinterberry12',
-    '1gintonic',
+    "prof79",
+    "Avnsx",
+    "pawnstar81",
+    "UpAndDown666",
+    "icewinterberry12",
+    "1gintonic",
 ]
 __credits__ = [
-    'Avnsx',
-    'KasumiDev',
-    'FletcherD',
-    'XelaRellum',
-    'sunbart',
+    "Avnsx",
+    "KasumiDev",
+    "FletcherD",
+    "XelaRellum",
+    "sunbart",
 ]
 
 # TODO: Remove pyffmpeg's "Github Activeness" message
@@ -31,14 +31,35 @@ __credits__ = [
 import base64
 import traceback
 
-#from memory_profiler import profile
+# from memory_profiler import profile
 from datetime import datetime
 
 from config import FanslyConfig, load_config, validate_adjust_config
-from config.args import parse_args, map_args_to_config
+from config.args import map_args_to_config, parse_args
 from config.modes import DownloadMode
-from download.core import *
-from errors import *
+from download.core import (
+    DownloadState,
+    GlobalState,
+    download_collections,
+    download_messages,
+    download_single_post,
+    download_timeline,
+    get_creator_account_info,
+    print_download_info,
+)
+from errors import (
+    API_ERROR,
+    CONFIG_ERROR,
+    DOWNLOAD_ERROR,
+    EXIT_ABORT,
+    EXIT_SUCCESS,
+    SOME_USERS_FAILED,
+    UNEXPECTED_ERROR,
+    ApiAccountInfoError,
+    ApiError,
+    ConfigError,
+    DownloadError,
+)
 from fileio.dedupe import dedupe_init
 from pathio import delete_temporary_pyinstaller_files
 from textio import (
@@ -51,15 +72,19 @@ from textio import (
 )
 from updater import self_update
 from utils.common import open_location
-from utils.statistics import *
+from utils.statistics import (
+    print_global_statistics,
+    print_statistics,
+    print_timing_statistics,
+    update_global_statistics,
+)
 from utils.timer import Timer
 
-
 # tell PIL to be tolerant of files that are truncated
-#ImageFile.LOAD_TRUNCATED_IMAGES = True
+# ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # turn off for our purpose unnecessary PIL safety features
-#Image.MAX_IMAGE_PIXELS = None
+# Image.MAX_IMAGE_PIXELS = None
 
 
 def print_logo() -> None:
@@ -67,16 +92,16 @@ def print_logo() -> None:
     print(
         # Base64 code to display logo in console
         base64.b64decode(
-            'CiAg4paI4paI4paI4paI4paI4paI4paI4pWXIOKWiOKWiOKWiOKWiOKWiOKVlyDilojilojilojilZcgICDilojilojilZfilojilojilojilojilojilojilojilZfilojilojilZcgIOKWiOKWiOKVlyAgIOKWiOKWiOKVlyAgICDilojilojilojilZcgICDilojilojilZfilojilojilojilojilojilojilojilZcgICAgIOKWiOKWiOKWiOKWiOKWiOKVlyDilojilojilojilojilojilojilZcg4paI4paI4paI4paI4paI4paI4pWXIAogIOKWiOKWiOKVlOKVkOKVkOKVkOKVkOKVneKWiOKWiOKVlOKVkOKVkOKWiOKWiOKVl+KWiOKWiOKWiOKWiOKVlyAg4paI4paI4pWR4paI4paI4pWU4pWQ4pWQ4pWQ4pWQ4pWd4paI4paI4pWRICDilZrilojilojilZcg4paI4paI4pWU4pWdICAgIOKWiOKWiOKWiOKWiOKVlyAg4paI4paI4pWR4paI4paI4pWU4pWQ4pWQ4pWQ4pWQ4pWdICAgIOKWiOKWiOKVlOKVkOKVkOKWiOKWiOKVl+KWiOKWiOKVlOKVkOKVkOKWiOKWiOKVl+KWiOKWiOKVlOKVkOKVkOKWiOKWiOKVlwogIOKWiOKWiOKWiOKWiOKWiOKVlyAg4paI4paI4paI4paI4paI4paI4paI4pWR4paI4paI4pWU4paI4paI4pWXIOKWiOKWiOKVkeKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKVkSAgIOKVmuKWiOKWiOKWiOKWiOKVlOKVnSAgICAg4paI4paI4pWU4paI4paI4pWXIOKWiOKWiOKVkeKWiOKWiOKVkSDilojilojilojilZcgICAg4paI4paI4paI4paI4paI4paI4paI4pWR4paI4paI4paI4paI4paI4paI4pWU4pWd4paI4paI4paI4paI4paI4paI4pWU4pWdCiAg4paI4paI4pWU4pWQ4pWQ4pWdICDilojilojilZTilZDilZDilojilojilZHilojilojilZHilZrilojilojilZfilojilojilZHilZrilZDilZDilZDilZDilojilojilZHilojilojilZEgICAg4pWa4paI4paI4pWU4pWdICAgICAg4paI4paI4pWR4pWa4paI4paI4pWX4paI4paI4pWR4paI4paI4pWRICDilojilojilZEgICAg4paI4paI4pWU4pWQ4pWQ4paI4paI4pWR4paI4paI4pWU4pWQ4pWQ4pWQ4pWdIOKWiOKWiOKVlOKVkOKVkOKVkOKVnSAKICDilojilojilZEgICAgIOKWiOKWiOKVkSAg4paI4paI4pWR4paI4paI4pWRIOKVmuKWiOKWiOKWiOKWiOKVkeKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVkeKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKVkSAgICAgICDilojilojilZEg4pWa4paI4paI4paI4paI4pWR4paI4paI4paI4paI4paI4paI4paI4pWRICAgIOKWiOKWiOKVkSAg4paI4paI4pWR4paI4paI4pWRICAgICDilojilojilZEgICAgIAogIOKVmuKVkOKVnSAgICAg4pWa4pWQ4pWdICDilZrilZDilZ3ilZrilZDilZ0gIOKVmuKVkOKVkOKVkOKVneKVmuKVkOKVkOKVkOKVkOKVkOKVkOKVneKVmuKVkOKVkOKVkOKVkOKVkOKVkOKVneKVmuKVkOKVnSAgICAgICDilZrilZDilZ0gIOKVmuKVkOKVkOKVkOKVneKVmuKVkOKVkOKVkOKVkOKVkOKVkOKVnSAgICDilZrilZDilZ0gIOKVmuKVkOKVneKVmuKVkOKVnSAgICAg4pWa4pWQ4pWdICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgZGV2ZWxvcGVkIG9uIGdpdGh1Yi5jb20vcHJvZjc5L2ZhbnNseS1kb3dubG9hZGVyLW5nCg=='
-        ).decode('utf-8')
+            "CiAg4paI4paI4paI4paI4paI4paI4paI4pWXIOKWiOKWiOKWiOKWiOKWiOKVlyDilojilojilojilZcgICDilojilojilZfilojilojilojilojilojilojilojilZfilojilojilZcgIOKWiOKWiOKVlyAgIOKWiOKWiOKVlyAgICDilojilojilojilZcgICDilojilojilZfilojilojilojilojilojilojilojilZcgICAgIOKWiOKWiOKWiOKWiOKWiOKVlyDilojilojilojilojilojilojilZcg4paI4paI4paI4paI4paI4paI4pWXIAogIOKWiOKWiOKVlOKVkOKVkOKVkOKVkOKVneKWiOKWiOKVlOKVkOKVkOKWiOKWiOKVl+KWiOKWiOKWiOKWiOKVlyAg4paI4paI4pWR4paI4paI4pWU4pWQ4pWQ4pWQ4pWQ4pWd4paI4paI4pWRICDilZrilojilojilZcg4paI4paI4pWU4pWdICAgIOKWiOKWiOKWiOKWiOKVlyAg4paI4paI4pWR4paI4paI4pWU4pWQ4pWQ4pWQ4pWQ4pWdICAgIOKWiOKWiOKVlOKVkOKVkOKWiOKWiOKVl+KWiOKWiOKVlOKVkOKVkOKWiOKWiOKVl+KWiOKWiOKVlOKVkOKVkOKWiOKWiOKVlwogIOKWiOKWiOKWiOKWiOKWiOKVlyAg4paI4paI4paI4paI4paI4paI4paI4pWR4paI4paI4pWU4paI4paI4pWXIOKWiOKWiOKVkeKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKVkSAgIOKVmuKWiOKWiOKWiOKWiOKVlOKVnSAgICAg4paI4paI4pWU4paI4paI4pWXIOKWiOKWiOKVkeKWiOKWiOKVkSDilojilojilojilZcgICAg4paI4paI4paI4paI4paI4paI4paI4pWR4paI4paI4paI4paI4paI4paI4pWU4pWd4paI4paI4paI4paI4paI4paI4pWU4pWdCiAg4paI4paI4pWU4pWQ4pWQ4pWdICDilojilojilZTilZDilZDilojilojilZHilojilojilZHilZrilojilojilZfilojilojilZHilZrilZDilZDilZDilZDilojilojilZHilojilojilZEgICAg4pWa4paI4paI4pWU4pWdICAgICAg4paI4paI4pWR4pWa4paI4paI4pWX4paI4paI4pWR4paI4paI4pWRICDilojilojilZEgICAg4paI4paI4pWU4pWQ4pWQ4paI4paI4pWR4paI4paI4pWU4pWQ4pWQ4pWQ4pWdIOKWiOKWiOKVlOKVkOKVkOKVkOKVnSAKICDilojilojilZEgICAgIOKWiOKWiOKVkSAg4paI4paI4pWR4paI4paI4pWRIOKVmuKWiOKWiOKWiOKWiOKVkeKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVkeKWiOKWiOKWiOKWiOKWiOKWiOKWiOKVl+KWiOKWiOKVkSAgICAgICDilojilojilZEg4pWa4paI4paI4paI4paI4pWR4paI4paI4paI4paI4paI4paI4paI4pWRICAgIOKWiOKWiOKVkSAg4paI4paI4pWR4paI4paI4pWRICAgICDilojilojilZEgICAgIAogIOKVmuKVkOKVnSAgICAg4pWa4pWQ4pWdICDilZrilZDilZ3ilZrilZDilZ0gIOKVmuKVkOKVkOKVkOKVneKVmuKVkOKVkOKVkOKVkOKVkOKVkOKVneKVmuKVkOKVkOKVkOKVkOKVkOKVkOKVneKVmuKVkOKVnSAgICAgICDilZrilZDilZ0gIOKVmuKVkOKVkOKVkOKVneKVmuKVkOKVkOKVkOKVkOKVkOKVkOKVnSAgICDilZrilZDilZ0gIOKVmuKVkOKVneKVmuKVkOKVnSAgICAg4pWa4pWQ4pWdICAgICAKICAgICAgICAgICAgICAgICAgICAgICAgZGV2ZWxvcGVkIG9uIGdpdGh1Yi5jb20vcHJvZjc5L2ZhbnNseS1kb3dubG9hZGVyLW5nCg=="
+        ).decode("utf-8")
     )
-    print(f"{(100 - len(__version__) - 1)//2*' '}v{__version__}\n")
+    print(f"{(100 - len(__version__) - 1) // 2 * ' '}v{__version__}\n")
 
 
-#@profile(precision=2, stream=open('memory_use.log', 'w', encoding='utf-8'))
+# @profile(precision=2, stream=open('memory_use.log', 'w', encoding='utf-8'))
 def main(config: FanslyConfig) -> int:
     """The main logic of the downloader program.
-    
+
     :param config: The program configuration.
     :type config: FanslyConfig
 
@@ -85,7 +110,7 @@ def main(config: FanslyConfig) -> int:
     """
     exit_code = EXIT_SUCCESS
 
-    timer = Timer('Total')
+    timer = Timer("Total")
 
     timer.start()
 
@@ -108,18 +133,19 @@ def main(config: FanslyConfig) -> int:
 
     validate_adjust_config(config, download_mode_set)
 
-    if config.user_names is None \
-            or config.download_mode == DownloadMode.NOTSET:
-        raise RuntimeError('Internal error - user name and download mode should not be empty after validation.')
+    if config.user_names is None or config.download_mode == DownloadMode.NOTSET:
+        raise RuntimeError(
+            "Internal error - user name and download mode should not be empty after validation."
+        )
 
     print()
-    print_info(f'Token: {config.token}')
-    print_info(f'Check Key: {config.check_key}')
+    print_info(f"Token: {config.token}")
+    print_info(f"Check Key: {config.check_key}")
     print_info(
-        f'Device ID: {config.get_api().device_id} '
-        f'({datetime.fromtimestamp(config.get_api().device_id_timestamp / 1000)})'
+        f"Device ID: {config.get_api().device_id} "
+        f"({datetime.fromtimestamp(config.get_api().device_id_timestamp / 1000)})"
     )
-    print_info(f'Session ID: {config.get_api().session_id}')
+    print_info(f"Session ID: {config.get_api().session_id}")
 
     global_download_state = GlobalState()
 
@@ -128,8 +154,8 @@ def main(config: FanslyConfig) -> int:
     print_info(
         "Due to important memory usage and video format bugfixes, "
         "existing media items "
-        f"\n{' '*16} need to be re-hashed (`_hash_`/`_hash1_` to `_hash2_`)."
-        f"\n{' '*16} Affected files will automatically be renamed in the background."
+        f"\n{' ' * 16} need to be re-hashed (`_hash_`/`_hash1_` to `_hash2_`)."
+        f"\n{' ' * 16} Affected files will automatically be renamed in the background."
     )
     print()
 
@@ -153,7 +179,7 @@ def main(config: FanslyConfig) -> int:
                 # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
                 # Collection: Download all content listed within the "Purchased Media Collection"
 
-                print_info(f'Download mode is: {config.download_mode_str()}')
+                print_info(f"Download mode is: {config.download_mode_str()}")
                 print()
 
                 if config.download_mode == DownloadMode.SINGLE:
@@ -163,10 +189,20 @@ def main(config: FanslyConfig) -> int:
                     download_collections(config, state)
 
                 else:
-                    if any([config.download_mode == DownloadMode.MESSAGES, config.download_mode == DownloadMode.NORMAL]):
+                    if any(
+                        [
+                            config.download_mode == DownloadMode.MESSAGES,
+                            config.download_mode == DownloadMode.NORMAL,
+                        ]
+                    ):
                         download_messages(config, state)
 
-                    if any([config.download_mode == DownloadMode.TIMELINE, config.download_mode == DownloadMode.NORMAL]):
+                    if any(
+                        [
+                            config.download_mode == DownloadMode.TIMELINE,
+                            config.download_mode == DownloadMode.NORMAL,
+                        ]
+                    ):
                         download_timeline(config, state)
 
                 update_global_statistics(global_download_state, download_state=state)
@@ -174,7 +210,11 @@ def main(config: FanslyConfig) -> int:
 
                 # open download folder
                 if state.base_path is not None:
-                    open_location(state.base_path, config.open_folder_when_finished, config.interactive)
+                    open_location(
+                        state.base_path,
+                        config.open_folder_when_finished,
+                        config.interactive,
+                    )
 
             # Still continue if one creator failed
             except ApiAccountInfoError as e:
@@ -191,7 +231,7 @@ def main(config: FanslyConfig) -> int:
     return exit_code
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     config = FanslyConfig(program_version=__version__)
     exit_code = EXIT_SUCCESS
 
@@ -201,7 +241,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         # TODO: Should there be any clean-up or in-program handling during Ctrl+C?
         print()
-        print_warning('Program aborted.')
+        print_warning("Program aborted.")
         exit_code = EXIT_ABORT
 
     except ApiError as e:
@@ -221,7 +261,7 @@ if __name__ == '__main__':
 
     except Exception as e:
         print()
-        print_error(f'An unexpected error occurred: {e}\n{traceback.format_exc()}')
+        print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
 
     input_enter_close(config.prompt_on_exit)

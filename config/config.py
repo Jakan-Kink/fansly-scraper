@@ -1,9 +1,7 @@
 """Configuration File Manipulation"""
 
-
 import configparser
 import os
-
 from configparser import ConfigParser
 from os import getcwd
 from os.path import join
@@ -12,9 +10,8 @@ from pathlib import Path
 from config.fanslyconfig import FanslyConfig
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
-
 from errors import ConfigError
-from textio import print_info, print_config, print_warning
+from textio import print_config, print_info, print_warning
 from utils.common import save_config_or_raise
 from utils.web import open_url
 
@@ -31,8 +28,8 @@ def parse_items_from_line(line: str) -> list[str]:
     """
     names: list[str] = []
 
-    if ',' in line:
-        names = line.split(',')
+    if "," in line:
+        names = line.split(",")
 
     else:
         names = line.split()
@@ -51,17 +48,13 @@ def sanitize_creator_names(names: list[str]) -> set[str]:
     * remove a leading @ from a name
     * remove duplicates
     * lower-case each name (for de-duplication to work)
-    
+
     :param list[str] names: A list of names to process.
 
     :return: A set of unique, sanitized creator names.
     :rtype: set[str]
     """
-    return set(
-        name.strip().removeprefix('@').lower()
-        for name in names
-        if name.strip()
-    )
+    return set(name.strip().removeprefix("@").lower() for name in names if name.strip())
 
 
 def username_has_valid_length(name: str) -> bool:
@@ -75,9 +68,10 @@ def username_has_valid_chars(name: str) -> bool:
     if name is None:
         return False
 
-    invalid_chars = set(name) \
-        - set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
-    
+    invalid_chars = set(name) - set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+    )
+
     return not invalid_chars
 
 
@@ -90,8 +84,8 @@ def copy_old_config_values():
     The hardcoded file names are from `old_config.ini` to `config.ini`.
     """
     current_directory = getcwd()
-    old_config_path = join(current_directory, 'old_config.ini')
-    new_config_path = join(current_directory, 'config.ini')
+    old_config_path = join(current_directory, "old_config.ini")
+    new_config_path = join(current_directory, "config.ini")
 
     if os.path.isfile(old_config_path) and os.path.isfile(new_config_path):
         old_config = ConfigParser(interpolation=None)
@@ -112,32 +106,32 @@ def copy_old_config_values():
                         value = old_config.get(section, option)
 
                         # skip overwriting the version value
-                        if section == 'Other' and option == 'version':
+                        if section == "Other" and option == "version":
                             continue
 
                         new_config.set(section, option, value)
 
         # save the updated new config
-        with open(new_config_path, 'w') as config_file:
+        with open(new_config_path, "w") as config_file:
             new_config.write(config_file)
 
 
 def load_config(config: FanslyConfig) -> None:
     """Loads the program configuration from file.
-    
+
     :param FanslyConfig config: The configuration object to fill.
     """
 
-    print_info('Reading config.ini file ...')
+    print_info("Reading config.ini file ...")
     print()
-    
-    config.config_path = Path.cwd() / 'config.ini'
+
+    config.config_path = Path.cwd() / "config.ini"
 
     if not config.config_path.exists():
         print_warning("Configuration file config.ini not found.")
         print_config("A default configuration file will be generated for you ...")
 
-        with open(config.config_path, mode='w', encoding='utf-8'):
+        with open(config.config_path, mode="w", encoding="utf-8"):
             pass
 
     config._load_raw_config()
@@ -147,185 +141,250 @@ def load_config(config: FanslyConfig) -> None:
         # Since the settings from the config object are synced to the parser
         # on save, all still uninitialized values from the partially loaded
         # config would overwrite the existing configuration!
-        replace_me_str = 'ReplaceMe'
+        replace_me_str = "ReplaceMe"
 
-        #region TargetedCreator
+        # region TargetedCreator
 
-        creator_section = 'TargetedCreator'
+        creator_section = "TargetedCreator"
 
         if not config._parser.has_section(creator_section):
             config._parser.add_section(creator_section)
 
         # Check for command-line override - already set?
         if config.user_names is None:
-            user_names = config._parser.get(creator_section, 'Username', fallback=replace_me_str) # string
+            user_names = config._parser.get(
+                creator_section, "Username", fallback=replace_me_str
+            )  # string
 
-            config.user_names = \
-                sanitize_creator_names(parse_items_from_line(user_names))
+            config.user_names = sanitize_creator_names(
+                parse_items_from_line(user_names)
+            )
 
-        #endregion TargetedCreator
+        # endregion TargetedCreator
 
-        #region MyAccount
+        # region MyAccount
 
-        account_section = 'MyAccount'
+        account_section = "MyAccount"
 
         if not config._parser.has_section(account_section):
             config._parser.add_section(account_section)
 
-        config.token = config._parser.get(account_section, 'Authorization_Token', fallback=replace_me_str) # string
-        config.user_agent = config._parser.get(account_section, 'User_Agent', fallback=replace_me_str) # string
+        config.token = config._parser.get(
+            account_section, "Authorization_Token", fallback=replace_me_str
+        )  # string
+        config.user_agent = config._parser.get(
+            account_section, "User_Agent", fallback=replace_me_str
+        )  # string
 
-        default_check_key = 'qybZy9-fyszis-bybxyf'
+        default_check_key = "qybZy9-fyszis-bybxyf"
 
-        config.check_key = config._parser.get(account_section, 'Check_Key', fallback=default_check_key) # string
+        config.check_key = config._parser.get(
+            account_section, "Check_Key", fallback=default_check_key
+        )  # string
 
         if config.check_key in [
-                    'negwij-zyZnek-wavje1',
-                    'negwij-zyZnak-wavje1',
-                ]:
+            "negwij-zyZnek-wavje1",
+            "negwij-zyZnak-wavje1",
+        ]:
             config.check_key = default_check_key
 
-        #endregion MyAccount
+        # endregion MyAccount
 
-        #region Other
+        # region Other
 
-        other_section = 'Other'
+        other_section = "Other"
 
         # I obsoleted this ...
-        #config.current_version = config.parser.get('Other', 'version') # str
-        if config._parser.has_option(other_section, 'version'):
-            config._parser.remove_option(other_section, 'version')
+        # config.current_version = config.parser.get('Other', 'version') # str
+        if config._parser.has_option(other_section, "version"):
+            config._parser.remove_option(other_section, "version")
 
         # Remove empty section
-        if config._parser.has_section(other_section) \
-                and len(config._parser[other_section]) == 0:
+        if (
+            config._parser.has_section(other_section)
+            and len(config._parser[other_section]) == 0
+        ):
             config._parser.remove_section(other_section)
 
-        #endregion Other
+        # endregion Other
 
-        #region Options
+        # region Options
 
-        options_section = 'Options'
+        options_section = "Options"
 
         if not config._parser.has_section(options_section):
             config._parser.add_section(options_section)
 
         # Local_directory, C:\MyCustomFolderFilePath -> str
         config.download_directory = Path(
-            config._parser.get(options_section, 'download_directory', fallback='Local_directory')
+            config._parser.get(
+                options_section, "download_directory", fallback="Local_directory"
+            )
         )
-        
+
         # Normal (Timeline & Messages), Timeline, Messages, Single (Single by post id) or Collections -> str
-        download_mode = config._parser.get(options_section, 'download_mode', fallback='Normal')
+        download_mode = config._parser.get(
+            options_section, "download_mode", fallback="Normal"
+        )
         config.download_mode = DownloadMode(download_mode.upper())
 
         # Advanced, Simple -> str
-        metadata_handling = config._parser.get(options_section, 'metadata_handling', fallback='Advanced')
+        metadata_handling = config._parser.get(
+            options_section, "metadata_handling", fallback="Advanced"
+        )
         config.metadata_handling = MetadataHandling(metadata_handling.upper())
 
         # Booleans
-        config.download_media_previews = config._parser.getboolean(options_section, 'download_media_previews', fallback=True)
-        config.open_folder_when_finished = config._parser.getboolean(options_section, 'open_folder_when_finished', fallback=True)
-        config.separate_messages = config._parser.getboolean(options_section, 'separate_messages', fallback=True)
-        config.separate_previews = config._parser.getboolean(options_section, 'separate_previews', fallback=False)
-        config.separate_timeline = config._parser.getboolean(options_section, 'separate_timeline', fallback=True)
-        config.show_downloads = config._parser.getboolean(options_section, 'show_downloads', fallback=True)
-        config.show_skipped_downloads = config._parser.getboolean(options_section, 'show_skipped_downloads', fallback=True)
-        config.interactive = config._parser.getboolean(options_section, 'interactive', fallback=True)
-        config.prompt_on_exit = config._parser.getboolean(options_section, 'prompt_on_exit', fallback=True)
+        config.download_media_previews = config._parser.getboolean(
+            options_section, "download_media_previews", fallback=True
+        )
+        config.open_folder_when_finished = config._parser.getboolean(
+            options_section, "open_folder_when_finished", fallback=True
+        )
+        config.separate_messages = config._parser.getboolean(
+            options_section, "separate_messages", fallback=True
+        )
+        config.separate_previews = config._parser.getboolean(
+            options_section, "separate_previews", fallback=False
+        )
+        config.separate_timeline = config._parser.getboolean(
+            options_section, "separate_timeline", fallback=True
+        )
+        config.separate_metadata = config._parser.getboolean(
+            options_section, "separate_metadata", fallback=False
+        )
+        config.show_downloads = config._parser.getboolean(
+            options_section, "show_downloads", fallback=True
+        )
+        config.show_skipped_downloads = config._parser.getboolean(
+            options_section, "show_skipped_downloads", fallback=True
+        )
+        config.interactive = config._parser.getboolean(
+            options_section, "interactive", fallback=True
+        )
+        config.prompt_on_exit = config._parser.getboolean(
+            options_section, "prompt_on_exit", fallback=True
+        )
+        config.include_meta_database = config._parser.getboolean(
+            options_section, "include_meta_database", fallback=False
+        )
 
         # Numbers
-        config.timeline_retries = config._parser.getint(options_section, 'timeline_retries', fallback=1)
-        config.timeline_delay_seconds = config._parser.getint(options_section, 'timeline_delay_seconds', fallback=60)
+        config.timeline_retries = config._parser.getint(
+            options_section, "timeline_retries", fallback=1
+        )
+        config.timeline_delay_seconds = config._parser.getint(
+            options_section, "timeline_delay_seconds", fallback=60
+        )
 
-        #region Renamed Options
+        # region Renamed Options
 
         # I renamed this to "use_duplicate_threshold" but retain older config.ini compatibility
         # True, False -> boolean
-        if config._parser.has_option(options_section, 'utilise_duplicate_threshold'):
-            config.use_duplicate_threshold = config._parser.getboolean(options_section, 'utilise_duplicate_threshold', fallback=False)
-            config._parser.remove_option(options_section, 'utilise_duplicate_threshold')
+        if config._parser.has_option(options_section, "utilise_duplicate_threshold"):
+            config.use_duplicate_threshold = config._parser.getboolean(
+                options_section, "utilise_duplicate_threshold", fallback=False
+            )
+            config._parser.remove_option(options_section, "utilise_duplicate_threshold")
 
         else:
-            config.use_duplicate_threshold = config._parser.getboolean(options_section, 'use_duplicate_threshold', fallback=False)
+            config.use_duplicate_threshold = config._parser.getboolean(
+                options_section, "use_duplicate_threshold", fallback=False
+            )
 
         # Renamed this to "use_folder_suffix"
         # True, False -> boolean
-        if config._parser.has_option(options_section, 'use_suffix'):
-            config.use_folder_suffix = config._parser.getboolean(options_section, 'use_suffix', fallback=True)
-            config._parser.remove_option(options_section, 'use_suffix')
+        if config._parser.has_option(options_section, "use_suffix"):
+            config.use_folder_suffix = config._parser.getboolean(
+                options_section, "use_suffix", fallback=True
+            )
+            config._parser.remove_option(options_section, "use_suffix")
 
         else:
-            config.use_folder_suffix = config._parser.getboolean(options_section, 'use_folder_suffix', fallback=True)
+            config.use_folder_suffix = config._parser.getboolean(
+                options_section, "use_folder_suffix", fallback=True
+            )
 
-        #endregion Renamed
-            
-        #endregion Options
+        # endregion Renamed
 
-        #region Cache
-        
-        cache_section = 'Cache'
+        # endregion Options
+
+        # region Cache
+
+        cache_section = "Cache"
 
         if not config._parser.has_section(cache_section):
             config._parser.add_section(cache_section)
 
-        config.cached_device_id = \
-            config._parser.get(cache_section, 'device_id', fallback=None)
-        config.cached_device_id_timestamp = \
-            config._parser.getint(cache_section, 'device_id_timestamp', fallback=None)
+        config.cached_device_id = config._parser.get(
+            cache_section, "device_id", fallback=None
+        )
+        config.cached_device_id_timestamp = config._parser.getint(
+            cache_section, "device_id_timestamp", fallback=None
+        )
 
-        #endregion Cache
+        # endregion Cache
 
-        #region Logic
+        # region Logic
 
-        key_default_pattern = r'''this\.checkKey_\s*=\s*["']([^"']+)["']'''
+        key_default_pattern = r"""this\.checkKey_\s*=\s*["']([^"']+)["']"""
         main_js_default_pattern = r'''\ssrc\s*=\s*"(main\..*?\.js)"'''
 
-        logic_section = 'Logic'
+        logic_section = "Logic"
 
         if not config._parser.has_section(logic_section):
             config._parser.add_section(logic_section)
 
-        config.check_key_pattern = \
-            config._parser.get(logic_section, 'check_key_pattern', fallback=key_default_pattern)
-        config.main_js_pattern = \
-            config._parser.get(logic_section, 'main_js_pattern', fallback=main_js_default_pattern)
+        config.check_key_pattern = config._parser.get(
+            logic_section, "check_key_pattern", fallback=key_default_pattern
+        )
+        config.main_js_pattern = config._parser.get(
+            logic_section, "main_js_pattern", fallback=main_js_default_pattern
+        )
 
-        #endregion Logic
+        # endregion Logic
 
         # Safe to save! :-)
         save_config_or_raise(config)
 
     except configparser.NoOptionError as e:
         error_string = str(e)
-        raise ConfigError(f"Your config.ini file is invalid, please download a fresh version of it from GitHub.\n{error_string}")
+        raise ConfigError(
+            f"Your config.ini file is invalid, please download a fresh version of it from GitHub.\n{error_string}"
+        )
 
     except ValueError as e:
         error_string = str(e)
 
-        if 'a boolean' in error_string:
+        if "a boolean" in error_string:
             if config.interactive:
-                open_url('https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini')
+                open_url(
+                    "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
+                )
 
             raise ConfigError(
                 f"'{error_string.rsplit('boolean: ')[1]}' is malformed in the configuration file! This value can only be True or False"
-                f"\n{17*' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [1]"
+                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [1]"
             )
 
         else:
             if config.interactive:
-                open_url('https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini')
+                open_url(
+                    "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
+                )
 
             raise ConfigError(
                 f"You have entered a wrong value in the config.ini file -> '{error_string}'"
-                f"\n{17*' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [2]"
+                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [2]"
             )
 
     except (KeyError, NameError) as key:
         if config.interactive:
-            open_url('https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini')
+            open_url(
+                "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
+            )
 
         raise ConfigError(
             f"'{key}' is missing or malformed in the configuration file!"
-            f"\n{17*' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [3]"
+            f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [3]"
         )

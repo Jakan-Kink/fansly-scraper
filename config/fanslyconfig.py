@@ -1,22 +1,20 @@
 """Configuration Class for Shared State"""
 
-
 from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from config.modes import DownloadMode
-from config.metadatahandling import MetadataHandling
-
 from api import FanslyApi
+from config.metadatahandling import MetadataHandling
+from config.modes import DownloadMode
 
 
 @dataclass
 class FanslyConfig(object):
-    #region Fields
+    # region Fields
 
-    #region File-Independent Fields
+    # region File-Independent Fields
 
     # Mandatory property
     # This should be set to __version__ in the main script.
@@ -43,9 +41,9 @@ class FanslyConfig(object):
     _parser = ConfigParser(interpolation=None)
     _api: Optional[FanslyApi] = None
 
-    #endregion File-Independent
+    # endregion File-Independent
 
-    #region config.ini Fields
+    # region config.ini Fields
 
     # TargetedCreator > username
     user_names: Optional[set[str]] = None
@@ -54,12 +52,12 @@ class FanslyConfig(object):
     token: Optional[str] = None
     user_agent: Optional[str] = None
     check_key: Optional[str] = None
-    #session_id: str = 'null'
+    # session_id: str = 'null'
 
     # Options
     # "Normal" | "Timeline" | "Messages" | "Single" | "Collection"
     download_mode: DownloadMode = DownloadMode.NORMAL
-    download_directory: (None | Path) = None
+    download_directory: None | Path = None
     download_media_previews: bool = True
     # "Advanced" | "Simple"
     metadata_handling: MetadataHandling = MetadataHandling.ADVANCED
@@ -67,6 +65,7 @@ class FanslyConfig(object):
     separate_messages: bool = True
     separate_previews: bool = False
     separate_timeline: bool = True
+    separate_metadata: bool = False
     show_downloads: bool = True
     show_skipped_downloads: bool = True
     use_duplicate_threshold: bool = False
@@ -77,6 +76,7 @@ class FanslyConfig(object):
     # This helps for semi-automated runs (interactive=False) when coming back
     # to the computer and wanting to see what happened in the console window.
     prompt_on_exit: bool = True
+    include_meta_database: bool = False
 
     # Number of retries to get a timeline
     timeline_retries: int = 1
@@ -91,11 +91,11 @@ class FanslyConfig(object):
     check_key_pattern: Optional[str] = None
     main_js_pattern: Optional[str] = None
 
-    #endregion config.ini
+    # endregion config.ini
 
-    #endregion Fields
+    # endregion Fields
 
-    #region Methods
+    # region Methods
 
     def get_api(self) -> FanslyApi:
         if self._api is None:
@@ -107,7 +107,7 @@ class FanslyConfig(object):
                     token=token,
                     user_agent=user_agent,
                     check_key=self.check_key,
-                    #session_id=self.session_id,
+                    # session_id=self.session_id,
                     device_id=self.cached_device_id,
                     device_id_timestamp=self.cached_device_id_timestamp,
                     on_device_updated=self._save_config,
@@ -115,19 +115,18 @@ class FanslyConfig(object):
 
                 # Explicit save - on init of FanslyApi() self._api was None
                 self._save_config()
-            
+
             else:
                 raise RuntimeError(
-                    'Token or user agent error creating Fansly API object.'
+                    "Token or user agent error creating Fansly API object."
                 )
 
         return self._api
 
-
     def user_names_str(self) -> Optional[str]:
         """Returns a nicely formatted and alphabetically sorted list of
         creator names - for console or config file output.
-        
+
         :return: A single line of all creator names, alphabetically sorted
             and separated by commas eg. "alice, bob, chris, dora".
             Returns None if user_names is None.
@@ -136,68 +135,82 @@ class FanslyConfig(object):
         if self.user_names is None:
             return None
 
-        return ', '.join(sorted(self.user_names))
-
+        return ", ".join(sorted(self.user_names))
 
     def download_mode_str(self) -> str:
         """Gets the string representation of `download_mode`."""
         return str(self.download_mode).capitalize()
 
-
     def metadata_handling_str(self) -> str:
         """Gets the string representation of `metadata_handling`."""
         return str(self.metadata_handling).capitalize()
 
-    
     def _sync_settings(self) -> None:
         """Syncs the settings of the config object
         to the config parser/config file.
 
         This helper is required before saving.
         """
-        self._parser.set('TargetedCreator', 'username', self.user_names_str())
+        self._parser.set("TargetedCreator", "username", self.user_names_str())
 
-        self._parser.set('MyAccount', 'authorization_token', self.token)
-        self._parser.set('MyAccount', 'user_agent', self.user_agent)
-        self._parser.set('MyAccount', 'check_key', self.check_key)
-        #self._parser.set('MyAccount', 'session_id', self.session_id)
+        self._parser.set("MyAccount", "authorization_token", self.token)
+        self._parser.set("MyAccount", "user_agent", self.user_agent)
+        self._parser.set("MyAccount", "check_key", self.check_key)
+        # self._parser.set('MyAccount', 'session_id', self.session_id)
 
         if self.download_directory is None:
-            self._parser.set('Options', 'download_directory', 'Local_directory')
+            self._parser.set("Options", "download_directory", "Local_directory")
         else:
-            self._parser.set('Options', 'download_directory', str(self.download_directory))
+            self._parser.set(
+                "Options", "download_directory", str(self.download_directory)
+            )
 
-        self._parser.set('Options', 'download_mode', self.download_mode_str())
-        self._parser.set('Options', 'metadata_handling', self.metadata_handling_str())
-        
+        self._parser.set("Options", "download_mode", self.download_mode_str())
+        self._parser.set("Options", "metadata_handling", self.metadata_handling_str())
+
         # Booleans
-        self._parser.set('Options', 'show_downloads', str(self.show_downloads))
-        self._parser.set('Options', 'show_skipped_downloads', str(self.show_skipped_downloads))
-        self._parser.set('Options', 'download_media_previews', str(self.download_media_previews))
-        self._parser.set('Options', 'open_folder_when_finished', str(self.open_folder_when_finished))
-        self._parser.set('Options', 'separate_messages', str(self.separate_messages))
-        self._parser.set('Options', 'separate_previews', str(self.separate_previews))
-        self._parser.set('Options', 'separate_timeline', str(self.separate_timeline))
-        self._parser.set('Options', 'use_duplicate_threshold', str(self.use_duplicate_threshold))
-        self._parser.set('Options', 'use_folder_suffix', str(self.use_folder_suffix))
-        self._parser.set('Options', 'interactive', str(self.interactive))
-        self._parser.set('Options', 'prompt_on_exit', str(self.prompt_on_exit))
+        self._parser.set("Options", "show_downloads", str(self.show_downloads))
+        self._parser.set(
+            "Options", "show_skipped_downloads", str(self.show_skipped_downloads)
+        )
+        self._parser.set(
+            "Options", "download_media_previews", str(self.download_media_previews)
+        )
+        self._parser.set(
+            "Options", "open_folder_when_finished", str(self.open_folder_when_finished)
+        )
+        self._parser.set("Options", "separate_messages", str(self.separate_messages))
+        self._parser.set("Options", "separate_previews", str(self.separate_previews))
+        self._parser.set("Options", "separate_timeline", str(self.separate_timeline))
+        self._parser.set("Options", "separate_metadata", str(self.separate_metadata))
+        self._parser.set(
+            "Options", "include_meta_database", str(self.include_meta_database)
+        )
+        self._parser.set(
+            "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
+        )
+        self._parser.set("Options", "use_folder_suffix", str(self.use_folder_suffix))
+        self._parser.set("Options", "interactive", str(self.interactive))
+        self._parser.set("Options", "prompt_on_exit", str(self.prompt_on_exit))
 
         # Unsigned ints
-        self._parser.set('Options', 'timeline_retries', str(self.timeline_retries))
-        self._parser.set('Options', 'timeline_delay_seconds', str(self.timeline_delay_seconds))
+        self._parser.set("Options", "timeline_retries", str(self.timeline_retries))
+        self._parser.set(
+            "Options", "timeline_delay_seconds", str(self.timeline_delay_seconds)
+        )
 
         # Cache
         if self._api is not None:
-            self._parser.set('Cache', 'device_id', str(self._api.device_id))
-            self._parser.set('Cache', 'device_id_timestamp', str(self._api.device_id_timestamp))
+            self._parser.set("Cache", "device_id", str(self._api.device_id))
+            self._parser.set(
+                "Cache", "device_id_timestamp", str(self._api.device_id_timestamp)
+            )
             self.cached_device_id = self._api.device_id
             self.cached_device_id_timestamp = self._api.device_id_timestamp
 
         # Logic
-        self._parser.set('Logic', 'check_key_pattern', str(self.check_key_pattern))
-        self._parser.set('Logic', 'main_js_pattern', str(self.main_js_pattern))
-
+        self._parser.set("Logic", "check_key_pattern", str(self.check_key_pattern))
+        self._parser.set("Logic", "main_js_pattern", str(self.main_js_pattern))
 
     def _load_raw_config(self) -> list[str]:
         if self.config_path is None:
@@ -206,7 +219,6 @@ class FanslyConfig(object):
         else:
             return self._parser.read(self.config_path)
 
-
     def _save_config(self) -> bool:
         if self.config_path is None:
             return False
@@ -214,10 +226,9 @@ class FanslyConfig(object):
         else:
             self._sync_settings()
 
-            with self.config_path.open('w', encoding='utf-8') as f:
+            with self.config_path.open("w", encoding="utf-8") as f:
                 self._parser.write(f)
                 return True
-
 
     def token_is_valid(self) -> bool:
         if self.token is None:
@@ -226,11 +237,10 @@ class FanslyConfig(object):
         return not any(
             [
                 len(self.token) < 50,
-                'ReplaceMe' in self.token,
+                "ReplaceMe" in self.token,
             ]
         )
 
-    
     def useragent_is_valid(self) -> bool:
         if self.user_agent is None:
             return False
@@ -238,36 +248,37 @@ class FanslyConfig(object):
         return not any(
             [
                 len(self.user_agent) < 40,
-                'ReplaceMe' in self.user_agent,
+                "ReplaceMe" in self.user_agent,
             ]
         )
-    
 
     def get_unscrambled_token(self) -> Optional[str]:
         """Gets the unscrambled Fansly authorization token.
 
         Unscrambles the token if necessary.
-                
+
         :return: The unscrambled Fansly authorization token.
         :rtype: Optional[str]
         """
 
         if self.token is not None:
-            F, c ='fNs', self.token
-            
+            F, c = "fNs", self.token
+
             if c[-3:] == F:
                 c = c.rstrip(F)
 
-                A, B, C = [''] * len(c), 7, 0
-                
+                A, B, C = [""] * len(c), 7, 0
+
                 for D in range(B):
-                    for E in range(D, len(A), B) : A[E] = c[C]; C += 1
-                
-                return ''.join(A)
+                    for E in range(D, len(A), B):
+                        A[E] = c[C]
+                        C += 1
+
+                return "".join(A)
 
             else:
                 return self.token
 
         return self.token
 
-    #endregion
+    # endregion

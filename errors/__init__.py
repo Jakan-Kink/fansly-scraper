@@ -1,7 +1,6 @@
 """Errors/Exceptions"""
 
-
-#region Constants
+# region Constants
 
 EXIT_SUCCESS: int = 0
 EXIT_ERROR: int = -1
@@ -15,9 +14,10 @@ UPDATE_FAILED: int = -10
 UPDATE_MANUALLY: int = -11
 UPDATE_SUCCESS: int = 1
 
-#endregion
+# endregion
 
-#region Exceptions
+# region Exceptions
+
 
 class DuplicateCountError(RuntimeError):
     """The purpose of this error is to prevent unnecessary computation or requests to fansly.
@@ -36,7 +36,7 @@ class DuplicateCountError(RuntimeError):
 
 class ConfigError(RuntimeError):
     """This error is raised when configuration data is invalid.
-    
+
     Invalid data may have been provided by config.ini or command-line.
     """
 
@@ -98,6 +98,7 @@ class MediaError(RuntimeError):
     def __init__(self, *args):
         super().__init__(*args)
 
+
 class M3U8Error(MediaError):
     """This error is raised when M3U8 data is invalid eg.
     both no audio and no video.
@@ -106,27 +107,28 @@ class M3U8Error(MediaError):
     def __init__(self, *args):
         super().__init__(*args)
 
-#endregion
+
+# endregion
 
 
 __all__ = [
-    'EXIT_ABORT',
-    'EXIT_ERROR',
-    'EXIT_SUCCESS',
-    'API_ERROR',
-    'CONFIG_ERROR',
-    'DOWNLOAD_ERROR',
-    'SOME_USERS_FAILED',
-    'UNEXPECTED_ERROR',
-    'UPDATE_FAILED',
-    'UPDATE_MANUALLY',
-    'UPDATE_SUCCESS',
-    'ApiError',
-    'ApiAccountInfoError',
-    'ApiAuthenticationError',
-    'ConfigError',
-    'DownloadError',
-    'DuplicateCountError',
-    'MediaError',
-    'M3U8Error',
+    "EXIT_ABORT",
+    "EXIT_ERROR",
+    "EXIT_SUCCESS",
+    "API_ERROR",
+    "CONFIG_ERROR",
+    "DOWNLOAD_ERROR",
+    "SOME_USERS_FAILED",
+    "UNEXPECTED_ERROR",
+    "UPDATE_FAILED",
+    "UPDATE_MANUALLY",
+    "UPDATE_SUCCESS",
+    "ApiError",
+    "ApiAccountInfoError",
+    "ApiAuthenticationError",
+    "ConfigError",
+    "DownloadError",
+    "DuplicateCountError",
+    "MediaError",
+    "M3U8Error",
 ]
