@@ -2,25 +2,7 @@
 
 """Fansly Downloader NG"""
 
-__version__ = "0.9.9"
-__date__ = "2024-06-28T15:08:00+02"
-__maintainer__ = "prof79"
-__copyright__ = f"Copyright (C) 2023-2024 by {__maintainer__}"
-__authors__ = [
-    "prof79",
-    "Avnsx",
-    "pawnstar81",
-    "UpAndDown666",
-    "icewinterberry12",
-    "1gintonic",
-]
-__credits__ = [
-    "Avnsx",
-    "KasumiDev",
-    "FletcherD",
-    "XelaRellum",
-    "sunbart",
-]
+__version__ = "0.10.0"
 
 # TODO: Remove pyffmpeg's "Github Activeness" message
 # TODO: Fix in future: audio needs to be properly transcoded from mp4 to mp3, instead of just saved as
