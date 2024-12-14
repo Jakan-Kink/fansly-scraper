@@ -21,6 +21,9 @@ def output(level: int, log_type: str, color: str, message: str) -> None:
     except TypeError:
         # level failsafe
         pass
+    except ValueError:
+        # color failsafe
+        pass
 
     logger.__class__.type = partialmethod(logger.__class__.log, log_type)
 

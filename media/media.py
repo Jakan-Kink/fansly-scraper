@@ -74,7 +74,8 @@ def parse_variants(
             item.media_id = int(content["id"])
             item.mimetype = simplify_mimetype(content["mimetype"])
 
-            # if key-pair-id is not in there we'll know it's the new .m3u8 format, so we construct a generalised url, which we can pass relevant auth strings with
+            # if key-pair-id is not in there we'll know it's the new .m3u8 format, so we construct a generalised url,
+            # which we can pass relevant auth strings with
             # note: this url won't actually work, its purpose is to just pass the strings through the download_url variable
             if (
                 item.highest_variants_resolution_url is not None
@@ -121,7 +122,8 @@ def parse_media_info(
     """Parse media JSON reply from Fansly API."""
 
     # initialize variables
-    # highest_variants_resolution_url, download_url, file_extension, metadata, default_normal_locations, default_normal_mimetype, mimetype =  None, None, None, None, None, None, None
+    # highest_variants_resolution_url, download_url, file_extension, metadata, default_normal_locations, default_normal_mimetype,
+    # mimetype =  None, None, None, None, None, None, None
     # created_at, media_id, highest_variants_resolution, highest_variants_resolution_height, default_normal_height = 0, 0, 0, 0, 0
     item = MediaItem()
 
@@ -181,7 +183,8 @@ def parse_media_info(
     """
     so the way this works is; we have these 4 base variables defined all over this function.
     parse_variants() will initially overwrite them with values from each contents variants above.
-    then right below, we will compare the values and decide which media has the higher resolution. (default populated content vs content from variants)
+    then right below, we will compare the values and decide which media has the higher resolution.
+    (default populated content vs content from variants)
     or if variants didn't provide a higher resolution at all, we just fall back to the default content
     """
     if (
@@ -216,7 +219,7 @@ def parse_media_info(
             item.file_extension = "mp3"
 
         # if metadata didn't exist we need the user to notify us through github, because that would be detrimental
-        if not "Key-Pair-Id" in item.download_url and not item.metadata:
+        if "Key-Pair-Id" not in item.download_url and not item.metadata:
             print_error(
                 f"Failed downloading a video! Please open a GitHub issue ticket called 'Metadata missing' and copy paste this:\n\
                 \n\tMetadata Missing\n\tpost_id: {post_id} & media_id: {item.media_id} & creator username: {state.creator_name}\n",
