@@ -78,6 +78,7 @@ extend-ignore = [
     "W505",
     "F401",
 ]
+namespace-packages = true
 
 [tool.isort]
 profile = "black"

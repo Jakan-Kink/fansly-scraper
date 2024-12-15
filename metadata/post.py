@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from typing import TYPE_CHECKING
 
-# from sqlalchemy import Enum as SQLAEnum
 from sqlalchemy import (
-    Boolean,
-    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -14,8 +11,6 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
-    and_,
-    select,
 )
 
 # from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -23,10 +18,11 @@ from sqlalchemy import (
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .account import Account
-from .base import Attachment, Base
+from .base import Base
 
-# from .wall import Wall
+if TYPE_CHECKING:
+    from .account import Account
+    from .attachment import Attachment
 
 
 class Post(Base):
@@ -45,10 +41,10 @@ class Post(Base):
         DateTime(timezone=True), nullable=True
     )
     attachments: Mapped[set[Attachment | None]] = relationship(
-        "Attachment", back_populates="post"
+        "Attachment", back_populates="post", collection_class=set
     )
     accountMentions: Mapped[set[Account]] = relationship(
-        "Account", secondary="post_mentions"
+        "Account", secondary="post_mentions", collection_class=set
     )
 
 

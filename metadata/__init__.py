@@ -1,7 +1,8 @@
 """Metadata database processing."""
 
+from .base import Base  # isort:skip
 from .account import Account, AccountMedia, AccountMediaBundle, TimelineStats
-from .base import Attachment, Base
+from .attachment import Attachment
 from .database import Database
 from .media import Media, process_media_metadata
 from .messages import Message, process_messages_metadata

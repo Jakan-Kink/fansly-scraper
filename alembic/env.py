@@ -4,8 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from alembic import context
 from config import FanslyConfig
-from metadata.base import Base
-from metadata.database import Database
+from metadata import Base, Database
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -7,8 +7,7 @@ from pathlib import Path
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
-from metadata.base import Base
-from metadata.database import Database
+from metadata import Base, Database
 
 
 @dataclass

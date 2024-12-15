@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
@@ -11,7 +14,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from config import FanslyConfig
+if TYPE_CHECKING:
+    from config import FanslyConfig
 
 
 class Database:
@@ -21,6 +25,7 @@ class Database:
     config: FanslyConfig
 
     def __init__(self, config: FanslyConfig) -> None:
+
         self.config = config
         self._setup_engine_and_session()
         self._setup_event_listeners()
@@ -28,7 +33,7 @@ class Database:
     async def close(self) -> None:
         await self.engine.dispose()
 
-    async def __aenter__(self) -> "Database":
+    async def __aenter__(self) -> Database:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -58,6 +63,6 @@ class Database:
             conn.exec_driver_sql("BEGIN")
 
     @asynccontextmanager
-    async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
+    async def get_session(self) -> AsyncGenerator[AsyncSession]:
         async with self.session(expire_on_commit=False) as session:
             yield session

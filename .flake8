@@ -8,3 +8,4 @@ extend-ignore =
     W505,
     F401,
 per-file-ignores =
+namespace-packages = true

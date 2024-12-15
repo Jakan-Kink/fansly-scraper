@@ -1,27 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime
-from sqlalchemy import Enum as SQLAEnum
-from sqlalchemy import (
-    ForeignKey,
-    Integer,
-    String,
-    Table,
-    UniqueConstraint,
-    and_,
-    select,
-)
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+
+# from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .account import Account
 from .base import Base
-from .media import Media
+
+if TYPE_CHECKING:
+    from .account import Account
 
 
 class Group(Base):
