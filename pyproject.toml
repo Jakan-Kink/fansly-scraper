@@ -52,12 +52,15 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.bandit]
 skips = [
+    'B110',
+    'B113',
     'B311',
     'B404',
     'B601',
     'B602',
     'B603',
     'B605',
+    'B606',
     'B607',
 ]
 

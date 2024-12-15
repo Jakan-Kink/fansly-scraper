@@ -7,7 +7,7 @@ from utils.datetime import get_adjusted_datetime
 
 
 @dataclass
-class MediaItem(object):
+class MediaItem:
     """Represents a media item published on Fansly
     eg. a picture or video.
     """

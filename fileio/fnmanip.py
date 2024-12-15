@@ -75,7 +75,7 @@ def get_hash_for_image(filename: Path) -> str:
 
 
 def get_hash_for_other_content(filename: Path) -> str:
-    algorithm = hashlib.md5()
+    algorithm = hashlib.md5(usedforsecurity=False)
     file_hash = hash_mp4file(algorithm, filename)
     return file_hash
 
@@ -83,8 +83,8 @@ def get_hash_for_other_content(filename: Path) -> str:
 def add_hash_to_filename(filename: Path, file_hash: str) -> str:
     """Adds a hash to an existing file's name."""
     base_name, extension = str(filename.parent / filename.stem), filename.suffix
-    old_hash_suffix_0 = f"_hash_{file_hash}{extension}"
-    old_hash_suffix_1 = f"_hash1_{file_hash}{extension}"
+    # old_hash_suffix_0 = f"_hash_{file_hash}{extension}"
+    # old_hash_suffix_1 = f"_hash1_{file_hash}{extension}"
     hash_suffix = f"_hash2_{file_hash}{extension}"
 
     # Remove old hashes

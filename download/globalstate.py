@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class GlobalState(object):
+class GlobalState:
     # region Fields
 
     # Counters

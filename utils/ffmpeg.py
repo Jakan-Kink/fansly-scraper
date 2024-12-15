@@ -1,6 +1,5 @@
 """FFmpeg Launcher Module"""
 
-
 import platform
 import shutil
 import subprocess
@@ -9,11 +8,12 @@ import subprocess
 def get_ffmpeg_bin() -> str:
     ffmpeg_bin = None
 
-    if platform.system() == 'Linux':
+    if platform.system() == "Linux":
         ffmpeg_bin = shutil.which("ffmpeg")
 
     if ffmpeg_bin is None:
         from pyffmpeg import FFmpeg
+
         ffmpeg = FFmpeg(enable_log=False)
         ffmpeg_bin = ffmpeg.get_ffmpeg_bin()
 
@@ -27,7 +27,7 @@ def run_ffmpeg(args: list[str]) -> bool:
 
     result = subprocess.run(
         proc_args,
-        encoding='utf-8',
+        encoding="utf-8",
         capture_output=True,
         check=True,
     )

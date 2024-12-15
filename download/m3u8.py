@@ -3,7 +3,7 @@
 import concurrent.futures
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Any, Optional
+from typing import Any
 
 # from memory_profiler import profile
 from m3u8 import M3U8
@@ -50,7 +50,7 @@ def get_m3u8_progress(disable_loading_bar: bool) -> Progress:
 def fetch_m3u8_segment_playlist(
     config: FanslyConfig,
     m3u8_url: str,
-    cookies: Optional[dict[str, str]] = None,
+    cookies: dict[str, str] | None = None,
 ) -> M3U8:
     """Fetch the so-called M3U8 "endlist" with all the MPEG-TS segments.
 
@@ -92,6 +92,7 @@ def fetch_m3u8_segment_playlist(
             base_uri=m3u8_base_url,
         )
 
+        # pylint: disable-next=E1101
         if playlist.is_endlist is True and playlist.playlist_type == "vod":
             return playlist
 

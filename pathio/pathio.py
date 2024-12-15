@@ -94,7 +94,7 @@ def delete_temporary_pyinstaller_files():
     Files older than an hour will be deleted.
     """
     try:
-        base_path = sys._MEIPASS
+        base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
     except Exception:
         return

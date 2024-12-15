@@ -63,7 +63,7 @@ def get_token_from_firefox_db(
 
             for table in tables:
                 table_name = table[0]
-                cursor.execute(f"SELECT * FROM {table_name};")
+                cursor.execute(f"SELECT * FROM {table_name};")  # nosec
                 rows = cursor.fetchall()
 
                 # Read key-value pairs

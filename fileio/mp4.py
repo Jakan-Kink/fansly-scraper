@@ -15,14 +15,14 @@ __all__ = [
 
 
 import os
+from collections.abc import Callable, Iterable
 from io import BufferedReader
 from pathlib import Path
-from typing import Callable, Iterable, Optional
 
 from errors.mp4 import InvalidMP4Error
 
 
-class MP4Box(object):
+class MP4Box:
     """Represents an MPEG-4 binary box/atom object."""
 
     def __init__(self, size_bytes: bytes, fourcc_bytes: bytes, position: int) -> None:
@@ -109,7 +109,7 @@ def hash_mp4box(algorithm, reader: BufferedReader, box: MP4Box):
 def hash_mp4file(
     algorithm,
     file_name: Path,
-    print: Optional[Callable] = None,
+    print: Callable | None = None,
     use_broken_algo: bool = False,
 ) -> str:
 

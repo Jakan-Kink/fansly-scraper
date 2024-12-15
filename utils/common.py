@@ -1,12 +1,11 @@
 """Common Utility Functions"""
 
-
 import os
 import platform
 import subprocess
-
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from config.fanslyconfig import FanslyConfig
 from errors import ConfigError
@@ -14,7 +13,7 @@ from errors import ConfigError
 
 def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:
     """Yield successive n-sized batches from input_list.
-    
+
     :param input_list: An arbitrary list to split into equal-sized chunks.
     :type input_list: list[Any]
 
@@ -26,10 +25,12 @@ def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:
     :rtype: Iterable[list[Any]]
     """
     if batch_size < 1:
-        raise ValueError(f'batch_list(): Invalid batch size of {batch_size} is less than 1.')
+        raise ValueError(
+            f"batch_list(): Invalid batch size of {batch_size} is less than 1."
+        )
 
     for i in range(0, len(input_list), batch_size):
-        yield input_list[i:i + batch_size]
+        yield input_list[i : i + batch_size]  # noqa: E203
 
 
 def save_config_or_raise(config: FanslyConfig) -> bool:
@@ -59,11 +60,11 @@ def is_valid_post_id(post_id: str) -> bool:
     """Validates a Fansly post ID.
 
     Valid post IDs must:
-    
+
     - only contain digits
     - be longer or equal to 10 characters
     - not contain spaces
-    
+
     :param post_id: The post ID string to validate.
     :type post_id: str
 
@@ -91,11 +92,13 @@ def get_post_id_from_request(requested_post: str) -> str:
     """
     post_id = requested_post
     if requested_post.startswith("https://fansly.com/"):
-        post_id = requested_post.split('/')[-1]
+        post_id = requested_post.split("/")[-1]
     return post_id
 
 
-def open_location(filepath: Path, open_folder_when_finished: bool, interactive: bool) -> bool:
+def open_location(
+    filepath: Path, open_folder_when_finished: bool, interactive: bool
+) -> bool:
     """Opens the download directory in the platform's respective
     file manager application once the download process has finished.
 
@@ -114,21 +117,22 @@ def open_location(filepath: Path, open_folder_when_finished: bool, interactive: 
 
     if not open_folder_when_finished or not interactive:
         return False
-    
+
     if not os.path.isfile(filepath) and not os.path.isdir(filepath):
         return False
-    
+
     # tested below and they work to open folder locations
-    if plat == 'Windows':
+    if plat == "Windows":
         # verified works
+        # pylint: disable-next=E1101
         os.startfile(filepath)
 
-    elif plat == 'Linux':
+    elif plat == "Linux":
         # verified works
-        subprocess.run(['xdg-open', filepath], shell=False)
-        
-    elif plat == 'Darwin':
+        subprocess.run(["xdg-open", filepath], shell=False)
+
+    elif plat == "Darwin":
         # verified works
-        subprocess.run(['open', filepath], shell=False)
+        subprocess.run(["open", filepath], shell=False)
 
     return True

@@ -1,21 +1,20 @@
 """Time Manipulation"""
 
-
 import time
 
 
 def get_time_format() -> int:
     """Detect and return 12 vs 24 hour time format usage.
-    
+
     :return: 12 or 24
     :rtype: int
     """
-    return 12 if ('AM' in time.strftime('%X') or 'PM' in time.strftime('%X')) else 24
+    return 12 if ("AM" in time.strftime("%X") or "PM" in time.strftime("%X")) else 24
 
 
 def get_timezone_offset():
     """Returns the local timezone offset from UTC.
-    
+
     :return: The tuple (diff_from_utc, hours_in_seconds)
     :rtype: Tuple[int, int]
     """

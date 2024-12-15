@@ -13,17 +13,17 @@ class MetadataManager:
     While not focused on perfect integration, it achieves the metadata addition, cross-platform compatible, to supported formats in a timely manner.
     The resulting cleaned metadata can be accessed as dict through .formatted_metadata() or unformatted with .raw_metadata
     Only the following custom_key names are permissible: HSH (representing Hash) and ID (representing MediaID).
-    
+
     Limitations:
     - Inability to add metadata to all images over 1 GB in size, due to pyexiv2.
     - Inability to read metadata from images, over 2 GB in filesize, due to pyexiv2.
     - Lack of thread safety due to pyexiv2's global variables in C++.
     - Incomplete support for ARM platform with pyexiv2.
     - In line with GIFs general lack of Exif support, this class also doesn't cover GIFs.
-    
+
     Usage:
     filepath = '[filename].[fileformat]'
-    
+
     Add metadata:
     metadata_manager = MetadataManager()
     metadata_manager.is_file_supported(file_extension) # e.g. use this as conditional, returns boolean
@@ -32,13 +32,13 @@ class MetadataManager:
     metadata_manager.set_custom_metadata("HSH", '10ej3e691af63ae66843218c42d5d0b3')
     metadata_manager.add_metadata()
     metadata_manager.save()
-    
+
     Read metadata:
     metadata_manager = MetadataManager()
     metadata_manager.read_metadata(filepath)
     print(metadata_manager.formatted_metadata())
     print(metadata_manager.raw_metadata)
-    """ 
+    """
     def __init__(self, filepath=None):
         self.filepath = filepath
         self.custom_metadata = {}
@@ -121,11 +121,11 @@ class MetadataManager:
                 self.add_mp4_metadata(key, value)
             elif self.filetype in self.image_filetypes:
                 self.add_image_metadata(key, value)
-    
+
     def add_mp3_metadata(self, key, value):
         txxx_frame = TXXX(encoding=3, desc=key, text=value)
         self.raw_metadata.add(txxx_frame)
-    
+
     def add_mp4_metadata(self, key, value):
         if not isinstance(self.raw_metadata, MP4):
             self.read_audio_video_metadata()

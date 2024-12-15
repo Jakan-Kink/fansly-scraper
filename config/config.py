@@ -54,7 +54,7 @@ def sanitize_creator_names(names: list[str]) -> set[str]:
     :return: A set of unique, sanitized creator names.
     :rtype: set[str]
     """
-    return set(name.strip().removeprefix("@").lower() for name in names if name.strip())
+    return {name.strip().removeprefix("@").lower() for name in names if name.strip()}
 
 
 def username_has_valid_length(name: str) -> bool:

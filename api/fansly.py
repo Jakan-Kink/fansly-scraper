@@ -6,8 +6,9 @@ import json
 import math
 import random
 import ssl
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -17,7 +18,7 @@ from websockets import client as ws_client
 from utils.web import get_flat_qs_dict, split_url
 
 
-class FanslyApi(object):
+class FanslyApi:
 
     def __init__(
         self,
@@ -25,9 +26,9 @@ class FanslyApi(object):
         user_agent: str,
         check_key: str,
         # session_id: str,
-        device_id: Optional[str] = None,
-        device_id_timestamp: Optional[int] = None,
-        on_device_updated: Optional[Callable[[], Any]] = None,
+        device_id: str | None = None,
+        device_id_timestamp: int | None = None,
+        on_device_updated: Callable[[], Any] | None = None,
     ) -> None:
 
         self.token = token
@@ -65,9 +66,7 @@ class FanslyApi(object):
     def set_text_accept(self, headers: dict[str, str]):
         headers["Accept"] = self.get_text_accept()
 
-    def get_common_headers(
-        self, alternate_token: Optional[str] = None
-    ) -> dict[str, str]:
+    def get_common_headers(self, alternate_token: str | None = None) -> dict[str, str]:
         token = self.token
 
         if alternate_token:
@@ -92,7 +91,7 @@ class FanslyApi(object):
         self,
         url: str,
         add_fansly_headers: bool = True,
-        alternate_token: Optional[str] = None,
+        alternate_token: str | None = None,
     ) -> dict[str, str]:
 
         headers = self.get_common_headers(alternate_token=alternate_token)
@@ -159,7 +158,7 @@ class FanslyApi(object):
         cookies: dict[str, str] = {},
         stream: bool = False,
         add_fansly_headers: bool = True,
-        alternate_token: Optional[str] = None,
+        alternate_token: str | None = None,
     ) -> Response:
 
         self.update_client_timestamp()
@@ -196,9 +195,7 @@ class FanslyApi(object):
 
         return self.http_session.get(**arguments)
 
-    def get_client_account_info(
-        self, alternate_token: Optional[str] = None
-    ) -> Response:
+    def get_client_account_info(self, alternate_token: str | None = None) -> Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/account/me",
             alternate_token=alternate_token,
@@ -483,7 +480,7 @@ class FanslyApi(object):
 
         return response.json()["response"]
 
-    def get_client_user_name(self, alternate_token: Optional[str] = None) -> str | None:
+    def get_client_user_name(self, alternate_token: str | None = None) -> str | None:
         """Fetches user account information for a particular authorization token.
 
         :param alternate_token: An alternate authorization token string for

@@ -1,10 +1,9 @@
 """MPEG-4 Selective Hashing Tool"""
 
-
 import argparse
 import hashlib
-
 from pathlib import Path
+
 from rich import print
 
 from errors.mp4 import InvalidMP4Error
@@ -16,23 +15,25 @@ def parse_args() -> argparse.Namespace:
         description='Hashes an MPEG-4 except the "moov" and "mdat" portions using MD5.',
     )
     parser.add_argument(
-        dest='file',
-        metavar='FILE',
-        help='MPEG4 file',
+        dest="file",
+        metavar="FILE",
+        help="MPEG4 file",
     )
     parser.add_argument(
-        '-d', '--debug',
+        "-d",
+        "--debug",
         required=False,
-        action='store_true',
+        action="store_true",
         default=False,
-        help='Debug output',
+        help="Debug output",
     )
     parser.add_argument(
-        '-b', '--use-broken-algo',
+        "-b",
+        "--use-broken-algo",
         required=False,
-        action='store_true',
+        action="store_true",
         default=False,
-        help='Use broken algorithm',
+        help="Use broken algorithm",
     )
 
     return parser.parse_args()
@@ -43,7 +44,7 @@ def main() -> None:
 
     file_name = Path(args.file)
 
-    md5 = hashlib.md5()
+    md5 = hashlib.md5(usedforsecurity=False)
 
     hash = hash_mp4file(
         md5,
@@ -52,13 +53,13 @@ def main() -> None:
         use_broken_algo=args.use_broken_algo,
     )
 
-    print(f'{hash}\t*{file_name.name}')
+    print(f"{hash}\t*{file_name.name}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
-    
+
     except KeyboardInterrupt:
         pass
 
