@@ -6,6 +6,7 @@ from .textio import (
     clear_terminal,
     input_enter_close,
     input_enter_continue,
+    json_output,
     print_config,
     print_debug,
     print_error,
@@ -19,6 +20,10 @@ from .textio import (
 # from textio import *
 __all__ = [
     "LOG_FILE_NAME",
+    "clear_terminal",
+    "input_enter_close",
+    "input_enter_continue",
+    "json_output",
     "print_config",
     "print_debug",
     "print_error",
@@ -26,8 +31,5 @@ __all__ = [
     "print_info_highlight",
     "print_update",
     "print_warning",
-    "input_enter_close",
-    "input_enter_continue",
-    "clear_terminal",
     "set_window_title",
 ]

@@ -11,6 +11,7 @@ from time import sleep
 from loguru import logger
 
 LOG_FILE_NAME: str = "fansly_downloader_ng.log"
+JSON_FILE_NAME: str = "fansly_downloader_ng_json.log"
 
 
 # most of the time, we utilize this to display colored output rather than logging or prints
@@ -33,17 +34,51 @@ def output(level: int, log_type: str, color: str, message: str) -> None:
         sys.stdout,
         format="<level>{level}</level> | <white>{time:HH:mm}</white> <level>|</level><light-white>| {message}</light-white>",
         level=log_type,
+        filter=lambda record: not record["extra"].get("json", False),
     )
     logger.add(
         Path.cwd() / LOG_FILE_NAME,
         encoding="utf-8",
         format="[{level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]: {message}",
         level=log_type,
+        filter=lambda record: not record["extra"].get("json", False),
         rotation="1MB",
         retention=5,
+        backtrace=True,
+        diagnose=True,
     )
 
     logger.type(message)
+
+
+def json_output(level: int, log_type: str, message: str) -> None:
+    try:
+        logger.level(log_type, no=level)
+
+    except TypeError:
+        # level failsafe
+        pass
+    except ValueError:
+        # color failsafe
+        pass
+
+    logger.__class__.type = partialmethod(logger.__class__.log, log_type)
+
+    logger.remove()
+
+    logger.add(
+        Path.cwd() / JSON_FILE_NAME,
+        encoding="utf-8",
+        format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]:\n{message}",
+        level=log_type,
+        rotation="100MB",
+        retention=5,
+        filter=lambda record: record["extra"].get("json", False),
+        backtrace=False,
+        diagnose=False,
+    )
+
+    logger.bind(json=True).type(message)
 
 
 def print_config(message: str) -> None:
@@ -118,7 +153,7 @@ def set_window_title(title) -> None:
     current_platform = platform.system()
 
     if current_platform == "Windows":
-        subprocess.call("title {}".format(title), shell=True)
+        subprocess.call(f"title {title}", shell=True)
 
     elif current_platform == "Linux" or current_platform == "Darwin":
-        subprocess.call(["printf", r"\33]0;{}\a".format(title)])
+        subprocess.call(["printf", rf"\33]0;{title}\a"])

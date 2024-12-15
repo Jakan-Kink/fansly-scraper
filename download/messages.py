@@ -1,11 +1,19 @@
 """Message Downloading"""
 
 import random
+
+# from pprint import pprint
 from time import sleep
 
 from config import FanslyConfig
 from metadata import process_messages_metadata
-from textio import input_enter_continue, print_error, print_info, print_warning
+from textio import (
+    input_enter_continue,
+    json_output,
+    print_error,
+    print_info,
+    print_warning,
+)
 
 from .common import get_unique_media_ids, process_download_accessible_media
 from .downloadstate import DownloadState
@@ -26,6 +34,7 @@ def download_messages(config: FanslyConfig, state: DownloadState):
         groups_response = groups_response.json()["response"]["aggregationData"][
             "groups"
         ]
+        json_output(1, "Groups", groups_response)
 
         # go through messages and check if we even have a chat history with the creator
         group_id = None
@@ -58,6 +67,7 @@ def download_messages(config: FanslyConfig, state: DownloadState):
 
                     # Object contains: messages, accountMedia, accountMediaBundles, tips, tipGoals, stories
                     messages = messages_response.json()["response"]
+                    json_output(1, "Messages", messages)
 
                     if config.include_meta_database:
                         process_messages_metadata(config, state, messages)

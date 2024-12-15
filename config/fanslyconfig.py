@@ -3,15 +3,16 @@
 from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
+from metadata.base import Base
+from metadata.database import Database
 
 
 @dataclass
-class FanslyConfig(object):
+class FanslyConfig:
     # region Fields
 
     # region File-Independent Fields
@@ -27,31 +28,33 @@ class FanslyConfig(object):
     BATCH_SIZE: int = 150
 
     # Configuration file
-    config_path: Optional[Path] = None
+    config_path: Path | None = None
 
     # Misc
-    token_from_browser_name: Optional[str] = None
+    token_from_browser_name: str | None = None
     debug: bool = False
     # If specified on the command-line
-    post_id: Optional[str] = None
+    post_id: str | None = None
     # Set on start after self-update
-    updated_to: Optional[str] = None
+    updated_to: str | None = None
 
     # Objects
     _parser = ConfigParser(interpolation=None)
-    _api: Optional[FanslyApi] = None
+    _api: FanslyApi | None = None
+    _database: Database | None = None
+    _base: Base | None = None
 
     # endregion File-Independent
 
     # region config.ini Fields
 
     # TargetedCreator > username
-    user_names: Optional[set[str]] = None
+    user_names: set[str] | None = None
 
     # MyAccount
-    token: Optional[str] = None
-    user_agent: Optional[str] = None
-    check_key: Optional[str] = None
+    token: str | None = None
+    user_agent: str | None = None
+    check_key: str | None = None
     # session_id: str = 'null'
 
     # Options
@@ -84,12 +87,12 @@ class FanslyConfig(object):
     timeline_delay_seconds: int = 60
 
     # Cache
-    cached_device_id: Optional[str] = None
-    cached_device_id_timestamp: Optional[int] = None
+    cached_device_id: str | None = None
+    cached_device_id_timestamp: int | None = None
 
     # Logic
-    check_key_pattern: Optional[str] = None
-    main_js_pattern: Optional[str] = None
+    check_key_pattern: str | None = None
+    main_js_pattern: str | None = None
 
     # endregion config.ini
 
@@ -123,7 +126,7 @@ class FanslyConfig(object):
 
         return self._api
 
-    def user_names_str(self) -> Optional[str]:
+    def user_names_str(self) -> str | None:
         """Returns a nicely formatted and alphabetically sorted list of
         creator names - for console or config file output.
 
@@ -252,7 +255,7 @@ class FanslyConfig(object):
             ]
         )
 
-    def get_unscrambled_token(self) -> Optional[str]:
+    def get_unscrambled_token(self) -> str | None:
         """Gets the unscrambled Fansly authorization token.
 
         Unscrambles the token if necessary.

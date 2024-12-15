@@ -1,0 +1,10 @@
+[flake8]
+max-line-length = 88
+; max-complexity = 10
+max-doc-length = 140
+extend-ignore =
+    E203,
+    E501,
+    W505,
+    F401,
+per-file-ignores =

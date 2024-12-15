@@ -11,7 +11,7 @@ from errors import ApiError, DownloadError, DuplicateCountError, M3U8Error, Medi
 from fileio.dedupe import dedupe_media_file
 from media import MediaItem
 from pathio import set_create_directory_for_download
-from textio import print_info, print_warning
+from textio import json_output, print_info, print_warning
 from utils.common import batch_list
 
 from .downloadstate import DownloadState
@@ -22,6 +22,7 @@ from .types import DownloadType
 def download_media_infos(config: FanslyConfig, media_ids: list[str]) -> list[dict]:
 
     media_infos: list[dict] = []
+    json_output(1, "Media IDs", media_ids)
 
     for ids in batch_list(media_ids, config.BATCH_SIZE):
         media_ids_str = ",".join(ids)

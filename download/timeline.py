@@ -2,13 +2,21 @@
 
 import random
 import traceback
+
+# from pprint import pprint
 from time import sleep
 
 from requests import Response
 
 from config import FanslyConfig
 from errors import ApiError
-from textio import input_enter_continue, print_debug, print_error, print_info
+from textio import (
+    input_enter_continue,
+    json_output,
+    print_debug,
+    print_error,
+    print_info,
+)
 
 from .common import get_unique_media_ids, process_download_accessible_media
 from .core import DownloadState
@@ -57,6 +65,7 @@ def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
             if timeline_response.status_code == 200:
 
                 timeline = timeline_response.json()["response"]
+                json_output(1, "Timeline", timeline)
 
                 if config.debug:
                     print_debug(f"Timeline object: {timeline}")

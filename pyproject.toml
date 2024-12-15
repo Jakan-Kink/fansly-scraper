@@ -49,3 +49,32 @@ memory-profiler = "^0.61.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.bandit]
+skips = [
+    'B311',
+    'B404',
+    'B601',
+    'B602',
+    'B603',
+    'B605',
+    'B607',
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.flake8]
+max-line-length = 88
+max-complexity = 10
+max-doc-length = 140
+extend-ignore = [
+    "E203",
+    "E501",
+    "W505",
+    "F401",
+]
+
+[tool.isort]
+profile = "black"

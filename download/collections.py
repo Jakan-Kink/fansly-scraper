@@ -1,7 +1,7 @@
 """Download Fansly Collections"""
 
 from config import FanslyConfig
-from textio import input_enter_continue, print_error, print_info
+from textio import input_enter_continue, json_output, print_error, print_info
 from utils.common import batch_list
 
 from .common import process_download_accessible_media
@@ -22,6 +22,7 @@ def download_collections(config: FanslyConfig, state: DownloadState):
 
     if collections_response.status_code == 200:
         collections = collections_response.json()
+        json_output(1, "Download Collections", collections)
         account_media_orders = collections["response"]["accountMediaOrders"]
         account_media_ids = [order["accountMediaId"] for order in account_media_orders]
 
@@ -34,6 +35,8 @@ def download_collections(config: FanslyConfig, state: DownloadState):
 
             if media_info_response.status_code == 200:
                 media_info = media_info_response.json()["response"]
+
+                json_output(1, "Collection Media Info", media_info)
 
                 process_download_accessible_media(config, state, media_info)
 

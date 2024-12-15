@@ -7,7 +7,7 @@ import requests
 from config import FanslyConfig
 from config.modes import DownloadMode
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
-from textio import print_info
+from textio import json_output, print_info
 
 from .downloadstate import DownloadState
 
@@ -41,6 +41,8 @@ def get_creator_account_info(config: FanslyConfig, state: DownloadState) -> None
             raw_response = config.get_api().get_creator_account_info(state.creator_name)
 
             account = raw_response.json()["response"][0]
+
+            json_output(1, "Get Creator Account Info", account)
 
             state.creator_id = account["id"]
 
