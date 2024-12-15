@@ -31,7 +31,7 @@ class Wall(Base):
     pos: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=True)
     description: Mapped[str] = mapped_column(String, nullable=True)
-    metadata: Mapped[str] = mapped_column(String, nullable=True)
+    # metadata: Mapped[str] = mapped_column(String, nullable=True)
 
 
 def process_walls_metadata(metadata: dict) -> None:

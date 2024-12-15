@@ -24,8 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .account import Account
-from .account_media import Attachment
-from .base import Base
+from .base import Attachment, Base
 
 # from .wall import Wall
 

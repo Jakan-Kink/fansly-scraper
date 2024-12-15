@@ -45,7 +45,7 @@ class Media(Base):
     accountId: Mapped[int] = mapped_column(
         Integer, ForeignKey("account.id"), nullable=False
     )
-    metadata: Mapped[str] = mapped_column(String, nullable=True)
+    # metadata: Mapped[str] = mapped_column(String, nullable=True)
     location: Mapped[str] = mapped_column(String, nullable=True)
     mimetype: Mapped[str] = mapped_column(String, nullable=True)
     height: Mapped[int] = mapped_column(Integer, nullable=True)

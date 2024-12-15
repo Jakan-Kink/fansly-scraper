@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, CheckConstraint, Column, DateTime
 from sqlalchemy import Enum as SQLAEnum
@@ -19,11 +20,12 @@ from sqlalchemy import (
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .account_media import AccountMedia
 from .base import Base
 from .media import Media
-from .post import Post
-from .wall import Wall
+
+if TYPE_CHECKING:
+    from .post import Post
+    from .wall import Wall
 
 
 class Account(Base):
@@ -94,3 +96,49 @@ account_banner = Table(
     Column("mediaId", Integer, ForeignKey("media.id")),
     UniqueConstraint("accountId", "mediaId"),
 )
+
+
+class AccountMedia(Base):
+    __tablename__ = "account_media"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    accountId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id"), primary_key=True
+    )
+    mediaId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("media.id"), primary_key=True
+    )
+    previewId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("media.id"), nullable=True
+    )
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deletedAt: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    media: Mapped[Media] = relationship("Media")
+    preview: Mapped[Media] = relationship("Media")
+    account: Mapped[Account] = relationship("Account")
+    access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    UniqueConstraint("accountId", "mediaId")
+
+
+class AccountMediaBundle(Base):
+    __tablename__ = "account_media_bundles"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    accountId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id"), nullable=False
+    )
+    previewId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("media.id"), nullable=True
+    )
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deletedAt: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    accountMediaIds: Mapped[set[int]] = relationship("Media")
+    account: Mapped[Account] = relationship("Account")
+    access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    purchased: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    whitelisted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    UniqueConstraint("accountId", "mediaId")

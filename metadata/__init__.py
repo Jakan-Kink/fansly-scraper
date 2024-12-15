@@ -1,8 +1,7 @@
 """Metadata database processing."""
 
-from .account import Account, TimelineStats
-from .account_media import AccountMedia, AccountMediaBundle, Attachment
-from .base import Base
+from .account import Account, AccountMedia, AccountMediaBundle, TimelineStats
+from .base import Attachment, Base
 from .database import Database
 from .media import Media, process_media_metadata
 from .messages import Message, process_messages_metadata
