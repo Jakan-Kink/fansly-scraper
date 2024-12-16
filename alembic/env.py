@@ -1,36 +1,23 @@
-import asyncio
-
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.engine import Engine
 
 from alembic import context
-from config import FanslyConfig
+from config import FanslyConfig, load_config
 from metadata import Base, Database
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
 config = context.config
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", "sqlite:///metadata.db")
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-# if config.config_file_name is not None:
-#     fileConfig(config.config_file_name)
-
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
 
-
-def get_engine() -> AsyncEngine:
+def get_sync_engine() -> Engine:
     config = FanslyConfig(program_version="0.10.0")
+    load_config(config)
     database = Database(config)
-    return database.async_engine
+    engine = database.sync_engine
+    engine.echo = True
+    return engine
 
 
 def run_migrations_offline() -> None:
@@ -58,17 +45,21 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-async def run_migrations_online() -> None:
+def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
 
     """
-    engine = get_engine()
+    if context.config.attributes.get("connection") is None:
+        engine = get_sync_engine()
+        connection = engine.connect()
+    else:
+        connection = context.config.attributes["connection"]
 
-    async with engine.begin() as connection:
-        await connection.run_sync(do_run_migrations)
+    with connection:
+        do_run_migrations(connection)
 
 
 def do_run_migrations(connection):
@@ -83,17 +74,10 @@ def do_run_migrations(connection):
 
     with context.begin_transaction():
         context.run_migrations()
+    connection.commit()
 
 
 if context.is_offline_mode():
     run_migrations_offline()
 else:
-    try:
-        # Try to get the running loop
-        loop = asyncio.get_running_loop()
-        # If we are in an active loop, directly await the migration
-        loop.create_task(
-            run_migrations_online()
-        )  # Ensure the coroutine is awaited in the running loop
-    except RuntimeError:  # No event loop, we can use asyncio.run
-        asyncio.run(run_migrations_online())
+    run_migrations_online()

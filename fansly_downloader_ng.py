@@ -16,6 +16,7 @@ import traceback
 # from memory_profiler import profile
 from datetime import datetime
 
+from alembic.config import Config as AlembicConfig
 from config import FanslyConfig, load_config, validate_adjust_config
 from config.args import map_args_to_config, parse_args
 from config.modes import DownloadMode
@@ -130,6 +131,16 @@ def main(config: FanslyConfig) -> int:
     print_info(f"Session ID: {config.get_api().session_id}")
 
     global_download_state = GlobalState()
+
+    if config.include_meta_database:
+        from metadata.database import Database, run_migrations_if_needed
+
+        alembic_cfg = AlembicConfig("alembic.ini")
+        print_info(f"Metadata database is enabled. -- {config.metadata_db_file}")
+        if not config.separate_metadata:
+            config._database = Database(config)
+            run_migrations_if_needed(config._database, alembic_cfg)
+        print()
 
     # M3U8 fixing interim
     print()

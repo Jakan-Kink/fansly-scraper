@@ -1,25 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime
-from sqlalchemy import Enum as SQLAEnum
-from sqlalchemy import (
-    ForeignKey,
-    Integer,
-    String,
-    Table,
-    UniqueConstraint,
-    and_,
-    select,
-)
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+
+if TYPE_CHECKING:
+    from .account import Account
 
 
 class Wall(Base):
@@ -27,6 +16,9 @@ class Wall(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     accountId = mapped_column(Integer, ForeignKey("accounts.id"), nullable=False)
+    account: Mapped[Account] = relationship(
+        "Account", foreign_keys=[accountId], back_populates="walls", lazy="joined"
+    )
     pos: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=True)
     description: Mapped[str] = mapped_column(String, nullable=True)

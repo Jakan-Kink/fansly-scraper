@@ -1,5 +1,6 @@
 """Configuration Class for Shared State"""
 
+import tempfile
 from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -286,3 +287,18 @@ class FanslyConfig:
         return self.token
 
     # endregion
+    def __post_init__(self):
+        # If no metadata_db_file is set, determine fallback
+        if self.metadata_db_file is None:
+            self.metadata_db_file = self._get_default_metadata_db_file()
+
+    def _get_default_metadata_db_file(self) -> Path:
+        """
+        Determine the default database file location based on configuration.
+        """
+        if self.include_meta_database:
+            return (
+                Path.cwd() / "metadata_db.sqlite3"
+            )  # Default to the current directory
+
+        return Path(tempfile.gettempdir(), "metadata_db.sqlite3")  # Temporary fallback
