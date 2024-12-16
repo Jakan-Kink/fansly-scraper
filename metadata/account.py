@@ -50,18 +50,22 @@ class Account(Base):
     avatar: Mapped[Media | None] = relationship(
         "Media",
         secondary="account_avatar",
-        back_populates="avatarAccounts",
         lazy="joined",
     )
     banner: Mapped[Media | None] = relationship(
         "Media",
         secondary="account_banner",
-        back_populates="bannerAccounts",
         lazy="joined",
     )
     profileAccess: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     accountMedia: Mapped[set[AccountMedia]] = relationship(
         "AccountMedia",
+        back_populates="account",
+        lazy="joined",
+        collection_class=set,
+    )
+    accountMediaBundles: Mapped[set[AccountMediaBundle]] = relationship(
+        "AccountMediaBundle",
         back_populates="account",
         lazy="joined",
         collection_class=set,

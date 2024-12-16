@@ -79,6 +79,7 @@ class FanslyConfig:
     # to the computer and wanting to see what happened in the console window.
     prompt_on_exit: bool = True
     include_meta_database: bool = False
+    metadata_db_file: Path | None = None
 
     # Number of retries to get a timeline
     timeline_retries: int = 1
@@ -188,6 +189,7 @@ class FanslyConfig:
         self._parser.set(
             "Options", "include_meta_database", str(self.include_meta_database)
         )
+        self._parser.set("Options", "metadata_db_file", str(self.metadata_db_file))
         self._parser.set(
             "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
         )

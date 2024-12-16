@@ -29,7 +29,7 @@ class Post(Base):
     __tablename__ = "posts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    accountId = mapped_column(Integer, ForeignKey("account.id"), nullable=False)
+    accountId = mapped_column(Integer, ForeignKey("accounts.id"), nullable=False)
     content: Mapped[str] = mapped_column(String, nullable=True, default="")
     fypFlag: Mapped[int] = mapped_column(Integer, nullable=True, default=0)
     inReplyTo: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
@@ -40,19 +40,19 @@ class Post(Base):
     expiresAt: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    attachments: Mapped[set[Attachment | None]] = relationship(
-        "Attachment", back_populates="post", collection_class=set
+    attachments: Mapped[list[Attachment | None]] = relationship(
+        "Attachment", back_populates="post", cascade="all, delete-orphan"
     )
-    accountMentions: Mapped[set[Account]] = relationship(
-        "Account", secondary="post_mentions", collection_class=set
+    accountMentions: Mapped[list[Account]] = relationship(
+        "Account", secondary="post_mentions"
     )
 
 
 pinned_posts = Table(
     "pinned_posts",
     Base.metadata,
-    Column("postId", Integer, ForeignKey("post.id"), primary_key=True),
-    Column("accountId", Integer, ForeignKey("account.id"), primary_key=True),
+    Column("postId", Integer, ForeignKey("posts.id"), primary_key=True),
+    Column("accountId", Integer, ForeignKey("accounts.id"), primary_key=True),
     Column("pos", Integer, nullable=False),
     Column("createdAt", DateTime(timezone=True), nullable=True),
 )
@@ -60,8 +60,8 @@ pinned_posts = Table(
 post_mentions = Table(
     "post_mentions",
     Base.metadata,
-    Column("postId", Integer, ForeignKey("post.id"), primary_key=True),
-    Column("accountId", Integer, ForeignKey("account.id"), primary_key=True),
+    Column("postId", Integer, ForeignKey("posts.id"), primary_key=True),
+    Column("accountId", Integer, ForeignKey("accounts.id"), primary_key=True),
     Column("handle", String, nullable=True),
     UniqueConstraint("postId", "accountId"),
 )

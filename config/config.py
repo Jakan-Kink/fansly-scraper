@@ -268,6 +268,9 @@ def load_config(config: FanslyConfig) -> None:
         config.include_meta_database = config._parser.getboolean(
             options_section, "include_meta_database", fallback=False
         )
+        config.metadata_db_file = config._parser.get(
+            options_section, "metadata_db_file", fallback="metadata_db.sqlite3"
+        )
 
         # Numbers
         config.timeline_retries = config._parser.getint(

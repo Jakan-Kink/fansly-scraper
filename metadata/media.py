@@ -43,7 +43,7 @@ class Media(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("account.id"), nullable=False
+        Integer, ForeignKey("accounts.id"), nullable=False
     )
     # metadata: Mapped[str] = mapped_column(String, nullable=True)
     location: Mapped[str] = mapped_column(String, nullable=True)

@@ -26,7 +26,7 @@ class Wall(Base):
     __tablename__ = "walls"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    accountId = mapped_column(Integer, ForeignKey("account.id"), nullable=False)
+    accountId = mapped_column(Integer, ForeignKey("accounts.id"), nullable=False)
     pos: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=True)
     description: Mapped[str] = mapped_column(String, nullable=True)

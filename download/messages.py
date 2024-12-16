@@ -29,6 +29,7 @@ def download_messages(config: FanslyConfig, state: DownloadState):
     print()
 
     groups_response = config.get_api().get_group()
+    json_output(1, "Groups incl aggrData", groups_response)
 
     if groups_response.status_code == 200:
         groups_response = groups_response.json()["response"]["aggregationData"][
