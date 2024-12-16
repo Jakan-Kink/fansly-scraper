@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Column,
@@ -17,7 +18,13 @@ from sqlalchemy import (
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from textio import json_output
+
 from .base import Base
+
+if TYPE_CHECKING:
+    from config import FanslyConfig
+    from download.core import DownloadState
 
 media_varients = Table(
     "media_varients",
@@ -55,4 +62,31 @@ class Media(Base):
 
 
 def process_media_metadata(metadata: dict) -> None:
+    json_output(1, "meta/media - p_m_m", metadata)
+    pass
+
+
+def process_media_info(config: FanslyConfig, media_infos: list[dict]) -> None:
+    json_output(1, "meta/media - p_m_i", media_infos)
+    pass
+
+
+def process_media_download(
+    config: FanslyConfig, state: DownloadState, media: dict
+) -> None:
+    json_output(1, "meta/media - p_m_d", media)
+    pass
+
+
+def process_media_download_accessible(
+    config: FanslyConfig, state: DownloadState, media_infos: list[dict]
+) -> bool:
+    json_output(1, "meta/media - p_m_d_a", media_infos)
+    pass
+
+
+def process_media_download_handler(
+    config: FanslyConfig, state: DownloadState, media: dict
+) -> None:
+    json_output(1, "meta/media - p_m_d_h", media)
     pass

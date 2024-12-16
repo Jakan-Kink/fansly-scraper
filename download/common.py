@@ -6,6 +6,7 @@ from typing import Any
 from config import FanslyConfig
 from errors import ApiError, DuplicateCountError
 from media import MediaItem, parse_media_info
+from metadata import process_media_download_accessible, process_media_info
 from pathio import set_create_directory_for_download
 from textio import input_enter_continue, print_error, print_info, print_warning
 
@@ -120,6 +121,7 @@ def process_download_accessible_media(
         try:
             # add details into a list
             media_items += [parse_media_info(state, media_info, post_id)]
+            process_media_info(config, media_info)
 
         except Exception:
             print_error(
@@ -152,6 +154,8 @@ def process_download_accessible_media(
     )
 
     set_create_directory_for_download(config, state)
+
+    process_media_download_accessible(config, state, accessible_media)
 
     try:
         # download it

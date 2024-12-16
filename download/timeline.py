@@ -10,13 +10,8 @@ from requests import Response
 
 from config import FanslyConfig
 from errors import ApiError
-from textio import (
-    input_enter_continue,
-    json_output,
-    print_debug,
-    print_error,
-    print_info,
-)
+from metadata import process_timeline_posts
+from textio import input_enter_continue, print_debug, print_error, print_info
 
 from .common import get_unique_media_ids, process_download_accessible_media
 from .core import DownloadState
@@ -65,7 +60,7 @@ def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
             if timeline_response.status_code == 200:
 
                 timeline = timeline_response.json()["response"]
-                json_output(1, "Timeline", timeline)
+                process_timeline_posts(config, state, timeline)
 
                 if config.debug:
                     print_debug(f"Timeline object: {timeline}")

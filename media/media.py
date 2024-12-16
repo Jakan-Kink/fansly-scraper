@@ -3,7 +3,7 @@
 import json
 
 from download.downloadstate import DownloadState
-from textio import json_output, print_error
+from textio import print_error
 
 from . import MediaItem
 
@@ -122,7 +122,6 @@ def parse_media_info(
     post_id: str | None = None,
 ) -> MediaItem:
     """Parse media JSON reply from Fansly API."""
-    json_output(1, "Parse Media Info", media_info)
 
     # initialize variables
     # highest_variants_resolution_url, download_url, file_extension, metadata, default_normal_locations, default_normal_mimetype,

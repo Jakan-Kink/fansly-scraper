@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -18,10 +18,13 @@ from sqlalchemy import (
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from textio import json_output
+
 from .base import Base
 
 if TYPE_CHECKING:
     from config import FanslyConfig
+    from download.core import DownloadState
 
     from .account import Account
     from .attachment import Attachment
@@ -71,6 +74,7 @@ post_mentions = Table(
 
 def process_posts_metadata(metadata: dict[str, any]) -> None:
     """Process posts metadata."""
+    json_output(1, "meta/post - p_p_metadata - metadata", metadata)
     pass
 
 
@@ -78,4 +82,14 @@ def process_pinned_posts(
     config: FanslyConfig, account: Account, posts: list[dict[str, any]]
 ) -> None:
     """Process pinned posts."""
+    json_output(1, "meta/post - p_p_p - account", account)
+    json_output(1, "meta/post - p_p_p - posts", posts)
+    pass
+
+
+def process_timeline_posts(
+    config: FanslyConfig, state: DownloadState, posts: list[dict[str, any]]
+) -> None:
+    """Process timeline posts."""
+    json_output(1, "meta/post - p_t_posts - posts", posts)
     pass
