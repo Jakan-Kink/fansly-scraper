@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 class ContentType(Enum):
     ACCOUNT_MEDIA = 1
     ACCOUNT_MEDIA_BUNDLE = 2
+    STORY = 32001
+    POLL = 42001
 
 
 class Attachment(Base):

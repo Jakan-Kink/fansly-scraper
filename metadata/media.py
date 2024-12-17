@@ -12,6 +12,7 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
 )
+from sqlalchemy.inspection import inspect
 
 # from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 # from sqlalchemy.exc import IntegrityError
@@ -26,12 +27,12 @@ if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState
 
-media_varients = Table(
-    "media_varients",
+media_variants = Table(
+    "media_variants",
     Base.metadata,
     Column("mediaId", Integer, ForeignKey("media.id"), primary_key=True),
-    Column("varientId", Integer, ForeignKey("media.id"), primary_key=True),
-    UniqueConstraint("mediaId", "varientId"),
+    Column("variantId", Integer, ForeignKey("media.id"), primary_key=True),
+    UniqueConstraint("mediaId", "variantId"),
 )
 
 
@@ -51,13 +52,13 @@ class Media(Base):
     status: Mapped[int] = mapped_column(Integer, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
-    varients: Mapped[set[Media]] = relationship(
+    variants: Mapped[set[Media]] = relationship(
         "Media",
         collection_class=set,
-        secondary="media_varients",
+        secondary="media_variants",
         lazy="joined",
-        primaryjoin=id == media_varients.c.mediaId,
-        secondaryjoin=id == media_varients.c.varientId,
+        primaryjoin=id == media_variants.c.mediaId,
+        secondaryjoin=id == media_variants.c.variantId,
     )
 
 
@@ -66,9 +67,47 @@ def process_media_metadata(metadata: dict) -> None:
     pass
 
 
-def process_media_info(config: FanslyConfig, media_infos: list[dict]) -> None:
+def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
+    from .account import AccountMedia
+
     json_output(1, "meta/media - p_m_i", media_infos)
-    pass
+    account_media_columns = {column.name for column in inspect(AccountMedia).columns}
+    media_infos["createdAt"] = datetime.fromtimestamp(
+        media_infos["createdAt"], timezone.utc
+    )
+    if media_infos.get("deletedAt") is not None:
+        media_infos["deletedAt"] = datetime.fromtimestamp(
+            media_infos["deletedAt"], timezone.utc
+        )
+    filtered_account_media = {
+        k: v for k, v in media_infos.items() if k in account_media_columns
+    }
+    json_output(1, "meta/media - p_m_i - filtered", filtered_account_media)
+    with config._database.sync_session() as session:
+        existing_account_media = (
+            session.query(AccountMedia)
+            .filter_by(
+                id=filtered_account_media["id"],
+                accountId=filtered_account_media["accountId"],
+                mediaId=filtered_account_media["mediaId"],
+            )
+            .first()
+        )
+        if existing_account_media:
+            for key, value in filtered_account_media.items():
+                setattr(existing_account_media, key, value)
+        else:
+            session.add(AccountMedia(**filtered_account_media))
+        session.commit()
+        # modified_media = session.query(AccountMedia).get(filtered_account_media["id"])
+        if "media" in media_infos:
+            media_infos["media"].pop("variants", None)
+            json_output(1, "meta/media - p_m_i - media (no var)", media_infos["media"])
+        if "preview" in media_infos:
+            media_infos["preview"].pop("variants", None)
+            json_output(
+                1, "meta/media - p_m_i - preview (no var)", media_infos["preview"]
+            )
 
 
 def process_media_download(

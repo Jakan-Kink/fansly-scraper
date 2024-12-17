@@ -21,7 +21,10 @@ from textio import json_output
 from .base import Base
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
     from config import FanslyConfig
+    from download.core import DownloadState
 
     from .media import Media
     from .post import Post
@@ -197,7 +200,11 @@ class AccountMediaBundle(Base):
     UniqueConstraint("accountId", "mediaId")
 
 
-def process_account_data(config: FanslyConfig, state, data: dict) -> None:
+def process_account_data(
+    config: FanslyConfig, state: DownloadState = None, data: dict = None
+) -> None:
+    from .post import process_pinned_posts
+
     account_columns = {column.name for column in inspect(Account).columns}
     filtered_account = {key: data[key] for key in data if key in account_columns}
     json_output(1, "meta/account - p_a_data - filtered_account", filtered_account)
@@ -209,6 +216,11 @@ def process_account_data(config: FanslyConfig, state, data: dict) -> None:
         else:
             session.add(Account(**filtered_account))
         session.commit()
+        modified_account = session.query(Account).get(filtered_account["id"])
+        if "timelineStats" in data:
+            procress_timeline_stats(session, data)
+        if "pinnedPosts" in data:
+            process_pinned_posts(config, modified_account, data["pinnedPosts"])
 
 
 def process_creator_data(config: FanslyConfig, state, data: dict) -> None:
@@ -227,22 +239,23 @@ def process_creator_data(config: FanslyConfig, state, data: dict) -> None:
         session.commit()
         modified_account = session.query(Account).get(filtered_account["id"])
         if "timelineStats" in data:
-            timeline_stats = data["timelineStats"]
-            timeline_stats["fetchedAt"] = (
-                datetime.fromtimestamp(
-                    timeline_stats["fetchedAt"] / 1000, tz=timezone.utc
-                )
-                if timeline_stats["fetchedAt"]
-                else None
-            )
-            existing_timeline_stats = session.query(TimelineStats).get(
-                modified_account.id
-            )
-            if existing_timeline_stats:
-                for key, value in timeline_stats.items():
-                    setattr(existing_timeline_stats, key, value)
-            else:
-                session.add(TimelineStats(**timeline_stats))
-            session.commit()
+            procress_timeline_stats(session, data)
         if "pinnedPosts" in data:
             process_pinned_posts(config, modified_account, data["pinnedPosts"])
+
+
+def procress_timeline_stats(session: Session, data: dict) -> None:
+    account_id = data["id"]
+    timeline_stats = data["timelineStats"]
+    timeline_stats["fetchedAt"] = (
+        datetime.fromtimestamp(timeline_stats["fetchedAt"] / 1000, tz=timezone.utc)
+        if timeline_stats["fetchedAt"]
+        else None
+    )
+    existing_timeline_stats = session.query(TimelineStats).get(account_id)
+    if existing_timeline_stats:
+        for key, value in timeline_stats.items():
+            setattr(existing_timeline_stats, key, value)
+    else:
+        session.add(TimelineStats(**timeline_stats))
+    session.commit()

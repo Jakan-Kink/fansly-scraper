@@ -26,9 +26,14 @@ class Group(Base):
     createdBy: Mapped[int] = mapped_column(
         Integer, ForeignKey("accounts.id"), nullable=False
     )
-    users: Mapped[list[Account]] = relationship("Account", secondary="group_users")
+    users: Mapped[set[Account]] = relationship(
+        "Account", secondary="group_users", collection_class=set
+    )
     messages: Mapped[list[Message]] = relationship(
-        "Message", cascade="all, delete-orphan"
+        "Message", cascade="all, delete-orphan", foreign_keys="[Message.groupId]"
+    )
+    lastMessageId: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("messages.id"), nullable=True
     )
 
 
@@ -100,8 +105,24 @@ def process_messages_metadata(config: FanslyConfig, state, messages: list[dict])
 def process_groups_response(config: FanslyConfig, state, response: dict):
     from .account import process_account_data
 
+    group_columns = {column.name for column in inspect(Group).columns}
     data: list[dict] = response.get("data", {})
     json_output(1, "meta/mess - p_g_resp - data", data)
+    with config._database.sync_session() as session:
+        for data_group in data:
+            data_group["id"] = data_group.get("groupId")
+            existing_group = (
+                session.query(Group).filter_by(id=data_group.get("id")).first()
+            )
+            if existing_group:
+                if data_group.get("lastMessageId"):
+                    existing_group.lastMessageId = data_group.get("lastMessageId")
+            else:
+                filtered_group = {
+                    key: data_group[key] for key in data_group if key in group_columns
+                }
+                session.add(Group(**filtered_group))
+            session.commit()
     aggregation_data: dict = response.get("aggregationData", {})
     json_output(1, "meta/mess - p_g_resp - aggregation_data", aggregation_data)
     groups: list = aggregation_data.get("groups", {})
@@ -112,7 +133,6 @@ def process_groups_response(config: FanslyConfig, state, response: dict):
         for group in groups:
             json_output(1, "meta/mess - p_g_resp - group", group)
             filtered_group = {key: group[key] for key in group if key in group_columns}
-            json_output(1, "meta/mess - p_g_resp - filtered_group", filtered_group)
             existing_group = (
                 session.query(Group).filter_by(id=filtered_group.get("id")).first()
             )
@@ -121,6 +141,21 @@ def process_groups_response(config: FanslyConfig, state, response: dict):
                     setattr(existing_group, key, value)
             else:
                 session.add(Group(**filtered_group))
+            session.commit()
+            existing_group = (
+                session.query(Group).filter_by(id=filtered_group.get("id")).first()
+            )
+            existing_group.users = set()
+            for user in group.get("users", ()):
+                group_user = {
+                    "groupId": existing_group.id,
+                    "accountId": user.get("userId"),
+                }
+                existing_group_user = (
+                    session.query(group_users).filter_by(**group_user).first()
+                )
+                if not existing_group_user:
+                    session.execute(group_users.insert().values(group_user))
             session.commit()
     for account in accounts:
         json_output(1, "meta/mess - p_g_resp - account", account)

@@ -1,9 +1,8 @@
 """Class to Represent Media Items"""
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
-
-from utils.datetime import get_adjusted_datetime
 
 
 @dataclass
@@ -32,7 +31,9 @@ class MediaItem:
     is_preview: bool = False
 
     def created_at_str(self) -> str:
-        return get_adjusted_datetime(self.created_at)
+        return datetime.fromtimestamp(self.created_at, tz=timezone.utc).strftime(
+            "%Y-%m-%d_at_%H-%M_%Z"
+        )
 
     def get_download_url_file_extension(self) -> str | None:
         if self.download_url:

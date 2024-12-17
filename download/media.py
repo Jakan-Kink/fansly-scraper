@@ -23,7 +23,6 @@ from .types import DownloadType
 def download_media_infos(config: FanslyConfig, media_ids: list[str]) -> list[dict]:
 
     media_infos: list[dict] = []
-    process_media_info(config, media_ids)
 
     for ids in batch_list(media_ids, config.BATCH_SIZE):
         media_ids_str = ",".join(ids)

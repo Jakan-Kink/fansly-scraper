@@ -17,7 +17,7 @@ from .database import Database, run_migrations_if_needed
 from .helpers import run_in_thread
 from .media import (
     Media,
-    media_varients,
+    media_variants,
     process_media_download,
     process_media_download_accessible,
     process_media_download_handler,
@@ -65,7 +65,7 @@ __all__ = [
     "account_avatar",
     "account_banner",
     "account_media_bundle_media",
-    "media_varients",
+    "media_variants",
     "pinned_posts",
     "post_mentions",
 ]

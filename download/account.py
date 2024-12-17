@@ -43,8 +43,8 @@ def get_creator_account_info(config: FanslyConfig, state: DownloadState) -> None
 
             account = raw_response.json()["response"][0]
 
-            process_creator_data(config=config, state=state, data=account)
             state.creator_id = account["id"]
+            process_creator_data(config=config, state=state, data=account)
 
         except KeyError as e:
 

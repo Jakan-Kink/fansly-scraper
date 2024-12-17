@@ -12,8 +12,9 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.inspection import inspect
 
-# from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 # from sqlalchemy.exc import IntegrityError
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,7 +28,8 @@ if TYPE_CHECKING:
     from download.core import DownloadState
 
     from .account import Account
-    from .attachment import Attachment
+
+from .attachment import Attachment, ContentType
 
 
 class Post(Base):
@@ -82,8 +84,28 @@ def process_pinned_posts(
     config: FanslyConfig, account: Account, posts: list[dict[str, any]]
 ) -> None:
     """Process pinned posts."""
-    json_output(1, "meta/post - p_p_p - account", account)
     json_output(1, "meta/post - p_p_p - posts", posts)
+    with config._database.sync_session() as session:
+        for post in posts:
+            insert_stmt = sqlite_insert(pinned_posts).values(
+                postId=post["postId"],
+                accountId=account.id,
+                pos=post["pos"],
+                createdAt=datetime.fromtimestamp(
+                    (post["createdAt"] / 1000), timezone.utc
+                ),
+            )
+            update_stmt = insert_stmt.on_conflict_do_update(
+                index_elements=["postId", "accountId"],
+                set_=dict(
+                    pos=post["pos"],
+                    createdAt=datetime.fromtimestamp(
+                        (post["createdAt"] / 1000), timezone.utc
+                    ),
+                ),
+            )
+            session.execute(update_stmt)
+            session.commit()
     pass
 
 
@@ -91,5 +113,63 @@ def process_timeline_posts(
     config: FanslyConfig, state: DownloadState, posts: list[dict[str, any]]
 ) -> None:
     """Process timeline posts."""
+    from .account import process_account_data
+    from .media import process_media_info
+
     json_output(1, "meta/post - p_t_posts - posts", posts)
+    tl_posts = posts["posts"]
+    for post in tl_posts:
+        _process_timeline_post(config, post)
+    accountMedia = posts["accountMedia"]
+    for media in accountMedia:
+        process_media_info(config, media)
+    accounts = posts["accounts"]
+    for account in accounts:
+        process_account_data(config, data=account)
     pass
+
+
+def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
+    """Process a single timeline post."""
+    post["createdAt"] = datetime.fromtimestamp((post["createdAt"]), timezone.utc)
+    post["expiresAt"] = (
+        datetime.fromtimestamp((post["expiresAt"] / 1000), timezone.utc)
+        if post.get("expiresAt")
+        else None
+    )
+    json_output(1, "meta/post - _p_t_p - post", post)
+    post_columns = {column.name for column in inspect(Post).columns}
+    filtered_post = {k: v for k, v in post.items() if k in post_columns}
+    json_output(1, "meta/post - _p_t_p - filtered", filtered_post)
+    with config._database.sync_session() as session:
+        existing_post = session.query(Post).get(filtered_post["id"])
+        if existing_post:
+            for key, value in filtered_post.items():
+                setattr(existing_post, key, value)
+        else:
+            session.add(Post(**filtered_post))
+        session.commit()
+        modified_post = session.query(Post).get(filtered_post["id"])
+        if "attachments" in post:
+            for attachment in post["attachments"]:
+                attachment["postId"] = modified_post.id
+                # Convert contentType to enum
+                try:
+                    attachment["contentType"] = ContentType(attachment["contentType"])
+                except ValueError:
+                    attachment["contentType"] = None
+                    json_output(
+                        2, "meta/post - _p_t_p - invalid_content_type", attachment
+                    )
+                existing_attachment = (
+                    session.query(Attachment)
+                    .filter_by(
+                        postId=modified_post.id, contentId=attachment["contentId"]
+                    )
+                    .first()
+                )
+                if existing_attachment:
+                    for key, value in attachment.items():
+                        setattr(existing_attachment, key, value)
+                else:
+                    session.add(Attachment(**attachment))
