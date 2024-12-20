@@ -17,8 +17,15 @@ from sqlalchemy.inspection import inspect
 # from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 # from sqlalchemy.exc import IntegrityError
 # from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    Mapped,
+    Session,
+    attribute_mapped_collection,
+    mapped_column,
+    relationship,
+)
 
+from media import MediaItem
 from textio import json_output
 
 from .base import Base
@@ -36,6 +43,17 @@ media_variants = Table(
 )
 
 
+class MediaLocation(Base):
+    __tablename__ = "media_locations"
+
+    mediaId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("media.id"), primary_key=True
+    )
+    locationId: Mapped[str] = mapped_column(String, primary_key=True)
+    location: Mapped[str] = mapped_column(String, nullable=False)
+    media: Mapped[Media] = relationship("Media", back_populates="locations")
+
+
 class Media(Base):
     __tablename__ = "media"
 
@@ -43,8 +61,9 @@ class Media(Base):
     accountId: Mapped[int] = mapped_column(
         Integer, ForeignKey("accounts.id"), nullable=False
     )
-    # metadata: Mapped[str] = mapped_column(String, nullable=True)
+    meta_info: Mapped[str] = mapped_column(String, nullable=True)
     location: Mapped[str] = mapped_column(String, nullable=True)
+    flags: Mapped[int] = mapped_column(Integer, nullable=True)
     mimetype: Mapped[str] = mapped_column(String, nullable=True)
     height: Mapped[int] = mapped_column(Integer, nullable=True)
     width: Mapped[int] = mapped_column(Integer, nullable=True)
@@ -59,6 +78,13 @@ class Media(Base):
         lazy="joined",
         primaryjoin=id == media_variants.c.mediaId,
         secondaryjoin=id == media_variants.c.variantId,
+    )
+    locations: Mapped[dict[str, MediaLocation]] = relationship(
+        "MediaLocation",
+        collection_class=attribute_mapped_collection("locationId"),
+        cascade="all, delete-orphan",
+        lazy="joined",
+        back_populates="media",
     )
 
 
@@ -98,27 +124,91 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
                 setattr(existing_account_media, key, value)
         else:
             session.add(AccountMedia(**filtered_account_media))
+        session.flush()
         session.commit()
-        # modified_media = session.query(AccountMedia).get(filtered_account_media["id"])
         if "media" in media_infos:
-            media_infos["media"].pop("variants", None)
-            json_output(1, "meta/media - p_m_i - media (no var)", media_infos["media"])
+            process_media_item_dict(config, media_infos["media"], session)
         if "preview" in media_infos:
-            media_infos["preview"].pop("variants", None)
-            json_output(
-                1, "meta/media - p_m_i - preview (no var)", media_infos["preview"]
+            process_media_item_dict(config, media_infos["preview"], session)
+
+
+def process_media_item_dict(
+    config: FanslyConfig, media_item: dict, session: Session | None = None
+) -> None:
+    json_output(1, "meta/media - p_m_i_h - media_item[dict]", media_item)
+    if session is None:
+        with config._database.sync_session() as session:
+            _process_media_item_dict_inner(config, media_item, session)
+    else:
+        _process_media_item_dict_inner(config, media_item, session)
+
+
+def _process_media_item_dict_inner(
+    config: FanslyConfig, media_item: dict, session: Session, account_id: int = None
+) -> None:
+    media_columns = {column.name for column in inspect(Media).columns}
+    session.flush()
+    if "createdAt" in media_item and media_item["createdAt"] is not None:
+        media_item["createdAt"] = datetime.fromtimestamp(
+            media_item["createdAt"], timezone.utc
+        )
+    if "updatedAt" in media_item and media_item["updatedAt"] is not None:
+        media_item["updatedAt"] = datetime.fromtimestamp(
+            media_item["updatedAt"], timezone.utc
+        )
+    filtered_media = {k: v for k, v in media_item.items() if k in media_columns}
+    filtered_media["accountId"] = filtered_media.get("accountId", account_id)
+
+    # Handle metadata field
+    if "metadata" in media_item:
+        filtered_media["meta_info"] = media_item["metadata"]
+    existing_media = session.query(Media).filter_by(id=filtered_media["id"]).first()
+    if existing_media:
+        for key, value in filtered_media.items():
+            setattr(existing_media, key, value)
+    else:
+        session.add(Media(**filtered_media))
+    session.flush()
+    existing_media = session.query(Media).filter_by(id=filtered_media["id"]).first()
+
+    # Process locations
+    if "locations" in media_item:
+        # Clear existing locations
+        session.query(MediaLocation).filter_by(mediaId=existing_media.id).delete()
+        for location_data in media_item["locations"]:
+            location = MediaLocation(
+                mediaId=existing_media.id,
+                locationId=location_data["locationId"],
+                location=location_data["location"],
             )
+            session.add(location)
+
+    # Process variants
+    if "variants" in media_item:
+        for variant in media_item["variants"]:
+            _process_media_item_dict_inner(
+                config,
+                variant,
+                session,
+                account_id=filtered_media["accountId"],
+            )
+            session.execute(
+                media_variants.insert()
+                .values(mediaId=existing_media.id, variantId=variant["id"])
+                .prefix_with("OR IGNORE")
+            )
+    session.commit()
 
 
 def process_media_download(
-    config: FanslyConfig, state: DownloadState, media: dict
+    config: FanslyConfig, state: DownloadState, media: MediaItem
 ) -> None:
     json_output(1, "meta/media - p_m_d", media)
     pass
 
 
 def process_media_download_accessible(
-    config: FanslyConfig, state: DownloadState, media_infos: list[dict]
+    config: FanslyConfig, state: DownloadState, media_infos: list[MediaItem]
 ) -> bool:
     json_output(1, "meta/media - p_m_d_a", media_infos)
     pass

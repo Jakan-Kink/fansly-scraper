@@ -71,6 +71,8 @@ class Message(Base):
 
 
 def process_messages_metadata(config: FanslyConfig, state, messages: list[dict]):
+    from .attachment import Attachment, ContentType
+
     message_columns = {column.name for column in inspect(Message).columns}
     with config._database.sync_session() as session:
         for message in messages:
@@ -99,7 +101,47 @@ def process_messages_metadata(config: FanslyConfig, state, messages: list[dict])
                     setattr(existing_message, key, value)
             else:
                 session.add(Message(**filtered_message))
-            session.commit()
+            session.flush()
+            existing_message = (
+                session.query(Message)
+                .filter_by(
+                    senderId=message.get("senderId"),
+                    recipientId=message.get("recipientId"),
+                    createdAt=message.get("createdAt"),
+                )
+                .first()
+            )
+            if "attachments" in message:
+                for attachment in message["attachments"]:
+                    attachment["messageId"] = existing_message.id
+                    # Convert contentType to enum
+                    try:
+                        attachment["contentType"] = ContentType(
+                            attachment["contentType"]
+                        )
+                    except ValueError:
+                        old_content_type = attachment["contentType"]
+                        attachment["contentType"] = None
+                        json_output(
+                            2,
+                            f"meta/mess - _p_m_p - invalid_content_type: {old_content_type}",
+                            attachment,
+                        )
+                    existing_attachment = (
+                        session.query(Attachment)
+                        .filter_by(
+                            messageId=existing_message.id,
+                            contentId=attachment["contentId"],
+                        )
+                        .first()
+                    )
+                    if existing_attachment:
+                        for key, value in attachment.items():
+                            setattr(existing_attachment, key, value)
+                    else:
+                        session.add(Attachment(**attachment))
+                    session.flush()
+        session.commit()
 
 
 def process_groups_response(config: FanslyConfig, state, response: dict):
@@ -159,4 +201,4 @@ def process_groups_response(config: FanslyConfig, state, response: dict):
             session.commit()
     for account in accounts:
         json_output(1, "meta/mess - p_g_resp - account", account)
-        process_account_data(config, state, account)
+        process_account_data(config, data=account, state=state)

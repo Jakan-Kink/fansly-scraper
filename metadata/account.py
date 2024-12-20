@@ -201,13 +201,30 @@ class AccountMediaBundle(Base):
 
 
 def process_account_data(
-    config: FanslyConfig, state: DownloadState = None, data: dict = None
+    config: FanslyConfig,
+    data: dict,
+    state: DownloadState = None,
+    *,
+    context: str = "account",
 ) -> None:
+    """Process account or creator data and store it in the database.
+
+    Args:
+        config: FanslyConfig instance
+        data: Dictionary containing account/creator data
+        state: Optional DownloadState instance
+        context: String indicating the context ("account" or "creator") for logging
+    """
+    from .media import _process_media_item_dict_inner
     from .post import process_pinned_posts
+    from .wall import process_account_walls
 
     account_columns = {column.name for column in inspect(Account).columns}
     filtered_account = {key: data[key] for key in data if key in account_columns}
-    json_output(1, "meta/account - p_a_data - filtered_account", filtered_account)
+    json_output(
+        1, f"meta/account - p_{context[0]}_data - filtered_account", filtered_account
+    )
+
     with config._database.sync_session() as session:
         existing_account = session.query(Account).get(filtered_account["id"])
         if existing_account:
@@ -215,33 +232,68 @@ def process_account_data(
                 setattr(existing_account, key, value)
         else:
             session.add(Account(**filtered_account))
-        session.commit()
+        session.flush()
+
         modified_account = session.query(Account).get(filtered_account["id"])
         if "timelineStats" in data:
             procress_timeline_stats(session, data)
         if "pinnedPosts" in data:
             process_pinned_posts(config, modified_account, data["pinnedPosts"])
+        if "walls" in data:
+            process_account_walls(config, modified_account, data["walls"])
 
+        # Process avatar
+        if "avatar" in data:
+            # Clear existing avatar relationship
+            session.execute(
+                account_avatar.delete().where(
+                    account_avatar.c.accountId == modified_account.id
+                )
+            )
 
-def process_creator_data(config: FanslyConfig, state, data: dict) -> None:
-    from .post import process_pinned_posts
+            # Process avatar media and its variants
+            avatar_data = data["avatar"]
+            _process_media_item_dict_inner(config, avatar_data, session)
 
-    account_columns = {column.name for column in inspect(Account).columns}
-    filtered_account = {key: data[key] for key in data if key in account_columns}
-    json_output(1, "meta/account - p_c_data - filtered_account", filtered_account)
-    with config._database.sync_session() as session:
-        existing_account = session.query(Account).get(filtered_account["id"])
-        if existing_account:
-            for key, value in filtered_account.items():
-                setattr(existing_account, key, value)
-        else:
-            session.add(Account(**filtered_account))
+            # Link avatar to account
+            session.execute(
+                account_avatar.insert().values(
+                    accountId=modified_account.id, mediaId=avatar_data["id"]
+                )
+            )
+
+        # Process banner
+        if "banner" in data:
+            # Clear existing banner relationship
+            session.execute(
+                account_banner.delete().where(
+                    account_banner.c.accountId == modified_account.id
+                )
+            )
+
+            # Process banner media and its variants
+            banner_data = data["banner"]
+            _process_media_item_dict_inner(config, banner_data, session)
+
+            # Link banner to account
+            session.execute(
+                account_banner.insert().values(
+                    accountId=modified_account.id, mediaId=banner_data["id"]
+                )
+            )
+
         session.commit()
-        modified_account = session.query(Account).get(filtered_account["id"])
-        if "timelineStats" in data:
-            procress_timeline_stats(session, data)
-        if "pinnedPosts" in data:
-            process_pinned_posts(config, modified_account, data["pinnedPosts"])
+
+
+# Alias for backward compatibility
+def process_creator_data(
+    config: FanslyConfig, state: DownloadState, data: dict
+) -> None:
+    """Process creator data by calling process_account_data with creator context.
+
+    This function exists for backward compatibility.
+    """
+    return process_account_data(config, data, state, context="creator")
 
 
 def procress_timeline_stats(session: Session, data: dict) -> None:

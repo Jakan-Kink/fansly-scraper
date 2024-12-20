@@ -27,6 +27,7 @@ from download.core import (
     download_messages,
     download_single_post,
     download_timeline,
+    download_wall,
     get_creator_account_info,
     print_download_info,
 )
@@ -169,6 +170,7 @@ def main(config: FanslyConfig) -> int:
                 # Normal: Downloads Timeline + Messages one after another.
                 # Timeline: Scrapes only the creator's timeline content.
                 # Messages: Scrapes only the creator's messages content.
+                # Wall: Scrapes only the creator's wall content.
                 # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
                 # Collection: Download all content listed within the "Purchased Media Collection"
 
@@ -197,6 +199,15 @@ def main(config: FanslyConfig) -> int:
                         ]
                     ):
                         download_timeline(config, state)
+
+                    if any(
+                        [
+                            config.download_mode == DownloadMode.WALL,
+                            config.download_mode == DownloadMode.NORMAL,
+                        ]
+                    ):
+                        for wall_id in state.walls:
+                            download_wall(config, state, wall_id)
 
                 update_global_statistics(global_download_state, download_state=state)
                 print_statistics(config, state)

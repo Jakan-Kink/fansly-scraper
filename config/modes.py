@@ -12,3 +12,4 @@ class DownloadMode(StrEnum):
     NORMAL = auto()
     SINGLE = auto()
     TIMELINE = auto()
+    WALL = auto()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -13,8 +14,27 @@ from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
 from textio import print_error, print_info
 
+from .helpers import SizeAndTimeRotatingFileHandler
+
 if TYPE_CHECKING:
     from config import FanslyConfig
+
+
+sqlalchemy_logger = logging.getLogger("sqlalchemy.engine")
+sqlalchemy_logger.setLevel(logging.INFO)
+time_handler = SizeAndTimeRotatingFileHandler(
+    "sqlalchemy.log",
+    maxBytes=100 * 1024 * 1024,  # 100MB
+    when="h",  # Hourly rotation
+    interval=2,  # Rotate every 2 hours
+    backupCount=5,  # Keep 5 backups
+    utc=True,  # Use UTC time
+    compression="gz",  # Compress logs using gzip
+)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+time_handler.setFormatter(formatter)
+sqlalchemy_logger.addHandler(time_handler)
+sqlalchemy_logger.propagate = False
 
 
 def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> None:

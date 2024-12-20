@@ -30,6 +30,8 @@ class DownloadState(GlobalState):
     recent_photo_hashes: set = field(default_factory=set)
     recent_video_hashes: set = field(default_factory=set)
 
+    walls: set = field(default_factory=set)
+
     # endregion
 
     # region Methods

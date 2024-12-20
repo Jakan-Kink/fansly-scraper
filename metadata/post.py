@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from textio import json_output
 
+from .attachment import Attachment, ContentType
 from .base import Base
 
 if TYPE_CHECKING:
@@ -28,8 +29,7 @@ if TYPE_CHECKING:
     from download.core import DownloadState
 
     from .account import Account
-
-from .attachment import Attachment, ContentType
+    from .wall import Wall
 
 
 class Post(Base):
@@ -52,6 +52,9 @@ class Post(Base):
     )
     accountMentions: Mapped[list[Account]] = relationship(
         "Account", secondary="post_mentions"
+    )
+    walls: Mapped[list[Wall]] = relationship(
+        "Wall", secondary="wall_posts", back_populates="posts"
     )
 
 
@@ -105,7 +108,8 @@ def process_pinned_posts(
                 ),
             )
             session.execute(update_stmt)
-            session.commit()
+            session.flush()
+        session.commit()
     pass
 
 
@@ -148,18 +152,22 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
                 setattr(existing_post, key, value)
         else:
             session.add(Post(**filtered_post))
-        session.commit()
+        session.flush()
         modified_post = session.query(Post).get(filtered_post["id"])
         if "attachments" in post:
+            json_output(1, "meta/post - _p_t_p - attachments", post["attachments"])
             for attachment in post["attachments"]:
                 attachment["postId"] = modified_post.id
                 # Convert contentType to enum
                 try:
                     attachment["contentType"] = ContentType(attachment["contentType"])
                 except ValueError:
+                    old_content_type = attachment["contentType"]
                     attachment["contentType"] = None
                     json_output(
-                        2, "meta/post - _p_t_p - invalid_content_type", attachment
+                        2,
+                        f"meta/post - _p_t_p - invalid_content_type: {old_content_type}",
+                        attachment,
                     )
                 existing_attachment = (
                     session.query(Attachment)
@@ -173,3 +181,5 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
                         setattr(existing_attachment, key, value)
                 else:
                     session.add(Attachment(**attachment))
+                session.flush()
+        session.commit()

@@ -11,3 +11,4 @@ class DownloadType(StrEnum):
     MESSAGES = auto()
     SINGLE = auto()
     TIMELINE = auto()
+    WALL = auto()

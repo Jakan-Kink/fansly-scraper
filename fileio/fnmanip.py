@@ -14,9 +14,8 @@ from PIL import Image
 from config import FanslyConfig
 from download.downloadstate import DownloadState
 from errors.mp4 import InvalidMP4Error
+from fileio.mp4 import hash_mp4file
 from textio import print_debug, print_error
-
-from .mp4 import hash_mp4file
 
 # turn off for our purpose unnecessary PIL safety features
 Image.MAX_IMAGE_PIXELS = None

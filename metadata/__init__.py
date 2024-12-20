@@ -14,7 +14,7 @@ from .account import (
 )
 from .attachment import Attachment
 from .database import Database, run_migrations_if_needed
-from .helpers import run_in_thread
+from .helpers import SizeAndTimeRotatingFileHandler
 from .media import (
     Media,
     media_variants,
@@ -33,10 +33,11 @@ from .post import (
     process_posts_metadata,
     process_timeline_posts,
 )
-from .wall import Wall, process_walls_metadata
+from .wall import Wall, process_account_walls, process_wall_posts
 
 __all__ = [
     "process_account_data",
+    "process_account_walls",
     "process_creator_data",
     "process_groups_response",
     "process_media_download",
@@ -48,8 +49,7 @@ __all__ = [
     "process_pinned_posts",
     "process_posts_metadata",
     "process_timeline_posts",
-    "process_walls_metadata",
-    "run_in_thread",
+    "process_wall_posts",
     "run_migrations_if_needed",
     "Account",
     "AccountMedia",
@@ -60,6 +60,7 @@ __all__ = [
     "Media",
     "Message",
     "Post",
+    "SizeAndTimeRotatingFileHandler",
     "TimelineStats",
     "Wall",
     "account_avatar",

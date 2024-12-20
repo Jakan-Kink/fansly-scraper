@@ -253,6 +253,31 @@ class FanslyApi:
             params=custom_params,
         )
 
+    def get_wall_posts(
+        self, creator_id: str, wall_id: str, before_cursor: str = "0"
+    ) -> Response:
+        """Get posts from a specific wall.
+
+        Args:
+            creator_id: The account ID of the creator
+            wall_id: The ID of the wall to get posts from
+            before_cursor: Post ID to get posts before (for pagination). Defaults to "0" for latest posts.
+
+        Returns:
+            Response containing wall posts. Each page returns up to 15 posts.
+        """
+        custom_params = {
+            "before": before_cursor,
+            "after": "0",
+            "wallId": wall_id,
+            "contentSearch": "",
+        }
+
+        return self.get_with_ngsw(
+            url=f"https://apiv3.fansly.com/api/v1/timelinenew/{creator_id}",
+            params=custom_params,
+        )
+
     def get_group(self) -> Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/messaging/groups",

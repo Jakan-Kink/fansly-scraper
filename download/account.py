@@ -31,6 +31,7 @@ def get_creator_account_info(config: FanslyConfig, state: DownloadState) -> None
             config.download_mode == DownloadMode.MESSAGES,
             config.download_mode == DownloadMode.NORMAL,
             config.download_mode == DownloadMode.TIMELINE,
+            config.download_mode == DownloadMode.WALL,
         ]
     ):
 
@@ -45,6 +46,10 @@ def get_creator_account_info(config: FanslyConfig, state: DownloadState) -> None
 
             state.creator_id = account["id"]
             process_creator_data(config=config, state=state, data=account)
+
+            # Store wall IDs in DownloadState if they exist
+            if "walls" in account:
+                state.walls = {wall["id"] for wall in account["walls"]}
 
         except KeyError as e:
 
