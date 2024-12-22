@@ -1,3 +1,16 @@
+"""Helper utilities for metadata handling.
+
+This module provides utility classes and functions for metadata operations,
+particularly focusing on log file management and rotation. It includes advanced
+logging handlers that support both size and time-based rotation with compression.
+
+Features:
+- Combined size and time-based log rotation
+- Multiple compression formats (gz, 7z, lzha)
+- UTC time support
+- Configurable backup count and intervals
+"""
+
 import gzip
 import os
 import shutil
@@ -7,6 +20,27 @@ from logging.handlers import BaseRotatingHandler
 
 
 class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
+    """A logging handler that rotates files based on both size and time.
+
+    This handler extends BaseRotatingHandler to provide combined size and time-based
+    rotation with compression support. It can rotate logs when either the file size
+    exceeds a threshold or when a time interval has passed.
+
+    Attributes:
+        maxBytes: Maximum file size in bytes before rotation
+        backupCount: Number of backup files to keep
+        utc: Whether to use UTC time for rotation calculations
+        compression: Compression format to use ('gz', '7z', 'lzha')
+        interval: Time interval between rotations in seconds
+        rolloverAt: Timestamp for next scheduled rotation
+        when: Time unit for rotation ('s', 'm', 'h', 'd', 'w')
+
+    Note:
+        - Rotation occurs if either size or time threshold is exceeded
+        - Compressed files are automatically cleaned up
+        - UTC time support for consistent rotation across timezones
+    """
+
     def __init__(
         self,
         filename,

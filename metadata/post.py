@@ -48,13 +48,22 @@ class Post(Base):
         DateTime(timezone=True), nullable=True
     )
     attachments: Mapped[list[Attachment | None]] = relationship(
-        "Attachment", back_populates="post", cascade="all, delete-orphan"
+        "Attachment",
+        back_populates="post",
+        cascade="all, delete-orphan",
+        order_by="Attachment.pos",
+        lazy="select",
     )
     accountMentions: Mapped[list[Account]] = relationship(
-        "Account", secondary="post_mentions"
+        "Account",
+        secondary="post_mentions",
+        lazy="select",
     )
     walls: Mapped[list[Wall]] = relationship(
-        "Wall", secondary="wall_posts", back_populates="posts"
+        "Wall",
+        secondary="wall_posts",
+        back_populates="posts",
+        lazy="select",
     )
 
 
@@ -84,40 +93,56 @@ def process_posts_metadata(metadata: dict[str, any]) -> None:
 
 
 def process_pinned_posts(
-    config: FanslyConfig, account: Account, posts: list[dict[str, any]]
+    config: FanslyConfig, account: Account, posts: list[dict[str, any]], session=None
 ) -> None:
-    """Process pinned posts."""
+    """Process pinned posts.
+
+    Args:
+        config: FanslyConfig instance
+        account: Account instance
+        posts: List of post data dictionaries
+        session: Optional SQLAlchemy session. If not provided, a new session will be created.
+    """
     json_output(1, "meta/post - p_p_p - posts", posts)
-    with config._database.sync_session() as session:
+
+    def _process_posts(session):
         for post in posts:
+            # Convert timestamp once to avoid repeated conversions
+            created_at = datetime.fromtimestamp(
+                (post["createdAt"] / 1000), timezone.utc
+            )
+
             insert_stmt = sqlite_insert(pinned_posts).values(
                 postId=post["postId"],
                 accountId=account.id,
                 pos=post["pos"],
-                createdAt=datetime.fromtimestamp(
-                    (post["createdAt"] / 1000), timezone.utc
-                ),
+                createdAt=created_at,
             )
             update_stmt = insert_stmt.on_conflict_do_update(
                 index_elements=["postId", "accountId"],
                 set_=dict(
                     pos=post["pos"],
-                    createdAt=datetime.fromtimestamp(
-                        (post["createdAt"] / 1000), timezone.utc
-                    ),
+                    createdAt=created_at,
                 ),
             )
             session.execute(update_stmt)
             session.flush()
-        session.commit()
-    pass
+
+    if session is not None:
+        # Use existing session
+        _process_posts(session)
+    else:
+        # Create new session if none provided
+        with config._database.sync_session() as new_session:
+            _process_posts(new_session)
+            new_session.commit()
 
 
 def process_timeline_posts(
     config: FanslyConfig, state: DownloadState, posts: list[dict[str, any]]
 ) -> None:
     """Process timeline posts."""
-    from .account import process_account_data
+    from .account import process_account_data, process_media_bundles
     from .media import process_media_info
 
     json_output(1, "meta/post - p_t_posts - posts", posts)
@@ -127,6 +152,16 @@ def process_timeline_posts(
     accountMedia = posts["accountMedia"]
     for media in accountMedia:
         process_media_info(config, media)
+    if "accountMediaBundles" in posts:
+        # Get the account ID from the first post or media if available
+        account_id = None
+        if tl_posts:
+            account_id = tl_posts[0].get("accountId")
+        elif accountMedia:
+            account_id = accountMedia[0].get("accountId")
+
+        if account_id:
+            process_media_bundles(config, account_id, posts["accountMediaBundles"])
     accounts = posts["accounts"]
     for account in accounts:
         process_account_data(config, data=account)
@@ -135,51 +170,97 @@ def process_timeline_posts(
 
 def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
     """Process a single timeline post."""
-    post["createdAt"] = datetime.fromtimestamp((post["createdAt"]), timezone.utc)
-    post["expiresAt"] = (
-        datetime.fromtimestamp((post["expiresAt"] / 1000), timezone.utc)
-        if post.get("expiresAt")
-        else None
-    )
+    # Convert timestamps to datetime objects
+    date_fields = ("createdAt", "expiresAt")
+    for date_field in date_fields:
+        if date_field in post and post[date_field]:
+            post[date_field] = datetime.fromtimestamp(
+                (
+                    post[date_field] / 1000
+                    if post[date_field] > 1e10
+                    else post[date_field]
+                ),
+                timezone.utc,
+            )
     json_output(1, "meta/post - _p_t_p - post", post)
     post_columns = {column.name for column in inspect(Post).columns}
     filtered_post = {k: v for k, v in post.items() if k in post_columns}
     json_output(1, "meta/post - _p_t_p - filtered", filtered_post)
     with config._database.sync_session() as session:
-        existing_post = session.query(Post).get(filtered_post["id"])
-        if existing_post:
-            for key, value in filtered_post.items():
-                setattr(existing_post, key, value)
-        else:
-            session.add(Post(**filtered_post))
+        post_obj = session.query(Post).get(filtered_post["id"])
+        if not post_obj:
+            post_obj = Post(**filtered_post)
+            session.add(post_obj)
+
+        # Log any unknown attributes
+        unknown_attrs = {
+            k: v for k, v in filtered_post.items() if k not in post_columns
+        }
+        if unknown_attrs:
+            json_output(1, "meta/post - post_unknown_attributes", unknown_attrs)
+
+        # Update fields that have changed
+        for key, value in filtered_post.items():
+            if key in post_columns:
+                if getattr(post_obj, key) != value:
+                    setattr(post_obj, key, value)
+
         session.flush()
-        modified_post = session.query(Post).get(filtered_post["id"])
+
         if "attachments" in post:
             json_output(1, "meta/post - _p_t_p - attachments", post["attachments"])
-            for attachment in post["attachments"]:
-                attachment["postId"] = modified_post.id
+            for attachment_data in post["attachments"]:
+                attachment_data["postId"] = post_obj.id
+
                 # Convert contentType to enum
                 try:
-                    attachment["contentType"] = ContentType(attachment["contentType"])
+                    attachment_data["contentType"] = ContentType(
+                        attachment_data["contentType"]
+                    )
                 except ValueError:
-                    old_content_type = attachment["contentType"]
-                    attachment["contentType"] = None
+                    old_content_type = attachment_data["contentType"]
+                    attachment_data["contentType"] = None
                     json_output(
                         2,
                         f"meta/post - _p_t_p - invalid_content_type: {old_content_type}",
-                        attachment,
+                        attachment_data,
                     )
-                existing_attachment = (
+
+                # Query existing attachment
+                attachment = (
                     session.query(Attachment)
                     .filter_by(
-                        postId=modified_post.id, contentId=attachment["contentId"]
+                        postId=post_obj.id, contentId=attachment_data["contentId"]
                     )
                     .first()
                 )
-                if existing_attachment:
-                    for key, value in attachment.items():
-                        setattr(existing_attachment, key, value)
-                else:
-                    session.add(Attachment(**attachment))
+
+                if not attachment:
+                    attachment = Attachment(**attachment_data)
+                    session.add(attachment)
+
+                # Get valid column names for Attachment
+                attachment_columns = {
+                    column.name for column in inspect(Attachment).columns
+                }
+
+                # Log any unknown attributes
+                unknown_attrs = {
+                    k: v
+                    for k, v in attachment_data.items()
+                    if k not in attachment_columns
+                }
+                if unknown_attrs:
+                    json_output(
+                        1, "meta/post - attachment_unknown_attributes", unknown_attrs
+                    )
+
+                # Update fields that have changed
+                for key, value in attachment_data.items():
+                    if key in attachment_columns:
+                        if getattr(attachment, key) != value:
+                            setattr(attachment, key, value)
+
                 session.flush()
+
         session.commit()

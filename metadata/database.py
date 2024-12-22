@@ -1,3 +1,16 @@
+"""Database management module.
+
+This module provides database configuration, connection management, and migration
+handling for SQLite databases. It supports both synchronous and asynchronous
+operations, with proper connection pooling and event handling.
+
+The module includes:
+- Database configuration and initialization
+- Migration management through Alembic
+- Session management for database operations
+- Logging configuration for SQLAlchemy
+"""
+
 from __future__ import annotations
 
 import logging
@@ -38,8 +51,19 @@ sqlalchemy_logger.propagate = False
 
 
 def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> None:
-    """
-    Ensures the database is migrated to the latest schema using Alembic.
+    """Ensure the database is migrated to the latest schema using Alembic.
+
+    This function checks if migrations are needed and applies them if necessary.
+    It handles both initial migration setup and updates to the latest version.
+
+    Args:
+        database: Database instance to migrate
+        alembic_cfg: Alembic configuration for migrations
+
+    Note:
+        - Creates alembic_version table if it doesn't exist
+        - Runs all migrations if database is not initialized
+        - Updates to latest version if database already has migrations
     """
     if not database.db_file.exists():
         print_info(
@@ -72,6 +96,24 @@ def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> 
 
 
 class Database:
+    """Database management class.
+
+    This class handles database configuration, connection management, and session
+    creation. It provides both synchronous and asynchronous access to the database,
+    with proper connection pooling and event handling.
+
+    Attributes:
+        sync_engine: SQLAlchemy engine for synchronous operations
+        sync_session: Session factory for synchronous operations
+        db_file: Path to the SQLite database file
+        config: FanslyConfig instance containing database configuration
+
+    Note:
+        - Uses SQLite with proper type detection and thread safety
+        - Configures connection pooling and event listeners
+        - Provides context managers for session management
+    """
+
     sync_engine: Engine
     sync_session: sessionmaker[Session]
     db_file: Path

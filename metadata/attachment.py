@@ -17,6 +17,18 @@ if TYPE_CHECKING:
 
 
 class ContentType(Enum):
+    """Content types for attachments.
+
+    Defines the possible types of content that can be attached to posts or messages.
+    Each type corresponds to a specific kind of content in the system.
+
+    Attributes:
+        ACCOUNT_MEDIA: Individual media item
+        ACCOUNT_MEDIA_BUNDLE: Collection of media items
+        STORY: Story content
+        POLL: Poll content
+    """
+
     ACCOUNT_MEDIA = 1
     ACCOUNT_MEDIA_BUNDLE = 2
     STORY = 32001
@@ -24,6 +36,27 @@ class ContentType(Enum):
 
 
 class Attachment(Base):
+    """Represents an attachment to a post or message.
+
+    This class handles attachments to posts and messages, maintaining their order
+    and content type. Each attachment can reference different types of content
+    (media, bundles, etc.) and is ordered within its parent through the pos field.
+
+    Attributes:
+        id: Unique identifier for the attachment
+        postId: ID of the post this attachment belongs to (if any)
+        messageId: ID of the message this attachment belongs to (if any)
+        contentId: ID of the referenced content
+        pos: Position/order of this attachment within its parent
+        contentType: Type of the referenced content (from ContentType enum)
+        post: Relationship to the parent Post (if any)
+        message: Relationship to the parent Message (if any)
+
+    Note:
+        An attachment can only belong to either a post or a message, not both.
+        This is enforced by the check_post_or_message_exclusivity constraint.
+    """
+
     __tablename__ = "attachments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

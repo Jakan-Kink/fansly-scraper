@@ -1,4 +1,34 @@
-"""Metadata database processing."""
+"""Metadata database processing and management.
+
+This package provides a comprehensive system for managing and processing metadata
+related to social media content. It includes:
+
+Models:
+    - Account: User account information and relationships
+    - Media: Media items (images, videos) with variants
+    - Post: User posts and their attachments
+    - Wall: Content organization and display
+    - Message: Direct and group messaging
+
+Features:
+    - SQLAlchemy ORM models with proper relationships
+    - Migration management through Alembic
+    - Async and sync database operations
+    - Comprehensive logging with rotation
+    - Content processing and organization
+
+Usage:
+    from metadata import Database, Account, Media
+
+    # Initialize database
+    db = Database(config)
+
+    # Process account data
+    process_account_data(config, account_data)
+
+    # Handle media content
+    process_media_info(config, media_data)
+"""
 
 from .base import Base  # isort:skip
 from .account import (

@@ -128,7 +128,8 @@ def perform_update(program_version: str, release_info: dict) -> bool:
 
     # # If current environment is pure Python prompt user to update Fansly Downloader NG themselves
     # if not getattr(sys, 'frozen', False):
-    #     print_warning(f"To update Fansly Downloader, please download the latest version from the GitHub repository.\n{20*' '}Only executable versions of the downloader receive & apply updates automatically.\n")
+    #     print_warning(f"To update Fansly Downloader, please download the latest version from the GitHub repository.
+    #     {20*' '}Only executable versions of the downloader receive & apply updates automatically.\n")
     #     # but we don't care if user updates or just wants to see this prompt on every execution further on
     #     return False
 
@@ -189,7 +190,7 @@ def perform_update(program_version: str, release_info: dict) -> bool:
     #     current_platform = platform.system()
 
     #     if current_platform == 'Windows':
-    #         # i'm open for improvement suggestions, which will be insensitive to file paths & succeed passing start arguments to compiled executables
+    #         i'm open for improvement suggestions, which will be insensitive to file paths & succeed passing start arguments to compiled executables
     #         subprocess.run(['powershell', '-Command', f"Start-Process -FilePath '{current_binary}' -ArgumentList {', '.join(arguments)}"], shell=True)
 
     #     elif current_platform == 'Linux':

@@ -48,6 +48,14 @@ types-setuptools = "^75.6.0.20241126"
 types-pillow = "^10.2.0"
 memory-profiler = "^0.61.0"
 
+[tool.poetry.group.test.dependencies]
+pytest = "^7.4.4"
+pytest-cov = "^4.1.0"
+pytest-asyncio = "^0.23.3"
+pytest-xdist = "^3.5.0"  # For parallel test execution
+pytest-timeout = "^2.2.0"  # For test timeouts
+pytest-randomly = "^3.15.0"  # For random test ordering
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
@@ -64,6 +72,7 @@ skips = [
     'B605',
     'B606',
     'B607',
+    'B608',
 ]
 
 [tool.black]
@@ -84,3 +93,33 @@ namespace-packages = true
 
 [tool.isort]
 profile = "black"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = """
+    --strict-markers
+    --strict-config
+    --tb=short
+    --cov=metadata
+    --cov-report=term-missing
+    --cov-report=html
+    --randomly-seed=1234
+    -n auto
+    --dist loadfile
+    --timeout=300
+"""
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+xfail_strict = true
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]

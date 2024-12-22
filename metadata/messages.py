@@ -15,12 +15,26 @@ from .base import Base
 
 if TYPE_CHECKING:
     from config import FanslyConfig
+    from download.core import DownloadState
 
     from .account import Account
     from .attachment import Attachment
 
 
 class Group(Base):
+    """Represents a message group or conversation with multiple users.
+
+    This class handles group messaging functionality, tracking participants and messages.
+    Groups can have multiple users and maintain a reference to their last message.
+
+    Attributes:
+        id: Unique identifier for the group
+        createdBy: ID of the account that created this group
+        users: Set of Account objects representing group members
+        messages: List of Message objects in this group
+        lastMessageId: ID of the most recent message in the group
+    """
+
     __tablename__ = "groups"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     createdBy: Mapped[int] = mapped_column(
@@ -46,6 +60,25 @@ group_users = Table(
 
 
 class Message(Base):
+    """Represents a message in a conversation or group.
+
+    This class handles both direct messages between users and messages in groups.
+    Messages can have attachments and maintain metadata about their status.
+
+    Attributes:
+        id: Unique identifier for the message
+        groupId: ID of the group this message belongs to (if any)
+        senderId: ID of the account that sent this message
+        recipientId: ID of the account this message was sent to (for direct messages)
+        content: Text content of the message
+        createdAt: When this message was sent
+        deletedAt: When this message was deleted (if applicable)
+        deleted: Whether this message is marked as deleted
+        attachments: List of Attachment objects associated with this message
+        sender: Relationship to the Account that sent this message
+        recipient: Relationship to the Account that received this message (for direct messages)
+    """
+
     __tablename__ = "messages"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     groupId: Mapped[int | None] = mapped_column(
@@ -64,26 +97,63 @@ class Message(Base):
     )
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     attachments: Mapped[list[Attachment]] = relationship(
-        "Attachment", back_populates="message", cascade="all, delete-orphan"
+        "Attachment",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        order_by="Attachment.pos",  # Order attachments by position
     )
     sender: Mapped[Account] = relationship("Account", foreign_keys=[senderId])
     recipient: Mapped[Account] = relationship("Account", foreign_keys=[recipientId])
 
 
-def process_messages_metadata(config: FanslyConfig, state, messages: list[dict]):
+def process_messages_metadata(
+    config: FanslyConfig, state: DownloadState, messages: list[dict[str, any]]
+) -> None:
+    """Process message metadata and store in the database.
+
+    Processes a list of messages, creating or updating message records and their
+    attachments. Handles message timestamps and content relationships.
+
+    Args:
+        config: FanslyConfig instance for database access
+        state: Current download state
+        messages: List of message data dictionaries
+    """
+    from .account import process_media_bundles
     from .attachment import Attachment, ContentType
 
     message_columns = {column.name for column in inspect(Message).columns}
+
     with config._database.sync_session() as session:
+        # Process any media bundles if present
+        if "accountMediaBundles" in messages:
+            # Try to get account ID from the first message
+            account_id = None
+            if messages.get("messages"):
+                first_message = messages["messages"][0]
+                account_id = first_message.get("senderId") or first_message.get(
+                    "recipientId"
+                )
+
+            if account_id:
+                process_media_bundles(
+                    config, account_id, messages["accountMediaBundles"], session
+                )
+        session.commit()
+
         for message in messages:
-            message["createdAt"] = datetime.fromtimestamp(
-                message["createdAt"], tz=timezone.utc
-            )
-            message["deletedAt"] = (
-                datetime.fromtimestamp(message["deletedAt"], tz=timezone.utc)
-                if message.get("deletedAt")
-                else None
-            )
+            # Convert timestamps to datetime objects
+            date_fields = ("createdAt", "deletedAt")
+            for date_field in date_fields:
+                if date_field in message and message[date_field]:
+                    message[date_field] = datetime.fromtimestamp(
+                        (
+                            message[date_field] / 1000
+                            if message[date_field] > 1e10
+                            else message[date_field]
+                        ),
+                        tz=timezone.utc,
+                    )
             filtered_message = {
                 key: message[key] for key in message if key in message_columns
             }
@@ -144,7 +214,19 @@ def process_messages_metadata(config: FanslyConfig, state, messages: list[dict])
         session.commit()
 
 
-def process_groups_response(config: FanslyConfig, state, response: dict):
+def process_groups_response(
+    config: FanslyConfig, state: DownloadState, response: dict[str, any]
+) -> None:
+    """Process group messaging response data.
+
+    Processes group messaging data, creating or updating groups and their
+    relationships with users. Also handles aggregated data like accounts.
+
+    Args:
+        config: FanslyConfig instance for database access
+        state: Current download state
+        response: Response data containing groups and aggregated data
+    """
     from .account import process_account_data
 
     group_columns = {column.name for column in inspect(Group).columns}
