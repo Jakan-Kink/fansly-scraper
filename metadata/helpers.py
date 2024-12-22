@@ -93,7 +93,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             last_modified_time = file_stat.st_mtime
             current_time = time.time()
             if self.utc:
-                current_time = time.mktime(datetime.utcnow().timetuple())
+                current_time = datetime.now(timezone.utc).timestamp()
 
             # Check if the file exceeds the time interval
             if current_time - last_modified_time >= self.interval:

@@ -217,7 +217,7 @@ class AccountMedia(Base):
     __tablename__ = "account_media"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), primary_key=True
+        Integer, ForeignKey("accounts.id"), primary_key=True, index=True
     )
     account: Mapped[Account] = relationship("Account", back_populates="accountMedia")
     mediaId: Mapped[int] = mapped_column(
@@ -495,6 +495,7 @@ def process_media_bundles(
             # Process bundle preview if it exists
             if "preview" in bundle:
                 preview = bundle["preview"]
+                bundle.pop("preview")  # Remove preview from bundle data
                 if (
                     not isinstance(preview, (dict, str))
                     or isinstance(preview, str)
@@ -521,15 +522,49 @@ def process_media_bundles(
             bundle_columns = {
                 column.name for column in inspect(AccountMediaBundle).columns
             }
+            # Process bundleContent if present
+            if "bundleContent" in bundle:
+                for content in bundle["bundleContent"]:
+                    try:
+                        media_id = int(content["accountMediaId"])
+                        session.execute(
+                            account_media_bundle_media.insert()
+                            .prefix_with("OR IGNORE")
+                            .values(
+                                bundle_id=bundle["id"],
+                                media_id=media_id,
+                                pos=content["pos"],
+                            )
+                        )
+                        session.flush()
+                    except (ValueError, KeyError) as e:
+                        json_output(
+                            2,
+                            "meta/account - invalid_bundle_content",
+                            {
+                                "error": str(e),
+                                "content": content,
+                                "bundle_id": bundle["id"],
+                            },
+                        )
+                        continue
+            bundle.pop("bundleContent", None)  # Remove bundleContent from bundle data
 
             # Known attributes that are handled separately
-            known_bundle_relations = {"accountMediaIds", "preview"}
+            known_bundle_relations = {"accountMediaIds"}
+            known_exclude_attrs = {
+                "permissionFlags",
+                "permissions",
+                "accountPermissionFlags",
+            }
 
             # Log truly unknown attributes
             unknown_attrs = {
                 k: v
                 for k, v in bundle.items()
-                if k not in bundle_columns and k not in known_bundle_relations
+                if k not in bundle_columns
+                and k not in known_bundle_relations
+                and k not in known_exclude_attrs
             }
             if unknown_attrs:
                 json_output(
@@ -565,16 +600,33 @@ def process_media_bundles(
                 for pos, media_item in enumerate(bundle["accountMediaIds"]):
                     # Handle string media IDs
                     if isinstance(media_item, str):
-                        media_id = media_item
-                        json_output(
-                            2,
-                            "meta/account - string_media_id",
-                            {
-                                "bundle_id": bundle["id"],
-                                "media_id": media_id,
-                                "pos": pos,
-                            },
-                        )
+                        if media_item.isdigit():
+                            try:
+                                media_id = int(media_item)
+                                if not (-(2**63) <= media_id <= 2**63 - 1):
+                                    json_output(
+                                        2,
+                                        "meta/account - media_id_out_of_range",
+                                        {
+                                            "media_id": media_id,
+                                            "bundle_id": bundle["id"],
+                                        },
+                                    )
+                                    continue
+                            except ValueError:
+                                json_output(
+                                    2,
+                                    "meta/account - invalid_media_id",
+                                    {"media_id": media_item, "bundle_id": bundle["id"]},
+                                )
+                                continue
+                        else:
+                            json_output(
+                                2,
+                                "meta/account - non_numeric_media_id",
+                                {"media_id": media_item, "bundle_id": bundle["id"]},
+                            )
+                        continue
                     else:
                         if not isinstance(media_item, dict):
                             json_output(
