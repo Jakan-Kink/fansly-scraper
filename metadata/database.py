@@ -35,7 +35,7 @@ sqlalchemy_logger = logging.getLogger("sqlalchemy.engine")
 sqlalchemy_logger.setLevel(logging.INFO)
 time_handler = SizeAndTimeRotatingFileHandler(
     "sqlalchemy.log",
-    maxBytes=150 * 1024 * 1024,  # 100MB
+    maxBytes=50 * 1000 * 1000,  # 50MB
     when="h",  # Hourly rotation
     interval=2,  # Rotate every 2 hours
     backupCount=20,  # Keep 5 backups
