@@ -96,17 +96,6 @@ def print_statistics_helper(state: GlobalState, header: str, footer: str = "") -
         f"\n{74 * ' '}═╝"
     )
 
-    # Print file download statistics if available
-    if hasattr(state, "download_stats"):
-        stats = state.download_stats
-        print_info(
-            f"\nFile download statistics:"
-            f"\n{20 * ' '}Total files processed: {stats['total_count']}"
-            f"\n{20 * ' '}Files skipped: {stats['skipped_count']}"
-            f"\n{20 * ' '}Files failed: {stats['failed_count']}"
-            f"\n{20 * ' '}Total size: {stats['total_size_str']} ({stats['total_size']:,} bytes)"
-        )
-
 
 def print_statistics(config: FanslyConfig, state: DownloadState) -> None:
     """Print statistics for a single creator.
