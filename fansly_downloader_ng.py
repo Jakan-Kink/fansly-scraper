@@ -34,6 +34,7 @@ from download.core import (
 from download.statistics import (
     print_global_statistics,
     print_statistics,
+    print_timing_statistics,
     update_global_statistics,
 )
 from errors import (
@@ -51,7 +52,6 @@ from errors import (
 )
 from fileio.dedupe import dedupe_init
 from helpers.common import open_location
-from helpers.stats import print_timing_statistics
 from helpers.timer import Timer
 from pathio import delete_temporary_pyinstaller_files
 from textio import (

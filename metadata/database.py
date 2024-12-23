@@ -25,8 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
-from helpers.logging import SizeAndTimeRotatingFileHandler
-from textio import print_error, print_info
+from textio import SizeAndTimeRotatingFileHandler, print_error, print_info
 
 if TYPE_CHECKING:
     from config import FanslyConfig

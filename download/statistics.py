@@ -1,7 +1,7 @@
 """Download Statistics Module
 
 This module handles both content statistics (pictures, videos, etc.) and file download
-statistics (total files, sizes, etc.).
+statistics (total files, sizes, etc.), as well as timing statistics.
 """
 
 from datetime import datetime, timezone
@@ -9,7 +9,18 @@ from time import sleep
 
 from config import FanslyConfig
 from download.core import DownloadState, GlobalState
+from helpers.timer import Timer
 from textio import print_info
+
+
+def print_timing_statistics(timer: Timer) -> None:
+    """Prints timing statistics.
+
+    :param timer: The timer object to print statistics for.
+    :type timer: Timer
+    """
+    print_info(f"Total time elapsed: {timer.get_elapsed_time_str()}")
+    print_info(Timer.get_all_timers_str())
 
 
 def update_global_statistics(

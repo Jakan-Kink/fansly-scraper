@@ -1,22 +1,29 @@
-"""Helper utilities for metadata handling.
+"""Logging Module
 
-This module provides utility classes and functions for metadata operations,
-particularly focusing on log file management and rotation. It includes advanced
-logging handlers that support both size and time-based rotation with compression.
+This module provides custom logging handlers and utilities for advanced log management.
+It includes handlers for both standard Python logging and loguru, with support for
+size and time-based rotation, compression, and custom formatting.
 
 Features:
 - Combined size and time-based log rotation
 - Multiple compression formats (gz, 7z, lzha)
 - UTC time support
 - Configurable backup count and intervals
+- Loguru integration with custom handlers
+- Interception of standard logging
 """
 
 import gzip
+import logging
 import os
 import shutil
+import sys
 import time
 from datetime import datetime, timezone
 from logging.handlers import BaseRotatingHandler
+from typing import Any
+
+from loguru import logger
 
 
 class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
@@ -34,11 +41,14 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         interval: Time interval between rotations in seconds
         rolloverAt: Timestamp for next scheduled rotation
         when: Time unit for rotation ('s', 'm', 'h', 'd', 'w')
+        keep_uncompressed: Number of most recent backup files to keep uncompressed
 
     Note:
         - Rotation occurs if either size or time threshold is exceeded
         - Compressed files are automatically cleaned up
         - UTC time support for consistent rotation across timezones
+        - Files are kept uncompressed based on their recency (e.g., keep_uncompressed=2
+          keeps log.1 and log.2 uncompressed while compressing older files)
     """
 
     def __init__(
@@ -52,6 +62,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         compression=None,
         encoding=None,
         delay=False,
+        keep_uncompressed=0,
     ):
         super().__init__(filename, mode="a", encoding=encoding, delay=delay)
         self.maxBytes = maxBytes
@@ -60,6 +71,9 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         if compression and compression not in ["gz", "7z", "lzha"]:
             raise ValueError(f"Unsupported compression type: {compression}")
         self.compression = compression  # Compression type (e.g., 'gz', '7z')
+        self.keep_uncompressed = (
+            keep_uncompressed  # Number of uncompressed files to keep
+        )
         self.interval = self._compute_interval(when, interval)
         self.rolloverAt = self._compute_next_rollover()
         self.when = when
@@ -195,6 +209,16 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         if not os.path.exists(filepath):
             return
 
+        # Extract the file number from the filepath (e.g., "log.1" -> 1)
+        try:
+            file_num = int(filepath.split(".")[-1])
+        except ValueError:
+            file_num = 0
+
+        # Skip compression if this file should be kept uncompressed
+        if self.keep_uncompressed > 0 and file_num <= self.keep_uncompressed:
+            return
+
         if self.compression == "gz":
             compressed_path = f"{filepath}.gz"
             try:
@@ -234,3 +258,115 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
                 raise e
         else:
             raise ValueError(f"Unsupported compression type: {self.compression}")
+
+
+class InterceptHandler(logging.Handler):
+    """Intercepts standard logging and redirects to loguru."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
+
+
+class SizeTimeRotatingHandler:
+    """A loguru-compatible handler that uses SizeAndTimeRotatingFileHandler.
+
+    This handler provides both size and time-based rotation with the ability
+    to keep N most recent files uncompressed while compressing older files.
+    """
+
+    def __init__(
+        self,
+        filename: str,
+        max_bytes: int = 0,
+        backup_count: int = 5,
+        when: str = "h",
+        interval: int = 1,
+        utc: bool = False,
+        compression: str = "gz",
+        keep_uncompressed: int = 0,
+        encoding: str = "utf-8",
+    ):
+        """Initialize the handler.
+
+        Args:
+            filename: Base name of the log file
+            max_bytes: Max size of each log file before rotation
+            backup_count: Total number of backup files to keep
+            when: Rotation interval unit ('s', 'm', 'h', 'd', 'w')
+            interval: Number of units between rotations
+            utc: Use UTC time for rotation timing
+            compression: Compression format ('gz', '7z', 'lzha')
+            keep_uncompressed: Number of recent files to keep uncompressed
+            encoding: File encoding
+        """
+        self.handler = SizeAndTimeRotatingFileHandler(
+            filename=filename,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            when=when,
+            interval=interval,
+            utc=utc,
+            compression=compression,
+            keep_uncompressed=keep_uncompressed,
+            encoding=encoding,
+        )
+        self.formatter = logging.Formatter(
+            fmt="%(message)s",
+            datefmt=None,
+        )
+        self.handler.setFormatter(self.formatter)
+        self.levelno = logging.INFO
+
+    def write(self, message: str | dict[str, Any]) -> None:
+        """Write a log record.
+
+        Args:
+            message: The log record as a string or dict from loguru
+        """
+        try:
+            if isinstance(message, dict):
+                # Handle dict format from loguru
+                record = logging.LogRecord(
+                    name=message["name"],
+                    level=message["level"].no,
+                    pathname=message["file"].path,
+                    lineno=message["line"],
+                    msg=message["message"],
+                    args=(),
+                    exc_info=message["exception"],
+                    func=message["function"],
+                )
+            else:
+                # Handle string format
+                record = logging.LogRecord(
+                    name=__name__,
+                    level=self.levelno,
+                    pathname="",
+                    lineno=0,
+                    msg=str(message),
+                    args=(),
+                    exc_info=None,
+                    func=None,
+                )
+            self.handler.emit(record)
+        except Exception as e:
+            print(f"Error in SizeTimeRotatingHandler: {e}", file=sys.stderr)
+
+    def stop(self) -> None:
+        """Close the handler."""
+        try:
+            self.handler.close()
+        except Exception as e:
+            print(f"Error closing handler: {e}", file=sys.stderr)

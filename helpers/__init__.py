@@ -8,8 +8,6 @@ from .common import (
     open_location,
 )
 from .ffmpeg import get_ffmpeg_bin, run_ffmpeg
-from .logging import SizeAndTimeRotatingFileHandler
-from .stats import print_timing_statistics
 from .timer import Timer, TimerError
 from .web import (
     get_file_name_from_url,
@@ -24,7 +22,6 @@ from .web import (
 __all__ = [
     "Timer",
     "TimerError",
-    "SizeAndTimeRotatingFileHandler",
     "batch_list",
     "get_ffmpeg_bin",
     "get_file_name_from_url",
@@ -38,7 +35,6 @@ __all__ = [
     "open_get_started_url",
     "open_location",
     "open_url",
-    "print_timing_statistics",
     "run_ffmpeg",
     "split_url",
 ]

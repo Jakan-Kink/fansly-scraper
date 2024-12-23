@@ -10,6 +10,8 @@ from time import sleep
 
 from loguru import logger
 
+from .logging import SizeTimeRotatingHandler
+
 LOG_FILE_NAME: str = "fansly_downloader_ng.log"
 JSON_FILE_NAME: str = "fansly_downloader_ng_json.log"
 
@@ -66,13 +68,21 @@ def json_output(level: int, log_type: str, message: str) -> None:
 
     logger.remove()
 
-    logger.add(
-        Path.cwd() / JSON_FILE_NAME,
+    # Use our custom handler for JSON logs with size and time rotation
+    json_handler = SizeTimeRotatingHandler(
+        filename=str(Path.cwd() / JSON_FILE_NAME),
+        max_bytes=50 * 1024 * 1024,  # 50MB
+        backup_count=20,  # Keep 20 files total
+        when="h",
+        interval=2,  # Rotate every 2 hours if needed
+        compression="gz",
+        keep_uncompressed=3,  # Keep last 3 files uncompressed
         encoding="utf-8",
+    )
+    logger.add(
+        json_handler.write,
         format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]:\n{message}",
         level=log_type,
-        rotation="100MB",
-        retention=5,
         filter=lambda record: record["extra"].get("json", False),
         backtrace=False,
         diagnose=False,

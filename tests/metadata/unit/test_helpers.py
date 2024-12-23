@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from unittest import TestCase
 
-from helpers.logging import SizeAndTimeRotatingFileHandler
+from textio.logging import SizeAndTimeRotatingFileHandler
 
 
 class TestSizeAndTimeRotatingFileHandler(TestCase):
