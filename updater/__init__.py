@@ -1,9 +1,8 @@
 """Self-Updating Functionality"""
 
-from config import FanslyConfig, copy_old_config_values
+from config import FanslyConfig, copy_old_config_values, save_config_or_raise
+from helpers.web import get_release_info_from_github
 from textio import print_warning
-from utils.common import save_config_or_raise
-from utils.web import get_release_info_from_github
 
 from .utils import check_for_update, delete_deprecated_files, post_update_steps
 

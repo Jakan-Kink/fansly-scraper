@@ -20,6 +20,19 @@ authors = [
 # ]
 license = "GPL-3.0-only"
 readme = "README.md"
+packages = [
+    { include = "api" },
+    { include = "config" },
+    { include = "download" },
+    { include = "errors"},
+    { include = "fileio" },
+    { include = "helpers" },
+    { include = "media" },
+    { include = "metadata" },
+    { include = "pathio"},
+    { include = "textio" },
+    { include = "updater" },
+]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.14"
@@ -60,19 +73,24 @@ pytest-randomly = "^3.15.0"  # For random test ordering
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
+
+
 [tool.bandit]
+# Exclude test files
+exclude_dirs = ["tests"]
+# Skip specific checks
 skips = [
-    'B110',
-    'B113',
-    'B311',
-    'B404',
-    'B601',
-    'B602',
-    'B603',
-    'B605',
-    'B606',
-    'B607',
-    'B608',
+    'B110',  # try-except-pass
+    'B113',  # request-without-timeout
+    'B311',  # random
+    'B404',  # import-subprocess
+    'B601',  # paramiko
+    'B602',  # subprocess-popen-with-shell-equals-true
+    'B603',  # subprocess-without-shell-equals-true
+    'B605',  # start-process-with-partial-path
+    'B606',  # start-process-with-no-shell
+    'B607',  # start-process-with-partial-path
+    'B608',  # hardcoded-sql-expressions
 ]
 
 [tool.black]

@@ -80,14 +80,14 @@ class TestWall(TestCase):
     def test_process_account_walls(self):
         """Test processing walls data for an account."""
         config_mock = MagicMock()
+        config_mock._database = MagicMock()
+        config_mock._database.sync_session = self.Session
         walls_data = [
             {"id": 1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
             {"id": 2, "pos": 2, "name": "Wall 2", "description": "Description 2"},
         ]
 
-        with patch("metadata.wall.config._database.sync_session") as mock_session:
-            mock_session.return_value.__enter__.return_value = self.session
-            process_account_walls(config_mock, self.account, walls_data)
+        process_account_walls(config_mock, self.account, walls_data)
 
         # Verify walls were created
         walls = self.session.query(Wall).order_by(Wall.pos).all()
@@ -106,14 +106,14 @@ class TestWall(TestCase):
 
         # Process new walls data (missing one wall)
         config_mock = MagicMock()
+        config_mock._database = MagicMock()
+        config_mock._database.sync_session = self.Session
         new_walls_data = [
             {"id": 1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
             {"id": 3, "pos": 2, "name": "Wall 3", "description": "Description 3"},
         ]
 
-        with patch("metadata.wall.config._database.sync_session") as mock_session:
-            mock_session.return_value.__enter__.return_value = self.session
-            process_account_walls(config_mock, self.account, new_walls_data)
+        process_account_walls(config_mock, self.account, new_walls_data)
 
         # Verify wall 2 was removed
         remaining_walls = self.session.query(Wall).order_by(Wall.pos).all()
@@ -144,12 +144,13 @@ class TestWall(TestCase):
                 },
             ],
             "accounts": [{"id": 1, "username": "test_user"}],
+            "accountMedia": [],
         }
 
         config_mock = MagicMock()
-        with patch("metadata.wall.config._database.sync_session") as mock_session:
-            mock_session.return_value.__enter__.return_value = self.session
-            process_wall_posts(config_mock, None, wall.id, posts_data)
+        config_mock._database = MagicMock()
+        config_mock._database.sync_session = self.Session
+        process_wall_posts(config_mock, None, wall.id, posts_data)
 
         # Verify posts were associated with wall
         saved_wall = self.session.query(Wall).first()

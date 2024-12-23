@@ -17,6 +17,7 @@ from metadata.account import (
     process_account_data,
 )
 from metadata.base import Base
+from metadata.database import Database
 from metadata.media import Media
 
 
@@ -33,14 +34,16 @@ class TestAccountProcessing(TestCase):
 
         # Load test data
         cls.test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
-        with open(os.path.join(cls.test_data_dir, "timeline-trainingJ.json")) as f:
+        with open(os.path.join(cls.test_data_dir, "timeline-sample-account.json")) as f:
             cls.timeline_data = json.load(f)
 
     def setUp(self):
         """Set up fresh session and config for each test."""
         self.session: Session = self.Session()
         self.config = FanslyConfig(program_version="0.10.0")
-        self.config._database.engine = self.engine
+        self.config.metadata_db_file = ":memory:"
+        self.config._database = Database(self.config)
+        self.config._database.sync_engine = self.engine
 
     def tearDown(self):
         """Clean up after each test."""

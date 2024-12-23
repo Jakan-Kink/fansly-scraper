@@ -15,7 +15,7 @@ import requests
 from requests import Response
 from websockets import client as ws_client
 
-from utils.web import get_flat_qs_dict, split_url
+from helpers.web import get_flat_qs_dict, split_url
 
 
 class FanslyApi:

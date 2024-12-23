@@ -9,13 +9,17 @@ from requests.exceptions import RequestException
 
 from config.modes import DownloadMode
 from errors import ConfigError
+from helpers.browser import open_get_started_url
+from helpers.web import guess_check_key, guess_user_agent
 from pathio.pathio import ask_correct_dir
 from textio import print_config, print_error, print_info, print_warning
 from textio.textio import input_enter_continue
-from utils.common import save_config_or_raise
-from utils.web import guess_check_key, guess_user_agent, open_get_started_url
 
-from .config import username_has_valid_chars, username_has_valid_length
+from .config import (
+    save_config_or_raise,
+    username_has_valid_chars,
+    username_has_valid_length,
+)
 from .fanslyconfig import FanslyConfig
 
 

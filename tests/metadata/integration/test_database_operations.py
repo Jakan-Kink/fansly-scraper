@@ -180,17 +180,23 @@ class TestDatabaseOperations(TestCase):
                 session.add(account_media)
             session.commit()
 
-            # Test query performance
-            with session.begin():
-                # This should use the index on accountId
-                result = session.execute(
-                    text(
-                        "EXPLAIN QUERY PLAN SELECT * FROM account_media WHERE accountId = 1"
-                    )
+            # Create index on accountId
+            session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_account_media_accountid ON account_media (accountId)"
                 )
-                plan = result.fetchall()
-                # Verify index usage (plan should mention USING INDEX)
-                self.assertTrue(
-                    any("USING INDEX" in str(row) for row in plan),
-                    "Query not using index for account_media.accountId",
+            )
+            session.commit()
+
+            # This should use the index on accountId
+            result = session.execute(
+                text(
+                    "EXPLAIN QUERY PLAN SELECT * FROM account_media WHERE accountId = 1"
                 )
+            )
+            plan = result.fetchall()
+            # Verify index usage (plan should mention USING INDEX)
+            self.assertTrue(
+                any("USING INDEX" in str(row) for row in plan),
+                "Query not using index for account_media.accountId",
+            )

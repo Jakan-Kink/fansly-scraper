@@ -5,14 +5,10 @@ from functools import partial
 from pathlib import Path
 
 from errors import ConfigError
+from helpers.common import get_post_id_from_request, is_valid_post_id
 from textio import print_debug, print_warning
-from utils.common import (
-    get_post_id_from_request,
-    is_valid_post_id,
-    save_config_or_raise,
-)
 
-from .config import parse_items_from_line, sanitize_creator_names
+from .config import parse_items_from_line, sanitize_creator_names, save_config_or_raise
 from .fanslyconfig import FanslyConfig
 from .metadatahandling import MetadataHandling
 from .modes import DownloadMode

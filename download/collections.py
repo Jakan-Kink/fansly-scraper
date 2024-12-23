@@ -1,8 +1,8 @@
 """Download Fansly Collections"""
 
 from config import FanslyConfig
+from helpers.common import batch_list
 from textio import input_enter_continue, json_output, print_error, print_info
-from utils.common import batch_list
 
 from .common import process_download_accessible_media
 from .downloadstate import DownloadState

@@ -4,8 +4,7 @@ import platform
 import re
 import traceback
 from collections import OrderedDict, namedtuple
-from time import sleep
-from typing import Any, NamedTuple
+from typing import NamedTuple
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -31,7 +30,7 @@ def get_file_name_from_url(url: str) -> str:
     return last_part
 
 
-def get_qs_value(url: str, key: str, default: Any = None) -> Any:
+def get_qs_value(url: str, key: str, default: str | None = None) -> str | None:
     """Returns the value of a specific key of an URL query string.
 
     :param url: The URL to parse for a query string.
@@ -43,10 +42,10 @@ def get_qs_value(url: str, key: str, default: Any = None) -> Any:
 
     :param default: The default value to return if the
         key was not found.
-    :type default: Any
+    :type default: Optional[str]
 
     :return: The value of `key` in the query string or `default` otherwise.
-    :rtype: Any
+    :rtype: Optional[str]
     """
     parsed_url = urlparse(url)
     qs = parsed_url.query
@@ -115,28 +114,6 @@ def split_url(url: str) -> NamedTuple:
     SplitURL = namedtuple("SplitURL", ["base_url", "file_url"])
 
     return SplitURL(base_url, file_url)
-
-
-# mostly used to attempt to open fansly downloaders documentation
-def open_url(url_to_open: str) -> None:
-    """Opens an URL in a browser window.
-
-    :param url_to_open: The URL to open in the browser.
-    :type url_to_open: str
-    """
-    sleep(10)
-
-    try:
-        import webbrowser
-
-        webbrowser.open(url_to_open, new=0, autoraise=True)
-
-    except Exception:
-        pass
-
-
-def open_get_started_url() -> None:
-    open_url("https://github.com/prof79/fansly-downloader-ng/wiki/Getting-Started")
 
 
 def guess_check_key(

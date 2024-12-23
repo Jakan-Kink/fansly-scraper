@@ -147,9 +147,9 @@ class TestMessages(TestCase):
             }
         ]
 
-        with patch("metadata.messages.config._database.sync_session") as mock_session:
-            mock_session.return_value.__enter__.return_value = self.session
-            process_messages_metadata(config_mock, None, messages_data)
+        config_mock._database = MagicMock()
+        config_mock._database.sync_session = self.Session
+        process_messages_metadata(config_mock, None, messages_data)
 
         saved_message = self.session.query(Message).first()
         self.assertEqual(saved_message.content, "Test message")

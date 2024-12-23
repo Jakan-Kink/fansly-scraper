@@ -25,9 +25,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
+from helpers.logging import SizeAndTimeRotatingFileHandler
 from textio import print_error, print_info
-
-from .helpers import SizeAndTimeRotatingFileHandler
 
 if TYPE_CHECKING:
     from config import FanslyConfig
@@ -147,7 +146,20 @@ class Database:
 
             @event.listens_for(engine, "connect")
             def do_connect(dbapi_connection, connection_record):
+                # Set isolation level to None for explicit transaction control
                 dbapi_connection.isolation_level = None
+
+                # Temporarily disable foreign key support while fixing relationship handling
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=OFF")
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.close()
+
+                # TODO: Re-enable foreign keys after fixing:
+                # 1. Scraping user's account creation
+                # 2. Order of relationship creation (ensure referenced entities exist)
+                # 3. Proper error handling for missing relationships
+                # cursor.execute("PRAGMA foreign_keys=ON")
 
             @event.listens_for(engine, "begin")
             def do_begin(conn):

@@ -53,15 +53,17 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         encoding=None,
         delay=False,
     ):
+        super().__init__(filename, mode="a", encoding=encoding, delay=delay)
         self.maxBytes = maxBytes
         self.backupCount = backupCount
         self.utc = utc
+        if compression and compression not in ["gz", "7z", "lzha"]:
+            raise ValueError(f"Unsupported compression type: {compression}")
         self.compression = compression  # Compression type (e.g., 'gz', '7z')
         self.interval = self._compute_interval(when, interval)
         self.rolloverAt = self._compute_next_rollover()
         self.when = when
         self._check_rollover_on_init(filename)
-        super().__init__(filename, mode="a", encoding=encoding, delay=delay)
 
     def _compute_interval(self, when, interval):
         intervals = {
@@ -97,11 +99,11 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
             # Check if the file exceeds the time interval
             if current_time - last_modified_time >= self.interval:
-                self._perform_initial_rollover(filename)
+                self.doRollover()
 
             # Check if the file exceeds the size limit
             elif self.maxBytes > 0 and file_stat.st_size >= self.maxBytes:
-                self._perform_initial_rollover(filename)
+                self.doRollover()
         else:
             # If the file doesn't exist, set the next rollover time
             self.rolloverAt = self._compute_next_rollover()
@@ -134,8 +136,9 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         if self.stream is None:  # Open the stream if not already open
             self.stream = self._open()
         if self.maxBytes > 0:  # Size-based rollover
+            msg = self.format(record)
             self.stream.seek(0, os.SEEK_END)
-            if self.stream.tell() >= self.maxBytes:
+            if self.stream.tell() + len(msg) + 1 >= self.maxBytes:
                 return True
         if time.time() >= self.rolloverAt:  # Time-based rollover
             return True
@@ -143,8 +146,17 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
     def doRollover(self):
         if self.stream:
+            self.stream.flush()
             self.stream.close()
             self.stream = None
+
+        # Remove oldest backup if it exists
+        if self.backupCount > 0:
+            oldest = f"{self.baseFilename}.{self.backupCount}"
+            if os.path.exists(oldest):
+                os.remove(oldest)
+            if os.path.exists(f"{oldest}.gz"):
+                os.remove(f"{oldest}.gz")
 
         # Rotate log files
         for i in range(self.backupCount - 1, 0, -1):
@@ -154,15 +166,21 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
                 if os.path.exists(dfn):
                     os.remove(dfn)
                 os.rename(sfn, dfn)
+            elif os.path.exists(f"{sfn}.gz"):
+                if os.path.exists(f"{dfn}.gz"):
+                    os.remove(f"{dfn}.gz")
+                os.rename(f"{sfn}.gz", f"{dfn}.gz")
+
         dfn = f"{self.baseFilename}.1"
         if os.path.exists(self.baseFilename):
             if os.path.exists(dfn):
                 os.remove(dfn)
-            os.rename(self.baseFilename, dfn)
+            shutil.copy2(self.baseFilename, dfn)
+            os.truncate(self.baseFilename, 0)
 
-        # Compress the rolled log file if needed
-        if self.compression:
-            self._compress_file(dfn)
+            # Compress the rolled log file if needed
+            if self.compression:
+                self._compress_file(dfn)
 
         # Compute the next rollover time
         self.rolloverAt = self._compute_next_rollover()
@@ -171,26 +189,48 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             self.stream = self._open()
 
     def _compress_file(self, filepath):
+        if not self.compression:
+            return
+
+        if not os.path.exists(filepath):
+            return
+
         if self.compression == "gz":
-            with open(filepath, "rb") as f_in:
-                with gzip.open(f"{filepath}.gz", "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-            os.remove(filepath)
+            compressed_path = f"{filepath}.gz"
+            try:
+                with open(filepath, "rb") as f_in:
+                    with gzip.open(compressed_path, "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.remove(filepath)
+            except Exception as e:
+                if os.path.exists(compressed_path):
+                    os.remove(compressed_path)
+                raise e
         elif self.compression == "7z":
-            shutil.make_archive(
-                filepath,
-                "7z",
-                root_dir=os.path.dirname(filepath),
-                base_dir=os.path.basename(filepath),
-            )
-            os.remove(filepath)
+            try:
+                shutil.make_archive(
+                    filepath,
+                    "7z",
+                    root_dir=os.path.dirname(filepath),
+                    base_dir=os.path.basename(filepath),
+                )
+                os.remove(filepath)
+            except Exception as e:
+                if os.path.exists(f"{filepath}.7z"):
+                    os.remove(f"{filepath}.7z")
+                raise e
         elif self.compression == "lzha":
-            shutil.make_archive(
-                filepath,
-                "zip",
-                root_dir=os.path.dirname(filepath),
-                base_dir=os.path.basename(filepath),
-            )
-            os.remove(filepath)
+            try:
+                shutil.make_archive(
+                    filepath,
+                    "zip",
+                    root_dir=os.path.dirname(filepath),
+                    base_dir=os.path.basename(filepath),
+                )
+                os.remove(filepath)
+            except Exception as e:
+                if os.path.exists(f"{filepath}.zip"):
+                    os.remove(f"{filepath}.zip")
+                raise e
         else:
             raise ValueError(f"Unsupported compression type: {self.compression}")

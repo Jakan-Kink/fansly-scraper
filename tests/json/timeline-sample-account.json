@@ -1,0 +1,65 @@
+{
+  "success": true,
+  "response": {
+    "posts": [
+      {
+        "id": "123456789",
+        "accountId": "987654321",
+        "content": "Test post content",
+        "createdAt": 1704067200000,
+        "updatedAt": 1704067200,
+        "attachments": [
+          {
+            "id": "111111111",
+            "accountId": "987654321",
+            "mediaId": "222222222",
+            "createdAt": 1704067200,
+            "updatedAt": 1704067200,
+            "media": {
+              "id": "222222222",
+              "accountId": "987654321",
+              "mimetype": "video/mp4",
+              "width": 1920,
+              "height": 1080,
+              "duration": 30.5,
+              "createdAt": 1704067200000,
+              "updatedAt": 1704067200000
+            }
+          }
+        ]
+      }
+    ],
+    "accounts": [
+      {
+        "id": "987654321",
+        "username": "test_user",
+        "displayName": "Test User",
+        "about": "Test user bio",
+        "location": "Test Location",
+        "joinDate": 1704067200000,
+        "lastSeen": "2024-01-01T00:00:00Z",
+        "following": true,
+        "subscribed": true
+      }
+    ],
+    "accountMedia": [
+      {
+        "id": "111111111",
+        "accountId": "987654321",
+        "mediaId": "222222222",
+        "createdAt": 1704067200,
+        "updatedAt": 1704067200000,
+        "media": {
+          "id": "222222222",
+          "accountId": "987654321",
+          "mimetype": "video/mp4",
+          "width": 1920,
+          "height": 1080,
+          "duration": 30.5,
+          "createdAt": 1704067200,
+          "updatedAt": 1704067200
+        }
+      }
+    ]
+  }
+}

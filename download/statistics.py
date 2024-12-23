@@ -1,24 +1,30 @@
-"""Statistics Calculation and Output"""
+"""Download Statistics Module
 
+This module handles both content statistics (pictures, videos, etc.) and file download
+statistics (total files, sizes, etc.).
+"""
+
+from datetime import datetime, timezone
 from time import sleep
 
 from config import FanslyConfig
 from download.core import DownloadState, GlobalState
 from textio import print_info
-from utils.timer import Timer
-
-__all__ = [
-    "update_global_statistics",
-    "print_timing_statistics",
-    "print_statistics",
-    "print_global_statistics",
-]
 
 
 def update_global_statistics(
     global_state: GlobalState, download_state: DownloadState
 ) -> None:
-    """Updates the global statistics from each creator downloaded."""
+    """Updates the global statistics from each creator downloaded.
+
+    This function updates both content statistics (pictures, videos, etc.) and
+    file download statistics (total files, sizes, etc.).
+
+    Args:
+        global_state: The global state object to update
+        download_state: The download state containing the new statistics
+    """
+    # Update content statistics
     global_state.duplicate_count += download_state.duplicate_count
     global_state.pic_count += download_state.pic_count
     global_state.vid_count += download_state.vid_count
@@ -26,38 +32,42 @@ def update_global_statistics(
     global_state.total_timeline_pictures += download_state.total_timeline_pictures
     global_state.total_timeline_videos += download_state.total_timeline_videos
 
+    # Update file download statistics
+    if not hasattr(download_state, "download_stats"):
+        download_state.download_stats = {
+            "total_count": 0,
+            "skipped_count": 0,
+            "failed_count": 0,
+            "total_size": 0,
+            "total_size_str": "0 B",
+        }
 
-def print_timing_statistics() -> None:
-    message = ""
+    if not hasattr(global_state, "download_stats"):
+        global_state.download_stats = {
+            "start_time": datetime.now(timezone.utc),
+            "total_count": 0,
+            "skipped_count": 0,
+            "failed_count": 0,
+            "total_size": 0,
+            "total_size_str": "0 B",
+        }
 
-    def sec_to_text(timing: float) -> str:
-        if timing >= 3600:
-            return f"{(timing / 3600):0.2f} hours"
-
-        elif timing >= 60:
-            return f"{(timing / 60):0.2f} minutes"
-
-        else:
-            return f"{timing:0.2f} seconds"
-
-    for timing in Timer.timers:
-        if timing != "Total":
-            message += f"\n    @{timing}: {sec_to_text(Timer.timers[timing])}"
-
-    message += f"\n\n Total execution time: {sec_to_text(Timer.timers['Total'])}"
-
-    print_info(
-        f"\n╔═\n  SESSION DURATION"
-        f"\n"
-        f"\n  Creators:"
-        f"\n"
-        f"{message}"
-        f"\n{74 * ' '}═╝"
-    )
+    stats = download_state.download_stats
+    global_state.download_stats["total_count"] += stats["total_count"]
+    global_state.download_stats["skipped_count"] += stats["skipped_count"]
+    global_state.download_stats["failed_count"] += stats["failed_count"]
+    global_state.download_stats["total_size"] += stats["total_size"]
+    global_state.download_stats["total_size_str"] = stats["total_size_str"]
 
 
 def print_statistics_helper(state: GlobalState, header: str, footer: str = "") -> None:
+    """Print content statistics in a formatted way.
 
+    Args:
+        state: The state object containing the statistics
+        header: The header text to display
+        footer: Optional footer text to display
+    """
     missing_message = ""
 
     if state.missing_items_count() > 0:
@@ -75,9 +85,25 @@ def print_statistics_helper(state: GlobalState, header: str, footer: str = "") -
         f"\n{74 * ' '}═╝"
     )
 
+    # Print file download statistics if available
+    if hasattr(state, "download_stats"):
+        stats = state.download_stats
+        print_info(
+            f"\nFile download statistics:"
+            f"\n{20 * ' '}Total files processed: {stats['total_count']}"
+            f"\n{20 * ' '}Files skipped: {stats['skipped_count']}"
+            f"\n{20 * ' '}Files failed: {stats['failed_count']}"
+            f"\n{20 * ' '}Total size: {stats['total_size_str']} ({stats['total_size']:,} bytes)"
+        )
+
 
 def print_statistics(config: FanslyConfig, state: DownloadState) -> None:
+    """Print statistics for a single creator.
 
+    Args:
+        config: The configuration object
+        state: The download state containing the statistics
+    """
     header = f"\n╔═\n  Finished {config.download_mode_str()} type download for @{state.creator_name}!"
 
     footer = ""
@@ -102,7 +128,12 @@ def print_statistics(config: FanslyConfig, state: DownloadState) -> None:
 
 
 def print_global_statistics(config: FanslyConfig, state: GlobalState) -> None:
+    """Print global statistics for all creators.
 
+    Args:
+        config: The configuration object
+        state: The global state containing the statistics
+    """
     if config.user_names is None:
         raise RuntimeError("Internal error printing statistics - user names undefined.")
 

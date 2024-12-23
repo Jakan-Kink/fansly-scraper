@@ -2,7 +2,6 @@
 
 import json
 import os
-from datetime import datetime, timezone
 from unittest import TestCase
 
 from sqlalchemy import create_engine
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from config import FanslyConfig
 from metadata.account import Account
 from metadata.base import Base
+from metadata.database import Database
 from metadata.messages import (
     Group,
     Message,
@@ -28,13 +28,15 @@ class TestMessageProcessing(TestCase):
         # Create test database
         cls.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(cls.engine)
-        cls.Session = sessionmaker(bind=cls.engine)
+        cls.Session: sessionmaker = sessionmaker(bind=cls.engine)
 
         # Load test data
         cls.test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
 
         # Load conversation data
-        with open(os.path.join(cls.test_data_dir, "conversation-trainingJ.json")) as f:
+        with open(
+            os.path.join(cls.test_data_dir, "conversation-sample-account.json")
+        ) as f:
             cls.conversation_data = json.load(f)
 
         # Load group messages data
@@ -43,9 +45,12 @@ class TestMessageProcessing(TestCase):
 
     def setUp(self):
         """Set up fresh session and config for each test."""
-        self.session = self.Session()
+        self.session: Session = self.Session()
         self.config = FanslyConfig(program_version="0.10.0")
-        self.config._database.engine = self.engine
+        self.config.metadata_db_file = ":memory:"
+        self.config._database = Database(self.config)
+        self.config._database.sync_engine = self.engine
+        self.config._database.sync_session = self.Session
 
         # Create test accounts
         self.accounts = [

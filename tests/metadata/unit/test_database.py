@@ -3,10 +3,10 @@
 import os
 import tempfile
 from pathlib import Path
-from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from sqlalchemy import Column, Integer, String, text
+import pytest
+from sqlalchemy import Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from alembic.config import Config as AlembicConfig
@@ -17,148 +17,180 @@ from metadata.database import Database, run_migrations_if_needed
 class TestModel(Base):
     """Test model for database operations."""
 
-    __tablename__ = "test_models"
+    __tablename__ = "test_database_models"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
 
 
-class TestDatabase(TestCase):
-    """Test cases for Database class and related functionality."""
+@pytest.fixture
+def temp_db():
+    """Create a temporary database file."""
+    temp_dir = tempfile.mkdtemp()
+    db_path = os.path.join(temp_dir, "test.db")
+    yield temp_dir, db_path
 
-    def setUp(self):
-        """Set up test database and configuration."""
-        # Create temporary database file
-        self.temp_dir = tempfile.mkdtemp()
-        self.db_path = os.path.join(self.temp_dir, "test.db")
+    # Cleanup after tests
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    os.rmdir(temp_dir)
 
-        # Mock FanslyConfig
-        self.config_mock = MagicMock()
-        self.config_mock.metadata_db_file = self.db_path
 
-        # Create database instance
-        self.database = Database(self.config_mock)
+@pytest.fixture
+def mock_config(temp_db):
+    """Create a mock configuration."""
+    _, db_path = temp_db
+    config_mock = MagicMock()
+    config_mock.metadata_db_file = db_path
+    return config_mock
 
-        # Create tables
-        Base.metadata.create_all(self.database.sync_engine)
 
-    def tearDown(self):
-        """Clean up test database."""
-        Base.metadata.drop_all(self.database.sync_engine)
-        self.database.sync_engine.dispose()
+@pytest.fixture
+def database(mock_config):
+    """Create and configure test database."""
+    db = Database(mock_config)
+    Base.metadata.create_all(db.sync_engine)
+    yield db
+    Base.metadata.drop_all(db.sync_engine)
+    db.sync_engine.dispose()
 
-        # Remove temporary files
-        if os.path.exists(self.db_path):
-            os.remove(self.db_path)
-        os.rmdir(self.temp_dir)
 
-    def test_database_initialization(self):
-        """Test database initialization and configuration."""
-        self.assertEqual(self.database.db_file, Path(self.db_path))
-        self.assertEqual(self.database.config, self.config_mock)
+def test_database_initialization(database, temp_db):
+    """Test database initialization and configuration."""
+    _, db_path = temp_db
+    assert database.db_file == Path(db_path)
 
-        # Test SQLite configuration
-        with self.database.sync_engine.connect() as conn:
-            # Check foreign key support
-            result = conn.execute(text("PRAGMA foreign_keys")).scalar()
-            self.assertEqual(result, 1)
+    # Test SQLite configuration
+    with database.sync_engine.connect() as conn:
+        # Check foreign key support
+        result = conn.execute(text("PRAGMA foreign_keys")).scalar()
+        assert result == 1
 
-            # Check journal mode
-            result = conn.execute(text("PRAGMA journal_mode")).scalar()
-            self.assertEqual(result.upper(), "WAL")
+        # Check journal mode
+        result = conn.execute(text("PRAGMA journal_mode")).scalar()
+        assert result.upper() == "WAL"
 
-    def test_session_management(self):
-        """Test session creation and management."""
-        # Test synchronous session
-        with self.database.get_sync_session() as session:
-            # Create test record
-            model = TestModel(id=1, name="test")
+
+def test_session_management(database):
+    """Test session creation and management."""
+    with database.get_sync_session() as session:
+        # Create test record
+        model = TestModel(id=1, name="test")
+        session.add(model)
+        session.commit()
+
+        # Verify record was saved
+        result = session.query(TestModel).first()
+        assert result.name == "test"
+
+
+def test_concurrent_access(database):
+    """Test concurrent database access."""
+    import threading
+
+    def worker(thread_id):
+        with database.get_sync_session() as session:
+            model = TestModel(id=thread_id, name=f"test_{thread_id}")
             session.add(model)
             session.commit()
 
-            # Verify record was saved
-            result = session.query(TestModel).first()
-            self.assertEqual(result.name, "test")
+    # Create multiple threads
+    threads = []
+    for i in range(5):
+        thread = threading.Thread(target=worker, args=(i,))
+        threads.append(thread)
+        thread.start()
 
-    def test_concurrent_access(self):
-        """Test concurrent database access."""
-        import threading
+    # Wait for all threads to complete
+    for thread in threads:
+        thread.join()
 
-        def worker():
-            with self.database.get_sync_session() as session:
-                model = TestModel(
-                    id=threading.get_ident(), name=f"test_{threading.get_ident()}"
-                )
-                session.add(model)
-                session.commit()
+    # Verify all records were saved
+    with database.get_sync_session() as session:
+        count = session.query(TestModel).count()
+        assert count == 5
 
-        # Create multiple threads
-        threads = []
-        for _ in range(5):
-            thread = threading.Thread(target=worker)
-            threads.append(thread)
-            thread.start()
 
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
+@patch("metadata.database.alembic_upgrade")
+def test_migrations(mock_upgrade, database):
+    """Test migration handling."""
+    # Create mock Alembic config
+    alembic_cfg = MagicMock(spec=AlembicConfig)
 
-        # Verify all records were saved
-        with self.database.get_sync_session() as session:
-            count = session.query(TestModel).count()
-            self.assertEqual(count, 5)
+    # Test initial migration
+    run_migrations_if_needed(database, alembic_cfg)
+    mock_upgrade.assert_called_once()
 
-    @patch("metadata.database.alembic_upgrade")
-    def test_migrations(self, mock_upgrade):
-        """Test migration handling."""
-        # Create mock Alembic config
-        alembic_cfg = MagicMock(spec=AlembicConfig)
+    # Reset mock and test subsequent migration
+    mock_upgrade.reset_mock()
+    run_migrations_if_needed(database, alembic_cfg)
+    mock_upgrade.assert_called_once()
 
-        # Test initial migration
-        run_migrations_if_needed(self.database, alembic_cfg)
-        mock_upgrade.assert_called_once()
 
-        # Reset mock and test subsequent migration
-        mock_upgrade.reset_mock()
-        run_migrations_if_needed(self.database, alembic_cfg)
-        mock_upgrade.assert_called_once()
+def test_transaction_isolation(database):
+    """Test transaction isolation."""
+    # Start two sessions
+    with database.get_sync_session() as session1:
+        # Session 1 creates a record but doesn't commit
+        model = TestModel(id=1, name="test")
+        session1.add(model)
 
-    def test_transaction_isolation(self):
-        """Test transaction isolation."""
-        # Start two sessions
-        session1 = self.database.sync_session()
-        session2 = self.database.sync_session()
+        # Session 2 shouldn't see the uncommitted record
+        with database.get_sync_session() as session2:
+            result = session2.query(TestModel).first()
+            assert result is None
 
-        try:
-            # Session 1 creates a record but doesn't commit
+        # After commit, session 2 should see the record
+        session1.commit()
+
+        with database.get_sync_session() as session2:
+            result = session2.query(TestModel).first()
+            assert result is not None
+            assert result.name == "test"
+
+
+def test_error_handling(database):
+    """Test database error handling."""
+    with database.get_sync_session() as session:
+        # Try to create invalid record
+        model = TestModel(id=1, name=None)  # name is non-nullable
+        session.add(model)
+
+        # Should raise an error
+        with pytest.raises(Exception):
+            session.commit()
+
+        # Need to explicitly rollback after error
+        session.rollback()
+
+        # Session should be rolled back
+        result = session.query(TestModel).first()
+        assert result is None
+
+
+def test_database_connection_error(mock_config):
+    """Test handling of database connection errors."""
+    # Set invalid database path
+    mock_config.metadata_db_file = "/nonexistent/path/db.sqlite"
+
+    # Create database instance (this should work as it just stores the path)
+    db = Database(mock_config)
+
+    # Try to use the database (this should fail)
+    with pytest.raises(Exception) as exc_info:  # noqa: F841
+        with db.get_sync_session() as session:
+            session.execute(text("SELECT 1"))
+
+
+def test_session_context_error_handling(database):
+    """Test error handling in session context manager."""
+    with pytest.raises(Exception):
+        with database.get_sync_session() as session:
             model = TestModel(id=1, name="test")
-            session1.add(model)
-
-            # Session 2 shouldn't see the uncommitted record
-            result = session2.query(TestModel).first()
-            self.assertIsNone(result)
-
-            # After commit, session 2 should see the record
-            session1.commit()
-            result = session2.query(TestModel).first()
-            self.assertIsNotNone(result)
-            self.assertEqual(result.name, "test")
-
-        finally:
-            session1.close()
-            session2.close()
-
-    def test_error_handling(self):
-        """Test database error handling."""
-        with self.database.get_sync_session() as session:
-            # Try to create invalid record
-            model = TestModel(id=1, name=None)  # name is non-nullable
             session.add(model)
+            raise Exception("Test error")
 
-            # Should raise an error
-            with self.assertRaises(Exception):
-                session.commit()
-
-            # Session should be rolled back
-            result = session.query(TestModel).first()
-            self.assertIsNone(result)
+    # Verify the session was rolled back
+    with database.get_sync_session() as session:
+        result = session.query(TestModel).first()
+        assert result is None

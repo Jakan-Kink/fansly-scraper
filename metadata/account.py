@@ -510,18 +510,40 @@ def process_media_bundles(
                 if isinstance(preview, dict):
                     _process_media_item_dict_inner(config, preview, session)
 
-            # Get or create bundle
-            existing_bundle = session.query(AccountMediaBundle).get(bundle["id"])
-            if existing_bundle is None:
-                existing_bundle = AccountMediaBundle(
-                    id=bundle["id"], accountId=account_id
-                )
-                session.add(existing_bundle)
-
             # Get valid column names for AccountMediaBundle
             bundle_columns = {
                 column.name for column in inspect(AccountMediaBundle).columns
             }
+
+            # Convert timestamps to datetime objects first
+            date_fields = ("createdAt", "deletedAt")
+            for date_field in date_fields:
+                if date_field in bundle and bundle[date_field]:
+                    bundle[date_field] = datetime.fromtimestamp(
+                        (
+                            bundle[date_field] / 1000
+                            if bundle[date_field] > 1e10
+                            else bundle[date_field]
+                        ),
+                        timezone.utc,
+                    )
+
+            # Get or create bundle
+            existing_bundle = session.query(AccountMediaBundle).get(bundle["id"])
+            if existing_bundle is None:
+                # Prepare initial data with required fields
+                bundle_data = {
+                    "id": bundle["id"],
+                    "accountId": account_id,
+                    "createdAt": bundle.get("createdAt") or datetime.now(timezone.utc),
+                    "deleted": bundle.get("deleted", False),
+                    "access": bundle.get("access", False),
+                    "purchased": bundle.get("purchased", False),
+                    "whitelisted": bundle.get("whitelisted", False),
+                }
+                existing_bundle = AccountMediaBundle(**bundle_data)
+                session.add(existing_bundle)
+
             # Process bundleContent if present
             if "bundleContent" in bundle:
                 for content in bundle["bundleContent"]:
@@ -536,7 +558,6 @@ def process_media_bundles(
                                 pos=content["pos"],
                             )
                         )
-                        session.flush()
                     except (ValueError, KeyError) as e:
                         json_output(
                             2,
@@ -570,19 +591,6 @@ def process_media_bundles(
                 json_output(
                     1, "meta/account - bundle_unknown_attributes", unknown_attrs
                 )
-
-            # Convert timestamps to datetime objects
-            date_fields = ("createdAt", "deletedAt")
-            for date_field in date_fields:
-                if date_field in bundle and bundle[date_field]:
-                    bundle[date_field] = datetime.fromtimestamp(
-                        (
-                            bundle[date_field] / 1000
-                            if bundle[date_field] > 1e10
-                            else bundle[date_field]
-                        ),
-                        timezone.utc,
-                    )
 
             # Update bundle attributes only if they've changed
             for key, value in bundle.items():

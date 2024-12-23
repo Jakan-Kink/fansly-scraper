@@ -9,8 +9,8 @@ import dateutil.parser
 from pip._vendor.packaging.version import parse as parse_version
 
 from config import FanslyConfig
+from helpers import get_release_info_from_github
 from textio import clear_terminal, print_info, print_update, print_warning
-from utils.web import get_release_info_from_github
 
 # import requests
 # import subprocess

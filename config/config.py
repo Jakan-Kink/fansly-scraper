@@ -11,9 +11,31 @@ from config.fanslyconfig import FanslyConfig
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from errors import ConfigError
+from helpers.browser import open_url
 from textio import print_config, print_info, print_warning
-from utils.common import save_config_or_raise
-from utils.web import open_url
+
+
+def save_config_or_raise(config: FanslyConfig) -> bool:
+    """Tries to save the configuration to `config.ini` or
+    raises a `ConfigError` otherwise.
+
+    :param config: The program configuration.
+    :type config: FanslyConfig
+
+    :return: True if configuration was successfully written.
+    :rtype: bool
+
+    :raises ConfigError: When the configuration file could not be saved.
+        This may be due to invalid path issues or permission/security
+        software problems.
+    """
+    if not config._save_config():
+        raise ConfigError(
+            f"Internal error: Configuration data could not be saved to '{config.config_path}'. "
+            "Invalid path or permission/security software problem."
+        )
+    else:
+        return True
 
 
 def parse_items_from_line(line: str) -> list[str]:

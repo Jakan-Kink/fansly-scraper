@@ -1,0 +1,67 @@
+{
+  "success": true,
+  "response": {
+    "messages": [
+      {
+        "id": "123456789",
+        "type": 1,
+        "dataVersion": 1,
+        "content": "Test message content",
+        "groupId": "987123456",
+        "senderId": "987654321",
+        "correlationId": "0",
+        "inReplyTo": null,
+        "inReplyToRoot": null,
+        "createdAt": 1704067210,
+        "attachments": [
+          {
+            "messageId": "123456789",
+            "contentType": 1,
+            "contentId": "732187623"
+            }
+        ],
+        "embeds": [],
+        "interactions": [],
+        "likes": [
+            {
+                "id": "722700000006158208",
+                "accountId": "7890345",
+                "type": 1
+            }
+        ],
+        "totalTipAmount": 0
+      },
+      {
+        "id": "123456543",
+        "type": 1,
+        "dataVersion": 1,
+        "content": "received message content",
+        "groupId": "987123456",
+        "senderId": "7890345",
+        "correlationId": "0",
+        "inReplyTo": null,
+        "inReplyToRoot": null,
+        "createdAt": 1704067200,
+        "attachments": [],
+        "embeds": [],
+        "interactions": [
+          {
+            "userId": "987654321",
+            "readAt": 1704067207,
+            "deliveredAt": 1704067205
+          }
+        ],
+        "likes": [],
+        "totalTipAmount": 0
+
+      }
+    ],
+    "accountMedia":[],
+    "accountMediaBundles":[],
+    "tips":[],
+    "tipGoals":[],
+    "accountMediaOrders":[],
+    "stories":[],
+    "storiesOrders":[]
+  }
+}

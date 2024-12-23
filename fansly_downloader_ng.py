@@ -31,6 +31,11 @@ from download.core import (
     get_creator_account_info,
     print_download_info,
 )
+from download.statistics import (
+    print_global_statistics,
+    print_statistics,
+    update_global_statistics,
+)
 from errors import (
     API_ERROR,
     CONFIG_ERROR,
@@ -45,6 +50,9 @@ from errors import (
     DownloadError,
 )
 from fileio.dedupe import dedupe_init
+from helpers.common import open_location
+from helpers.stats import print_timing_statistics
+from helpers.timer import Timer
 from pathio import delete_temporary_pyinstaller_files
 from textio import (
     input_enter_close,
@@ -55,14 +63,6 @@ from textio import (
     set_window_title,
 )
 from updater import self_update
-from utils.common import open_location
-from utils.statistics import (
-    print_global_statistics,
-    print_statistics,
-    print_timing_statistics,
-    update_global_statistics,
-)
-from utils.timer import Timer
 
 # tell PIL to be tolerant of files that are truncated
 # ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -228,7 +228,7 @@ def main(config: FanslyConfig) -> int:
 
     timer.stop()
 
-    print_timing_statistics()
+    print_timing_statistics(timer)
 
     print_global_statistics(config, global_download_state)
 

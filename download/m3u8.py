@@ -12,9 +12,9 @@ from rich.table import Column
 
 from config.fanslyconfig import FanslyConfig
 from errors import M3U8Error
+from helpers.ffmpeg import run_ffmpeg
+from helpers.web import get_file_name_from_url, get_qs_value, split_url
 from textio import print_error, print_warning
-from utils.ffmpeg import run_ffmpeg
-from utils.web import get_file_name_from_url, get_qs_value, split_url
 
 
 def get_m3u8_cookies(m3u8_url: str) -> dict[str, Any]:

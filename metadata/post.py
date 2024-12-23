@@ -107,6 +107,22 @@ def process_pinned_posts(
 
     def _process_posts(session):
         for post in posts:
+            # Check if the post exists in the database
+            post_exists = (
+                session.query(Post).filter_by(id=post["postId"]).first() is not None
+            )
+            if not post_exists:
+                json_output(
+                    1,
+                    "meta/post - p_p_p - skipping_missing_post",
+                    {
+                        "postId": post["postId"],
+                        "accountId": account.id,
+                        "reason": "Post does not exist in database",
+                    },
+                )
+                continue
+
             # Convert timestamp once to avoid repeated conversions
             created_at = datetime.fromtimestamp(
                 (post["createdAt"] / 1000), timezone.utc
@@ -187,7 +203,18 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
     filtered_post = {k: v for k, v in post.items() if k in post_columns}
     json_output(1, "meta/post - _p_t_p - filtered", filtered_post)
     with config._database.sync_session() as session:
+        # Query first approach
         post_obj = session.query(Post).get(filtered_post["id"])
+
+        # Ensure required fields are present before proceeding
+        if "accountId" not in filtered_post:
+            json_output(
+                1,
+                "meta/post - missing_required_field",
+                {"postId": filtered_post.get("id"), "missing_field": "accountId"},
+            )
+            return  # Skip this post if accountId is missing
+
         if not post_obj:
             post_obj = Post(**filtered_post)
             session.add(post_obj)

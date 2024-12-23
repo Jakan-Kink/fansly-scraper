@@ -7,9 +7,6 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from config.fanslyconfig import FanslyConfig
-from errors import ConfigError
-
 
 def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:
     """Yield successive n-sized batches from input_list.
@@ -31,29 +28,6 @@ def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:
 
     for i in range(0, len(input_list), batch_size):
         yield input_list[i : i + batch_size]  # noqa: E203
-
-
-def save_config_or_raise(config: FanslyConfig) -> bool:
-    """Tries to save the configuration to `config.ini` or
-    raises a `ConfigError` otherwise.
-
-    :param config: The program configuration.
-    :type config: FanslyConfig
-
-    :return: True if configuration was successfully written.
-    :rtype: bool
-
-    :raises ConfigError: When the configuration file could not be saved.
-        This may be due to invalid path issues or permission/security
-        software problems.
-    """
-    if not config._save_config():
-        raise ConfigError(
-            f"Internal error: Configuration data could not be saved to '{config.config_path}'. "
-            "Invalid path or permission/security software problem."
-        )
-    else:
-        return True
 
 
 def is_valid_post_id(post_id: str) -> bool:

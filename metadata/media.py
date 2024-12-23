@@ -260,7 +260,18 @@ def _process_media_item_dict_inner(
                     filtered_media["duration"] = float(metadata.get("duration"))
             except (json.JSONDecodeError, ValueError, AttributeError, KeyError) as e:
                 json_output(1, "meta/media - p_m_i_d - metadata error", str(e))
+    # Query first approach
     media = session.query(Media).filter_by(id=filtered_media["id"]).first()
+
+    # Ensure required fields are present before proceeding
+    if "accountId" not in filtered_media:
+        json_output(
+            1,
+            "meta/media - missing_required_field",
+            {"mediaId": filtered_media.get("id"), "missing_field": "accountId"},
+        )
+        return  # Skip this media if accountId is missing
+
     if not media:
         media = Media(**filtered_media)
         session.add(media)

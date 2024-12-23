@@ -9,11 +9,11 @@ from rich.table import Column
 from config import FanslyConfig
 from errors import ApiError, DownloadError, DuplicateCountError, M3U8Error, MediaError
 from fileio.dedupe import dedupe_media_file
+from helpers.common import batch_list
 from media import MediaItem
 from metadata import process_media_download, process_media_info
 from pathio import set_create_directory_for_download
 from textio import print_info, print_warning
-from utils.common import batch_list
 
 from .downloadstate import DownloadState
 from .m3u8 import download_m3u8

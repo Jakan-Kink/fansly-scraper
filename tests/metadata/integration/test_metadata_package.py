@@ -29,6 +29,7 @@ class TestMetadataPackage(TestCase):
         self.database = database
         self.timeline_data = timeline_data
         self.config = database.config  # Get config from database fixture
+        self.config._database = database  # Set the database on the config
 
     def test_full_content_processing(self):
         """Test processing a complete set of content."""

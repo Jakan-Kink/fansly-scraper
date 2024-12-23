@@ -1,14 +1,14 @@
-"""Unit tests for metadata.helpers module."""
+"""Unit tests for helpers.logging module."""
 
 import gzip
 import logging
 import os
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from unittest import TestCase
 
-from metadata.helpers import SizeAndTimeRotatingFileHandler
+from helpers.logging import SizeAndTimeRotatingFileHandler
 
 
 class TestSizeAndTimeRotatingFileHandler(TestCase):
@@ -78,13 +78,21 @@ class TestSizeAndTimeRotatingFileHandler(TestCase):
 
     def test_compression_gz(self):
         """Test log compression with gzip."""
+        # Create handler with compression
         handler = SizeAndTimeRotatingFileHandler(
             self.log_filename, maxBytes=100, backupCount=2, compression="gz"
         )
+        formatter = logging.Formatter("%(message)s")
+        handler.setFormatter(formatter)
         self.logger.addHandler(handler)
 
         # Write enough data to trigger rotation
         self.logger.info("X" * 200)
+        handler.flush()
+
+        # Write more data to trigger another rotation
+        self.logger.info("Y" * 100)
+        handler.flush()
 
         # Check that the rotated file is compressed
         compressed_file = f"{self.log_filename}.1.gz"

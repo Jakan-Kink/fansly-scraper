@@ -44,7 +44,6 @@ from .account import (
 )
 from .attachment import Attachment
 from .database import Database, run_migrations_if_needed
-from .helpers import SizeAndTimeRotatingFileHandler
 from .media import (
     Media,
     media_variants,
@@ -90,7 +89,6 @@ __all__ = [
     "Media",
     "Message",
     "Post",
-    "SizeAndTimeRotatingFileHandler",
     "TimelineStats",
     "Wall",
     "account_avatar",

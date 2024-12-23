@@ -29,3 +29,70 @@ Notes about the challenges and important changes during the major rewrite.
 * `Fansly Downloader` now also logs output to file, at least all stuff going through `loguru`. Log-rollover is at 1 MiB size and keeping the last 5 files.
 
 -- prof79
+
+# Additional Changes (since 2a6e63f)
+
+Major Infrastructure Changes:
+* Switched from requirements.txt to Poetry for dependency management
+* Added pre-commit hooks: pyupgrade, flake8, black, bandit
+* Added SQLAlchemy and Alembic for metadata database support
+* Added test suite with pytest
+
+Database Schema:
+* Added initial schema for metadata tracking:
+  - Accounts and their relationships
+  - Posts and attachments
+  - Media and variants
+  - Messages and groups
+  - Walls and posts
+* Added Alembic migrations with downgrade paths
+* Added batch operations for SQLite compatibility
+
+Code Quality and Testing:
+* Added type checking and fixed cyclic imports
+* Added bandit security checks to pre-commit
+* Added flake8 compliance checks
+* Added black code formatting
+* Added test suite with:
+  - Unit tests for metadata models
+  - Integration tests for database operations
+  - Test fixtures and utilities
+  - Coverage reporting
+
+Database Operations:
+* Added metadata database support with SQLAlchemy
+* Added relationship handling between models
+* Added query-first approach pattern:
+  ```python
+  # Query first
+  obj = session.query(Model).get(id)
+
+  # Check required fields
+  if required_field not in data:
+      log_error()
+      return
+
+  # Create and add if needed
+  if not obj:
+      obj = Model(**data)
+      session.add(obj)
+  ```
+
+Error Handling and Logging:
+* Added database operation logging with context
+* Added relationship tracking and logging
+* Added proper exception handling for database operations
+* Added logging for missing relationships and foreign keys
+
+Configuration:
+* Added Alembic configuration for migrations
+* Added pre-commit configuration
+* Added pytest configuration
+
+These changes focus on:
+* Modern Python tooling and code quality
+* Metadata tracking and persistence
+* Database relationship management
+* Structured testing approach
+
+--Jakan

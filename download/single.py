@@ -2,8 +2,8 @@
 
 from config import FanslyConfig
 from fileio.dedupe import dedupe_init
+from helpers.common import get_post_id_from_request, is_valid_post_id
 from textio import input_enter_continue, print_error, print_info, print_warning
-from utils.common import get_post_id_from_request, is_valid_post_id
 
 from .common import get_unique_media_ids, process_download_accessible_media
 from .core import DownloadState

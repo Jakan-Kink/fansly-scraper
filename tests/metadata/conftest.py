@@ -37,7 +37,7 @@ def test_data_dir() -> str:
 @pytest.fixture(scope="session")
 def timeline_data(test_data_dir: str) -> dict:
     """Load timeline test data."""
-    with open(os.path.join(test_data_dir, "timeline-trainingJ.json")) as f:
+    with open(os.path.join(test_data_dir, "timeline-sample-account.json")) as f:
         return json.load(f)
 
 
@@ -53,17 +53,20 @@ def temp_db_path() -> Generator[str, None, None]:
 
 
 @pytest.fixture(scope="function")
-def config(temp_db_path: str) -> FanslyConfig:
+def config() -> FanslyConfig:
     """Create a test configuration."""
     config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = temp_db_path
+    config.metadata_db_file = ":memory:"
     return config
 
 
 @pytest.fixture(scope="function")
 def database(config: FanslyConfig) -> Database:
     """Create a test database instance."""
-    return Database(config)
+    db = Database(config)
+    Base.metadata.create_all(db.sync_engine)
+    yield db
+    Base.metadata.drop_all(db.sync_engine)
 
 
 @pytest.fixture(scope="function")
