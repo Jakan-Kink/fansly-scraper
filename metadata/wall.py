@@ -47,6 +47,10 @@ class Wall(Base):
         name: Display name of the wall
         description: Wall description text
         posts: List of Post objects associated with this wall
+    Note:
+        The following fields from the API are intentionally ignored as they are not
+        needed for the application's functionality:
+        - metadata: Arbitrary metadata for the wall
     """
 
     __tablename__ = "walls"
@@ -128,10 +132,14 @@ def process_account_walls(
             else:
                 # Get valid column names for Wall
                 wall_columns = {column.name for column in inspect(Wall).columns}
+                # Ignore these attributes
+                ignored_attrs = {"metadata"}
 
                 # Log any unknown attributes
                 unknown_attrs = {
-                    k: v for k, v in wall_data.items() if k not in wall_columns
+                    k: v
+                    for k, v in wall_data.items()
+                    if k not in wall_columns and k not in ignored_attrs
                 }
                 if unknown_attrs:
                     json_output(1, "meta/wall - wall_unknown_attributes", unknown_attrs)

@@ -144,20 +144,7 @@ def process_messages_metadata(
 
         for message in messages:
             # Convert timestamps to datetime objects
-            date_fields = ("createdAt", "deletedAt")
-            for date_field in date_fields:
-                if date_field in message and message[date_field]:
-                    timestamp = message[date_field]
-                    # Convert to float to handle both int and float timestamps
-                    timestamp_float = float(timestamp)
-                    # If timestamp is in milliseconds (13 digits), convert to seconds
-                    if (
-                        timestamp_float > 1e11
-                    ):  # More precise threshold for milliseconds
-                        timestamp_float /= 1000
-                    message[date_field] = datetime.fromtimestamp(
-                        timestamp_float, tz=timezone.utc
-                    )
+            Base.convert_timestamps(message, ("createdAt", "deletedAt"))
             filtered_message = {
                 key: message[key] for key in message if key in message_columns
             }
@@ -181,21 +168,22 @@ def process_messages_metadata(
                 .first()
             )
 
-            if existing_message:
-                for key, value in filtered_message.items():
-                    setattr(existing_message, key, value)
-            else:
-                # Ensure required fields are present
-                required_fields = {
-                    "senderId": None,
-                    "content": "",
-                    "createdAt": datetime.now(timezone.utc),
-                    "deleted": False,
-                }
-                # Update with any provided values
-                message_data = {**required_fields, **filtered_message}
-                existing_message = Message(**message_data)
+            # Create if doesn't exist with minimum required fields
+            if existing_message is None:
+                existing_message = Message(
+                    senderId=filtered_message.get("senderId"),
+                    content=filtered_message.get("content", ""),
+                    createdAt=filtered_message.get(
+                        "createdAt", datetime.now(timezone.utc)
+                    ),
+                    deleted=filtered_message.get("deleted", False),
+                )
                 session.add(existing_message)
+
+            # Update any changed values
+            for key, value in filtered_message.items():
+                if getattr(existing_message, key) != value:
+                    setattr(existing_message, key, value)
             session.flush()
             if "attachments" in message:
                 for attachment in message["attachments"]:
@@ -318,12 +306,16 @@ def process_groups_response(
                 )
                 continue  # Skip this group if createdBy is missing
 
-            if existing_group:
-                for key, value in filtered_group.items():
-                    setattr(existing_group, key, value)
-            else:
-                existing_group = Group(**filtered_group)
+            if existing_group is None:
+                existing_group = Group(
+                    id=filtered_group["id"], createdBy=filtered_group["createdBy"]
+                )
                 session.add(existing_group)
+
+            # Update any changed values
+            for key, value in filtered_group.items():
+                if getattr(existing_group, key) != value:
+                    setattr(existing_group, key, value)
 
         # Process groups from aggregation data
         for group in groups:
@@ -391,12 +383,16 @@ def process_groups_response(
                 )
                 continue  # Skip this group if createdBy is missing
 
-            if existing_group:
-                for key, value in filtered_group.items():
-                    setattr(existing_group, key, value)
-            else:
-                existing_group = Group(**filtered_group)
+            if existing_group is None:
+                existing_group = Group(
+                    id=filtered_group["id"], createdBy=filtered_group["createdBy"]
+                )
                 session.add(existing_group)
+
+            # Update any changed values
+            for key, value in filtered_group.items():
+                if getattr(existing_group, key) != value:
+                    setattr(existing_group, key, value)
 
             # Process group users
             existing_group = (

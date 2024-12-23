@@ -64,7 +64,10 @@ class Account(Base):
         displayName: Optional display name
         flags: Account flags for special handling
         version: Account version number
+        createdAt: When the account was created
+        subscribed: Whether the authenticated user is subscribed to this account
         timelineStats: Statistics about the account's timeline content
+        mediaStoryState: State information about the account's stories
         about: Profile description/bio
         location: Profile location information
         pinnedPosts: Set of posts pinned to the profile
@@ -75,6 +78,19 @@ class Account(Base):
         profileAccess: Whether the authenticated user has access to the profile
         accountMedia: Set of media items owned by this account
         accountMediaBundles: Set of media bundles owned by this account
+
+    Note:
+        The following fields from the API are intentionally ignored as they are not
+        needed for the application's functionality:
+        - followCount: Number of accounts this account follows
+        - subscriberCount: Number of subscribers to this account
+        - permissions: Account permission flags
+        - accountMediaLikes: Liked media items
+        - profileFlags: Profile-specific flags
+        - postLikes: Liked posts
+        - statusId: Account status identifier
+        - lastSeenAt: Last activity timestamp
+        - streaming: Streaming status information
     """
 
     __tablename__ = "accounts"
@@ -84,8 +100,15 @@ class Account(Base):
     displayName: Mapped[str | None] = mapped_column(String, nullable=True)
     flags: Mapped[int | None] = mapped_column(Integer, nullable=True)
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    createdAt: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    subscribed: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     timelineStats: Mapped[TimelineStats | None] = relationship(
         "TimelineStats", back_populates="account", lazy="select"
+    )
+    mediaStoryState: Mapped[MediaStoryState | None] = relationship(
+        "MediaStoryState", back_populates="account", lazy="select"
     )
     about: Mapped[str | None] = mapped_column(String, nullable=True)
     location: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -121,6 +144,41 @@ class Account(Base):
         back_populates="account",
         lazy="select",
         collection_class=set,
+    )
+
+
+class MediaStoryState(Base):
+    """Represents the state of an account's media stories.
+
+    This class tracks the story state for an account, including counts and status.
+
+    Attributes:
+        accountId: ID of the account these stats belong to
+        account: Relationship to the parent Account
+        status: Status code for the story state
+        storyCount: Number of stories
+        version: Version number of the story state
+        createdAt: When the story state was created
+        updatedAt: When the story state was last updated
+        hasActiveStories: Whether the account has active stories
+    """
+
+    __tablename__ = "media_story_states"
+    accountId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id"), primary_key=True
+    )
+    account: Mapped[Account] = relationship("Account", back_populates="mediaStoryState")
+    status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    storyCount: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    createdAt: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updatedAt: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    hasActiveStories: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, default=False
     )
 
 
@@ -270,6 +328,13 @@ class AccountMediaBundle(Base):
         access: Whether the authenticated user has access to this bundle
         purchased: Whether the authenticated user has purchased this bundle
         whitelisted: Whether the authenticated user is whitelisted for this bundle
+    Note:
+        The following fields from the API are intentionally ignored as they are not
+        needed for the application's functionality:
+        - permissionFlags: Bundle permission flags
+        - permissions: Bundle permissions
+        - accountPermissionFlags: Account-specific permission flags
+        - price: Bundle price information
     """
 
     __tablename__ = "account_media_bundles"
@@ -342,16 +407,28 @@ def process_account_data(
 
             # Known attributes that are handled separately
             known_relations = {
+                # Handled relationships
                 "timelineStats",
                 "pinnedPosts",
                 "walls",
                 "accountMediaBundles",
                 "avatar",
                 "banner",
+                "mediaStoryState",
+                # Intentionally ignored fields
                 "subscription",
                 "subscriptionTiers",
                 "profileSocials",
                 "profileBadges",
+                "followCount",
+                "subscriberCount",
+                "permissions",
+                "accountMediaLikes",
+                "profileFlags",
+                "postLikes",
+                "statusId",
+                "lastSeenAt",
+                "streaming",
             }
 
             # Log truly unknown attributes (not in columns and not handled separately)
@@ -362,6 +439,9 @@ def process_account_data(
             }
             if unknown_attrs:
                 json_output(1, "meta/account - unknown_attributes", unknown_attrs)
+
+            # Convert timestamps from milliseconds to datetime
+            Base.convert_timestamps(data, ("createdAt",))
 
             # Update account attributes directly, only if they've changed
             for key, value in data.items():
@@ -381,6 +461,12 @@ def process_account_data(
             if "timelineStats" in data:
                 process_timeline_stats(session, data)
 
+            # Process media story state
+            if "mediaStoryState" in data:
+                process_media_story_state(
+                    config, existing_account, data["mediaStoryState"], session=session
+                )
+
             # Process pinned posts
             if "pinnedPosts" in data:
                 process_pinned_posts(
@@ -396,16 +482,20 @@ def process_account_data(
             # Process media bundles
             if "accountMediaBundles" in data:
                 process_media_bundles(
-                    config, account_id, data["accountMediaBundles"], session
+                    config, account_id, data["accountMediaBundles"], session=session
                 )
 
             # Process avatar
             if "avatar" in data:
-                process_avatar(config, existing_account, data["avatar"], session)
+                process_avatar(
+                    config, existing_account, data["avatar"], session=session
+                )
 
             # Process banner
             if "banner" in data:
-                process_banner(config, existing_account, data["banner"], session)
+                process_banner(
+                    config, existing_account, data["banner"], session=session
+                )
 
             session.commit()
         except (exc.SQLAlchemyError, exc.DBAPIError) as e:
@@ -420,6 +510,51 @@ def process_creator_data(
 ) -> None:
     """Process creator data by calling process_account_data with creator context."""
     return process_account_data(config, data, state, context="creator")
+
+
+@retry_on_locked_db
+def process_media_story_state(
+    config: FanslyConfig, account: Account, story_state_data: dict, *, session: Session
+) -> None:
+    """Process media story state for an account.
+
+    Updates or creates media story state for an account, handling timestamp
+    conversion and data persistence.
+
+    Args:
+        config: FanslyConfig instance
+        account: Account instance to process story state for
+        story_state_data: Dictionary containing media story state data
+        session: SQLAlchemy session for database operations
+    """
+
+    # Get valid column names for MediaStoryState
+    story_state_columns = {column.name for column in inspect(MediaStoryState).columns}
+
+    # Log unknown attributes
+    unknown_attrs = {
+        k: v
+        for k, v in story_state_data.items()
+        if k not in story_state_columns and k != "accountId"
+    }
+    if unknown_attrs:
+        json_output(1, "meta/account - unknown_story_state_attributes", unknown_attrs)
+
+    # Convert timestamps from milliseconds to datetime
+    Base.convert_timestamps(story_state_data, ("createdAt", "updatedAt"))
+
+    # Get or create story state
+    story_state = session.query(MediaStoryState).get(account.id)
+    if story_state is None:
+        story_state = MediaStoryState(accountId=account.id)
+        session.add(story_state)
+
+    # Update story state attributes
+    for key, value in story_state_data.items():
+        if key in story_state_columns:
+            setattr(story_state, key, value)
+
+    session.flush()
 
 
 @retry_on_locked_db
@@ -516,17 +651,7 @@ def process_media_bundles(
             }
 
             # Convert timestamps to datetime objects first
-            date_fields = ("createdAt", "deletedAt")
-            for date_field in date_fields:
-                if date_field in bundle and bundle[date_field]:
-                    bundle[date_field] = datetime.fromtimestamp(
-                        (
-                            bundle[date_field] / 1000
-                            if bundle[date_field] > 1e10
-                            else bundle[date_field]
-                        ),
-                        timezone.utc,
-                    )
+            Base.convert_timestamps(bundle, ("createdAt", "deletedAt"))
 
             # Get or create bundle
             existing_bundle = session.query(AccountMediaBundle).get(bundle["id"])
@@ -577,6 +702,7 @@ def process_media_bundles(
                 "permissionFlags",
                 "permissions",
                 "accountPermissionFlags",
+                "price",
             }
 
             # Log truly unknown attributes

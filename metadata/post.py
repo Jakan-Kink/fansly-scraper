@@ -187,17 +187,7 @@ def process_timeline_posts(
 def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
     """Process a single timeline post."""
     # Convert timestamps to datetime objects
-    date_fields = ("createdAt", "expiresAt")
-    for date_field in date_fields:
-        if date_field in post and post[date_field]:
-            post[date_field] = datetime.fromtimestamp(
-                (
-                    post[date_field] / 1000
-                    if post[date_field] > 1e10
-                    else post[date_field]
-                ),
-                timezone.utc,
-            )
+    Base.convert_timestamps(post, ("createdAt", "expiresAt"))
     json_output(1, "meta/post - _p_t_p - post", post)
     post_columns = {column.name for column in inspect(Post).columns}
     filtered_post = {k: v for k, v in post.items() if k in post_columns}

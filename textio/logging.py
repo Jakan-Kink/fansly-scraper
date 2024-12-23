@@ -99,11 +99,23 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             current_time = datetime.now(timezone.utc).timestamp()
         return current_time + self.interval
 
+    def _ensure_compression_state(self):
+        """Ensure all files that should be compressed are compressed."""
+        if not self.compression:
+            return
+
+        for i in range(self.keep_uncompressed + 1, self.backupCount + 1):
+            filename = f"{self.baseFilename}.{i}"
+            if os.path.exists(filename):
+                self._compress_file(filename)
+
     def _check_rollover_on_init(self, filename):
         """
         Check the modification date and size of the file on initialization
         and perform a rollover if needed.
         """
+        # Ensure files are in correct compression state
+        self._ensure_compression_state()
         if os.path.exists(filename):
             file_stat = os.stat(filename)
             last_modified_time = file_stat.st_mtime
@@ -185,6 +197,10 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
                     os.remove(f"{dfn}.gz")
                 os.rename(f"{sfn}.gz", f"{dfn}.gz")
 
+            # Check if the rotated file should be compressed
+            if os.path.exists(dfn) and self.compression:
+                self._compress_file(dfn)
+
         dfn = f"{self.baseFilename}.1"
         if os.path.exists(self.baseFilename):
             if os.path.exists(dfn):
@@ -192,7 +208,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             shutil.copy2(self.baseFilename, dfn)
             os.truncate(self.baseFilename, 0)
 
-            # Compress the rolled log file if needed
+            # Compress the new rotated file if needed
             if self.compression:
                 self._compress_file(dfn)
 
@@ -216,7 +232,8 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             file_num = 0
 
         # Skip compression if this file should be kept uncompressed
-        if self.keep_uncompressed > 0 and file_num <= self.keep_uncompressed:
+        # keep_uncompressed=3 means keep files 1 and 2 uncompressed (file numbers < 3)
+        if self.keep_uncompressed > 0 and file_num < self.keep_uncompressed:
             return
 
         if self.compression == "gz":

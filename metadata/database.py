@@ -35,12 +35,13 @@ sqlalchemy_logger = logging.getLogger("sqlalchemy.engine")
 sqlalchemy_logger.setLevel(logging.INFO)
 time_handler = SizeAndTimeRotatingFileHandler(
     "sqlalchemy.log",
-    maxBytes=100 * 1024 * 1024,  # 100MB
+    maxBytes=150 * 1024 * 1024,  # 100MB
     when="h",  # Hourly rotation
     interval=2,  # Rotate every 2 hours
-    backupCount=5,  # Keep 5 backups
+    backupCount=20,  # Keep 5 backups
     utc=True,  # Use UTC time
     compression="gz",  # Compress logs using gzip
+    keep_uncompressed=3,  # Keep 3 uncompressed logs
 )
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 time_handler.setFormatter(formatter)

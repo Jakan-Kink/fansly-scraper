@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -139,17 +139,7 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
     json_output(1, "meta/media - p_m_i", media_infos)
     account_media_columns = {column.name for column in inspect(AccountMedia).columns}
     # Convert timestamps to datetime objects
-    date_fields = ("createdAt", "deletedAt")
-    for date_field in date_fields:
-        if date_field in media_infos and media_infos[date_field]:
-            media_infos[date_field] = datetime.fromtimestamp(
-                (
-                    media_infos[date_field] / 1000
-                    if media_infos[date_field] > 1e10
-                    else media_infos[date_field]
-                ),
-                timezone.utc,
-            )
+    Base.convert_timestamps(media_infos, ("createdAt", "deletedAt"))
     filtered_account_media = {
         k: v for k, v in media_infos.items() if k in account_media_columns
     }
@@ -232,17 +222,7 @@ def _process_media_item_dict_inner(
     media_columns = {column.name for column in inspect(Media).columns}
     session.flush()
     # Convert timestamps to datetime objects
-    date_fields = ("createdAt", "updatedAt")
-    for date_field in date_fields:
-        if date_field in media_item and media_item[date_field]:
-            media_item[date_field] = datetime.fromtimestamp(
-                (
-                    media_item[date_field] / 1000
-                    if media_item[date_field] > 1e10
-                    else media_item[date_field]
-                ),
-                timezone.utc,
-            )
+    Base.convert_timestamps(media_item, ("createdAt", "updatedAt"))
     filtered_media = {k: v for k, v in media_item.items() if k in media_columns}
     filtered_media["accountId"] = filtered_media.get("accountId", account_id)
 
