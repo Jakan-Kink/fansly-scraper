@@ -9,7 +9,7 @@ __version__ = "0.10.0"
 # TODO: Rate-limiting fix works but is terribly slow - would be nice to know how to interface with Fansly API properly
 # TODO: Check whether messages are rate-limited too or not
 
-
+import atexit
 import base64
 import traceback
 
@@ -69,6 +69,20 @@ from updater import self_update
 
 # turn off for our purpose unnecessary PIL safety features
 # Image.MAX_IMAGE_PIXELS = None
+
+
+def cleanup_database(config: FanslyConfig) -> None:
+    """Clean up database connections when the program exits.
+
+    Args:
+        config: The program configuration that may contain a database instance.
+    """
+    if hasattr(config, "_database") and config._database is not None:
+        try:
+            config._database.close()
+            print_info("Database connections closed successfully.")
+        except Exception as e:
+            print_error(f"Error closing database connections: {e}")
 
 
 def print_logo() -> None:
@@ -140,6 +154,8 @@ def main(config: FanslyConfig) -> int:
         print_info(f"Metadata database is enabled. -- {config.metadata_db_file}")
         if not config.separate_metadata:
             config._database = Database(config)
+            # Register cleanup function to ensure database is closed on exit
+            atexit.register(cleanup_database, config)
             run_migrations_if_needed(config._database, alembic_cfg)
         print()
 
@@ -267,6 +283,8 @@ if __name__ == "__main__":
         print()
         print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
+    # Ensure database is closed before final input prompt
+    cleanup_database(config)
 
     input_enter_close(config.prompt_on_exit)
     exit(exit_code)

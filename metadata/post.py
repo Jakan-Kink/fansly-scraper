@@ -13,7 +13,6 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.inspection import inspect
 
 # from sqlalchemy.exc import IntegrityError
 # from sqlalchemy.ext.asyncio import AsyncSession
@@ -162,12 +161,23 @@ def process_timeline_posts(
     from .media import process_media_info
 
     json_output(1, "meta/post - p_t_posts - posts", posts)
+
+    # Process main timeline posts
     tl_posts = posts["posts"]
     for post in tl_posts:
         _process_timeline_post(config, post)
+
+    # Process aggregated posts if present
+    if "aggregatedPosts" in posts:
+        for post in posts["aggregatedPosts"]:
+            _process_timeline_post(config, post)
+
+    # Process media
     accountMedia = posts["accountMedia"]
     for media in accountMedia:
         process_media_info(config, media)
+
+    # Process media bundles if present
     if "accountMediaBundles" in posts:
         # Get the account ID from the first post or media if available
         account_id = None
@@ -178,20 +188,31 @@ def process_timeline_posts(
 
         if account_id:
             process_media_bundles(config, account_id, posts["accountMediaBundles"])
+
+    # Process accounts
     accounts = posts["accounts"]
     for account in accounts:
         process_account_data(config, data=account)
-    pass
 
 
 def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
     """Process a single timeline post."""
-    # Convert timestamps to datetime objects
-    Base.convert_timestamps(post, ("createdAt", "expiresAt"))
+    # Known attributes that are handled separately
+    known_relations = {
+        # Handled relationships
+        "attachments",
+        "accountMentions",
+        "walls",
+        # Intentionally ignored fields
+    }
+
+    # Process post data
     json_output(1, "meta/post - _p_t_p - post", post)
-    post_columns = {column.name for column in inspect(Post).columns}
-    filtered_post = {k: v for k, v in post.items() if k in post_columns}
+    filtered_post, _ = Post.process_data(
+        post, known_relations, "meta/post - _p_t_p", ("createdAt", "expiresAt")
+    )
     json_output(1, "meta/post - _p_t_p - filtered", filtered_post)
+
     with config._database.sync_session() as session:
         # Query first approach
         post_obj = session.query(Post).get(filtered_post["id"])
@@ -209,24 +230,34 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
             post_obj = Post(**filtered_post)
             session.add(post_obj)
 
-        # Log any unknown attributes
-        unknown_attrs = {
-            k: v for k, v in filtered_post.items() if k not in post_columns
-        }
-        if unknown_attrs:
-            json_output(1, "meta/post - post_unknown_attributes", unknown_attrs)
-
         # Update fields that have changed
         for key, value in filtered_post.items():
-            if key in post_columns:
-                if getattr(post_obj, key) != value:
-                    setattr(post_obj, key, value)
+            if getattr(post_obj, key) != value:
+                setattr(post_obj, key, value)
 
         session.flush()
 
+        # Process attachments if present
         if "attachments" in post:
+            # Known attributes for attachments that are handled separately
+            attachment_known_relations = {
+                "post",
+                "media",
+                "preview",
+                "variants",
+                "message",
+                "attachmentFlags",
+                "attachmentStatus",
+                "attachmentType",
+                "permissions",
+            }
+
             json_output(1, "meta/post - _p_t_p - attachments", post["attachments"])
             for attachment_data in post["attachments"]:
+                # Skip tipGoals attachments
+                if attachment_data.get("contentType") == 7100:
+                    continue
+
                 attachment_data["postId"] = post_obj.id
 
                 # Convert contentType to enum
@@ -243,40 +274,29 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
                         attachment_data,
                     )
 
+                # Process attachment data
+                filtered_attachment, _ = Attachment.process_data(
+                    attachment_data,
+                    attachment_known_relations,
+                    "meta/post - _p_t_p-attach",
+                )
+
                 # Query existing attachment
                 attachment = (
                     session.query(Attachment)
                     .filter_by(
-                        postId=post_obj.id, contentId=attachment_data["contentId"]
+                        postId=post_obj.id, contentId=filtered_attachment["contentId"]
                     )
                     .first()
                 )
 
-                if not attachment:
-                    attachment = Attachment(**attachment_data)
+                if attachment is None:
+                    attachment = Attachment(**filtered_attachment)
                     session.add(attachment)
-
-                # Get valid column names for Attachment
-                attachment_columns = {
-                    column.name for column in inspect(Attachment).columns
-                }
-
-                # Log any unknown attributes
-                unknown_attrs = {
-                    k: v
-                    for k, v in attachment_data.items()
-                    if k not in attachment_columns
-                }
-                if unknown_attrs:
-                    json_output(
-                        1, "meta/post - attachment_unknown_attributes", unknown_attrs
-                    )
-
                 # Update fields that have changed
-                for key, value in attachment_data.items():
-                    if key in attachment_columns:
-                        if getattr(attachment, key) != value:
-                            setattr(attachment, key, value)
+                for key, value in filtered_attachment.items():
+                    if getattr(attachment, key) != value:
+                        setattr(attachment, key, value)
 
                 session.flush()
 

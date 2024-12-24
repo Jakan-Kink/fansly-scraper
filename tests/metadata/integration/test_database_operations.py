@@ -36,7 +36,7 @@ class TestDatabaseOperations(TestCase):
     def tearDown(self):
         """Clean up test database."""
         Base.metadata.drop_all(self.database.sync_engine)
-        self.database.sync_engine.dispose()
+        self.database.close()  # Properly close the database
 
         # Remove temporary files
         if os.path.exists(self.db_path):
@@ -200,3 +200,57 @@ class TestDatabaseOperations(TestCase):
                 any("USING INDEX" in str(row) for row in plan),
                 "Query not using index for account_media.accountId",
             )
+
+    def test_write_through_cache_integration(self):
+        """Test write-through caching in a multi-table scenario."""
+        # Create initial data
+        with self.database.get_sync_session() as session:
+            account = Account(id=1, username="test_user")
+            session.add(account)
+            session.commit()
+
+        # Create a second database connection
+        db2 = Database(self.config)
+        try:
+            # Verify data is immediately visible
+            with db2.get_sync_session() as session:
+                saved_account = session.query(Account).first()
+                self.assertEqual(saved_account.username, "test_user")
+
+                # Add more data through second connection
+                media = Media(id=1, accountId=account.id)
+                session.add(media)
+                session.commit()
+        finally:
+            db2.close()
+
+        # Verify new data is visible in original connection
+        with self.database.get_sync_session() as session:
+            saved_media = session.query(Media).first()
+            self.assertIsNotNone(saved_media)
+            self.assertEqual(saved_media.accountId, 1)
+
+    def test_database_cleanup_integration(self):
+        """Test database cleanup in integration scenario."""
+        # Create some data
+        with self.database.get_sync_session() as session:
+            account = Account(id=1, username="test_user")
+            session.add(account)
+            session.commit()
+
+        # Close the database
+        self.database.close()
+
+        # Verify we can't use the database after closing
+        with self.assertRaises(Exception):
+            with self.database.get_sync_session() as session:
+                session.query(Account).first()
+
+        # Create a new connection to verify data persists
+        db2 = Database(self.config)
+        try:
+            with db2.get_sync_session() as session:
+                saved_account = session.query(Account).first()
+                self.assertEqual(saved_account.username, "test_user")
+        finally:
+            db2.close()

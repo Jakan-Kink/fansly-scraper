@@ -91,6 +91,7 @@ class Account(Base):
         - statusId: Account status identifier
         - lastSeenAt: Last activity timestamp
         - streaming: Streaming status information
+        - profileAccessFlags: Profile access flags
     """
 
     __tablename__ = "accounts"
@@ -402,9 +403,6 @@ def process_account_data(
                 existing_account = Account(id=account_id)
                 session.add(existing_account)
 
-            # Get valid column names for Account
-            account_columns = {column.name for column in inspect(Account).columns}
-
             # Known attributes that are handled separately
             known_relations = {
                 # Handled relationships
@@ -429,30 +427,25 @@ def process_account_data(
                 "statusId",
                 "lastSeenAt",
                 "streaming",
+                "profileAccessFlags",
             }
 
-            # Log truly unknown attributes (not in columns and not handled separately)
-            unknown_attrs = {
-                k: v
-                for k, v in data.items()
-                if k not in account_columns and k not in known_relations
-            }
-            if unknown_attrs:
-                json_output(1, "meta/account - unknown_attributes", unknown_attrs)
-
-            # Convert timestamps from milliseconds to datetime
-            Base.convert_timestamps(data, ("createdAt",))
+            # Process account data
+            filtered_data, _ = Account.process_data(
+                data, known_relations, "meta/account - p_a_d", ("createdAt",)
+            )
 
             # Update account attributes directly, only if they've changed
-            for key, value in data.items():
-                if key in account_columns:
-                    if getattr(existing_account, key) != value:
-                        setattr(existing_account, key, value)
+            for key, value in filtered_data.items():
+                if getattr(existing_account, key) != value:
+                    setattr(existing_account, key, value)
 
+            # Get all model columns for logging the full account state
+            model_columns = {column.name for column in inspect(Account).columns}
             json_output(
                 1,
                 f"meta/account - p_{context[0]}_data - account_update",
-                {key: getattr(existing_account, key) for key in account_columns},
+                {key: getattr(existing_account, key) for key in model_columns},
             )
 
             session.flush()
@@ -528,20 +521,18 @@ def process_media_story_state(
         session: SQLAlchemy session for database operations
     """
 
-    # Get valid column names for MediaStoryState
-    story_state_columns = {column.name for column in inspect(MediaStoryState).columns}
-
-    # Log unknown attributes
-    unknown_attrs = {
-        k: v
-        for k, v in story_state_data.items()
-        if k not in story_state_columns and k != "accountId"
+    # Known attributes that are handled separately
+    known_relations = {
+        "accountId",  # Handled separately
     }
-    if unknown_attrs:
-        json_output(1, "meta/account - unknown_story_state_attributes", unknown_attrs)
 
-    # Convert timestamps from milliseconds to datetime
-    Base.convert_timestamps(story_state_data, ("createdAt", "updatedAt"))
+    # Process story state data
+    filtered_data, _ = MediaStoryState.process_data(
+        story_state_data,
+        known_relations,
+        "meta/account - p_m_s_s",
+        ("createdAt", "updatedAt"),
+    )
 
     # Get or create story state
     story_state = session.query(MediaStoryState).get(account.id)
@@ -550,8 +541,8 @@ def process_media_story_state(
         session.add(story_state)
 
     # Update story state attributes
-    for key, value in story_state_data.items():
-        if key in story_state_columns:
+    for key, value in filtered_data.items():
+        if getattr(story_state, key) != value:
             setattr(story_state, key, value)
 
     session.flush()
@@ -571,10 +562,18 @@ def process_timeline_stats(session: Session, data: dict) -> None:
     account_id = data["id"]
     timeline_stats = data["timelineStats"]
     timeline_stats["accountId"] = account_id  # Ensure accountId is set
-    timeline_stats["fetchedAt"] = (
-        datetime.fromtimestamp(timeline_stats["fetchedAt"] / 1000, tz=timezone.utc)
-        if timeline_stats["fetchedAt"]
-        else None
+
+    # Known attributes that are handled separately
+    known_relations = {
+        "accountId",  # Handled separately
+    }
+
+    # Process timeline stats data
+    filtered_data, _ = TimelineStats.process_data(
+        timeline_stats,
+        known_relations,
+        "meta/account - p_t_s",
+        ("fetchedAt",),  # This will handle the milliseconds conversion
     )
 
     # Get or create timeline stats
@@ -583,23 +582,10 @@ def process_timeline_stats(session: Session, data: dict) -> None:
         existing_timeline_stats = TimelineStats(accountId=account_id)
         session.add(existing_timeline_stats)
 
-    # Get valid column names for TimelineStats
-    timeline_stats_columns = {column.name for column in inspect(TimelineStats).columns}
-
-    # Log any unknown attributes
-    unknown_attrs = {
-        k: v for k, v in timeline_stats.items() if k not in timeline_stats_columns
-    }
-    if unknown_attrs:
-        json_output(
-            1, "meta/account - timeline_stats_unknown_attributes", unknown_attrs
-        )
-
     # Update attributes only if they've changed
-    for key, value in timeline_stats.items():
-        if key in timeline_stats_columns:
-            if getattr(existing_timeline_stats, key) != value:
-                setattr(existing_timeline_stats, key, value)
+    for key, value in filtered_data.items():
+        if getattr(existing_timeline_stats, key) != value:
+            setattr(existing_timeline_stats, key, value)
 
     session.flush()
 
@@ -645,29 +631,44 @@ def process_media_bundles(
                 if isinstance(preview, dict):
                     _process_media_item_dict_inner(config, preview, session)
 
-            # Get valid column names for AccountMediaBundle
-            bundle_columns = {
-                column.name for column in inspect(AccountMediaBundle).columns
+            # Known attributes that are handled separately
+            known_relations = {
+                "preview",  # Handled separately above
+                "media",  # Handled separately
+                "accountId",  # Set explicitly
+                "accountMediaIds",  # Handled separately below
+                "bundleContent",  # Handled separately below
+                "permissionFlags",
+                "permissions",
+                "accountPermissionFlags",
+                "price",
             }
 
-            # Convert timestamps to datetime objects first
-            Base.convert_timestamps(bundle, ("createdAt", "deletedAt"))
+            # Process bundle data
+            filtered_data, _ = AccountMediaBundle.process_data(
+                bundle,
+                known_relations,
+                "meta/account - p_m_b-_p_b",
+                ("createdAt", "deletedAt"),
+            )
 
             # Get or create bundle
             existing_bundle = session.query(AccountMediaBundle).get(bundle["id"])
             if existing_bundle is None:
-                # Prepare initial data with required fields
-                bundle_data = {
-                    "id": bundle["id"],
-                    "accountId": account_id,
-                    "createdAt": bundle.get("createdAt") or datetime.now(timezone.utc),
-                    "deleted": bundle.get("deleted", False),
-                    "access": bundle.get("access", False),
-                    "purchased": bundle.get("purchased", False),
-                    "whitelisted": bundle.get("whitelisted", False),
-                }
-                existing_bundle = AccountMediaBundle(**bundle_data)
+                # Create new bundle with filtered data
+                filtered_data["accountId"] = account_id  # Ensure accountId is set
+                filtered_data.setdefault("createdAt", datetime.now(timezone.utc))
+                filtered_data.setdefault("deleted", False)
+                filtered_data.setdefault("access", False)
+                filtered_data.setdefault("purchased", False)
+                filtered_data.setdefault("whitelisted", False)
+                existing_bundle = AccountMediaBundle(**filtered_data)
                 session.add(existing_bundle)
+
+            # Update bundle attributes
+            for key, value in filtered_data.items():
+                if getattr(existing_bundle, key) != value:
+                    setattr(existing_bundle, key, value)
 
             # Process bundleContent if present
             if "bundleContent" in bundle:
@@ -695,37 +696,6 @@ def process_media_bundles(
                         )
                         continue
             bundle.pop("bundleContent", None)  # Remove bundleContent from bundle data
-
-            # Known attributes that are handled separately
-            known_bundle_relations = {"accountMediaIds"}
-            known_exclude_attrs = {
-                "permissionFlags",
-                "permissions",
-                "accountPermissionFlags",
-                "price",
-            }
-
-            # Log truly unknown attributes
-            unknown_attrs = {
-                k: v
-                for k, v in bundle.items()
-                if k not in bundle_columns
-                and k not in known_bundle_relations
-                and k not in known_exclude_attrs
-            }
-            if unknown_attrs:
-                json_output(
-                    1, "meta/account - bundle_unknown_attributes", unknown_attrs
-                )
-
-            # Update bundle attributes only if they've changed
-            for key, value in bundle.items():
-                if (
-                    key in bundle_columns
-                    and key != "accountMediaIds"  # Handle media items separately
-                    and getattr(existing_bundle, key) != value
-                ):
-                    setattr(existing_bundle, key, value)
 
             session.flush()
 

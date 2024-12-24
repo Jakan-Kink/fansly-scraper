@@ -16,7 +16,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, ForeignKey, Integer, String, Table
-from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from textio import json_output
@@ -108,55 +107,56 @@ def process_account_walls(
         - Wall-post associations are maintained separately
     """
 
+    # Known attributes that are handled separately
+    known_relations = {
+        # Handled relationships
+        "posts",
+        # Intentionally ignored fields
+        "metadata",
+        "wallFlags",
+        "wallStatus",
+        "wallType",
+        "permissions",
+    }
+
     def _process_walls(session: Session) -> None:
-        # Fetch existing walls for this account
-        existing_walls = {
-            wall.id: wall
-            for wall in session.query(Wall).filter(Wall.accountId == account.id).all()
-        }
-
-        # Update or add new walls
+        # Process each wall
         for wall_data in walls_data:
-            wall_id = wall_data["id"]
-            # Query for existing wall
-            wall = session.query(Wall).get(wall_id)
-            if not wall:
-                wall = Wall(
-                    id=wall_id,
-                    accountId=account.id,
-                    pos=wall_data["pos"],
-                    name=wall_data["name"],
-                    description=wall_data["description"],
+            # Process wall data
+            filtered_wall, _ = Wall.process_data(
+                wall_data, known_relations, "meta/wall - p_a_w-_p_w"
+            )
+
+            # Query first approach
+            wall = session.query(Wall).get(wall_data["id"])
+
+            # Ensure required fields are present before proceeding
+            if "id" not in filtered_wall:
+                json_output(
+                    1,
+                    "meta/wall - missing_required_field",
+                    {"missing_field": "id"},
                 )
+                continue  # Skip this wall if id is missing
+
+            # Create if doesn't exist with minimum required fields
+            if wall is None:
+                filtered_wall["accountId"] = account.id  # Ensure accountId is set
+                wall = Wall(**filtered_wall)
                 session.add(wall)
-            else:
-                # Get valid column names for Wall
-                wall_columns = {column.name for column in inspect(Wall).columns}
-                # Ignore these attributes
-                ignored_attrs = {"metadata"}
-
-                # Log any unknown attributes
-                unknown_attrs = {
-                    k: v
-                    for k, v in wall_data.items()
-                    if k not in wall_columns and k not in ignored_attrs
-                }
-                if unknown_attrs:
-                    json_output(1, "meta/wall - wall_unknown_attributes", unknown_attrs)
-
-                # Update wall attributes only if they've changed
-                for field in ["pos", "name", "description"]:
-                    if field in wall_columns and field in wall_data:
-                        if getattr(wall, field) != wall_data[field]:
-                            setattr(wall, field, wall_data[field])
+            # Update fields that have changed
+            for key, value in filtered_wall.items():
+                if getattr(wall, key) != value:
+                    setattr(wall, key, value)
 
             session.flush()
 
-        # Remove walls that no longer belong to this account
-        new_wall_ids = {wall_data["id"] for wall_data in walls_data}
-        for wall_id in existing_walls:
-            if wall_id not in new_wall_ids:
-                session.delete(existing_walls[wall_id])
+        # After processing all walls, remove any that no longer exist
+        current_wall_ids = {wall_data["id"] for wall_data in walls_data}
+        existing_walls = session.query(Wall).filter(Wall.accountId == account.id).all()
+        for wall in existing_walls:
+            if wall.id not in current_wall_ids:
+                session.delete(wall)
 
     if session is not None:
         # Use existing session

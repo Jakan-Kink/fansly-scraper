@@ -4,9 +4,6 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
-from sqlalchemy.inspection import inspect
-
-# from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from textio import json_output
@@ -123,7 +120,36 @@ def process_messages_metadata(
     from .account import process_media_bundles
     from .attachment import Attachment, ContentType
 
-    message_columns = {column.name for column in inspect(Message).columns}
+    # Known attributes that are handled separately
+    known_relations = {
+        # Handled relationships
+        "attachments",
+        "accountMediaBundles",
+        # Intentionally ignored fields
+        "sender",
+        "recipient",
+        "group",
+        "messageFlags",
+        "messageStatus",
+        "messageType",
+        "replyTo",
+        "replyToRoot",
+        "reactions",
+        "mentions",
+    }
+
+    # Known attributes for attachments that are handled separately
+    attachment_known_relations = {
+        "message",
+        "post",
+        "media",
+        "preview",
+        "variants",
+        "attachmentFlags",
+        "attachmentStatus",
+        "attachmentType",
+        "permissions",
+    }
 
     with config._database.sync_session() as session:
         # Process any media bundles if present
@@ -143,20 +169,14 @@ def process_messages_metadata(
         session.commit()
 
         for message in messages:
-            # Convert timestamps to datetime objects
-            Base.convert_timestamps(message, ("createdAt", "deletedAt"))
-            filtered_message = {
-                key: message[key] for key in message if key in message_columns
-            }
-            existing_message = (
-                session.query(Message)
-                .filter_by(
-                    senderId=message.get("senderId"),
-                    recipientId=message.get("recipientId"),
-                    createdAt=message.get("createdAt"),
-                )
-                .first()
+            # Process message data
+            filtered_message, _ = Message.process_data(
+                message,
+                known_relations,
+                "meta/mess - p_m_m-message",
+                ("createdAt", "deletedAt"),
             )
+
             # Query first approach
             existing_message = (
                 session.query(Message)
@@ -185,10 +205,11 @@ def process_messages_metadata(
                 if getattr(existing_message, key) != value:
                     setattr(existing_message, key, value)
             session.flush()
+
+            # Process attachments if present
             if "attachments" in message:
                 for attachment in message["attachments"]:
-                    attachment["messageId"] = existing_message.id
-                    # Convert contentType to enum
+                    # Convert contentType to enum first
                     try:
                         attachment["contentType"] = ContentType(
                             attachment["contentType"]
@@ -201,19 +222,48 @@ def process_messages_metadata(
                             f"meta/mess - _p_m_p - invalid_content_type: {old_content_type}",
                             attachment,
                         )
+
+                    # Process attachment data
+                    filtered_attachment, _ = Attachment.process_data(
+                        attachment,
+                        attachment_known_relations,
+                        "meta/mess - p_m_m-attach",
+                    )
+
+                    # Ensure required fields are present before proceeding
+                    if "contentId" not in filtered_attachment:
+                        json_output(
+                            1,
+                            "meta/mess - missing_required_field",
+                            {
+                                "messageId": existing_message.id,
+                                "missing_field": "contentId",
+                            },
+                        )
+                        continue  # Skip this attachment if contentId is missing
+
+                    # Set messageId after filtering to ensure it's not overwritten
+                    filtered_attachment["messageId"] = existing_message.id
+
+                    # Query first approach
                     existing_attachment = (
                         session.query(Attachment)
                         .filter_by(
                             messageId=existing_message.id,
-                            contentId=attachment["contentId"],
+                            contentId=filtered_attachment["contentId"],
                         )
                         .first()
                     )
-                    if existing_attachment:
-                        for key, value in attachment.items():
+
+                    # Create if doesn't exist with minimum required fields
+                    if existing_attachment is None:
+                        existing_attachment = Attachment(**filtered_attachment)
+                        session.add(existing_attachment)
+                    # Update fields that have changed
+                    for key, value in filtered_attachment.items():
+                        if getattr(existing_attachment, key) != value:
                             setattr(existing_attachment, key, value)
-                    else:
-                        session.add(Attachment(**attachment))
+
                     session.flush()
         session.commit()
 
@@ -233,6 +283,24 @@ def process_groups_response(
     """
     from .account import process_account_data
 
+    # Known attributes that are handled separately
+    known_relations = {
+        # Handled relationships
+        "users",
+        "messages",
+        "lastMessage",
+        # Intentionally ignored fields
+        "metadata",
+        "groupFlags",
+        "groupStatus",
+        "groupType",
+        "permissions",
+        "roles",
+        "settings",
+        "account_id",  # Handled by mapping to createdBy
+        "groupId",  # Handled by mapping to id
+    }
+
     # Process accounts first
     aggregation_data: dict = response.get("aggregationData", {})
     json_output(1, "meta/mess - p_g_resp - aggregation_data", aggregation_data)
@@ -242,7 +310,6 @@ def process_groups_response(
         process_account_data(config, data=account, state=state)
 
     # Now process groups
-    group_columns = {column.name for column in inspect(Group).columns}
     data: list[dict] = response.get("data", {})
     json_output(1, "meta/mess - p_g_resp - data", data)
     groups: list = aggregation_data.get("groups", {})
@@ -250,14 +317,15 @@ def process_groups_response(
     with config._database.sync_session() as session:
         # Process groups from data
         for data_group in data:
+            # Map fields
             data_group["id"] = data_group.get("groupId")
             if "account_id" in data_group:
                 data_group["createdBy"] = data_group["account_id"]
 
-            # Filter group data
-            filtered_group = {
-                key: data_group[key] for key in data_group if key in group_columns
-            }
+            # Process group data
+            filtered_group, _ = Group.process_data(
+                data_group, known_relations, "meta/mess - p_g_resp"
+            )
 
             # Track relationships even though we're not enforcing them
             if "createdBy" in filtered_group:
@@ -288,6 +356,7 @@ def process_groups_response(
                 # Still remove lastMessageId if message doesn't exist to avoid potential issues
                 if not message_exists:
                     del filtered_group["lastMessageId"]
+
             # Query first approach
             existing_group = (
                 session.query(Group).filter_by(id=filtered_group.get("id")).first()
@@ -320,11 +389,14 @@ def process_groups_response(
         # Process groups from aggregation data
         for group in groups:
             json_output(1, "meta/mess - p_g_resp - group", group)
+            # Map fields
             if "account_id" in group:
                 group["createdBy"] = group["account_id"]
 
-            # Filter group data
-            filtered_group = {key: group[key] for key in group if key in group_columns}
+            # Process group data
+            filtered_group, _ = Group.process_data(
+                group, known_relations, "meta/mess - p_g_resp-group"
+            )
 
             # Check if createdBy account exists
             if "createdBy" in filtered_group:
@@ -365,6 +437,7 @@ def process_groups_response(
                         },
                     )
                     del filtered_group["lastMessageId"]
+
             # Query first approach
             existing_group = (
                 session.query(Group).filter_by(id=filtered_group.get("id")).first()

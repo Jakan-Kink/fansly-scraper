@@ -10,8 +10,6 @@ from time import sleep
 
 from loguru import logger
 
-from .logging import SizeTimeRotatingHandler
-
 LOG_FILE_NAME: str = "fansly_downloader_ng.log"
 JSON_FILE_NAME: str = "fansly_downloader_ng_json.log"
 
@@ -54,41 +52,9 @@ def output(level: int, log_type: str, color: str, message: str) -> None:
 
 
 def json_output(level: int, log_type: str, message: str) -> None:
-    try:
-        logger.level(log_type, no=level)
+    from logging_utils import json_output as json_output_impl
 
-    except TypeError:
-        # level failsafe
-        pass
-    except ValueError:
-        # color failsafe
-        pass
-
-    logger.__class__.type = partialmethod(logger.__class__.log, log_type)
-
-    logger.remove()
-
-    # Use our custom handler for JSON logs with size and time rotation
-    json_handler = SizeTimeRotatingHandler(
-        filename=str(Path.cwd() / JSON_FILE_NAME),
-        max_bytes=50 * 1000 * 1000,  # 50MB
-        backup_count=20,  # Keep 20 files total
-        when="h",
-        interval=2,  # Rotate every 2 hours if needed
-        compression="gz",
-        keep_uncompressed=3,  # Keep last 3 files uncompressed
-        encoding="utf-8",
-    )
-    logger.add(
-        json_handler.write,
-        format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]:\n{message}",
-        level=log_type,
-        filter=lambda record: record["extra"].get("json", False),
-        backtrace=False,
-        diagnose=False,
-    )
-
-    logger.bind(json=True).type(message)
+    json_output_impl(level, log_type, message)
 
 
 def print_config(message: str) -> None:

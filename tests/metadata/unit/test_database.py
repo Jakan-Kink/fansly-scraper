@@ -52,7 +52,7 @@ def database(mock_config):
     Base.metadata.create_all(db.sync_engine)
     yield db
     Base.metadata.drop_all(db.sync_engine)
-    db.sync_engine.dispose()
+    db.close()  # Properly close the database
 
 
 def test_database_initialization(database, temp_db):
@@ -69,6 +69,18 @@ def test_database_initialization(database, temp_db):
         # Check journal mode
         result = conn.execute(text("PRAGMA journal_mode")).scalar()
         assert result.upper() == "WAL"
+
+        # Check cache size (100MB)
+        result = conn.execute(text("PRAGMA cache_size")).scalar()
+        assert result == -102400
+
+        # Check page size
+        result = conn.execute(text("PRAGMA page_size")).scalar()
+        assert result == 4096
+
+        # Check memory map size (1GB)
+        result = conn.execute(text("PRAGMA mmap_size")).scalar()
+        assert result == 1073741824
 
 
 def test_session_management(database):
@@ -176,10 +188,13 @@ def test_database_connection_error(mock_config):
     # Create database instance (this should work as it just stores the path)
     db = Database(mock_config)
 
-    # Try to use the database (this should fail)
-    with pytest.raises(Exception) as exc_info:  # noqa: F841
-        with db.get_sync_session() as session:
-            session.execute(text("SELECT 1"))
+    try:
+        # Try to use the database (this should fail)
+        with pytest.raises(Exception) as exc_info:  # noqa: F841
+            with db.get_sync_session() as session:
+                session.execute(text("SELECT 1"))
+    finally:
+        db.close()
 
 
 def test_session_context_error_handling(database):
@@ -194,3 +209,42 @@ def test_session_context_error_handling(database):
     with database.get_sync_session() as session:
         result = session.query(TestModel).first()
         assert result is None
+
+
+def test_write_through_cache(database):
+    """Test write-through caching functionality."""
+    # Write data
+    with database.get_sync_session() as session:
+        model = TestModel(id=1, name="test")
+        session.add(model)
+        session.commit()
+
+    # Verify data is immediately available in a new connection
+    db2 = Database(database.config)
+    try:
+        with db2.get_sync_session() as session:
+            result = session.query(TestModel).first()
+            assert result is not None
+            assert result.name == "test"
+    finally:
+        db2.close()
+
+
+def test_database_cleanup(mock_config):
+    """Test proper database cleanup."""
+    db = Database(mock_config)
+    Base.metadata.create_all(db.sync_engine)
+
+    # Use the database
+    with db.get_sync_session() as session:
+        model = TestModel(id=1, name="test")
+        session.add(model)
+        session.commit()
+
+    # Close the database
+    db.close()
+
+    # Verify we can't use the database after closing
+    with pytest.raises(Exception):
+        with db.get_sync_session() as session:
+            session.query(TestModel).first()

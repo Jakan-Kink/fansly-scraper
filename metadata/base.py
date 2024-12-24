@@ -8,10 +8,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import DeclarativeBase
+
+from logging_utils import json_output
+
+T = TypeVar("T", bound="Base")
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -62,3 +67,59 @@ class Base(AsyncAttrs, DeclarativeBase):
                 if timestamp > 1e10:
                     timestamp = timestamp / 1000
                 data[date_field] = datetime.fromtimestamp(timestamp, timezone.utc)
+
+    @classmethod
+    def process_data(
+        cls: type[T],
+        data: dict[str, Any],
+        known_relations: set[str],
+        log_prefix: str,
+        convert_timestamps_fields: Sequence[str] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Process data dictionary for a model, handling filtering and logging.
+
+        This helper method processes a data dictionary for a model by:
+        1. Converting timestamps if specified
+        2. Identifying and logging unknown attributes
+        3. Filtering data to only include valid model columns
+
+        Args:
+            data: Dictionary containing the data to process
+            known_relations: Set of field names that are handled separately or intentionally ignored
+            log_prefix: Prefix for log messages (e.g., "meta/account")
+            convert_timestamps_fields: Optional sequence of field names to process as timestamps
+
+        Returns:
+            A tuple containing:
+            - filtered_data: Dictionary with only valid model columns
+            - unknown_attrs: Dictionary with unknown attributes for logging
+
+        Example:
+            >>> known_relations = {"timelineStats", "pinnedPosts", "walls"}
+            >>> filtered_data, unknown_attrs = Account.process_data(
+            ...     data,
+            ...     known_relations,
+            ...     "meta/account",
+            ...     ("createdAt", "updatedAt")
+            ... )
+        """
+        # Get valid column names for the model
+        model_columns = {column.name for column in inspect(cls).columns}
+
+        # Convert timestamps if specified
+        if convert_timestamps_fields:
+            cls.convert_timestamps(data, convert_timestamps_fields)
+
+        # Log truly unknown attributes (not in columns and not handled separately)
+        unknown_attrs = {
+            k: v
+            for k, v in data.items()
+            if k not in model_columns and k not in known_relations
+        }
+        if unknown_attrs:
+            json_output(1, f"{log_prefix} - unknown_attributes", unknown_attrs)
+
+        # Filter data to only include valid columns
+        filtered_data = {k: v for k, v in data.items() if k in model_columns}
+
+        return filtered_data, unknown_attrs

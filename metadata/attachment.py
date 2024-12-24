@@ -25,12 +25,16 @@ class ContentType(Enum):
     Attributes:
         ACCOUNT_MEDIA: Individual media item
         ACCOUNT_MEDIA_BUNDLE: Collection of media items
+        AGGREGATED_POSTS: Array of aggregated post dictionaries
+        TIP_GOALS: Tip goal content
         STORY: Story content
         POLL: Poll content
     """
 
     ACCOUNT_MEDIA = 1
     ACCOUNT_MEDIA_BUNDLE = 2
+    AGGREGATED_POSTS = 8
+    TIP_GOALS = 7100
     STORY = 32001
     POLL = 42001
 

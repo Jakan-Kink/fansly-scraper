@@ -12,7 +12,6 @@ from .textio import (
     clear_terminal,
     input_enter_close,
     input_enter_continue,
-    json_output,
     print_config,
     print_debug,
     print_error,
@@ -22,6 +21,9 @@ from .textio import (
     print_warning,
     set_window_title,
 )
+
+# Re-export json_output from logging_utils
+from logging_utils import json_output  # isort:skip
 
 # from textio import *
 __all__ = [

@@ -14,11 +14,6 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
 )
-from sqlalchemy.inspection import inspect
-
-# from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-# from sqlalchemy.exc import IntegrityError
-# from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     Mapped,
     Session,
@@ -137,14 +132,23 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
     from .account import AccountMedia
 
     json_output(1, "meta/media - p_m_i", media_infos)
-    account_media_columns = {column.name for column in inspect(AccountMedia).columns}
-    # Convert timestamps to datetime objects
-    Base.convert_timestamps(media_infos, ("createdAt", "deletedAt"))
-    filtered_account_media = {
-        k: v for k, v in media_infos.items() if k in account_media_columns
+
+    # Known attributes that are handled separately
+    known_relations = {
+        # Handled relationships
+        "media",
+        "preview",
+        # Intentionally ignored fields
     }
+
+    # Process media data
+    filtered_account_media, _ = AccountMedia.process_data(
+        media_infos, known_relations, "meta/media - p_m_i", ("createdAt", "deletedAt")
+    )
     json_output(1, "meta/media - p_m_i - filtered", filtered_account_media)
+
     with config._database.sync_session() as session:
+        # Query first approach
         account_media = (
             session.query(AccountMedia)
             .filter_by(
@@ -154,29 +158,20 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
             )
             .first()
         )
-        if not account_media:
+
+        # Create if doesn't exist with minimum required fields
+        if account_media is None:
             account_media = AccountMedia(**filtered_account_media)
             session.add(account_media)
 
-        # Log any unknown attributes
-        unknown_attrs = {
-            k: v
-            for k, v in filtered_account_media.items()
-            if k not in account_media_columns
-        }
-        if unknown_attrs:
-            json_output(
-                1, "meta/media - account_media_unknown_attributes", unknown_attrs
-            )
-
         # Update fields that have changed
         for key, value in filtered_account_media.items():
-            if key in account_media_columns:
-                if getattr(account_media, key) != value:
-                    setattr(account_media, key, value)
+            if getattr(account_media, key) != value:
+                setattr(account_media, key, value)
 
         session.flush()
 
+        # Process related media items
         if "media" in media_infos:
             process_media_item_dict(config, media_infos["media"], session)
         if "preview" in media_infos:
@@ -219,11 +214,22 @@ def _process_media_item_dict_inner(
         )
         return
 
-    media_columns = {column.name for column in inspect(Media).columns}
-    session.flush()
-    # Convert timestamps to datetime objects
-    Base.convert_timestamps(media_item, ("createdAt", "updatedAt"))
-    filtered_media = {k: v for k, v in media_item.items() if k in media_columns}
+    # Known attributes that are handled separately
+    known_relations = {
+        # Handled relationships
+        "locations",
+        "variants",
+        # Intentionally ignored fields
+        "metadata",  # Handled by mapping to meta_info
+    }
+
+    # Process media data
+    filtered_media, _ = Media.process_data(
+        media_item,
+        known_relations,
+        "meta/media - _p_m_i_d_i",
+        ("createdAt", "updatedAt"),
+    )
     filtered_media["accountId"] = filtered_media.get("accountId", account_id)
 
     # Handle metadata field
@@ -240,8 +246,6 @@ def _process_media_item_dict_inner(
                     filtered_media["duration"] = float(metadata.get("duration"))
             except (json.JSONDecodeError, ValueError, AttributeError, KeyError) as e:
                 json_output(1, "meta/media - p_m_i_d - metadata error", str(e))
-    # Query first approach
-    media = session.query(Media).filter_by(id=filtered_media["id"]).first()
 
     # Ensure required fields are present before proceeding
     if "accountId" not in filtered_media:
@@ -251,21 +255,17 @@ def _process_media_item_dict_inner(
             {"mediaId": filtered_media.get("id"), "missing_field": "accountId"},
         )
         return  # Skip this media if accountId is missing
+    # Query first approach
+    media = session.query(Media).filter_by(id=filtered_media["id"]).first()
 
-    if not media:
+    if media is None:
         media = Media(**filtered_media)
         session.add(media)
 
-    # Log any unknown attributes
-    unknown_attrs = {k: v for k, v in filtered_media.items() if k not in media_columns}
-    if unknown_attrs:
-        json_output(1, "meta/media - media_unknown_attributes", unknown_attrs)
-
     # Update fields that have changed
     for key, value in filtered_media.items():
-        if key in media_columns:
-            if getattr(media, key) != value:
-                setattr(media, key, value)
+        if getattr(media, key) != value:
+            setattr(media, key, value)
 
     session.flush()
 
