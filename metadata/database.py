@@ -15,15 +15,22 @@ The module includes:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 import threading
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -105,12 +112,14 @@ class OptimizedSQLiteMemory:
     1. Uses shared cache mode for better memory utilization
     2. Implements write-ahead logging for improved concurrency
     3. Uses memory-mapping for faster access
-    4. Maintains thread safety with proper locking
+    4. Maintains thread and asyncio safety with proper locking
+    5. Supports both synchronous and asynchronous operations
     """
 
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
-        self.lock = threading.Lock()
+        self.thread_lock = threading.Lock()
+        self.async_lock = asyncio.Lock()
 
         # Enable URI connections for shared cache
         sqlite3.enable_callback_tracebacks(True)
@@ -122,7 +131,6 @@ class OptimizedSQLiteMemory:
             "mode=rwc&"  # Read-write with create
             "_journal_mode=WAL&"  # Write-ahead logging
             "_synchronous=NORMAL&"  # Balance between safety and speed
-            "_cache_size=-102400&"  # 100MB cache
             "_page_size=4096&"  # Optimal for most SSDs
             "_mmap_size=1073741824"  # 1GB memory mapping
         )
@@ -131,6 +139,28 @@ class OptimizedSQLiteMemory:
         self._setup_connection()
 
     def _setup_connection(self) -> None:
+        try:
+            # Check database size before connecting
+            db_size_bytes = (
+                Path(self.db_path).stat().st_size if Path(self.db_path).exists() else 0
+            )
+            db_size_mb = db_size_bytes / (1024 * 1024)  # Convert to MB
+
+            # For databases under 1GB, set cache size to database size + 20% overhead
+            # but minimum 100MB for growing databases
+            cache_size_mb = (
+                max(100, int(db_size_mb * 1.2)) if db_size_mb < 1024 else 100
+            )
+            cache_pages = -1 * (
+                cache_size_mb * 1024
+            )  # Convert MB to number of pages (negative for KB)
+        except OSError as e:
+            print_error(
+                f"Error checking database size: {e}. Using default 100MB cache."
+            )
+            cache_size_mb = 100
+            cache_pages = -102400  # 100MB in pages
+
         self.conn = sqlite3.connect(
             self.db_uri,
             uri=True,
@@ -140,31 +170,70 @@ class OptimizedSQLiteMemory:
         )
 
         # Set additional optimizations
-        with self.lock:
+        with self.thread_lock:
             cursor = self.conn.cursor()
             cursor.execute("PRAGMA temp_store=MEMORY")  # Store temp tables in memory
             cursor.execute("PRAGMA mmap_size=1073741824")  # 1GB memory mapping
-            cursor.execute("PRAGMA cache_size=-102400")  # 100MB cache
+            cursor.execute(f"PRAGMA cache_size={cache_pages}")  # Dynamic cache size
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
             cursor.execute("PRAGMA foreign_keys=OFF")  # As per original code
+            print_info(
+                f"SQLite cache size set to {cache_size_mb}MB for {db_size_mb:.1f}MB database"
+            )
             cursor.close()
 
     def execute(self, query: str, params=()) -> sqlite3.Cursor:
-        with self.lock:
+        with self.thread_lock:
             return self.conn.execute(query, params)
 
     def executemany(self, query: str, params_seq) -> sqlite3.Cursor:
-        with self.lock:
+        with self.thread_lock:
             return self.conn.executemany(query, params_seq)
 
     def commit(self) -> None:
-        with self.lock:
+        with self.thread_lock:
             self.conn.commit()
 
     def close(self) -> None:
-        with self.lock:
+        with self.thread_lock:
             self.conn.close()
+
+    async def execute_async(self, query: str, params=()) -> sqlite3.Cursor:
+        """Execute a query asynchronously.
+
+        Uses asyncio.to_thread to run the SQLite operation in a thread pool,
+        preventing blocking of the event loop while maintaining proper locking.
+        """
+        async with self.async_lock:
+            return await asyncio.to_thread(self.conn.execute, query, params)
+
+    async def executemany_async(self, query: str, params_seq) -> sqlite3.Cursor:
+        """Execute multiple queries asynchronously.
+
+        Uses asyncio.to_thread to run the SQLite operation in a thread pool,
+        preventing blocking of the event loop while maintaining proper locking.
+        """
+        async with self.async_lock:
+            return await asyncio.to_thread(self.conn.executemany, query, params_seq)
+
+    async def commit_async(self) -> None:
+        """Commit changes asynchronously.
+
+        Uses asyncio.to_thread to run the SQLite operation in a thread pool,
+        preventing blocking of the event loop while maintaining proper locking.
+        """
+        async with self.async_lock:
+            await asyncio.to_thread(self.conn.commit)
+
+    async def close_async(self) -> None:
+        """Close the connection asynchronously.
+
+        Uses asyncio.to_thread to run the SQLite operation in a thread pool,
+        preventing blocking of the event loop while maintaining proper locking.
+        """
+        async with self.async_lock:
+            await asyncio.to_thread(self.conn.close)
 
 
 class Database:
@@ -183,7 +252,9 @@ class Database:
     """
 
     sync_engine: Engine
+    async_engine: AsyncEngine
     sync_session: sessionmaker[Session]
+    async_session: async_sessionmaker[AsyncSession]
     db_file: Path
     config: FanslyConfig
     _optimized_connection: OptimizedSQLiteMemory
@@ -212,6 +283,18 @@ class Database:
         )
         self.sync_session = sessionmaker(bind=self.sync_engine, expire_on_commit=False)
 
+        # Asynchronous engine and session
+        self.async_engine = create_async_engine(
+            f"sqlite+aiosqlite:///{self.db_file}",
+            creator=lambda: self._optimized_connection.conn,
+            poolclass=StaticPool,  # Use static pool since we're sharing connection
+            echo=False,  # Enable SQL logging
+            echo_pool=True,  # Log connection pool activity
+        )
+        self.async_session = async_sessionmaker(
+            bind=self.async_engine, expire_on_commit=False, class_=AsyncSession
+        )
+
     def _setup_event_listeners(self) -> None:
         # Add event listeners for sync engine
         @event.listens_for(self.sync_engine, "connect")
@@ -229,7 +312,19 @@ class Database:
         with self.sync_session() as session:
             yield session
 
+    @asynccontextmanager
+    async def get_async_session(self) -> AsyncGenerator[AsyncSession]:
+        """Provide an async session for database interaction."""
+        async with self.async_session() as session:
+            yield session
+
     def close(self) -> None:
         """Close all database connections."""
         self.sync_engine.dispose()
+        self.async_engine.dispose()
         self._optimized_connection.close()
+
+    async def close_async(self) -> None:
+        """Close all database connections asynchronously."""
+        await self.async_engine.dispose()
+        await self._optimized_connection.close_async()
