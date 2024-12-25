@@ -137,6 +137,27 @@ def main(config: FanslyConfig) -> int:
         )
 
     print()
+
+    # Initialize database first since we need it for deduplication
+    from metadata.database import (
+        Database,
+        get_creator_database_path,
+        run_migrations_if_needed,
+    )
+
+    alembic_cfg = AlembicConfig("alembic.ini")
+
+    if config.separate_metadata:
+        print_info("Using separate metadata databases per creator")
+    else:
+        print_info(f"Using global metadata database: {config.metadata_db_file}")
+        config._database = Database(config)
+        # Register cleanup function to ensure database is closed on exit
+        atexit.register(cleanup_database, config)
+        run_migrations_if_needed(config._database, alembic_cfg)
+    print()
+
+    # Print API information
     print_info(f"Token: {config.token}")
     print_info(f"Check Key: {config.check_key}")
     print_info(
@@ -146,18 +167,6 @@ def main(config: FanslyConfig) -> int:
     print_info(f"Session ID: {config.get_api().session_id}")
 
     global_download_state = GlobalState()
-
-    if config.include_meta_database:
-        from metadata.database import Database, run_migrations_if_needed
-
-        alembic_cfg = AlembicConfig("alembic.ini")
-        print_info(f"Metadata database is enabled. -- {config.metadata_db_file}")
-        if not config.separate_metadata:
-            config._database = Database(config)
-            # Register cleanup function to ensure database is closed on exit
-            atexit.register(cleanup_database, config)
-            run_migrations_if_needed(config._database, alembic_cfg)
-        print()
 
     # M3U8 fixing interim
     print()
@@ -174,67 +183,98 @@ def main(config: FanslyConfig) -> int:
             try:
                 state = DownloadState(creator_name=creator_name)
 
-                # Special treatment for deviating folder names later
-                if not config.download_mode == DownloadMode.SINGLE:
-                    dedupe_init(config, state)
+                # Initialize database-related variables
+                creator_database = None
+                orig_db_file = None
+                orig_database = None
 
-                print_download_info(config)
+                # Handle per-creator database if enabled
+                if config.separate_metadata:
+                    db_path = get_creator_database_path(config, creator_name)
+                    print_info(f"Using creator database: {db_path}")
+                    # Store original config values
+                    orig_db_file = config.metadata_db_file
+                    orig_database = config._database
+                    # Set up creator database
+                    config.metadata_db_file = db_path
+                    creator_database = Database(config)
+                    config._database = creator_database
+                    run_migrations_if_needed(creator_database, alembic_cfg)
 
-                get_creator_account_info(config, state)
+                try:
+                    # Special treatment for deviating folder names later
+                    if not config.download_mode == DownloadMode.SINGLE:
+                        dedupe_init(config, state)
 
-                # Download mode:
-                # Normal: Downloads Timeline + Messages one after another.
-                # Timeline: Scrapes only the creator's timeline content.
-                # Messages: Scrapes only the creator's messages content.
-                # Wall: Scrapes only the creator's wall content.
-                # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
-                # Collection: Download all content listed within the "Purchased Media Collection"
+                    print_download_info(config)
 
-                print_info(f"Download mode is: {config.download_mode_str()}")
-                print()
+                    get_creator_account_info(config, state)
 
-                if config.download_mode == DownloadMode.SINGLE:
-                    download_single_post(config, state)
+                    # Download mode:
+                    # Normal: Downloads Timeline + Messages one after another.
+                    # Timeline: Scrapes only the creator's timeline content.
+                    # Messages: Scrapes only the creator's messages content.
+                    # Wall: Scrapes only the creator's wall content.
+                    # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
+                    # Collection: Download all content listed within the "Purchased Media Collection"
 
-                elif config.download_mode == DownloadMode.COLLECTION:
-                    download_collections(config, state)
+                    print_info(f"Download mode is: {config.download_mode_str()}")
+                    print()
 
-                else:
-                    if any(
-                        [
-                            config.download_mode == DownloadMode.MESSAGES,
-                            config.download_mode == DownloadMode.NORMAL,
-                        ]
-                    ):
-                        download_messages(config, state)
+                    if config.download_mode == DownloadMode.SINGLE:
+                        download_single_post(config, state)
 
-                    if any(
-                        [
-                            config.download_mode == DownloadMode.TIMELINE,
-                            config.download_mode == DownloadMode.NORMAL,
-                        ]
-                    ):
-                        download_timeline(config, state)
+                    elif config.download_mode == DownloadMode.COLLECTION:
+                        download_collections(config, state)
 
-                    if any(
-                        [
-                            config.download_mode == DownloadMode.WALL,
-                            config.download_mode == DownloadMode.NORMAL,
-                        ]
-                    ):
-                        for wall_id in state.walls:
-                            download_wall(config, state, wall_id)
+                    else:
+                        if any(
+                            [
+                                config.download_mode == DownloadMode.MESSAGES,
+                                config.download_mode == DownloadMode.NORMAL,
+                            ]
+                        ):
+                            download_messages(config, state)
 
-                update_global_statistics(global_download_state, download_state=state)
-                print_statistics(config, state)
+                        if any(
+                            [
+                                config.download_mode == DownloadMode.TIMELINE,
+                                config.download_mode == DownloadMode.NORMAL,
+                            ]
+                        ):
+                            download_timeline(config, state)
 
-                # open download folder
-                if state.base_path is not None:
-                    open_location(
-                        state.base_path,
-                        config.open_folder_when_finished,
-                        config.interactive,
+                        if any(
+                            [
+                                config.download_mode == DownloadMode.WALL,
+                                config.download_mode == DownloadMode.NORMAL,
+                            ]
+                        ):
+                            for wall_id in state.walls:
+                                download_wall(config, state, wall_id)
+
+                    update_global_statistics(
+                        global_download_state, download_state=state
                     )
+                    print_statistics(config, state)
+
+                    # open download folder
+                    if state.base_path is not None:
+                        open_location(
+                            state.base_path,
+                            config.open_folder_when_finished,
+                            config.interactive,
+                        )
+
+                finally:
+                    # Clean up creator database if used
+                    if config.separate_metadata and creator_database:
+                        creator_database.close()
+                        # Restore original config values if they were changed
+                        if orig_db_file is not None:
+                            config.metadata_db_file = orig_db_file
+                        if orig_database is not None:
+                            config._database = orig_database
 
             # Still continue if one creator failed
             except ApiAccountInfoError as e:

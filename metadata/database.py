@@ -11,6 +11,7 @@ The module includes:
 - Session management for database operations
 - Logging configuration for SQLAlchemy
 - Memory-optimized SQLite with write-through caching
+- Support for both global and per-creator databases
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import asyncio
 import logging
 import sqlite3
 import threading
+import time
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -46,18 +48,35 @@ sqlalchemy_logger = logging.getLogger("sqlalchemy.engine")
 sqlalchemy_logger.setLevel(logging.INFO)
 time_handler = SizeAndTimeRotatingFileHandler(
     "sqlalchemy.log",
-    maxBytes=50 * 1000 * 1000,  # 50MB
-    when="h",  # Hourly rotation
-    interval=2,  # Rotate every 2 hours
-    backupCount=20,  # Keep 5 backups
-    utc=True,  # Use UTC time
-    compression="gz",  # Compress logs using gzip
-    keep_uncompressed=3,  # Keep 3 uncompressed logs
+    maxBytes=50 * 1000 * 1000,
+    when="h",
+    interval=2,
+    backupCount=20,
+    utc=True,
+    compression="gz",
+    keep_uncompressed=3,
 )
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 time_handler.setFormatter(formatter)
 sqlalchemy_logger.addHandler(time_handler)
 sqlalchemy_logger.propagate = False
+
+
+def get_creator_database_path(config: FanslyConfig, creator_name: str) -> Path:
+    """Get the database path for a specific creator when using separate metadata.
+
+    Args:
+        config: The program configuration
+        creator_name: Name of the creator
+
+    Returns:
+        Path to the creator's database file
+    """
+    suffix = "_fansly" if config.use_folder_suffix else ""
+    creator_base = config.download_directory / f"{creator_name}{suffix}"
+    meta_dir = creator_base / "meta"
+    meta_dir.mkdir(exist_ok=True)
+    return meta_dir / "metadata.sqlite3"
 
 
 def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> None:
@@ -105,6 +124,129 @@ def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> 
         connection.close()
 
 
+def get_local_db_path(remote_path: Path) -> Path:
+    """Get a local database path for a given remote path.
+
+    Creates a local database file in the system temp directory that mirrors
+    the structure of the remote path to avoid network filesystem issues.
+
+    Args:
+        remote_path: Original database path (could be on network drive)
+
+    Returns:
+        Local path in temp directory for SQLite database
+    """
+    import hashlib
+    import tempfile
+
+    # Create a unique but consistent name based on the remote path
+    path_hash = hashlib.sha256(str(remote_path.absolute()).encode()).hexdigest()[:16]
+
+    # Use a subdirectory in temp to keep our files organized
+    temp_dir = Path(tempfile.gettempdir()) / "fansly_metadata"
+    temp_dir.mkdir(exist_ok=True)
+
+    return temp_dir / f"metadata_{path_hash}.sqlite3"
+
+
+class BackgroundSync:
+    """Background sync manager for SQLite databases.
+
+    Handles periodic syncing of local database to remote location based on:
+    - Number of commits since last sync
+    - Time since last sync
+    - Database size threshold
+    """
+
+    def __init__(self, db_path: Path, local_path: Path, config: FanslyConfig):
+        self.remote_path = db_path
+        self.local_path = local_path
+        self.config = config
+        self.commit_count = 0
+        self.last_sync = time.time()
+        self.sync_thread = None
+        self.stop_event = threading.Event()
+        self.sync_lock = threading.Lock()
+
+        # Check if we should use background sync based on size
+        try:
+            size_mb = local_path.stat().st_size / (1024 * 1024)
+            self.use_background = size_mb >= config.db_sync_min_size
+        except OSError:
+            self.use_background = False
+
+        if self.use_background:
+            self.start_sync_thread()
+
+    def start_sync_thread(self) -> None:
+        """Start the background sync thread."""
+        self.stop_event.clear()
+        self.sync_thread = threading.Thread(target=self._sync_loop, daemon=True)
+        self.sync_thread.start()
+
+    def stop_sync_thread(self) -> None:
+        """Stop the background sync thread."""
+        if self.sync_thread and self.sync_thread.is_alive():
+            self.stop_event.set()
+            self.sync_thread.join()
+
+    def _sync_loop(self) -> None:
+        """Main loop for background sync thread."""
+        while not self.stop_event.is_set():
+            time.sleep(1)  # Check every second
+
+            current_time = time.time()
+            should_sync = False
+
+            with self.sync_lock:
+                # Check time-based sync
+                if current_time - self.last_sync >= self.config.db_sync_seconds:
+                    should_sync = True
+                # Check commit-based sync
+                elif self.commit_count >= self.config.db_sync_commits:
+                    should_sync = True
+
+                if should_sync:
+                    try:
+                        self._do_sync()
+                        self.commit_count = 0
+                        self.last_sync = current_time
+                    except Exception as e:
+                        print_error(f"Background sync error: {e}")
+
+    def _do_sync(self) -> None:
+        """Perform the actual sync operation."""
+        import shutil
+
+        try:
+            # Create remote directory if it doesn't exist
+            self.remote_path.parent.mkdir(parents=True, exist_ok=True)
+            # Copy the database file
+            shutil.copy2(self.local_path, self.remote_path)
+            # Copy WAL and SHM files if they exist
+            for ext in ["-wal", "-shm"]:
+                wal_path = self.local_path.with_suffix(f".sqlite3{ext}")
+                if wal_path.exists():
+                    shutil.copy2(
+                        wal_path, self.remote_path.with_suffix(f".sqlite3{ext}")
+                    )
+        except Exception as e:
+            print_error(f"Error syncing database to remote location: {e}")
+
+    def notify_commit(self) -> None:
+        """Notify the sync manager of a new commit."""
+        if self.use_background:
+            with self.sync_lock:
+                self.commit_count += 1
+
+    def sync_now(self) -> None:
+        """Force an immediate sync."""
+        with self.sync_lock:
+            self._do_sync()
+            self.commit_count = 0
+            self.last_sync = time.time()
+
+
 class OptimizedSQLiteMemory:
     """Optimized SQLite connection with write-through caching.
 
@@ -114,19 +256,31 @@ class OptimizedSQLiteMemory:
     3. Uses memory-mapping for faster access
     4. Maintains thread and asyncio safety with proper locking
     5. Supports both synchronous and asynchronous operations
+    6. Uses local temp files for network path databases
+    7. Supports background syncing for large databases
     """
 
-    def __init__(self, db_path: str | Path):
-        self.db_path = str(db_path)
+    def __init__(self, db_path: str | Path, config: FanslyConfig):
+        self.remote_path = Path(db_path)
+        self.local_path = get_local_db_path(self.remote_path)
         self.thread_lock = threading.Lock()
         self.async_lock = asyncio.Lock()
+
+        # Copy existing database if it exists
+        if self.remote_path.exists() and not self.local_path.exists():
+            import shutil
+
+            shutil.copy2(self.remote_path, self.local_path)
+
+        # Initialize background sync
+        self.sync_manager = BackgroundSync(self.remote_path, self.local_path, config)
 
         # Enable URI connections for shared cache
         sqlite3.enable_callback_tracebacks(True)
 
         # Create the database URI with optimized settings
         self.db_uri = (
-            f"file:{self.db_path}?"
+            f"file:{self.local_path}?"
             "cache=shared&"  # Enable shared cache
             "mode=rwc&"  # Read-write with create
             "_journal_mode=WAL&"  # Write-ahead logging
@@ -142,7 +296,7 @@ class OptimizedSQLiteMemory:
         try:
             # Check database size before connecting
             db_size_bytes = (
-                Path(self.db_path).stat().st_size if Path(self.db_path).exists() else 0
+                self.local_path.stat().st_size if self.local_path.exists() else 0
             )
             db_size_mb = db_size_bytes / (1024 * 1024)  # Convert to MB
 
@@ -194,10 +348,15 @@ class OptimizedSQLiteMemory:
     def commit(self) -> None:
         with self.thread_lock:
             self.conn.commit()
+            self.sync_manager.notify_commit()
 
     def close(self) -> None:
+        """Close the connection and sync to remote location."""
         with self.thread_lock:
             self.conn.close()
+            # Stop background sync and do final sync
+            self.sync_manager.stop_sync_thread()
+            self.sync_manager.sync_now()
 
     async def execute_async(self, query: str, params=()) -> sqlite3.Cursor:
         """Execute a query asynchronously.
@@ -225,15 +384,19 @@ class OptimizedSQLiteMemory:
         """
         async with self.async_lock:
             await asyncio.to_thread(self.conn.commit)
+            await asyncio.to_thread(self.sync_manager.notify_commit)
 
     async def close_async(self) -> None:
-        """Close the connection asynchronously.
+        """Close the connection asynchronously and sync to remote.
 
         Uses asyncio.to_thread to run the SQLite operation in a thread pool,
         preventing blocking of the event loop while maintaining proper locking.
         """
         async with self.async_lock:
             await asyncio.to_thread(self.conn.close)
+            # Stop background sync and do final sync
+            await asyncio.to_thread(self.sync_manager.stop_sync_thread)
+            await asyncio.to_thread(self.sync_manager.sync_now)
 
 
 class Database:
@@ -270,7 +433,7 @@ class Database:
         self._setup_event_listeners()
 
     def _setup_optimized_connection(self) -> None:
-        self._optimized_connection = OptimizedSQLiteMemory(self.db_file)
+        self._optimized_connection = OptimizedSQLiteMemory(self.db_file, self.config)
 
     def _setup_engines_and_sessions(self) -> None:
         # Synchronous engine and session

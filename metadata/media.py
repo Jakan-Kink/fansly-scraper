@@ -106,6 +106,9 @@ class Media(Base):
     status: Mapped[int] = mapped_column(Integer, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    local_filename: Mapped[str] = mapped_column(String, nullable=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    is_downloaded: Mapped[bool] = mapped_column(Integer, default=False, nullable=False)
     variants: Mapped[set[Media]] = relationship(
         "Media",
         collection_class=set,

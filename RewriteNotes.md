@@ -59,6 +59,28 @@ Code Quality and Testing:
   - Test fixtures and utilities
   - Coverage reporting
 
+Deduplication Changes:
+* Moved source of truth from filenames to database:
+  ```python
+  # Old approach (up to and including 2a6e63f) - hash in filename:
+  video_123_hash2_abc123.mp4
+
+  # New approach - clean filename with hash in database:
+  video_123.mp4  # File on disk
+  Media(         # Database record
+      content_hash="abc123",
+      is_downloaded=True,
+      local_filename="video_123.mp4"
+  )
+  ```
+* Added migration support for old hash formats:
+  - hash0 (_hash_) - Original format
+  - hash1 (_hash1_) - Improved video hashing
+  - hash2 (_hash2_) - Fixed video hashing
+* Preserves hash2 values as trusted source
+* Recalculates hashes for older formats
+* Supports both filename and hash-based lookups
+
 Database Operations:
 * Added metadata database support with SQLAlchemy
 * Added relationship handling between models
@@ -78,6 +100,23 @@ Database Operations:
   if not obj:
       obj = Model(**data)
       session.add(obj)
+  ```
+* Added network path optimization:
+  ```python
+  # Use local temp files for network paths
+  local_path = get_local_db_path(remote_path)
+
+  # Background sync for large databases
+  sync_manager = BackgroundSync(
+      remote_path=remote_path,
+      local_path=local_path,
+      config=config  # Controls sync intervals
+  )
+
+  # Configurable sync intervals
+  db_sync_commits = 1000  # Sync after N commits
+  db_sync_seconds = 60   # Sync every N seconds
+  db_sync_min_size = 50  # Min size in MB for background sync
   ```
 
 Error Handling and Logging:

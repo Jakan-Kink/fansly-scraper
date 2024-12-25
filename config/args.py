@@ -298,15 +298,34 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "-imd",
-        "--include-meta-database",
+        "--db-sync-commits",
         required=False,
-        default=False,
-        action="store_true",
-        dest="include_meta_database",
-        help="Include the metadata database in the download folder. "
-        "This is useful for debugging and troubleshooting."
-        "This is also useful for providing metadata to Stash or the community.",
+        default=1000,
+        type=int,
+        dest="db_sync_commits",
+        help="Number of commits before syncing database to remote location. "
+        "Only applies to databases larger than --db-sync-min-size. "
+        "Default: 1000",
+    )
+    parser.add_argument(
+        "--db-sync-seconds",
+        required=False,
+        default=60,
+        type=int,
+        dest="db_sync_seconds",
+        help="Number of seconds between database syncs to remote location. "
+        "Only applies to databases larger than --db-sync-min-size. "
+        "Default: 60",
+    )
+    parser.add_argument(
+        "--db-sync-min-size",
+        required=False,
+        default=50,
+        type=int,
+        dest="db_sync_min_size",
+        help="Minimum database size in MB to enable background syncing. "
+        "Smaller databases are synced immediately. "
+        "Default: 50",
     )
 
     # endregion Other Options
@@ -469,6 +488,9 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
         "check_key",
         # 'session_id',
         "updated_to",
+        "db_sync_commits",
+        "db_sync_seconds",
+        "db_sync_min_size",
     ]
 
     # Sets config when arguments are not None
@@ -490,7 +512,6 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     positive_bools = [
         "separate_previews",
         "use_duplicate_threshold",
-        "include_meta_database",
         "separate_metadata",
     ]
 

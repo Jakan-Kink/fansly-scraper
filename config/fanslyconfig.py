@@ -1,6 +1,5 @@
 """Configuration Class for Shared State"""
 
-import tempfile
 from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,13 +78,16 @@ class FanslyConfig:
     # This helps for semi-automated runs (interactive=False) when coming back
     # to the computer and wanting to see what happened in the console window.
     prompt_on_exit: bool = True
-    include_meta_database: bool = False
     metadata_db_file: Path | None = None
 
     # Number of retries to get a timeline
     timeline_retries: int = 1
     # Anti-rate-limiting delay in seconds
     timeline_delay_seconds: int = 60
+    # Database sync settings
+    db_sync_commits: int = 1000  # Sync after this many commits
+    db_sync_seconds: int = 60  # Sync after this many seconds
+    db_sync_min_size: int = 50  # Only use background sync for DBs larger than this (MB)
 
     # Cache
     cached_device_id: str | None = None
@@ -187,9 +189,6 @@ class FanslyConfig:
         self._parser.set("Options", "separate_previews", str(self.separate_previews))
         self._parser.set("Options", "separate_timeline", str(self.separate_timeline))
         self._parser.set("Options", "separate_metadata", str(self.separate_metadata))
-        self._parser.set(
-            "Options", "include_meta_database", str(self.include_meta_database)
-        )
         self._parser.set("Options", "metadata_db_file", str(self.metadata_db_file))
         self._parser.set(
             "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
@@ -294,11 +293,10 @@ class FanslyConfig:
 
     def _get_default_metadata_db_file(self) -> Path:
         """
-        Determine the default database file location based on configuration.
+        Determine the default database file location.
+        Uses a persistent database in the download directory if available,
+        otherwise falls back to current directory.
         """
-        if self.include_meta_database:
-            return (
-                Path.cwd() / "metadata_db.sqlite3"
-            )  # Default to the current directory
-
-        return Path(tempfile.gettempdir(), "metadata_db.sqlite3")  # Temporary fallback
+        if self.download_directory:
+            return self.download_directory / "metadata_db.sqlite3"
+        return Path.cwd() / "metadata_db.sqlite3"
