@@ -204,6 +204,13 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
         "accountMentions",
         "walls",
         # Intentionally ignored fields
+        "fypFlags",
+        "likeCount",
+        "timelineReadPermissionFlags",
+        "accountTimelineReadPermissionFlags",
+        "mediaLikeCount",
+        "totalTipAmount",
+        "attachmentTipAmount",
     }
 
     # Process post data

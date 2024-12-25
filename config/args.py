@@ -6,7 +6,7 @@ from pathlib import Path
 
 from errors import ConfigError
 from helpers.common import get_post_id_from_request, is_valid_post_id
-from textio import print_debug, print_warning
+from textio import print_debug, print_warning, set_debug_enabled
 
 from .config import parse_items_from_line, sanitize_creator_names, save_config_or_raise
 from .fanslyconfig import FanslyConfig
@@ -327,6 +327,16 @@ def parse_args() -> argparse.Namespace:
         "Smaller databases are synced immediately. "
         "Default: 50",
     )
+    parser.add_argument(
+        "--metadata-db-file",
+        required=False,
+        default=None,
+        type=str,
+        dest="metadata_db_file",
+        help="Custom path for the metadata database file. "
+        "If not specified, uses download_directory/metadata_db.sqlite3 "
+        "or ./metadata_db.sqlite3 in current directory.",
+    )
 
     # endregion Other Options
 
@@ -404,8 +414,9 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     download_mode_set = False
 
     config.debug = args.debug
+    set_debug_enabled(args.debug)
 
-    if config.debug:
+    if args.debug:
         print_debug(f"Args: {args}")
         print()
 
@@ -491,6 +502,7 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
         "db_sync_commits",
         "db_sync_seconds",
         "db_sync_min_size",
+        "metadata_db_file",
     ]
 
     # Sets config when arguments are not None

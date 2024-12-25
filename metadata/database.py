@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy.exc import DatabaseError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -422,6 +423,308 @@ class Database:
     config: FanslyConfig
     _optimized_connection: OptimizedSQLiteMemory
 
+    def check_integrity(self) -> bool:
+        """Check database integrity and attempt recovery if needed.
+
+        Returns:
+            bool: True if database is healthy or recovered, False if unrecoverable
+        """
+        import shutil
+        from datetime import datetime
+
+        from textio import print_warning
+
+        try:
+            # Check WAL and SHM files first
+            wal_path = self.db_file.with_suffix(".sqlite3-wal")
+            shm_path = self.db_file.with_suffix(".sqlite3-shm")
+
+            if wal_path.exists():
+                # Try to checkpoint and clear WAL
+                try:
+                    with self.sync_engine.connect() as conn:
+                        conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+                except Exception as e:
+                    print_warning(f"Failed to checkpoint WAL: {e}")
+                    # Backup and remove WAL/SHM files if they might be corrupt
+                    if wal_path.exists():
+                        backup_wal = wal_path.with_suffix(
+                            f'.wal.bak.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+                        )
+                        shutil.move(wal_path, backup_wal)
+                    if shm_path.exists():
+                        backup_shm = shm_path.with_suffix(
+                            f'.shm.bak.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+                        )
+                        shutil.move(shm_path, backup_shm)
+
+            # Try to run integrity check
+            with self.sync_engine.connect() as conn:
+                # First try quick_check which is faster
+                quick_result = conn.execute(text("PRAGMA quick_check")).fetchall()
+                if quick_result != [("ok",)]:
+                    # If quick_check fails, run full integrity check
+                    result = conn.execute(text("PRAGMA integrity_check")).fetchall()
+                    if result != [("ok",)]:
+                        # Database is corrupt, try to recover
+                        print_warning(f"Database corruption detected: {result}")
+
+                        # Create backup of corrupted database
+                        backup_path = self.db_file.with_suffix(
+                            f'.sqlite3.corrupt.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+                        )
+                        print_warning(
+                            f"Creating backup of corrupted database: {backup_path}"
+                        )
+                        shutil.copy2(self.db_file, backup_path)
+
+                        # Try to recover using dump and reload
+                        print_warning("Attempting database recovery...")
+                        dump_path = self.db_file.with_suffix(".dump")
+                        try:
+                            # Try to dump the database with recovery mode
+                            import subprocess
+
+                            subprocess.run(
+                                [
+                                    "sqlite3",
+                                    str(self.db_file),
+                                    ".recover",
+                                ],  # Use .recover instead of .dump for better corruption handling
+                                stdout=open(dump_path, "w"),
+                                stderr=subprocess.PIPE,
+                                check=True,
+                            )
+
+                            # Remove corrupted database
+                            self.db_file.unlink()
+
+                            # Create new database from dump
+                            subprocess.run(
+                                ["sqlite3", str(self.db_file)],
+                                stdin=open(dump_path),
+                                stderr=subprocess.PIPE,
+                                check=True,
+                            )
+
+                            # Verify recovered database
+                            with self.sync_engine.connect() as conn:
+                                result = conn.execute(
+                                    text("PRAGMA integrity_check")
+                                ).fetchall()
+                                if result == [("ok",)]:
+                                    print_warning("Database successfully recovered!")
+                                    return True
+
+                            print_warning("Recovery failed: New database also corrupt")
+                            return False
+
+                        except Exception as e:
+                            print_warning(f"Recovery failed: {str(e)}")
+                            return False
+                        finally:
+                            # Clean up dump file
+                            if dump_path.exists():
+                                dump_path.unlink()
+
+                return True  # Database is healthy
+
+        except Exception as e:
+            print_warning(f"Error checking database integrity: {str(e)}")
+            return False
+
+    def handle_corruption(self) -> bool:
+        """Handle database corruption by attempting recovery.
+
+        This method should be called when a corruption error is detected.
+        It will:
+        1. Stop background sync
+        2. Close all existing connections
+        3. Attempt database recovery
+        4. Recreate optimized connection and engines if recovery succeeds
+
+        Returns:
+            bool: True if recovery was successful, False otherwise
+        """
+        import shutil
+
+        from textio import print_warning
+
+        try:
+            # Stop background sync first
+            if self._optimized_connection.sync_manager:
+                self._optimized_connection.sync_manager.stop_sync_thread()
+
+            # Close all existing connections
+            self.sync_engine.dispose()
+            if hasattr(self, "async_engine"):
+                self.async_engine.dispose()
+
+            # Close optimized connection
+            self._optimized_connection.conn.close()
+
+            # Attempt recovery on local path first
+            local_path = self._optimized_connection.local_path
+            remote_path = self._optimized_connection.remote_path
+
+            if self.check_integrity():
+                # Recovery succeeded, sync back to remote
+                try:
+                    shutil.copy2(local_path, remote_path)
+                    # Copy WAL and SHM files if they exist
+                    for ext in ["-wal", "-shm"]:
+                        wal_path = local_path.with_suffix(f".sqlite3{ext}")
+                        if wal_path.exists():
+                            shutil.copy2(
+                                wal_path, remote_path.with_suffix(f".sqlite3{ext}")
+                            )
+                except Exception as e:
+                    print_warning(f"Failed to sync recovered database to remote: {e}")
+                    return False
+
+                # Recreate optimized connection and engines
+                self._setup_optimized_connection()
+                self._setup_engines_and_sessions()
+                self._setup_event_listeners()
+                return True
+
+            # If local recovery failed, try recovering remote and copying back
+            if remote_path.exists():
+                try:
+                    # Backup local corrupted database
+                    from datetime import datetime
+
+                    backup_path = local_path.with_suffix(
+                        f'.sqlite3.corrupt.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+                    )
+                    shutil.move(local_path, backup_path)
+
+                    # Copy remote to local and try recovery
+                    shutil.copy2(remote_path, local_path)
+                    if self.check_integrity():
+                        # Recreate optimized connection and engines
+                        self._setup_optimized_connection()
+                        self._setup_engines_and_sessions()
+                        self._setup_event_listeners()
+                        return True
+                except Exception as e:
+                    print_warning(f"Failed to recover from remote: {e}")
+
+            return False
+
+        except Exception as e:
+            print_warning(f"Error during corruption recovery: {e}")
+            return False
+
+    @contextmanager
+    def _safe_session_factory(self) -> Generator[Session]:
+        """Internal context manager that provides a session with corruption detection.
+
+        This wrapper will:
+        1. Create a new session
+        2. Detect corruption errors
+        3. Close session properly
+
+        Note: When corruption is detected, the session is closed and a DatabaseError
+        is raised. The application should catch this error, call handle_corruption(),
+        and if successful, retry the operation with a new session.
+
+        Yields:
+            Session: SQLAlchemy session
+
+        Raises:
+            sqlalchemy.exc.DatabaseError: If database corruption is detected
+        """
+        session = self.sync_session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            if isinstance(
+                e, (sqlite3.DatabaseError, DatabaseError)
+            ) and "database disk image is malformed" in str(e):
+                # Close session before handling corruption
+                session.close()
+                raise DatabaseError(
+                    statement="Database integrity check",
+                    params=None,
+                    orig=e,
+                    code="corrupted",
+                )
+            raise
+        finally:
+            session.close()
+
+    @asynccontextmanager
+    async def _safe_session_factory_async(self) -> AsyncGenerator[AsyncSession]:
+        """Internal async context manager that provides a session with corruption detection.
+
+        This wrapper will:
+        1. Create a new session
+        2. Detect corruption errors
+        3. Close session properly
+
+        Note: When corruption is detected, the session is closed and a DatabaseError
+        is raised. The application should catch this error, call handle_corruption(),
+        and if successful, retry the operation with a new session.
+
+        Yields:
+            AsyncSession: SQLAlchemy async session
+
+        Raises:
+            sqlalchemy.exc.DatabaseError: If database corruption is detected
+        """
+        session = self.async_session_factory()
+        try:
+            yield session
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            if isinstance(
+                e, (sqlite3.DatabaseError, DatabaseError)
+            ) and "database disk image is malformed" in str(e):
+                # Close session before handling corruption
+                await session.close()
+                raise DatabaseError(
+                    statement="Database integrity check",
+                    params=None,
+                    orig=e,
+                    code="corrupted",
+                )
+            raise
+        finally:
+            await session.close()
+
+    def _setup_engines_and_sessions(self) -> None:
+        """Set up SQLAlchemy engines and session factories."""
+        # Create the sync engine
+        self.sync_engine = create_engine(
+            f"sqlite:///{self._optimized_connection.local_path}",
+            poolclass=StaticPool,
+            creator=lambda: self._optimized_connection.conn,
+        )
+
+        # Create the async engine
+        self.async_engine = create_async_engine(
+            f"sqlite+aiosqlite:///{self._optimized_connection.local_path}",
+            poolclass=StaticPool,
+        )
+
+        # Create session factories (internal use only)
+        self.sync_session_factory = sessionmaker(
+            bind=self.sync_engine,
+            expire_on_commit=False,
+        )
+        self.async_session_factory = async_sessionmaker(
+            bind=self.async_engine,
+            expire_on_commit=False,
+        )
+
+        # Create public session context managers with corruption handling
+        self.sync_session = self._safe_session_factory
+        self.async_session = self._safe_session_factory_async
+
     def __init__(
         self,
         config: FanslyConfig,
@@ -434,29 +737,6 @@ class Database:
 
     def _setup_optimized_connection(self) -> None:
         self._optimized_connection = OptimizedSQLiteMemory(self.db_file, self.config)
-
-    def _setup_engines_and_sessions(self) -> None:
-        # Synchronous engine and session
-        self.sync_engine = create_engine(
-            f"sqlite:///{self.db_file}",
-            creator=lambda: self._optimized_connection.conn,
-            poolclass=StaticPool,  # Use static pool since we're sharing connection
-            echo=False,  # Enable SQL logging
-            echo_pool=True,  # Log connection pool activity
-        )
-        self.sync_session = sessionmaker(bind=self.sync_engine, expire_on_commit=False)
-
-        # Asynchronous engine and session
-        self.async_engine = create_async_engine(
-            f"sqlite+aiosqlite:///{self.db_file}",
-            creator=lambda: self._optimized_connection.conn,
-            poolclass=StaticPool,  # Use static pool since we're sharing connection
-            echo=False,  # Enable SQL logging
-            echo_pool=True,  # Log connection pool activity
-        )
-        self.async_session = async_sessionmaker(
-            bind=self.async_engine, expire_on_commit=False, class_=AsyncSession
-        )
 
     def _setup_event_listeners(self) -> None:
         # Add event listeners for sync engine
@@ -484,7 +764,7 @@ class Database:
     def close(self) -> None:
         """Close all database connections."""
         self.sync_engine.dispose()
-        self.async_engine.dispose()
+        asyncio.run(self.async_engine.dispose())
         self._optimized_connection.close()
 
     async def close_async(self) -> None:

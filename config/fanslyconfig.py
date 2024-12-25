@@ -189,7 +189,9 @@ class FanslyConfig:
         self._parser.set("Options", "separate_previews", str(self.separate_previews))
         self._parser.set("Options", "separate_timeline", str(self.separate_timeline))
         self._parser.set("Options", "separate_metadata", str(self.separate_metadata))
-        self._parser.set("Options", "metadata_db_file", str(self.metadata_db_file))
+        # Only save metadata_db_file if explicitly configured
+        if self.metadata_db_file:
+            self._parser.set("Options", "metadata_db_file", str(self.metadata_db_file))
         self._parser.set(
             "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
         )
@@ -202,6 +204,11 @@ class FanslyConfig:
         self._parser.set(
             "Options", "timeline_delay_seconds", str(self.timeline_delay_seconds)
         )
+
+        # Database sync settings
+        self._parser.set("Options", "db_sync_commits", str(self.db_sync_commits))
+        self._parser.set("Options", "db_sync_seconds", str(self.db_sync_seconds))
+        self._parser.set("Options", "db_sync_min_size", str(self.db_sync_min_size))
 
         # Cache
         if self._api is not None:
@@ -293,10 +300,13 @@ class FanslyConfig:
 
     def _get_default_metadata_db_file(self) -> Path:
         """
-        Determine the default database file location.
-        Uses a persistent database in the download directory if available,
-        otherwise falls back to current directory.
+        Determine the database file location.
+        1. Use explicitly configured path if provided
+        2. Otherwise use download directory if available
+        3. Finally fall back to current directory
         """
+        if self.metadata_db_file:
+            return Path(self.metadata_db_file)
         if self.download_directory:
             return self.download_directory / "metadata_db.sqlite3"
         return Path.cwd() / "metadata_db.sqlite3"

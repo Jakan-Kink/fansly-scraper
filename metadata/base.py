@@ -60,11 +60,14 @@ class Base(AsyncAttrs, DeclarativeBase):
         for date_field in date_fields:
             if date_field in data and data[date_field]:
                 timestamp = data[date_field]
+                # Skip if already a datetime
+                if isinstance(timestamp, datetime):
+                    continue
                 # Convert to seconds if in milliseconds (> 1e10)
                 # Unix timestamps in seconds are ~1e9 (2023 = 1.7e9)
                 # Unix timestamps in milliseconds are ~1e12
                 # 1e10 is a good threshold between the two
-                if timestamp > 1e10:
+                if isinstance(timestamp, (int, float)) and timestamp > 1e10:
                     timestamp = timestamp / 1000
                 data[date_field] = datetime.fromtimestamp(timestamp, timezone.utc)
 

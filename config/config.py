@@ -290,9 +290,12 @@ def load_config(config: FanslyConfig) -> None:
         config.include_meta_database = config._parser.getboolean(
             options_section, "include_meta_database", fallback=False
         )
-        config.metadata_db_file = config._parser.get(
-            options_section, "metadata_db_file", fallback="metadata_db.sqlite3"
+        # Load metadata_db_file if configured, otherwise leave as None for default handling
+        metadata_db_path = config._parser.get(
+            options_section, "metadata_db_file", fallback=None
         )
+        if metadata_db_path:
+            config.metadata_db_file = Path(metadata_db_path)
 
         # Numbers
         config.timeline_retries = config._parser.getint(
@@ -300,6 +303,17 @@ def load_config(config: FanslyConfig) -> None:
         )
         config.timeline_delay_seconds = config._parser.getint(
             options_section, "timeline_delay_seconds", fallback=60
+        )
+
+        # Database sync settings
+        config.db_sync_commits = config._parser.getint(
+            options_section, "db_sync_commits", fallback=1000
+        )
+        config.db_sync_seconds = config._parser.getint(
+            options_section, "db_sync_seconds", fallback=60
+        )
+        config.db_sync_min_size = config._parser.getint(
+            options_section, "db_sync_min_size", fallback=50
         )
 
         # region Renamed Options

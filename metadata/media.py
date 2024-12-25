@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -142,6 +142,13 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
         "media",
         "preview",
         # Intentionally ignored fields
+        "permissionFlags",
+        "price",
+        "permissions",
+        "likeCount",
+        "purchased",
+        "whitelisted",
+        "accountPermissionFlags",
     }
 
     # Process media data
@@ -224,6 +231,7 @@ def _process_media_item_dict_inner(
         "variants",
         # Intentionally ignored fields
         "metadata",  # Handled by mapping to meta_info
+        "variantHash",  # Not used in database
     }
 
     # Process media data
@@ -324,9 +332,65 @@ def _process_media_item_dict_inner(
 
 def process_media_download(
     config: FanslyConfig, state: DownloadState, media: MediaItem
-) -> None:
+) -> Media | None:
+    """Process a media item for download and return its Media record.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        media: MediaItem to process
+
+    Returns:
+        Media record if found or created, None if media should be skipped
+    """
     json_output(1, "meta/media - p_m_d", media)
-    pass
+
+    with config._database.sync_session() as session:
+        # Query first approach
+        existing_media = session.query(Media).filter_by(id=media.media_id).first()
+
+        # If found and already downloaded with hash, skip it
+        if (
+            existing_media
+            and existing_media.is_downloaded
+            and existing_media.content_hash
+            and existing_media.local_filename
+        ):
+            return None
+
+        # If not found or missing required fields, create/update record
+        if not existing_media or not existing_media.accountId:
+            if not state.creator_id:
+                raise ValueError(
+                    "Cannot create Media record: creator_id is required but not available in state"
+                )
+
+            # Create base record if doesn't exist
+            if not existing_media:
+                existing_media = Media(
+                    id=media.media_id,
+                    accountId=int(state.creator_id),
+                    mimetype=media.mimetype,
+                    createdAt=(
+                        datetime.fromtimestamp(media.created_at, tz=timezone.utc)
+                        if media.created_at
+                        else None
+                    ),
+                )
+                session.add(existing_media)
+            else:
+                # Update existing record with new info
+                existing_media.accountId = int(state.creator_id)
+                if media.mimetype:
+                    existing_media.mimetype = media.mimetype
+                if media.created_at:
+                    existing_media.createdAt = datetime.fromtimestamp(
+                        media.created_at, tz=timezone.utc
+                    )
+
+            session.commit()
+
+        return existing_media
 
 
 def process_media_download_accessible(

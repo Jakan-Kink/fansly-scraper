@@ -63,8 +63,7 @@ def download_messages(config: FanslyConfig, state: DownloadState):
                     # Object contains: messages, accountMedia, accountMediaBundles, tips, tipGoals, stories
                     messages = messages_response.json()["response"]
 
-                    if config.include_meta_database:
-                        process_messages_metadata(config, state, messages["messages"])
+                    process_messages_metadata(config, state, messages["messages"])
 
                     all_media_ids = get_unique_media_ids(messages)
                     media_infos = download_media_infos(config, all_media_ids)

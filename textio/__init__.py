@@ -19,6 +19,7 @@ from .textio import (
     print_info_highlight,
     print_update,
     print_warning,
+    set_debug_enabled,
     set_window_title,
 )
 
@@ -42,5 +43,6 @@ __all__ = [
     "print_info_highlight",
     "print_update",
     "print_warning",
+    "set_debug_enabled",
     "set_window_title",
 ]

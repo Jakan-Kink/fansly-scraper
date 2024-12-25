@@ -13,6 +13,19 @@ from loguru import logger
 LOG_FILE_NAME: str = "fansly_downloader_ng.log"
 JSON_FILE_NAME: str = "fansly_downloader_ng_json.log"
 
+# Global debug flag
+DEBUG_ENABLED = False
+
+
+def set_debug_enabled(enabled: bool) -> None:
+    """Set the global debug flag.
+
+    Args:
+        enabled: Whether debug output should be enabled
+    """
+    global DEBUG_ENABLED
+    DEBUG_ENABLED = enabled
+
 
 # most of the time, we utilize this to display colored output rather than logging or prints
 def output(level: int, log_type: str, color: str, message: str) -> None:
@@ -62,6 +75,10 @@ def print_config(message: str) -> None:
 
 
 def print_debug(message: str) -> None:
+    # Only output debug messages if debug flag is set
+    if not DEBUG_ENABLED:
+        return
+
     output(7, " DEBUG", "<light-red>", message)
 
 

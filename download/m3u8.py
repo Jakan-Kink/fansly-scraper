@@ -118,6 +118,7 @@ def download_m3u8(
     config: FanslyConfig,
     m3u8_url: str,
     save_path: Path,
+    created_at: int | None = None,
 ) -> Path:
     """Download M3U8 content as MP4.
 
@@ -145,16 +146,31 @@ def download_m3u8(
 
     # region Nested function to download TS segments
     def download_ts(segment_uri: str, segment_full_path: Path) -> None:
-        with config.get_api().get_with_ngsw(
-            url=segment_uri,
-            cookies=cookies,
-            stream=True,
-            add_fansly_headers=False,
-        ) as segment_response:
-            with open(segment_full_path, "wb") as ts_file:
-                for chunk in segment_response.iter_content(CHUNK_SIZE):
-                    if chunk is not None:
-                        ts_file.write(chunk)
+        print_debug(f"Downloading segment: {segment_uri} -> {segment_full_path}")
+        try:
+            with config.get_api().get_with_ngsw(
+                url=segment_uri,
+                cookies=cookies,
+                stream=True,
+                add_fansly_headers=False,
+            ) as segment_response:
+                if segment_response.status_code != 200:
+                    print_debug(
+                        f"Segment download failed with status {segment_response.status_code}: {segment_uri}"
+                    )
+                    return
+                with open(segment_full_path, "wb") as ts_file:
+                    for chunk in segment_response.iter_content(CHUNK_SIZE):
+                        if chunk is not None:
+                            ts_file.write(chunk)
+            if segment_full_path.exists():
+                print_debug(
+                    f"Segment downloaded successfully: {segment_full_path} ({segment_full_path.stat().st_size} bytes)"
+                )
+            else:
+                print_debug(f"Segment file missing after download: {segment_full_path}")
+        except Exception as e:
+            print_debug(f"Error downloading segment {segment_uri}: {str(e)}")
 
     # endregion
 
@@ -179,6 +195,12 @@ def download_m3u8(
     ffmpeg_list_file = video_path / "_ffmpeg_concat_.ffc"
 
     try:
+        from textio import print_debug
+
+        print_debug(f"Starting m3u8 download with {len(segment_files)} segments")
+        print_debug(f"First segment: {segment_uris[0] if segment_uris else 'None'}")
+        print_debug(f"Target path: {full_path}")
+
         with progress:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 list(
@@ -189,9 +211,15 @@ def download_m3u8(
                 )
 
         # Check multi-threaded downloads
+        missing_segments = []
         for file in segment_files:
             if not file.exists():
-                raise M3U8Error(f"Stream segment failed to download: {file}")
+                missing_segments.append(file)
+        if missing_segments:
+            print_debug(f"Missing segments: {missing_segments}")
+            raise M3U8Error(f"Stream segments failed to download: {missing_segments}")
+
+        print_debug("All segments downloaded, creating ffmpeg list file")
 
         with open(ffmpeg_list_file, "w", encoding="utf-8") as list_file:
             list_file.write("ffconcat version 1.0\n")
@@ -204,11 +232,26 @@ def download_m3u8(
             str(ffmpeg_list_file),
             "-c",
             "copy",
+            "-y",  # Always overwrite output file
             str(full_path),
         ]
 
+        print_debug(f"Running ffmpeg with args: {args}")
         try:
             run_ffmpeg(args)
+            if full_path.exists():
+                print_debug(
+                    f"ffmpeg successful, output file exists: {full_path} ({full_path.stat().st_size} bytes)"
+                )
+            else:
+                print_debug(f"ffmpeg completed but output file missing: {full_path}")
+                raise M3U8Error("ffmpeg completed but output file is missing")
+
+            # Set file timestamps if created_at is provided
+            if created_at:
+                import os
+
+                os.utime(full_path, (created_at, created_at))
 
             return full_path
 

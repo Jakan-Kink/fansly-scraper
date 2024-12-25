@@ -202,13 +202,13 @@ def main(config: FanslyConfig) -> int:
                     run_migrations_if_needed(creator_database, alembic_cfg)
 
                 try:
-                    # Special treatment for deviating folder names later
-                    if not config.download_mode == DownloadMode.SINGLE:
-                        dedupe_init(config, state)
-
                     print_download_info(config)
 
                     get_creator_account_info(config, state)
+
+                    # Special treatment for deviating folder names later
+                    if not config.download_mode == DownloadMode.SINGLE:
+                        dedupe_init(config, state)
 
                     # Download mode:
                     # Normal: Downloads Timeline + Messages one after another.

@@ -299,6 +299,20 @@ def process_groups_response(
         "settings",
         "account_id",  # Handled by mapping to createdBy
         "groupId",  # Handled by mapping to id
+        "partnerAccountId",
+        "partnerUsername",
+        "flags",
+        "unreadCount",
+        "subscriptionTier",
+        "lastUnreadMessageId",
+        # from p_g_resp-group
+        "type",
+        "groupFlagsMetadata",
+        "permissionFlags",
+        "recipients",
+        "hasDmPermissionFlags",
+        "dmPermissionFlags",
+        "accountDmPermissionFlags",
     }
 
     # Process accounts first

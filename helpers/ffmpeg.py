@@ -21,15 +21,25 @@ def get_ffmpeg_bin() -> str:
 
 
 def run_ffmpeg(args: list[str]) -> bool:
-    proc_args = [get_ffmpeg_bin()]
+    from textio import print_debug
 
+    proc_args = [get_ffmpeg_bin()]
     proc_args += args
 
-    result = subprocess.run(
-        proc_args,
-        encoding="utf-8",
-        capture_output=True,
-        check=True,
-    )
-
-    return result.returncode == 0
+    print_debug(f"Running ffmpeg command: {' '.join(proc_args)}")
+    try:
+        result = subprocess.run(
+            proc_args,
+            encoding="utf-8",
+            capture_output=True,
+            check=True,
+        )
+        print_debug(f"ffmpeg stdout: {result.stdout}")
+        if result.stderr:
+            print_debug(f"ffmpeg stderr: {result.stderr}")
+        return result.returncode == 0
+    except subprocess.CalledProcessError as e:
+        print_debug(f"ffmpeg failed with return code {e.returncode}")
+        print_debug(f"ffmpeg stdout: {e.stdout}")
+        print_debug(f"ffmpeg stderr: {e.stderr}")
+        raise
