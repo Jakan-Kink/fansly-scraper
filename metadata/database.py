@@ -17,12 +17,18 @@ The module includes:
 from __future__ import annotations
 
 import asyncio
+import atexit
+import hashlib
 import logging
+import shutil
 import sqlite3
+import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,7 +45,13 @@ from sqlalchemy.pool import StaticPool
 
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
-from textio import SizeAndTimeRotatingFileHandler, print_error, print_info
+from pathio import get_creator_database_path as _get_creator_database_path
+from textio import (
+    SizeAndTimeRotatingFileHandler,
+    print_error,
+    print_info,
+    print_warning,
+)
 
 if TYPE_CHECKING:
     from config import FanslyConfig
@@ -73,11 +85,8 @@ def get_creator_database_path(config: FanslyConfig, creator_name: str) -> Path:
     Returns:
         Path to the creator's database file
     """
-    suffix = "_fansly" if config.use_folder_suffix else ""
-    creator_base = config.download_directory / f"{creator_name}{suffix}"
-    meta_dir = creator_base / "meta"
-    meta_dir.mkdir(exist_ok=True)
-    return meta_dir / "metadata.sqlite3"
+    # FanslyConfig implements PathConfig protocol
+    return _get_creator_database_path(config, creator_name)
 
 
 def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> None:
@@ -137,8 +146,6 @@ def get_local_db_path(remote_path: Path) -> Path:
     Returns:
         Local path in temp directory for SQLite database
     """
-    import hashlib
-    import tempfile
 
     # Create a unique but consistent name based on the remote path
     path_hash = hashlib.sha256(str(remote_path.absolute()).encode()).hexdigest()[:16]
@@ -147,7 +154,23 @@ def get_local_db_path(remote_path: Path) -> Path:
     temp_dir = Path(tempfile.gettempdir()) / "fansly_metadata"
     temp_dir.mkdir(exist_ok=True)
 
-    return temp_dir / f"metadata_{path_hash}.sqlite3"
+    local_path = temp_dir / f"metadata_{path_hash}.sqlite3"
+
+    # Register cleanup function for this specific file
+    def cleanup_temp_db():
+        try:
+            if local_path.exists():
+                local_path.unlink()
+            # Also remove WAL and SHM files if they exist
+            for ext in ["-wal", "-shm"]:
+                wal_path = local_path.with_suffix(f".sqlite3{ext}")
+                if wal_path.exists():
+                    wal_path.unlink()
+        except Exception:
+            pass
+
+    atexit.register(cleanup_temp_db)
+    return local_path
 
 
 class BackgroundSync:
@@ -217,7 +240,6 @@ class BackgroundSync:
 
     def _do_sync(self) -> None:
         """Perform the actual sync operation."""
-        import shutil
 
         try:
             # Create remote directory if it doesn't exist
@@ -247,6 +269,22 @@ class BackgroundSync:
             self.commit_count = 0
             self.last_sync = time.time()
 
+    def close(self) -> None:
+        """Stop sync thread, perform final sync, and cleanup."""
+        self.stop_sync_thread()
+        self.sync_now()
+        # Cleanup temp files
+        try:
+            if self.local_path.exists():
+                self.local_path.unlink()
+            # Also remove WAL and SHM files
+            for ext in ["-wal", "-shm"]:
+                wal_path = self.local_path.with_suffix(f".sqlite3{ext}")
+                if wal_path.exists():
+                    wal_path.unlink()
+        except Exception:
+            pass
+
 
 class OptimizedSQLiteMemory:
     """Optimized SQLite connection with write-through caching.
@@ -269,8 +307,6 @@ class OptimizedSQLiteMemory:
 
         # Copy existing database if it exists
         if self.remote_path.exists() and not self.local_path.exists():
-            import shutil
-
             shutil.copy2(self.remote_path, self.local_path)
 
         # Initialize background sync
@@ -314,7 +350,7 @@ class OptimizedSQLiteMemory:
                 f"Error checking database size: {e}. Using default 100MB cache."
             )
             cache_size_mb = 100
-            cache_pages = -102400  # 100MB in pages
+            cache_pages = -102400  # 100MB in KB (negative value)
 
         self.conn = sqlite3.connect(
             self.db_uri,
@@ -332,7 +368,9 @@ class OptimizedSQLiteMemory:
             cursor.execute(f"PRAGMA cache_size={cache_pages}")  # Dynamic cache size
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute("PRAGMA foreign_keys=OFF")  # As per original code
+            cursor.execute(
+                "PRAGMA foreign_keys=OFF"
+            )  # Disabled due to import order dependencies
             print_info(
                 f"SQLite cache size set to {cache_size_mb}MB for {db_size_mb:.1f}MB database"
             )
@@ -429,11 +467,6 @@ class Database:
         Returns:
             bool: True if database is healthy or recovered, False if unrecoverable
         """
-        import shutil
-        from datetime import datetime
-
-        from textio import print_warning
-
         try:
             # Check WAL and SHM files first
             wal_path = self.db_file.with_suffix(".sqlite3-wal")
@@ -483,7 +516,6 @@ class Database:
                         dump_path = self.db_file.with_suffix(".dump")
                         try:
                             # Try to dump the database with recovery mode
-                            import subprocess
 
                             subprocess.run(
                                 [
@@ -546,10 +578,6 @@ class Database:
         Returns:
             bool: True if recovery was successful, False otherwise
         """
-        import shutil
-
-        from textio import print_warning
-
         try:
             # Stop background sync first
             if self._optimized_connection.sync_manager:
@@ -592,7 +620,6 @@ class Database:
             if remote_path.exists():
                 try:
                     # Backup local corrupted database
-                    from datetime import datetime
 
                     backup_path = local_path.with_suffix(
                         f'.sqlite3.corrupt.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
@@ -762,12 +789,14 @@ class Database:
             yield session
 
     def close(self) -> None:
-        """Close all database connections."""
+        """Close all database connections and cleanup temp files."""
         self.sync_engine.dispose()
         asyncio.run(self.async_engine.dispose())
         self._optimized_connection.close()
+        # Cleanup is handled by atexit registered in get_local_db_path
 
     async def close_async(self) -> None:
-        """Close all database connections asynchronously."""
+        """Close all database connections asynchronously and cleanup temp files."""
         await self.async_engine.dispose()
         await self._optimized_connection.close_async()
+        # Cleanup is handled by atexit registered in get_local_db_path

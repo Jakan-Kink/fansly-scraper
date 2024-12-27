@@ -31,9 +31,9 @@ class MediaItem:
     is_preview: bool = False
 
     def created_at_str(self) -> str:
-        return datetime.fromtimestamp(self.created_at, tz=timezone.utc).strftime(
-            "%Y-%m-%d_at_%H-%M_%Z"
-        )
+        # Always use UTC for timestamps to ensure consistent filenames
+        dt = datetime.fromtimestamp(self.created_at, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
 
     def get_download_url_file_extension(self) -> str | None:
         if self.download_url:

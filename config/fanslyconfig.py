@@ -8,10 +8,11 @@ from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from metadata import Base, Database
+from pathio import PathConfig
 
 
 @dataclass
-class FanslyConfig:
+class FanslyConfig(PathConfig):
     # region Fields
 
     # region File-Independent Fields

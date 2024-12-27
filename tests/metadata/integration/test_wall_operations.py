@@ -21,34 +21,58 @@ class TestWallOperations(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """Set up test database and load test data."""
-        # Create test database
-        cls.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(cls.engine)
-        cls.Session: sessionmaker = sessionmaker(bind=cls.engine)
-
+        """Load test data."""
         # Load test data
         cls.test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
         with open(os.path.join(cls.test_data_dir, "timeline-sample-account.json")) as f:
             cls.timeline_data = json.load(f)
 
     def setUp(self):
-        """Set up fresh session and config for each test."""
+        """Set up fresh database and session for each test."""
+        # Create test database
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.Session: sessionmaker = sessionmaker(bind=self.engine)
         self.session: Session = self.Session()
+
+        # Create config with test database
         self.config = FanslyConfig(program_version="0.10.0")
         self.config.metadata_db_file = ":memory:"
         self.config._database = Database(self.config)
         self.config._database.sync_engine = self.engine
         self.config._database.sync_session = self.Session
 
+        # Generate unique ID based on test name
+        test_name = self._testMethodName
+        import hashlib
+
+        unique_id = (
+            int(
+                hashlib.sha1(
+                    f"{self.__class__.__name__}_{test_name}".encode()
+                ).hexdigest()[:8],
+                16,
+            )
+            % 1000000
+        )
+
         # Create test account with unique ID
-        self.account = Account(id=987654321, username="test_user")
+        self.account = Account(id=unique_id, username=f"test_user_{unique_id}")
         self.session.add(self.account)
         self.session.commit()
 
     def tearDown(self):
         """Clean up after each test."""
-        self.session.close()
+        try:
+            # Clean up data
+            for table in reversed(Base.metadata.sorted_tables):
+                self.session.execute(table.delete())
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+        finally:
+            self.session.close()
+            self.engine.dispose()
 
     def test_wall_post_integration(self):
         """Test full wall and post integration."""
@@ -162,6 +186,7 @@ class TestWallOperations(TestCase):
                 for i in range(1, 4)
             ],
             "accounts": [{"id": self.account.id, "username": self.account.username}],
+            "accountMedia": [],  # Empty list to avoid KeyError
         }
 
         # Process posts

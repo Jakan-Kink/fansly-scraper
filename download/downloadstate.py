@@ -32,6 +32,9 @@ class DownloadState(GlobalState):
 
     walls: set = field(default_factory=set)
 
+    # Batch tracking
+    current_batch_duplicates: int = 0
+
     # endregion
 
     # region Methods
@@ -39,5 +42,14 @@ class DownloadState(GlobalState):
     def download_type_str(self) -> str:
         """Gets `download_type` as a string representation."""
         return str(self.download_type).capitalize()
+
+    def start_batch(self) -> None:
+        """Reset batch counters for a new batch of downloads."""
+        self.current_batch_duplicates = 0
+
+    def add_duplicate(self) -> None:
+        """Increment both global and batch duplicate counters."""
+        self.duplicate_count += 1
+        self.current_batch_duplicates += 1
 
     # endregion

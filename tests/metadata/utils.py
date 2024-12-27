@@ -138,39 +138,79 @@ def create_test_data_set(
     """
     data = {"accounts": [], "media": [], "account_media": [], "posts": [], "walls": []}
 
-    # Create accounts
-    for i in range(num_accounts):
-        account = create_test_account(session, id=i + 1, username=f"test_user_{i + 1}")
-        data["accounts"].append(account)
+    try:
+        # Create accounts first
+        for i in range(num_accounts):
+            account = Account(id=i + 1, username=f"test_user_{i + 1}")
+            session.add(account)
+            data["accounts"].append(account)
+        session.flush()
 
-        # Create media and account_media for account
-        for j in range(num_media_per_account):
-            # Create media
-            media = create_test_media(session, account.id, id=len(data["media"]) + 1)
-            data["media"].append(media)
+        # Create media for each account
+        for account in data["accounts"]:
+            for j in range(num_media_per_account):
+                media = Media(
+                    id=len(data["media"]) + 1,
+                    accountId=account.id,
+                    mimetype="video/mp4",
+                )
+                session.add(media)
+                data["media"].append(media)
+        session.flush()
 
-            # Create account_media association
-            account_media = create_test_account_media(
-                session,
-                account_id=account.id,
-                media_id=media.id,
-                id=len(data["account_media"]) + 1,
-            )
-            data["account_media"].append(account_media)
+        # Create account_media associations
+        for account in data["accounts"]:
+            account_media_list = [
+                media for media in data["media"] if media.accountId == account.id
+            ]
+            for j, media in enumerate(account_media_list):
+                account_media = AccountMedia(
+                    id=len(data["account_media"]) + 1,
+                    accountId=account.id,
+                    mediaId=media.id,
+                    createdAt=datetime.now(timezone.utc),
+                )
+                session.add(account_media)
+                data["account_media"].append(account_media)
+        session.flush()
 
-        # Create posts for account
-        for j in range(num_posts_per_account):
-            post = create_test_post(session, account.id, id=len(data["posts"]) + 1)
-            data["posts"].append(post)
+        # Create walls for each account
+        for account in data["accounts"]:
+            for j in range(num_walls_per_account):
+                wall = Wall(
+                    id=len(data["walls"]) + 1,
+                    accountId=account.id,
+                    name=f"Test wall {j + 1} for account {account.id}",
+                    pos=j + 1,
+                    createdAt=datetime.now(timezone.utc),
+                )
+                session.add(wall)
+                data["walls"].append(wall)
+        session.flush()
 
-        # Create walls for account
-        for j in range(num_walls_per_account):
-            wall = create_test_wall(
-                session, account.id, id=len(data["walls"]) + 1, pos=j + 1
-            )
-            data["walls"].append(wall)
+        # Refresh accounts to update their relationships
+        for account in data["accounts"]:
+            session.refresh(account)
 
-    return data
+        # Create posts for each account
+        for account in data["accounts"]:
+            for j in range(num_posts_per_account):
+                post = Post(
+                    id=len(data["posts"]) + 1,
+                    accountId=account.id,
+                    content=f"Test post {j + 1} for account {account.id}",
+                    createdAt=datetime.now(timezone.utc),
+                )
+                session.add(post)
+                data["posts"].append(post)
+        session.flush()
+
+        # Commit all changes
+        session.commit()
+        return data
+    except Exception:
+        session.rollback()
+        raise
 
 
 def verify_relationship_integrity(
@@ -203,5 +243,13 @@ def verify_relationship_integrity(
                 child_parent = getattr(child, parent_attr)
                 if child_parent != parent:
                     return False
+
+        # Verify foreign key constraints
+        for column in child.__table__.columns:
+            if column.foreign_keys:
+                for fk in column.foreign_keys:
+                    if fk.column.table == parent.__table__:
+                        if getattr(child, column.name) != parent.id:
+                            return False
 
     return True

@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime, timezone
 from unittest import TestCase
 
-from sqlalchemy import text
+from sqlalchemy import exc, text
 
 from config import FanslyConfig
 from metadata.account import Account, AccountMedia
@@ -35,13 +35,31 @@ class TestDatabaseOperations(TestCase):
 
     def tearDown(self):
         """Clean up test database."""
-        Base.metadata.drop_all(self.database.sync_engine)
-        self.database.close()  # Properly close the database
+        try:
+            # Clean up data
+            with self.database.get_sync_session() as session:
+                for table in reversed(Base.metadata.sorted_tables):
+                    session.execute(table.delete())
+                session.commit()
+        except Exception:
+            pass  # Ignore cleanup errors
 
-        # Remove temporary files
-        if os.path.exists(self.db_path):
-            os.remove(self.db_path)
-        os.rmdir(self.temp_dir)
+        try:
+            # Close database
+            self.database.close()
+        except Exception:
+            pass  # Ignore close errors
+
+        try:
+            # Remove temporary files
+            if os.path.exists(self.db_path):
+                os.remove(self.db_path)
+            if os.path.exists(self.temp_dir):
+                import shutil
+
+                shutil.rmtree(self.temp_dir)  # Remove directory and all its contents
+        except Exception:
+            pass  # Ignore cleanup errors
 
     def test_complex_relationships(self):
         """Test complex relationships between multiple models."""
@@ -136,19 +154,60 @@ class TestDatabaseOperations(TestCase):
     def test_database_constraints(self):
         """Test database constraints and integrity."""
         with self.database.get_sync_session() as session:
-            # Try to create account media without account (should fail)
-            account_media = AccountMedia(
-                id=1,
-                accountId=999,  # Non-existent account
-                mediaId=1,
+            # Create an Account first
+            account = Account(id=100, username="test_user")
+            session.add(account)
+            session.flush()
+
+            # Create a Media object
+            media = Media(
+                id=100,
+                accountId=account.id,
                 createdAt=datetime.now(timezone.utc),
             )
-            session.add(account_media)
-            with self.assertRaises(Exception):
-                session.commit()
-            session.rollback()
+            session.add(media)
+            session.flush()
+
+            # Try to create account media with non-existent account (should fail)
+            try:
+                account_media = AccountMedia(
+                    id=100,
+                    accountId=999,  # Non-existent account
+                    mediaId=media.id,
+                    createdAt=datetime.now(timezone.utc),
+                )
+                session.add(account_media)
+                session.commit()  # Use commit to catch the error
+                self.fail("IntegrityError not raised")
+            except exc.IntegrityError:
+                session.rollback()
+
+            # Try to create account media with non-existent media (should fail)
+            try:
+                account_media = AccountMedia(
+                    id=101,
+                    accountId=account.id,
+                    mediaId=999,  # Non-existent media
+                    createdAt=datetime.now(timezone.utc),
+                )
+                session.add(account_media)
+                session.commit()  # Use commit to catch the error
+                self.fail("IntegrityError not raised")
+            except exc.IntegrityError:
+                session.rollback()
 
             # Try to create message without sender (should fail)
+            message = Message(
+                id=1,
+                content="Test",
+                createdAt=datetime.now(timezone.utc),
+            )
+            session.add(message)
+            with self.assertRaises(exc.IntegrityError):
+                session.flush()  # Use flush instead of commit to catch the error
+            session.rollback()
+
+            # Try to create message with non-existent sender (should fail)
             message = Message(
                 id=1,
                 senderId=999,  # Non-existent account

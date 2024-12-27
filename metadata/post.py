@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -102,6 +103,7 @@ def process_pinned_posts(
         posts: List of post data dictionaries
         session: Optional SQLAlchemy session. If not provided, a new session will be created.
     """
+    posts = copy.deepcopy(posts)
     json_output(1, "meta/post - p_p_p - posts", posts)
 
     def _process_posts(session):
@@ -160,6 +162,8 @@ def process_timeline_posts(
     from .account import process_account_data, process_media_bundles
     from .media import process_media_info
 
+    posts = copy.deepcopy(posts)
+
     json_output(1, "meta/post - p_t_posts - posts", posts)
 
     # Process main timeline posts
@@ -209,8 +213,11 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
         "timelineReadPermissionFlags",
         "accountTimelineReadPermissionFlags",
         "mediaLikeCount",
+        "tipAmount",
         "totalTipAmount",
         "attachmentTipAmount",
+        "replyPermissionFlags",
+        "replyCount",
     }
 
     # Process post data

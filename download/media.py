@@ -15,7 +15,7 @@ from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from helpers.common import batch_list
 from media import MediaItem
 from metadata import process_media_download
-from pathio import set_create_directory_for_download
+from pathio import get_media_save_path, set_create_directory_for_download
 from textio import print_info, print_warning
 
 from .downloadstate import DownloadState
@@ -23,7 +23,9 @@ from .m3u8 import download_m3u8
 from .types import DownloadType
 
 
-def download_media_infos(config: FanslyConfig, media_ids: list[str]) -> list[dict]:
+def download_media_infos(
+    config: FanslyConfig, state: DownloadState, media_ids: list[str]
+) -> list[dict]:
     """Download media info from API and process it through metadata system.
 
     Args:
@@ -33,7 +35,7 @@ def download_media_infos(config: FanslyConfig, media_ids: list[str]) -> list[dic
     Returns:
         List of processed media info dictionaries
     """
-    from metadata.media import process_media_item_dict
+    from metadata.account import process_media_bundles
 
     media_infos: list[dict] = []
 
@@ -58,7 +60,12 @@ def download_media_infos(config: FanslyConfig, media_ids: list[str]) -> list[dic
             for info in media_info["response"]:
                 # Process through metadata system
                 with config._database.sync_session() as session:
-                    process_media_item_dict(config, info, session)
+                    process_media_bundles(
+                        config=config,
+                        account_id=state.creator_id,
+                        media_bundles=[info],  # Send a copy instead of original
+                        session=session,
+                    )
                 media_infos.append(info)
 
         else:
@@ -84,7 +91,7 @@ def download_media(
         )
 
     # Create base directory for downloads
-    base_directory = set_create_directory_for_download(config, state)
+    set_create_directory_for_download(config, state)
 
     # loop through the accessible_media and download the media files
     for media_item in accessible_media:
@@ -109,7 +116,7 @@ def download_media(
                 print_info(
                     f"Deduplication [Database]: {media_item.mimetype.split('/')[-2]} '{media_item.get_file_name()}' → skipped (already downloaded)"
                 )
-            state.duplicate_count += 1
+            state.add_duplicate()
             continue
 
         # Add to in-memory sets for legacy compatibility
@@ -120,29 +127,15 @@ def download_media(
         elif "audio" in media_item.mimetype:
             state.recent_audio_media_ids.add(media_item.media_id)
 
-        # Determine save directory and filename
-        filename = media_item.get_file_name()
-        if state.download_type == DownloadType.COLLECTIONS:
-            file_save_dir = base_directory
-            file_save_path = file_save_dir / filename
-        else:
-            # Get the appropriate subdirectory based on mimetype
-            if "image" in media_item.mimetype:
-                file_save_dir = base_directory / "Pictures"
-            elif "video" in media_item.mimetype:
-                file_save_dir = base_directory / "Videos"
-            elif "audio" in media_item.mimetype:
-                file_save_dir = base_directory / "Audio"
-            else:
-                print_warning(
-                    f"Unknown mimetype; skipping download for mimetype: '{media_item.mimetype}' | media_id: {media_item.media_id}"
-                )
-                continue
-
-            # Update path for previews if needed
-            if media_item.is_preview and config.separate_previews:
-                file_save_dir = file_save_dir / "Previews"
-            file_save_path = file_save_dir / filename
+        try:
+            # Get save paths from pathio
+            file_save_dir, file_save_path = get_media_save_path(
+                config, state, media_item
+            )
+            filename = media_item.get_file_name()
+        except ValueError as e:
+            print_warning(f"Skipping download: {e}")
+            continue
 
         # Create directory if needed
         if not file_save_dir.exists():
@@ -172,7 +165,7 @@ def download_media(
                     print_info(
                         f"Deduplication [Hash]: {media_item.mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
                     )
-                state.duplicate_count += 1
+                state.add_duplicate()
                 continue
 
             # For regular files, verify by downloading to temp file
@@ -224,7 +217,7 @@ def download_media(
                             print_info(
                                 f"Deduplication [File]: {media_item.mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
                             )
-                        state.duplicate_count += 1
+                        state.add_duplicate()
                         continue
                 finally:
                     # Clean up temporary file
@@ -237,7 +230,7 @@ def download_media(
                         print_info(
                             f"Deduplication [Hash]: {media_item.mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
                         )
-                    state.duplicate_count += 1
+                    state.add_duplicate()
                     continue
 
         # Show download progress
@@ -283,7 +276,7 @@ def download_media(
                                     f"Deduplication [Hash]: {media_item.mimetype.split('/')[-2]} '{temp_path.name}' → "
                                     f"skipped (duplicate of {Path(existing_by_hash.local_filename).name})"
                                 )
-                            state.duplicate_count += 1
+                            state.add_duplicate()
                             return True
 
                         # No duplicate found, move file to final location

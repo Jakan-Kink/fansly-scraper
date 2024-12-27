@@ -101,7 +101,9 @@ def download_single_post(config: FanslyConfig, state: DownloadState):
             dedupe_init(config, state)
 
             all_media_ids = get_unique_media_ids(post_object)
-            media_infos = download_media_infos(config, all_media_ids)
+            media_infos = download_media_infos(
+                config=config, state=state, media_ids=all_media_ids
+            )
 
             process_download_accessible_media(config, state, media_infos, post_id)
 

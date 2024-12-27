@@ -50,9 +50,15 @@ class TestMetadataPackage(TestCase):
             self.assertEqual(account.username, account_data["username"])
 
             # Check timeline stats
-            if hasattr(account, "timelineStats"):
+            if "timelineStats" in account_data:
                 stats = account.timelineStats
                 self.assertIsNotNone(stats)
+                self.assertEqual(
+                    stats.imageCount, account_data["timelineStats"].get("imageCount", 0)
+                )
+                self.assertEqual(
+                    stats.videoCount, account_data["timelineStats"].get("videoCount", 0)
+                )
                 self.assertIsInstance(stats, TimelineStats)
 
             # Check media
@@ -106,6 +112,19 @@ class TestMetadataPackage(TestCase):
                         session, account, "walls", expected_count=2
                     )
                 )
+
+                # Create walls for the account
+                for i in range(2):
+                    wall = Wall(
+                        id=i + 1,
+                        accountId=account.id,
+                        createdAt=datetime.now(timezone.utc),
+                    )
+                    session.add(wall)
+                session.commit()
+
+                # Verify walls were created
+                self.assertEqual(len(account.walls), 2)
 
             # Verify wall -> posts relationships
             for wall in data["walls"]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -139,6 +140,12 @@ class Account(Base):
         back_populates="account",
         lazy="select",
         collection_class=set,
+        cascade="all, delete",  # Use delete to ensure child objects are deleted
+        passive_deletes=True,  # Allow database-level cascade
+        single_parent=True,  # Ensure each AccountMedia has only one parent Account
+        overlaps="media,preview",  # Avoid overlapping relationships
+        cascade_backrefs=False,  # Disable cascading through backrefs
+        post_update=True,  # Enable post-update to avoid circular dependencies
     )
     accountMediaBundles: Mapped[set[AccountMediaBundle]] = relationship(
         "AccountMediaBundle",
@@ -276,9 +283,32 @@ class AccountMedia(Base):
     __tablename__ = "account_media"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), primary_key=True, index=True
+        Integer,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
     )
-    account: Mapped[Account] = relationship("Account", back_populates="accountMedia")
+    account: Mapped[Account] = relationship(
+        "Account",
+        back_populates="accountMedia",
+        passive_deletes=True,  # Enable passive deletes for cascading
+        cascade="all, delete",  # Use delete to ensure child objects are deleted
+        single_parent=True,  # Ensure each AccountMedia has only one parent Account
+        overlaps="media,preview",  # Avoid overlapping relationships
+        cascade_backrefs=False,  # Disable cascading through backrefs
+        post_update=True,  # Enable post-update to avoid circular dependencies
+    )
+
+    @classmethod
+    def __declare_last__(cls):
+        """Set up event listeners after all configuration is complete."""
+        from sqlalchemy import event
+
+        @event.listens_for(Account, "after_delete")
+        def delete_account_media(mapper, connection, target):
+            """Delete all AccountMedia records when Account is deleted."""
+            connection.execute(cls.__table__.delete().where(cls.accountId == target.id))
+
     mediaId: Mapped[int] = mapped_column(
         Integer, ForeignKey("media.id"), primary_key=True
     )
@@ -377,7 +407,7 @@ class AccountMediaBundle(Base):
 def process_account_data(
     config: FanslyConfig,
     data: dict,
-    state: DownloadState = None,
+    state: DownloadState | None = None,
     *,
     context: str = "account",
 ) -> None:
@@ -391,6 +421,9 @@ def process_account_data(
     """
     from .post import process_pinned_posts
     from .wall import process_account_walls
+
+    # Create deep copy of input data
+    data = copy.deepcopy(data)
 
     with config._database.sync_session() as session:
         try:
@@ -520,6 +553,7 @@ def process_media_story_state(
         story_state_data: Dictionary containing media story state data
         session: SQLAlchemy session for database operations
     """
+    story_state_data = copy.deepcopy(story_state_data)
 
     # Known attributes that are handled separately
     known_relations = {
@@ -559,6 +593,7 @@ def process_timeline_stats(session: Session, data: dict) -> None:
         session: SQLAlchemy session for database operations
         data: Dictionary containing account data with timelineStats
     """
+    data = copy.deepcopy(data)
     account_id = data["id"]
     timeline_stats = data["timelineStats"]
     timeline_stats["accountId"] = account_id  # Ensure accountId is set
@@ -594,8 +629,8 @@ def process_timeline_stats(session: Session, data: dict) -> None:
 def process_media_bundles(
     config: FanslyConfig,
     account_id: int,
-    bundles: list[dict[str, any]],
-    session: Session = None,
+    media_bundles: list[dict],
+    session: Session | None = None,
 ) -> None:
     """Process media bundles for an account.
 
@@ -608,11 +643,13 @@ def process_media_bundles(
         bundles: List of bundle data dictionaries containing bundle information and content
         session: Optional SQLAlchemy session. If not provided, a new session will be created.
     """
+    # Create deep copy of input data
+    media_bundles = copy.deepcopy(media_bundles)
 
     def _process_bundles(session: Session) -> None:
         from .media import _process_media_item_dict_inner
 
-        for bundle in bundles:
+        for bundle in media_bundles:
             # Process bundle preview if it exists
             if "preview" in bundle:
                 preview = bundle["preview"]
@@ -783,6 +820,7 @@ def process_avatar(
         avatar_data: Dictionary containing avatar media data
         session: SQLAlchemy session for database operations
     """
+    avatar_data = copy.deepcopy(avatar_data)
     from .media import _process_media_item_dict_inner
 
     # Process avatar media and its variants first
@@ -811,6 +849,7 @@ def process_banner(
         banner_data: Dictionary containing banner media data
         session: SQLAlchemy session for database operations
     """
+    banner_data = copy.deepcopy(banner_data)
     from .media import _process_media_item_dict_inner
 
     # Process banner media and its variants first

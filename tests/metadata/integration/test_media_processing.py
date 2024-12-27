@@ -38,6 +38,10 @@ class TestMediaProcessing(TestCase):
         self.config.metadata_db_file = ":memory:"
         self.config._database = Database(self.config)
         self.config._database.sync_engine = self.engine
+        self.config._database.sync_session = self.Session
+
+        # Create tables
+        Base.metadata.create_all(self.engine)
 
         # Create test account
         self.account = Account(id=1, username="test_user")

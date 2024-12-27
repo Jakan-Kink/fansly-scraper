@@ -108,6 +108,13 @@ class M3U8Error(MediaError):
         super().__init__(*args)
 
 
+class MediaHashMismatchError(MediaError):
+    """Raised when a media file's hash doesn't match the database record."""
+
+    def __init__(self, *args):
+        super().__init__(*args)
+
+
 # endregion
 
 
@@ -130,5 +137,6 @@ __all__ = [
     "DownloadError",
     "DuplicateCountError",
     "MediaError",
+    "MediaHashMismatchError",
     "M3U8Error",
 ]

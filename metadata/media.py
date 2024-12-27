@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -134,6 +135,8 @@ def process_media_metadata(metadata: dict) -> None:
 def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
     from .account import AccountMedia
 
+    media_infos = copy.deepcopy(media_infos)
+
     json_output(1, "meta/media - p_m_i", media_infos)
 
     # Known attributes that are handled separately
@@ -215,6 +218,9 @@ def _process_media_item_dict_inner(
         session: SQLAlchemy session for database operations
         account_id: Optional account ID if not present in media_item
     """
+    # Create deep copy of input data
+    media_item = copy.deepcopy(media_item)
+
     # Check if media_item is the correct type
     if not isinstance(media_item, dict):
         json_output(
@@ -343,6 +349,7 @@ def process_media_download(
     Returns:
         Media record if found or created, None if media should be skipped
     """
+    media = copy.deepcopy(media)
     json_output(1, "meta/media - p_m_d", media)
 
     with config._database.sync_session() as session:
@@ -359,7 +366,7 @@ def process_media_download(
             return None
 
         # If not found or missing required fields, create/update record
-        if not existing_media or not existing_media.accountId:
+        if not existing_media:
             if not state.creator_id:
                 raise ValueError(
                     "Cannot create Media record: creator_id is required but not available in state"

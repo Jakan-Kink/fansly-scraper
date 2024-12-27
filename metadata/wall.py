@@ -13,9 +13,11 @@ Features:
 
 from __future__ import annotations
 
+import copy
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, ForeignKey, Integer, String, Table
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from textio import json_output
@@ -67,6 +69,7 @@ class Wall(Base):
     pos: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=True)
     description: Mapped[str] = mapped_column(String, nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     # metadata: Mapped[str] = mapped_column(String, nullable=True)
     posts: Mapped[list[Post]] = relationship(
         "Post",
@@ -106,7 +109,7 @@ def process_account_walls(
         - Wall positions are preserved through the pos field
         - Wall-post associations are maintained separately
     """
-
+    walls_data = copy.deepcopy(walls_data)
     # Known attributes that are handled separately
     known_relations = {
         # Handled relationships
@@ -181,6 +184,7 @@ def process_wall_posts(
         wall_id: ID of the wall these posts belong to
         posts_data: Timeline-style posts data from the API
     """
+    posts_data = copy.deepcopy(posts_data)
     json_output(1, "meta/wall - p_w_p - posts_data", posts_data)
 
     # First process posts normally

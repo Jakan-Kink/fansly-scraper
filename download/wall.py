@@ -84,7 +84,9 @@ def download_wall(config: FanslyConfig, state: DownloadState, wall_id: str) -> N
                     # Reset attempts eg. new page
                     attempts = 0
 
-                media_infos = download_media_infos(config, all_media_ids)
+                media_infos = download_media_infos(
+                    config=config, state=state, media_ids=all_media_ids
+                )
 
                 if not process_download_accessible_media(config, state, media_infos):
                     # Break on deduplication error - already downloaded

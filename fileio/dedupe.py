@@ -4,14 +4,228 @@ import mimetypes
 import re
 from pathlib import Path
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+from tqdm import tqdm
 
 from config import FanslyConfig
 from download.downloadstate import DownloadState
+from errors import MediaHashMismatchError
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
+from fileio.normalize import get_id_from_filename, normalize_filename
 from metadata.media import Media
 from pathio import set_create_directory_for_download
 from textio import print_info
+
+
+def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
+    """Update database records that have full paths stored in local_filename.
+
+    This is a one-time migration to convert any full paths to just filenames.
+    It will:
+    1. Find all records with path separators in local_filename
+    2. Extract just the filename part
+    3. Update the database records
+    """
+    print_info("Starting migration of full paths to filenames in database...")
+
+    with config._database.sync_session() as session:
+        # First, let's count how many records need updating
+        # Look for records containing path separators (both / and \)
+        count_query = text(
+            "SELECT COUNT(*) "
+            "FROM media "
+            "WHERE local_filename LIKE '%/%' "
+            "   OR local_filename LIKE '%\\%'"
+        )
+        count = session.execute(count_query).scalar()
+
+        if count == 0:
+            print_info("No records found with full paths. Migration not needed.")
+            return
+
+        print_info(f"Found {count} records with full paths to update...")
+
+        # Get all records that need updating
+        records_query = text(
+            "SELECT id, local_filename "
+            "FROM media "
+            "WHERE local_filename LIKE '%/%' "
+            "   OR local_filename LIKE '%\\%'"
+        )
+        records = session.execute(records_query).fetchall()
+
+        # Update each record
+        updated = 0
+        for record in records:
+            try:
+                # Convert the path to just filename
+                new_filename = get_filename_only(record.local_filename)
+
+                # Update the record
+                update_query = text(
+                    "UPDATE media "
+                    "SET local_filename = :new_filename "
+                    "WHERE id = :id"
+                )
+                session.execute(
+                    update_query, {"new_filename": new_filename, "id": record.id}
+                )
+                updated += 1
+
+                # Commit every 100 records to avoid large transactions
+                if updated % 100 == 0:
+                    session.commit()
+                    print_info(f"Updated {updated} of {count} records...")
+
+            except Exception as e:
+                print_info(f"Error updating record {record.id}: {e}")
+                continue
+
+        # Final commit for any remaining records
+        session.commit()
+
+        print_info(f"Migration complete! Updated {updated} of {count} records.")
+
+
+def get_filename_only(path: Path | str) -> str:
+    """Get just the filename part from a path, ensuring it's a string."""
+    if isinstance(path, str):
+        path = Path(path)
+    return path.name
+
+
+def safe_rglob(base_path: Path, pattern: str) -> list[Path]:
+    """Safely perform rglob with a pattern that might contain path separators.
+
+    Args:
+        base_path: The base directory to search in
+        pattern: The filename pattern to search for
+
+    Returns:
+        List of matching Path objects
+    """
+    # Extract just the filename part if pattern contains path separators
+    filename = get_filename_only(pattern)
+
+    # Use rglob with just the filename part
+    return list(base_path.rglob(filename))
+
+
+def get_or_create_media(
+    session: Session,
+    file_path: Path,
+    media_id: str | None,
+    mimetype: str,
+    state: DownloadState,
+    file_hash: str | None = None,
+    trust_filename: bool = False,
+) -> tuple[Media, bool]:
+    filename = get_filename_only(file_path)
+    hash_verified = False
+
+    # First try by ID if available
+    if media_id:
+        media = session.query(Media).filter_by(id=media_id).with_for_update().first()
+        if media:
+            # If filenames match
+            if media.local_filename == filename:
+                # If record has a hash, we can trust it
+                if media.content_hash:
+                    hash_verified = True
+                    return media, hash_verified
+                # If no hash, calculate it regardless of trust_filename
+                calculated_hash = None
+                if "image" in mimetype:
+                    calculated_hash = get_hash_for_image(file_path)
+                elif "video" in mimetype or "audio" in mimetype:
+                    calculated_hash = get_hash_for_other_content(file_path)
+
+                if calculated_hash:
+                    other_media = (
+                        session.query(Media)
+                        .filter_by(content_hash=calculated_hash)
+                        .first()
+                    )
+                    if other_media and other_media.id != media.id:
+                        # Merge the records - keep the one with the correct ID
+                        media.content_hash = calculated_hash
+                        session.delete(other_media)
+                        session.flush()
+                    else:
+                        media.content_hash = calculated_hash
+                    hash_verified = True
+                    return media, hash_verified
+                # If we couldn't calculate hash but trust filename
+                elif trust_filename:
+                    return media, hash_verified
+
+    # Try by hash if we have one
+    if file_hash:
+        media = session.query(Media).filter_by(content_hash=file_hash).first()
+        if media:
+            hash_verified = True
+            return media, hash_verified
+    elif not trust_filename:
+        # Calculate hash if needed and not provided
+        calculated_hash = None
+        if "image" in mimetype:
+            calculated_hash = get_hash_for_image(file_path)
+        elif "video" in mimetype or "audio" in mimetype:
+            calculated_hash = get_hash_for_other_content(file_path)
+
+        if calculated_hash:
+            media = session.query(Media).filter_by(content_hash=calculated_hash).first()
+            if media:
+                hash_verified = True
+                return media, hash_verified
+            file_hash = calculated_hash  # Use for new record if needed
+
+    # Double-check for ID before creating new record
+    if media_id:
+        # One final check with row lock before creating
+        media = session.query(Media).filter_by(id=media_id).with_for_update().first()
+        if media:
+            # If we have a hash in the DB, verify it matches
+            if media.content_hash:
+                calculated_hash = None
+                if not file_hash:  # Only calculate if we don't already have it
+                    if "image" in mimetype:
+                        calculated_hash = get_hash_for_image(file_path)
+                    elif "video" in mimetype or "audio" in mimetype:
+                        calculated_hash = get_hash_for_other_content(file_path)
+                else:
+                    calculated_hash = file_hash
+
+                if calculated_hash and media.content_hash != calculated_hash:
+                    raise MediaHashMismatchError(
+                        f"Hash mismatch for media {media_id}: "
+                        f"DB has {media.content_hash}, file has {calculated_hash}"
+                    )
+
+            # Update existing record instead of creating new
+            media.content_hash = file_hash
+            media.local_filename = filename
+            media.is_downloaded = True
+            media.mimetype = mimetype
+            if not media.accountId:
+                media.accountId = get_account_id(session, state)
+            session.flush()
+            return media, hash_verified
+
+    # Create new if definitely not found
+    media = Media(
+        id=media_id,
+        content_hash=file_hash,  # Might be None if trust_filename=True
+        local_filename=filename,
+        is_downloaded=True,
+        mimetype=mimetype,
+        accountId=get_account_id(session, state),
+    )
+    session.add(media)
+    session.flush()
+
+    return media, hash_verified
 
 
 def get_account_id(session: Session, state: DownloadState) -> int | None:
@@ -45,14 +259,18 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
 
     This function:
     1. Creates the download directory if needed
-    2. Detects and migrates files using the old hash-in-filename format
-    3. Detects files with ID patterns and verifies their hashes
-    4. Scans all files and updates the database
-    5. Updates the database with file information
-    6. Marks files as downloaded in the database
+    2. Migrates any full paths in database to filenames only
+    3. Detects and migrates files using the old hash-in-filename format
+    4. Detects files with ID patterns and verifies their hashes
+    5. Scans all files and updates the database
+    6. Updates the database with file information
+    7. Marks files as downloaded in the database
     """
 
-    # This will create the base user path download_directory/creator_name
+    # First, migrate any full paths in the database to filenames only
+    migrate_full_paths_to_filenames(config)
+
+    # Create the base user path download_directory/creator_name
     set_create_directory_for_download(config, state)
 
     if not state.download_path or not state.download_path.is_dir():
@@ -70,267 +288,70 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
             .count()
         )
 
-    # First pass: Check for files already in database and detect hash/id formats
-    hash0_pattern = re.compile(r"_hash_([a-fA-F0-9]+)")
-    hash1_pattern = re.compile(r"_hash1_([a-fA-F0-9]+)")
+    # Initialize patterns and counters
     hash2_pattern = re.compile(r"_hash2_([a-fA-F0-9]+)")
-    id_pattern = re.compile(r"_id_(\d+)")
-    migrated_count = 0
+    processed_count = 0
     preserved_count = 0
-    db_matched_count = 0
-    id_matched_count = 0
 
-    print_info("Checking existing files and hash/id formats...")
+    print_info("Processing files in optimized order...")
 
-    for file_path in state.download_path.rglob("*"):
-        if not file_path.is_file():
-            continue
+    # Get total file count first for tqdm
+    all_files = list(safe_rglob(state.download_path, "*"))
+    file_count = len([f for f in all_files if f.is_file()])
 
-        filename = file_path.name
-        new_path = file_path
-        file_hash = None
-        needs_rehash = False
-        already_in_db = False
-
-        # Check if file is already in database by filename or hash
-        with config._database.sync_session() as session:
-            # First try by filename
-            existing_by_name = (
-                session.query(Media)
-                .filter_by(local_filename=str(file_path), is_downloaded=True)
-                .first()
-            )
-
-            # Then try by hash if it's a hash2 file (trusted hash)
-            existing_by_hash = None
-            match = hash2_pattern.search(filename)
-            if match:
-                hash2_value = match.group(1)
-                existing_by_hash = (
-                    session.query(Media)
-                    .filter_by(content_hash=hash2_value, is_downloaded=True)
-                    .first()
-                )
-
-            # Check for ID pattern if not found by hash or name
-            existing_by_id = None
-            if not existing_by_hash and not existing_by_name:
-                id_match = id_pattern.search(filename)
-                if id_match:
-                    media_id = int(id_match.group(1))
-                    existing_by_id = session.query(Media).filter_by(id=media_id).first()
-                    if existing_by_id:
-                        # Calculate hash for verification
-                        mimetype, _ = mimetypes.guess_type(file_path)
-                        if mimetype:
-                            if "image" in mimetype:
-                                file_hash = get_hash_for_image(file_path)
-                            elif "video" in mimetype or "audio" in mimetype:
-                                file_hash = get_hash_for_other_content(file_path)
-
-                            # If we have both hashes and they match, use this record
-                            if file_hash and existing_by_id.content_hash == file_hash:
-                                existing_by_id.local_filename = str(file_path)
-                                existing_by_id.is_downloaded = True
-                                session.commit()
-                                id_matched_count += 1
-                                already_in_db = True
-                                continue
-
-            if existing_by_name or existing_by_hash:
-                # Prefer hash2's record if both exist
-                existing_media = (
-                    existing_by_hash if existing_by_hash else existing_by_name
-                )
-                file_hash = existing_media.content_hash
-                already_in_db = True
-                db_matched_count += 1
-
-                # If found by hash but filename differs, update the filename
-                if existing_by_hash and not existing_by_name:
-                    existing_by_hash.local_filename = str(file_path)
-                    session.commit()
-
-        if not already_in_db:
-            # Check for hash2 first (trusted source)
-            match = hash2_pattern.search(filename)
-            if match:
-                file_hash = match.group(1)
-                new_name = hash2_pattern.sub("", filename)
-                new_path = file_path.with_name(new_name)
-                preserved_count += 1
-            else:
-                # Check for older hash formats
-                match0 = hash0_pattern.search(filename)
-                match1 = hash1_pattern.search(filename)
-                if match0:
-                    new_name = hash0_pattern.sub("", filename)
-                    new_path = file_path.with_name(new_name)
-                    needs_rehash = True
-                    migrated_count += 1
-                elif match1:
-                    new_name = hash1_pattern.sub("", filename)
-                    new_path = file_path.with_name(new_name)
-                    needs_rehash = True
-                    migrated_count += 1
-
-        if new_path != file_path:
-            # Ensure we don't overwrite existing files
-            counter = 1
-            while new_path.exists():
-                base = new_path.stem
-                new_path = new_path.with_name(f"{base}_{counter}{new_path.suffix}")
-                counter += 1
-
-            # Rename file
-            file_path.rename(new_path)
-
-        # Process file for database if needed
-        if not already_in_db:
-            mimetype, _ = mimetypes.guess_type(new_path)
-            if mimetype:
-                if needs_rehash or not file_hash:
-                    # Calculate new hash for old format files or files without hash
-                    if "image" in mimetype:
-                        file_hash = get_hash_for_image(new_path)
-                    elif "video" in mimetype or "audio" in mimetype:
-                        file_hash = get_hash_for_other_content(new_path)
-
-                if file_hash:  # Only add to DB if we have a hash
-                    with config._database.sync_session() as session:
-                        # Check if hash exists in database
-                        media = (
-                            session.query(Media)
-                            .filter_by(content_hash=file_hash)
-                            .first()
-                        )
-                        if not media:
-                            # Check if we have a media ID from filename
-                            media_id = None
-                            id_match = id_pattern.search(filename)
-                            if id_match:
-                                media_id = int(id_match.group(1))
-                                media = (
-                                    session.query(Media).filter_by(id=media_id).first()
-                                )
-
-                            if not media:
-                                media = Media(
-                                    id=media_id,  # Will be None if no ID in filename
-                                    content_hash=file_hash,
-                                    local_filename=str(new_path),
-                                    is_downloaded=True,
-                                    mimetype=mimetype,
-                                    accountId=get_account_id(session, state),
-                                )
-                                session.add(media)
-                            else:
-                                # Update existing record by ID
-                                media.content_hash = file_hash
-                                media.local_filename = str(new_path)
-                                media.is_downloaded = True
-                                media.mimetype = mimetype
-                        else:
-                            # Update filename if it changed
-                            media.local_filename = str(new_path)
-                            media.is_downloaded = True
-                        session.commit()
-
-    if (
-        preserved_count > 0
-        or migrated_count > 0
-        or db_matched_count > 0
-        or id_matched_count > 0
-    ):
-        print_info(
-            f"Migration summary:\n"
-            f"{17 * ' '}Found {db_matched_count} files already in database\n"
-            f"{17 * ' '}Found {id_matched_count} files by ID with matching hash\n"
-            f"{17 * ' '}Preserved {preserved_count} hash2 format hashes\n"
-            f"{17 * ' '}Migrated {migrated_count} files from old hash formats"
-        )
-
-    # Second pass: Scan remaining files and update database
-    photo_count = 0
-    video_count = 0
-    for file_path in state.download_path.rglob("*"):
-        if not file_path.is_file():
-            continue
-
-        # Skip if file was already processed during migration
-        if (
-            hash0_pattern.search(file_path.name)
-            or hash1_pattern.search(file_path.name)
-            or hash2_pattern.search(file_path.name)
-            or id_pattern.search(file_path.name)
-        ):
-            continue
-
-        # Check database for existing records
-        with config._database.sync_session() as session:
-            # First check by filename
-            existing_by_name = (
-                session.query(Media).filter_by(local_filename=str(file_path)).first()
-            )
-            if existing_by_name and existing_by_name.content_hash:
-                # If we have a hash, trust it
+    # Process all files with progress bar
+    with tqdm(total=file_count, desc="Processing files", dynamic_ncols=True) as pbar:
+        for file_path in all_files:
+            if not file_path.is_file():
                 continue
 
-            # Check for media ID in filename
-            id_match = id_pattern.search(file_path.name)
-            existing_by_id = None
-            if id_match:
-                media_id = int(id_match.group(1))
-                existing_by_id = session.query(Media).filter_by(id=media_id).first()
-                if existing_by_id and existing_by_id.content_hash:
-                    # Update filename if needed
-                    if existing_by_id.local_filename != str(file_path):
-                        existing_by_id.local_filename = str(file_path)
-                        session.commit()
-                    continue
+            filename = file_path.name
+            pbar.set_description(
+                f"Processing {filename[:40]}...", refresh=True
+            )  # Show current file
 
-        # Only hash if we don't have a record with hash
-        mimetype, _ = mimetypes.guess_type(file_path)
-        if not mimetype:
-            continue
+            # Extract media ID if present
+            media_id, is_preview = get_id_from_filename(filename)
 
-        # Calculate hash only if needed
-        if "image" in mimetype:
-            file_hash = get_hash_for_image(file_path)
-            photo_count += 1
-        elif "video" in mimetype or "audio" in mimetype:
-            file_hash = get_hash_for_other_content(file_path)
-            if "video" in mimetype:
-                video_count += 1
-        else:
-            continue
+            # Determine mimetype
+            mimetype, _ = mimetypes.guess_type(file_path)
+            if not mimetype:
+                pbar.update(1)
+                continue
 
-        # Update database
-        with config._database.sync_session() as session:
-            # Check if hash exists in any record
-            media = session.query(Media).filter_by(content_hash=file_hash).first()
-            if not media:
-                # Create new record, using existing record if we found one by ID
-                if existing_by_id:
-                    media = existing_by_id
-                    media.content_hash = file_hash
-                    media.local_filename = str(file_path)
-                    media.is_downloaded = True
-                    media.mimetype = mimetype
-                else:
-                    media = Media(
-                        content_hash=file_hash,
-                        local_filename=str(file_path),
-                        is_downloaded=True,
+            # Handle files with hash2 format (trusted source)
+            match2 = hash2_pattern.search(filename)
+            if match2:
+                hash2_value = match2.group(1)
+                new_name = hash2_pattern.sub("", filename)
+                with config._database.sync_session() as session:
+                    _, hash_verified = get_or_create_media(
+                        session=session,
+                        file_path=file_path.with_name(new_name),
+                        media_id=media_id,
                         mimetype=mimetype,
-                        accountId=get_account_id(session, state),
+                        state=state,
+                        file_hash=hash2_value,
+                        trust_filename=True,
                     )
-                    session.add(media)
-            else:
-                # Update existing record
-                media.local_filename = str(file_path)
-                media.is_downloaded = True
-            session.commit()
+                    if hash_verified:
+                        preserved_count += 1
+                pbar.update(1)
+                continue
+
+            # For all other files, process normally without trusting the filename
+            with config._database.sync_session() as session:
+                _, hash_verified = get_or_create_media(
+                    session=session,
+                    file_path=file_path,
+                    media_id=media_id,
+                    mimetype=mimetype,
+                    state=state,
+                    trust_filename=False,
+                )
+                if hash_verified:
+                    processed_count += 1
+            pbar.update(1)
 
     # Get updated counts
     with config._database.sync_session() as session:
@@ -341,18 +362,11 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
         )
 
     print_info(
-        f"Database deduplication initialized! Found and processed:"
-        f"\n{17 * ' '}{photo_count} photos & {video_count} videos"
+        f"Database deduplication initialized!"
         f"\n{17 * ' '}Added {new_downloaded - existing_downloaded} new entries to the database"
-        f"\n{17 * ' '}Migrated {migrated_count} files from old format"
-        f"\n{17 * ' '}Matched {id_matched_count} files by ID"
+        f"\n{17 * ' '}Processed {processed_count} files with content verification"
+        f"\n{17 * ' '}Preserved {preserved_count} trusted hash2 format entries"
     )
-
-    if migrated_count > 0:
-        print_info(
-            "Successfully migrated files from hash-in-filename format to database tracking."
-            "\nOld hashes have been preserved in the database for continuity."
-        )
 
     print_info(
         "Files will now be tracked in the database instead of using filename hashes."
@@ -387,47 +401,124 @@ def dedupe_media_file(
     """
     from metadata.media import Media
 
-    # Calculate file hash based on mimetype
-    if "image" in mimetype:
-        file_hash = get_hash_for_image(filename)
-    else:
-        file_hash = get_hash_for_other_content(filename)
-
-    # Check database for existing hash
+    # Check database for existing records
     with config._database.sync_session() as session:
         session.add(media_record)  # Ensure our media_record is in this session
 
-        # Look for existing media with this hash
-        existing_media = (
+        # First try by ID
+        media_id, is_preview = get_id_from_filename(filename.name)
+        if media_id:
+            existing_by_id = session.query(Media).filter_by(id=media_id).first()
+            if existing_by_id:
+                # First check if filenames match
+                if existing_by_id.local_filename == get_filename_only(filename):
+                    # Same filename for same ID - perfect match
+                    return True
+
+                # Different filename but same ID - check if it's actually the same file
+                if existing_by_id.content_hash:  # Only if we have a hash to compare
+                    file_hash = None
+                    if "image" in mimetype:
+                        file_hash = get_hash_for_image(filename)
+                    elif "video" in mimetype or "audio" in mimetype:
+                        file_hash = get_hash_for_other_content(filename)
+
+                    if file_hash and file_hash == existing_by_id.content_hash:
+                        # Same content but wrong filename - check if DB's file exists
+                        db_file_exists = False
+                        db_filename = existing_by_id.local_filename
+                        for found_file in safe_rglob(state.download_path, db_filename):
+                            if found_file.is_file():
+                                db_file_exists = True
+                                break
+
+                        if db_file_exists:
+                            # DB's file exists, this is a duplicate with wrong name - remove it
+                            filename.unlink()
+                            return True
+                        else:
+                            # DB's file is missing but this is the same content - update DB filename
+                            existing_by_id.local_filename = get_filename_only(filename)
+                            existing_by_id.is_downloaded = True
+                            session.commit()
+                            return True
+
+        # Try by normalized filename
+        normalized_path = normalize_filename(filename.name, config=config)
+
+        existing_by_name = (
             session.query(Media)
-            .filter(Media.content_hash == file_hash, Media.id != media_record.id)
+            .filter(
+                Media.local_filename.ilike(normalized_path),
+                Media.is_downloaded,
+            )
             .first()
         )
-
-        if existing_media and existing_media.is_downloaded:
-            # We found another media record with the same hash
-            if (
-                existing_media.local_filename
-                and Path(existing_media.local_filename).exists()
-            ):
-                # The other file exists, we can delete this one
-                if config.show_downloads and config.show_skipped_downloads:
-                    print_info(
-                        f"Deduplication [Hash]: {mimetype.split('/')[-2]} '{filename.name}' → "
-                        f"skipped (duplicate of {Path(existing_media.local_filename).name})"
-                    )
-                filename.unlink()
-                state.duplicate_count += 1
+        if existing_by_name:
+            # First check if filenames match
+            if existing_by_name.local_filename == get_filename_only(filename):
+                # Same filename - perfect match
                 return True
-            else:
-                # The other record's file is missing, update it to point to this file
-                existing_media.local_filename = str(filename)
-                session.commit()
-                return False
 
-        # No duplicates found, update our media record
-        media_record.content_hash = file_hash
-        media_record.local_filename = str(filename)
-        media_record.is_downloaded = True
-        session.commit()
-        return False
+            # Different filename - check if it's actually the same file
+            if existing_by_name.content_hash:  # Only if we have a hash to compare
+                file_hash = None
+                if "image" in mimetype:
+                    file_hash = get_hash_for_image(filename)
+                elif "video" in mimetype or "audio" in mimetype:
+                    file_hash = get_hash_for_other_content(filename)
+
+                if file_hash and file_hash == existing_by_name.content_hash:
+                    # Same content but wrong filename - check if DB's file exists
+                    db_file_exists = False
+                    db_filename = existing_by_name.local_filename
+                    for found_file in safe_rglob(state.download_path, db_filename):
+                        if found_file.is_file():
+                            db_file_exists = True
+                            break
+
+                    if db_file_exists:
+                        # DB's file exists, this is a duplicate with wrong name - remove it
+                        filename.unlink()
+                        return True
+                    else:
+                        # DB's file is missing but this is the same content - update DB filename
+                        existing_by_name.local_filename = get_filename_only(filename)
+                        session.commit()
+                        return True
+
+        # If not in DB or no hash match, calculate hash and update DB
+        file_hash = None
+        if "image" in mimetype:
+            file_hash = get_hash_for_image(filename)
+        elif "video" in mimetype or "audio" in mimetype:
+            file_hash = get_hash_for_other_content(filename)
+
+        if file_hash:
+            # Check if hash exists in database
+            media = session.query(Media).filter_by(content_hash=file_hash).first()
+            if media:
+                # Found by hash - check if DB's file exists
+                db_file_exists = False
+                db_filename = media.local_filename
+                for found_file in safe_rglob(state.download_path, db_filename):
+                    if found_file.is_file():
+                        db_file_exists = True
+                        break
+
+                if db_file_exists:
+                    # DB's file exists, this is a duplicate - remove it
+                    filename.unlink()
+                    return True
+                else:
+                    # DB's file is missing but this is the same content - update DB filename
+                    media.local_filename = get_filename_only(filename)
+                    session.commit()
+                    return True
+
+            # No match found, update our media record
+            media_record.content_hash = file_hash
+            media_record.local_filename = get_filename_only(filename)
+            media_record.is_downloaded = True
+            session.commit()
+            return False

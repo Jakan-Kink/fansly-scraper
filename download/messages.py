@@ -25,8 +25,7 @@ def download_messages(config: FanslyConfig, state: DownloadState):
     groups_response = config.get_api().get_group()
 
     if groups_response.status_code == 200:
-        if config.include_meta_database:
-            process_groups_response(config, state, groups_response.json()["response"])
+        process_groups_response(config, state, groups_response.json()["response"])
         groups_response = groups_response.json()["response"]["aggregationData"][
             "groups"
         ]
@@ -66,7 +65,7 @@ def download_messages(config: FanslyConfig, state: DownloadState):
                     process_messages_metadata(config, state, messages["messages"])
 
                     all_media_ids = get_unique_media_ids(messages)
-                    media_infos = download_media_infos(config, all_media_ids)
+                    media_infos = download_media_infos(config, state, all_media_ids)
 
                     process_download_accessible_media(config, state, media_infos)
 

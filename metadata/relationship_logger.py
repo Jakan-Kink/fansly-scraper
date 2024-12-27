@@ -1,7 +1,7 @@
 """Helper module for logging and tracking missing database relationships."""
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -55,7 +55,7 @@ def log_missing_relationship(
             "field": field_name,
             "missing_id": str_id,
             "referenced_table": referenced_table,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
         if context:
             log_context.update(context)

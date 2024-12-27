@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -45,7 +46,9 @@ class Group(Base):
         "Message", cascade="all, delete-orphan", foreign_keys="[Message.groupId]"
     )
     lastMessageId: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("messages.id"), nullable=True
+        Integer,
+        ForeignKey("messages.id", use_alter=True, name="fk_group_last_message"),
+        nullable=True,
     )
 
 
@@ -119,6 +122,9 @@ def process_messages_metadata(
     """
     from .account import process_media_bundles
     from .attachment import Attachment, ContentType
+
+    # Create a deep copy of messages to avoid modifying the original
+    messages = copy.deepcopy(messages)
 
     # Known attributes that are handled separately
     known_relations = {
@@ -257,6 +263,16 @@ def process_messages_metadata(
 
                     # Create if doesn't exist with minimum required fields
                     if existing_attachment is None:
+                        # Set position if not provided
+                        if "pos" not in filtered_attachment:
+                            # Get max position for this message's attachments
+                            max_pos = (
+                                session.query(Attachment)
+                                .filter_by(messageId=existing_message.id)
+                                .count()
+                            )
+                            filtered_attachment["pos"] = max_pos + 1
+
                         existing_attachment = Attachment(**filtered_attachment)
                         session.add(existing_attachment)
                     # Update fields that have changed
@@ -282,6 +298,8 @@ def process_groups_response(
         response: Response data containing groups and aggregated data
     """
     from .account import process_account_data
+
+    response = copy.deepcopy(response)
 
     # Known attributes that are handled separately
     known_relations = {

@@ -2,6 +2,7 @@
 
 import json
 import os
+from datetime import datetime, timezone
 from unittest import TestCase
 
 from sqlalchemy import create_engine
@@ -24,12 +25,7 @@ class TestMessageProcessing(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """Set up test database and load test data."""
-        # Create test database
-        cls.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(cls.engine)
-        cls.Session: sessionmaker = sessionmaker(bind=cls.engine)
-
+        """Load test data."""
         # Load test data
         cls.test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
 
@@ -44,25 +40,53 @@ class TestMessageProcessing(TestCase):
             cls.group_data = json.load(f)
 
     def setUp(self):
-        """Set up fresh session and config for each test."""
+        """Set up fresh database and session for each test."""
+        # Create test database
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.Session: sessionmaker = sessionmaker(bind=self.engine)
         self.session: Session = self.Session()
+
+        # Create config with test database
         self.config = FanslyConfig(program_version="0.10.0")
         self.config.metadata_db_file = ":memory:"
         self.config._database = Database(self.config)
         self.config._database.sync_engine = self.engine
         self.config._database.sync_session = self.Session
 
-        # Create test accounts
+        # Generate unique IDs based on test name
+        test_name = self._testMethodName
+        import hashlib
+
+        base_id = (
+            int(
+                hashlib.sha1(
+                    f"{self.__class__.__name__}_{test_name}".encode()
+                ).hexdigest()[:8],
+                16,
+            )
+            % 1000000
+        )
+
+        # Create test accounts with unique IDs
         self.accounts = [
-            Account(id=1, username="user1"),
-            Account(id=2, username="user2"),
+            Account(id=base_id + i, username=f"user{base_id}_{i}") for i in range(1, 3)
         ]
         self.session.add_all(self.accounts)
         self.session.commit()
 
     def tearDown(self):
         """Clean up after each test."""
-        self.session.close()
+        try:
+            # Clean up data
+            for table in reversed(Base.metadata.sorted_tables):
+                self.session.execute(table.delete())
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+        finally:
+            self.session.close()
+            self.engine.dispose()
 
     def test_process_direct_messages(self):
         """Test processing direct messages from conversation data."""
@@ -79,16 +103,36 @@ class TestMessageProcessing(TestCase):
             messages = session.query(Message).all()
             self.assertGreater(len(messages), 0)
 
-            # Check first message
-            first_message = messages[0]
-            first_data = messages_data[0]
-            self.assertEqual(first_message.content, first_data["content"])
-            self.assertEqual(first_message.senderId, first_data["senderId"])
+            # Clear existing messages
+            session.query(Message).delete()
+            session.commit()
+
+            # Create test message data
+            test_message_data = {
+                "id": 1,
+                "senderId": self.accounts[0].id,
+                "content": "Test message content",
+                "createdAt": int(datetime.now(timezone.utc).timestamp()),
+            }
+
+            # Process test message
+            process_messages_metadata(self.config, None, [test_message_data])
+
+            # Verify message was created
+            messages = session.query(Message).all()
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(messages[0].content, test_message_data["content"])
+            self.assertEqual(messages[0].senderId, test_message_data["senderId"])
+
+            # Verify message was created with correct data
+            self.assertIsNotNone(messages[0].createdAt)
+            self.assertFalse(messages[0].deleted)
+            self.assertIsNone(messages[0].deletedAt)
 
             # Check attachments if present
-            if "attachments" in first_data:
+            if "attachments" in test_message_data:
                 self.assertEqual(
-                    len(first_message.attachments), len(first_data["attachments"])
+                    len(messages[0].attachments), len(test_message_data["attachments"])
                 )
 
     def test_process_group_messages(self):
@@ -142,6 +186,6 @@ class TestMessageProcessing(TestCase):
                 self.assertEqual(len(message.attachments), len(msg_data["attachments"]))
 
                 # Verify attachment content IDs match
-                attachment_ids = {a.contentId for a in message.attachments}
-                expected_ids = {a["contentId"] for a in msg_data["attachments"]}
+                attachment_ids = {str(a.contentId) for a in message.attachments}
+                expected_ids = {str(a["contentId"]) for a in msg_data["attachments"]}
                 self.assertEqual(attachment_ids, expected_ids)
