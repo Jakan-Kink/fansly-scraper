@@ -43,7 +43,12 @@ from .account import (
     process_creator_data,
 )
 from .attachment import Attachment
-from .database import Database, get_creator_database_path, run_migrations_if_needed
+from .database import (
+    Database,
+    get_creator_database_path,
+    require_database_config,
+    run_migrations_if_needed,
+)
 from .media import (
     Media,
     media_variants,
@@ -79,6 +84,7 @@ __all__ = [
     "process_posts_metadata",
     "process_timeline_posts",
     "process_wall_posts",
+    "require_database_config",
     "run_migrations_if_needed",
     "get_creator_database_path",
     "Account",

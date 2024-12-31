@@ -3,11 +3,8 @@
 import os
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
 from config import FanslyConfig
 from download.core import DownloadState

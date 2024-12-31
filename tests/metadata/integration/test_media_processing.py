@@ -2,17 +2,16 @@
 
 import json
 import os
-from datetime import datetime, timezone
 from unittest import TestCase
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from config import FanslyConfig
 from metadata.account import Account, AccountMedia, AccountMediaBundle
 from metadata.base import Base
 from metadata.database import Database
-from metadata.media import Media, MediaLocation, process_media_info
+from metadata.media import Media, process_media_info
 
 
 class TestMediaProcessing(TestCase):
@@ -44,9 +43,11 @@ class TestMediaProcessing(TestCase):
         Base.metadata.create_all(self.engine)
 
         # Create test account
-        self.account = Account(id=1, username="test_user")
-        self.session.add(self.account)
-        self.session.commit()
+        self.account = self.session.query(Account).filter_by(id=1).first()
+        if not self.account:
+            self.account = Account(id=1, username="test_user")
+            self.session.add(self.account)
+            self.session.commit()
 
     def tearDown(self):
         """Clean up after each test."""

@@ -149,9 +149,10 @@ def create_test_data_set(
         # Create media for each account
         for account in data["accounts"]:
             for j in range(num_media_per_account):
-                media = Media(
+                media = create_test_media(
+                    session=session,
+                    account_id=account.id,
                     id=len(data["media"]) + 1,
-                    accountId=account.id,
                     mimetype="video/mp4",
                 )
                 session.add(media)
@@ -164,14 +165,20 @@ def create_test_data_set(
                 media for media in data["media"] if media.accountId == account.id
             ]
             for j, media in enumerate(account_media_list):
-                account_media = AccountMedia(
+                account_media = create_test_account_media(
+                    session=session,
+                    account_id=account.id,
+                    media_id=media.id,
                     id=len(data["account_media"]) + 1,
-                    accountId=account.id,
-                    mediaId=media.id,
-                    createdAt=datetime.now(timezone.utc),
                 )
-                session.add(account_media)
                 data["account_media"].append(account_media)
+                print(
+                    f"Created AccountMedia: {account_media.id} for Account: {account.id} with Media: {media.id}"
+                )
+                # Ensure the media object is correctly associated with the account
+                session.refresh(account_media)
+                session.refresh(media)
+                session.refresh(account)
         session.flush()
 
         # Create walls for each account
@@ -186,11 +193,8 @@ def create_test_data_set(
                 )
                 session.add(wall)
                 data["walls"].append(wall)
+                print(f"Created wall {wall.id} for account {account.id}")
         session.flush()
-
-        # Refresh accounts to update their relationships
-        for account in data["accounts"]:
-            session.refresh(account)
 
         # Create posts for each account
         for account in data["accounts"]:
@@ -203,7 +207,12 @@ def create_test_data_set(
                 )
                 session.add(post)
                 data["posts"].append(post)
+                print(f"Created post {post.id} for account {account.id}")
         session.flush()
+
+        # Refresh accounts to update their relationships
+        for account in data["accounts"]:
+            session.refresh(account)
 
         # Commit all changes
         session.commit()
@@ -232,24 +241,75 @@ def verify_relationship_integrity(
 
     if expected_count is not None:
         if len(children) != expected_count:
+            print(
+                f"Expected {expected_count} children, but found {len(children)} for parent {parent} and child_attr {child_attr}"
+            )
             return False
 
     # Verify bidirectional relationships
     for child in children:
         # Get the parent relationship attribute from the child
+        parent_attr = None
         for rel in child.__mapper__.relationships:
             if rel.back_populates == child_attr:
                 parent_attr = rel.key
-                child_parent = getattr(child, parent_attr)
-                if child_parent != parent:
-                    return False
+                break
+
+        if parent_attr is None:
+            print(
+                f"No back_populates relationship found for {child_attr} in {type(child).__name__} for parent {parent}"
+            )
+            return False
+
+        child_parent = getattr(child, parent_attr)
+        if child_parent != parent:
+            print(
+                f"Child's parent attribute {parent_attr} does not match the parent in {type(child).__name__} for parent {parent}"
+            )
+            print(
+                f"Expected parent: {parent}, but found: {child_parent} for child {child}"
+            )
+            return False
 
         # Verify foreign key constraints
         for column in child.__table__.columns:
             if column.foreign_keys:
                 for fk in column.foreign_keys:
                     if fk.column.table == parent.__table__:
-                        if getattr(child, column.name) != parent.id:
+                        if getattr(child, column.name) != getattr(
+                            parent, fk.column.name
+                        ):
+                            print(
+                                f"Foreign key constraint failed for column {column.name} in {type(child).__name__} for parent {parent}"
+                            )
+                            print(
+                                f"Expected value: {getattr(parent, fk.column.name)}, but found: {getattr(child, column.name)} for child {child}"
+                            )
                             return False
 
+    # Verify that the accountId in AccountMedia matches the id in Account
+    if child_attr == "accountMedia":
+        for account_media in children:
+            if account_media.accountId != parent.id:
+                print(
+                    f"AccountMedia's accountId {account_media.accountId} does not match Account's id {parent.id} for account_media {account_media}"
+                )
+                return False
+            # Verify that the mediaId in AccountMedia references a valid Media object
+            if account_media.mediaId is None or account_media.media is None:
+                print(
+                    f"AccountMedia's mediaId {account_media.mediaId} does not reference a valid Media object for account_media {account_media}"
+                )
+                return False
+            if account_media.media.accountId != parent.id:
+                print(
+                    f"Media's accountId {account_media.media.accountId} does not match Account's id {parent.id} for account_media {account_media}"
+                )
+                return False
+            if account_media.media.id != account_media.mediaId:
+                print(
+                    f"AccountMedia's mediaId {account_media.mediaId} does not match Media's id {account_media.media.id} for account_media {account_media}"
+                )
+                return False
+            print(f"Verified AccountMedia: {account_media.id} for Account: {parent.id}")
     return True

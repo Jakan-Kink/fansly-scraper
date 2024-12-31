@@ -55,7 +55,7 @@ def output(level: int, log_type: str, color: str, message: str) -> None:
         format="[{level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]: {message}",
         level=log_type,
         filter=lambda record: not record["extra"].get("json", False),
-        rotation="1MB",
+        rotation="100MB",
         retention=5,
         backtrace=True,
         diagnose=True,

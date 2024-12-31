@@ -165,6 +165,8 @@ def main(config: FanslyConfig) -> int:
         f"({datetime.fromtimestamp(config.get_api().device_id_timestamp / 1000)})"
     )
     print_info(f"Session ID: {config.get_api().session_id}")
+    client_user_name = config.get_api().get_client_user_name()
+    print_info(f"User ID: {client_user_name}")
 
     global_download_state = GlobalState()
 
@@ -202,12 +204,24 @@ def main(config: FanslyConfig) -> int:
                     run_migrations_if_needed(creator_database, alembic_cfg)
 
                 try:
+                    from metadata.account import process_account_data
+
+                    # Load client account into the database
+                    process_account_data(
+                        config=config,
+                        state=state,
+                        data=config.get_api()
+                        .get_creator_account_info(creator_name=client_user_name)
+                        .json()["response"][0],
+                    )
+
                     print_download_info(config)
 
                     get_creator_account_info(config, state)
 
                     # Special treatment for deviating folder names later
                     if not config.download_mode == DownloadMode.SINGLE:
+                        dedupe_init(config, state)
                         dedupe_init(config, state)
 
                     # Download mode:

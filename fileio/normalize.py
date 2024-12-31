@@ -5,9 +5,11 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from config import FanslyConfig
+from metadata.database import require_database_config
 from metadata.media import Media
 
 
+@require_database_config
 def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str:
     """Normalize filename to handle timezone differences.
 

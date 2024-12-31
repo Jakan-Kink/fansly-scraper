@@ -29,6 +29,7 @@
         ]
       }
     ],
+    "aggregatedPosts": [],
     "accounts": [
       {
         "id": "987654321",
@@ -60,6 +61,9 @@
           "updatedAt": 1704067200
         }
       }
-    ]
+    ],
+    "tips": [],
+    "tipGoals": [],
+    "stories": []
   }
 }

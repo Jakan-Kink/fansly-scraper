@@ -1,6 +1,7 @@
 """Fansly Download Functionality"""
 
 import random
+import shutil
 import tempfile
 from pathlib import Path
 from time import sleep
@@ -14,7 +15,7 @@ from fileio.dedupe import dedupe_media_file
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from helpers.common import batch_list
 from media import MediaItem
-from metadata import process_media_download
+from metadata import process_media_download, require_database_config
 from pathio import get_media_save_path, set_create_directory_for_download
 from textio import print_info, print_warning
 
@@ -23,6 +24,7 @@ from .m3u8 import download_m3u8
 from .types import DownloadType
 
 
+@require_database_config
 def download_media_infos(
     config: FanslyConfig, state: DownloadState, media_ids: list[str]
 ) -> list[dict]:
@@ -81,6 +83,7 @@ def download_media_infos(
     return media_infos
 
 
+@require_database_config
 def download_media(
     config: FanslyConfig, state: DownloadState, accessible_media: list[MediaItem]
 ):
@@ -281,7 +284,6 @@ def download_media(
 
                         # No duplicate found, move file to final location
                         check_path.parent.mkdir(parents=True, exist_ok=True)
-                        import shutil
 
                         shutil.move(str(temp_path), str(check_path))
                         file_save_path = check_path
@@ -294,7 +296,6 @@ def download_media(
                 finally:
                     # Clean up temp directory
                     if temp_dir.exists():
-                        import shutil
 
                         shutil.rmtree(temp_dir)
             else:

@@ -165,7 +165,7 @@ def test_concurrent_access(database):
     def insert_with_retry(thread_id, error_queue):
         """Insert a record with retries on failure."""
 
-        @retry_on_db_error(max_retries=5, delay=0.2)
+        @retry_on_db_error(max_retries=5, delay=0.01)
         def _do_insert():
             with database.get_sync_session() as session:
                 try:
@@ -184,7 +184,7 @@ def test_concurrent_access(database):
                         session.rollback()
                         raise
 
-        @retry_on_db_error(max_retries=5, delay=0.2)
+        @retry_on_db_error(max_retries=5, delay=0.01)
         def _verify_insert():
             with database.get_sync_session() as session:
                 try:

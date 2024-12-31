@@ -11,6 +11,7 @@ from textio import json_output
 
 from .account import Account
 from .base import Base
+from .database import require_database_config
 from .relationship_logger import log_missing_relationship
 
 if TYPE_CHECKING:
@@ -107,6 +108,7 @@ class Message(Base):
     recipient: Mapped[Account] = relationship("Account", foreign_keys=[recipientId])
 
 
+@require_database_config
 def process_messages_metadata(
     config: FanslyConfig, state: DownloadState, messages: list[dict[str, any]]
 ) -> None:
@@ -142,6 +144,15 @@ def process_messages_metadata(
         "replyToRoot",
         "reactions",
         "mentions",
+        "type",
+        "dataVersion",
+        "correlationId",
+        "inReplyTo",
+        "inReplyToRoot",
+        "embeds",
+        "interactions",
+        "likes",
+        "totalTipAmount",
     }
 
     # Known attributes for attachments that are handled separately
@@ -284,6 +295,7 @@ def process_messages_metadata(
         session.commit()
 
 
+@require_database_config
 def process_groups_response(
     config: FanslyConfig, state: DownloadState, response: dict[str, any]
 ) -> None:
@@ -322,6 +334,7 @@ def process_groups_response(
         "flags",
         "unreadCount",
         "subscriptionTier",
+        "subscriptionTierId",
         "lastUnreadMessageId",
         # from p_g_resp-group
         "type",

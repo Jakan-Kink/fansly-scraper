@@ -13,11 +13,14 @@ from download.downloadstate import DownloadState
 from errors import MediaHashMismatchError
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from fileio.normalize import get_id_from_filename, normalize_filename
+from logging_utils import json_output
+from metadata.database import require_database_config
 from metadata.media import Media
 from pathio import set_create_directory_for_download
 from textio import print_info
 
 
+@require_database_config
 def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
     """Update database records that have full paths stored in local_filename.
 
@@ -120,8 +123,9 @@ def get_or_create_media(
     state: DownloadState,
     file_hash: str | None = None,
     trust_filename: bool = False,
+    config: FanslyConfig | None = None,
 ) -> tuple[Media, bool]:
-    filename = get_filename_only(file_path)
+    filename = normalize_filename(get_filename_only(file_path), config=config)
     hash_verified = False
 
     # First try by ID if available
@@ -131,6 +135,11 @@ def get_or_create_media(
             # If filenames match
             if media.local_filename == filename:
                 # If record has a hash, we can trust it
+                json_output(
+                    1,
+                    "dedupe-get_or_create_media",
+                    f"file_path: {file_path} -- media_id: {media_id} -- media.local_filename: {media.local_filename} -- media.is_downloaded: {media.is_downloaded} -- media.content_hash: {media.content_hash}",
+                )
                 if media.content_hash:
                     hash_verified = True
                     return media, hash_verified
@@ -150,10 +159,13 @@ def get_or_create_media(
                     if other_media and other_media.id != media.id:
                         # Merge the records - keep the one with the correct ID
                         media.content_hash = calculated_hash
+                        media.is_downloaded = True
                         session.delete(other_media)
                         session.flush()
                     else:
                         media.content_hash = calculated_hash
+                        media.is_downloaded = True
+                        session.flush()
                     hash_verified = True
                     return media, hash_verified
                 # If we couldn't calculate hash but trust filename
@@ -254,6 +266,7 @@ def get_account_id(session: Session, state: DownloadState) -> int | None:
     return None
 
 
+@require_database_config
 def dedupe_init(config: FanslyConfig, state: DownloadState):
     """Initialize deduplication by scanning existing files and updating the database.
 
@@ -287,6 +300,7 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
             .filter_by(is_downloaded=True, accountId=state.creator_id)
             .count()
         )
+        print_info(f"Existing downloaded records: {existing_downloaded}")
 
     # Initialize patterns and counters
     hash2_pattern = re.compile(r"_hash2_([a-fA-F0-9]+)")
@@ -306,8 +320,10 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
                 continue
 
             filename = file_path.name
+            extension = file_path.suffix.lower()
             pbar.set_description(
-                f"Processing {filename[:40]}...", refresh=True
+                f"Processing {filename[:(40 - len(extension))]}..{extension}",
+                refresh=True,
             )  # Show current file
 
             # Extract media ID if present
@@ -333,9 +349,25 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
                         state=state,
                         file_hash=hash2_value,
                         trust_filename=True,
+                        config=config,
                     )
                     if hash_verified:
                         preserved_count += 1
+                pbar.update(1)
+                continue
+            if media_id:
+                with config._database.sync_session() as session:
+                    _, hash_verified = get_or_create_media(
+                        session=session,
+                        file_path=file_path,
+                        media_id=media_id,
+                        mimetype=mimetype,
+                        state=state,
+                        trust_filename=True,
+                        config=config,
+                    )
+                    if hash_verified:
+                        processed_count += 1
                 pbar.update(1)
                 continue
 
@@ -348,10 +380,39 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
                     mimetype=mimetype,
                     state=state,
                     trust_filename=False,
+                    config=config,
                 )
                 if hash_verified:
                     processed_count += 1
             pbar.update(1)
+
+    with config._database.sync_session() as session:
+        downloaded_list = (
+            session.query(Media)
+            .filter_by(is_downloaded=True, accountId=state.creator_id)
+            .all()
+        )
+        with tqdm(
+            total=len(downloaded_list), desc="Checking DB files...", dynamic_ncols=True
+        ) as pbar:
+            for media in downloaded_list:
+                pbar.set_description(f"Checking DB - ID: {media.id}", refresh=True)
+                # print_info(
+                #     f"Checking DB - ID: {media.id} -- filename: {media.local_filename} -- hash: {media.content_hash}"
+                # )
+                if media.local_filename:
+                    if any(f.name == media.local_filename for f in all_files):
+                        pbar.update(1)
+                        continue
+                    else:
+                        media.is_downloaded = False
+                        media.content_hash = None
+                        media.local_filename = None
+                else:
+                    media.is_downloaded = False
+                    media.content_hash = None
+                session.commit()
+                pbar.update(1)
 
     # Get updated counts
     with config._database.sync_session() as session:
@@ -374,6 +435,7 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
     )
 
 
+@require_database_config
 def dedupe_media_file(
     config: FanslyConfig,
     state: DownloadState,
@@ -410,9 +472,43 @@ def dedupe_media_file(
         if media_id:
             existing_by_id = session.query(Media).filter_by(id=media_id).first()
             if existing_by_id:
+                file_hash = None
+                if existing_by_id.content_hash is None:
+                    if "image" in mimetype:
+                        file_hash = get_hash_for_image(filename)
+                    elif "video" in mimetype or "audio" in mimetype:
+                        file_hash = get_hash_for_other_content(filename)
+
                 # First check if filenames match
                 if existing_by_id.local_filename == get_filename_only(filename):
                     # Same filename for same ID - perfect match
+                    if file_hash:
+                        existing_by_id.content_hash = file_hash
+                    existing_by_id.is_downloaded = True
+                    session.commit()
+                    return True
+
+                if existing_by_id.local_filename is None:
+                    existing_by_id.local_filename = get_filename_only(filename)
+                    existing_by_id.is_downloaded = True
+                    file_hash = None
+                    if "image" in mimetype:
+                        file_hash = get_hash_for_image(filename)
+                    elif "video" in mimetype or "audio" in mimetype:
+                        file_hash = get_hash_for_other_content(filename)
+                    if file_hash:
+                        existing_by_id.content_hash = file_hash
+                    session.commit()
+                    return True
+
+                if (
+                    existing_by_id.local_filename == filename
+                    or get_filename_only(existing_by_id.local_filename) == filename
+                ):
+                    # Same filename for same ID - perfect match, but with full path in DB
+                    existing_by_id.local_filename = get_filename_only(filename)
+                    existing_by_id.is_downloaded = True
+                    session.commit()
                     return True
 
                 # Different filename but same ID - check if it's actually the same file
@@ -427,10 +523,18 @@ def dedupe_media_file(
                         # Same content but wrong filename - check if DB's file exists
                         db_file_exists = False
                         db_filename = existing_by_id.local_filename
+                        if db_filename == str(filename):
+                            existing_by_id.local_filename = get_filename_only(filename)
+                            existing_by_id.is_downloaded = True
+                            session.commit()
+                            return True
                         for found_file in safe_rglob(state.download_path, db_filename):
                             if found_file.is_file():
                                 db_file_exists = True
                                 break
+                        print_info(
+                            f"db_filename: {db_filename} -- filename: {filename}"
+                        )
 
                         if db_file_exists:
                             # DB's file exists, this is a duplicate with wrong name - remove it

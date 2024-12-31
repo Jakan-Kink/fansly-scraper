@@ -163,14 +163,8 @@ cython_debug/
 .vscode/
 
 # User-specific
-*_fansly/
-temp/
 config_args.ini
 config.ini
-*.bak
-logo*.txt
-dummy.*
-# Linux/macOS binary
-fansly-downloader-ng
-# Test scripts
-api_tester.py
+*.log*
+*.sqlite3*
+json

@@ -27,6 +27,7 @@ from media import MediaItem
 from textio import json_output
 
 from .base import Base
+from .database import require_database_config
 
 if TYPE_CHECKING:
     from config import FanslyConfig
@@ -132,6 +133,7 @@ def process_media_metadata(metadata: dict) -> None:
     pass
 
 
+@require_database_config
 def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
     from .account import AccountMedia
 
@@ -193,6 +195,7 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
         session.commit()
 
 
+@require_database_config
 def process_media_item_dict(
     config: FanslyConfig, media_item: dict, session: Session | None = None
 ) -> None:
@@ -336,6 +339,7 @@ def _process_media_item_dict_inner(
     session.commit()
 
 
+@require_database_config
 def process_media_download(
     config: FanslyConfig, state: DownloadState, media: MediaItem
 ) -> Media | None:

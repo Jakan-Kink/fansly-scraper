@@ -5,8 +5,9 @@ import logging
 import os
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest import TestCase
+from unittest.mock import patch
 
 from textio.logging import SizeAndTimeRotatingFileHandler
 
@@ -65,12 +66,27 @@ class TestSizeAndTimeRotatingFileHandler(TestCase):
         )
         self.logger.addHandler(handler)
 
-        # Write logs with delays
-        self.logger.info("First log")
-        time.sleep(1.1)  # Wait for rotation
-        self.logger.info("Second log")
-        time.sleep(1.1)  # Wait for rotation
-        self.logger.info("Third log")
+        with patch("textio.logging.datetime") as mock_datetime:
+            # Mock the current time
+            now = datetime.now()
+            mock_datetime.now.return_value = now
+            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+
+            # Set the initial rollover time
+            handler.rolloverAt = (now + timedelta(seconds=1)).timestamp()
+
+            # Write the first log
+            self.logger.info("First log")
+
+            # Simulate the passage of time to trigger the first rollover
+            mock_datetime.now.return_value = now + timedelta(seconds=1.1)
+            handler.doRollover()  # Manually trigger rollover
+            self.logger.info("Second log")
+
+            # Simulate the passage of time to trigger the second rollover
+            mock_datetime.now.return_value = now + timedelta(seconds=2.2)
+            handler.doRollover()  # Manually trigger rollover
+            self.logger.info("Third log")
 
         # Check that we have the expected number of files
         files = os.listdir(self.temp_dir)
@@ -110,19 +126,24 @@ class TestSizeAndTimeRotatingFileHandler(TestCase):
         )
         self.logger.addHandler(handler)
 
-        # Get current UTC time
-        now = datetime.now(timezone.utc)
-        # Set next rollover to 1 minute from now
-        handler.rolloverAt = now.timestamp() + 60
+        with patch("textio.logging.datetime") as mock_datetime:
+            # Mock the current UTC time
+            now = datetime.now(timezone.utc)
+            mock_datetime.now.return_value = now
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(
+                *args, **kwargs
+            )
 
-        # Write log
-        self.logger.info("Test log")
+            # Set initial rollover time to 1 minute from now
+            handler.rolloverAt = (now + timedelta(minutes=1)).timestamp()
 
-        # Simulate time passing
-        time.sleep(61)
+            # Write the first log
+            self.logger.info("Test log")
 
-        # Write another log to trigger rotation
-        self.logger.info("Another test")
+            # Simulate the passage of time to trigger rotation
+            mock_datetime.now.return_value = now + timedelta(minutes=1, seconds=1)
+            handler.doRollover()  # Manually trigger rollover
+            self.logger.info("Another test")
 
         # Check that rotation occurred
         self.assertTrue(os.path.exists(f"{self.log_filename}.1"))
@@ -166,10 +187,16 @@ class TestSizeAndTimeRotatingFileHandler(TestCase):
         self.logger.addHandler(handler1)
         self.logger.addHandler(handler2)
 
-        # Write logs
-        self.logger.info("X" * 150)  # Should trigger size rotation
-        time.sleep(1.1)
-        self.logger.info("Test")  # Should trigger time rotation
+        with patch("textio.logging.datetime") as mock_datetime:
+            # Mock the current time
+            now = datetime.now()
+            mock_datetime.now.return_value = now
+            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+
+            # Write logs with simulated time and size triggers
+            self.logger.info("X" * 150)  # Should trigger size rotation
+            mock_datetime.now.return_value = now + timedelta(seconds=1.1)
+            self.logger.info("Test")  # Should trigger time rotation
 
         # Check files
         files = os.listdir(self.temp_dir)

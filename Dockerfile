@@ -7,11 +7,13 @@ ENV PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
-
+ARG TARGETARCH
+ARG SIZE="full"
 RUN python -m ensurepip --upgrade
 RUN apt-get update && apt-get dist-upgrade -y \
-    && apt-get install -y git curl ffmpeg \
-    && apt-get install -y libleveldb-dev
+    && apt-get install -y git curl libleveldb-dev \
+    && if [ "$SIZE" = "full" -o "$TARGETARCH" = "arm64" ]; then apt-get install -y ffmpeg; fi \
+    && apt-get clean
 
 FROM base AS venv
 ARG TARGETARCH

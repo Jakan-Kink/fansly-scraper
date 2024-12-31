@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from textio import json_output
 
 from .base import Base
+from .database import require_database_config
 from .post import process_timeline_posts
 
 if TYPE_CHECKING:
@@ -87,6 +88,7 @@ wall_posts = Table(
 )
 
 
+@require_database_config
 def process_account_walls(
     config: FanslyConfig,
     account: Account,
@@ -171,6 +173,7 @@ def process_account_walls(
             new_session.commit()
 
 
+@require_database_config
 def process_wall_posts(
     config: FanslyConfig, state: DownloadState, wall_id: str, posts_data: dict
 ) -> None:

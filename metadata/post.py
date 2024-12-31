@@ -23,6 +23,7 @@ from textio import json_output
 
 from .attachment import Attachment, ContentType
 from .base import Base
+from .database import require_database_config
 
 if TYPE_CHECKING:
     from config import FanslyConfig
@@ -92,6 +93,7 @@ def process_posts_metadata(metadata: dict[str, any]) -> None:
     pass
 
 
+@require_database_config
 def process_pinned_posts(
     config: FanslyConfig, account: Account, posts: list[dict[str, any]], session=None
 ) -> None:
@@ -199,6 +201,7 @@ def process_timeline_posts(
         process_account_data(config, data=account)
 
 
+@require_database_config
 def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
     """Process a single timeline post."""
     # Known attributes that are handled separately
@@ -218,6 +221,7 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
         "attachmentTipAmount",
         "replyPermissionFlags",
         "replyCount",
+        "postReplyPermissionFlags",
     }
 
     # Process post data

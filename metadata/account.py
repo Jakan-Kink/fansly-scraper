@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from textio import json_output
 
 from .base import Base
+from .database import require_database_config
 
 if TYPE_CHECKING:
     from config import FanslyConfig
@@ -121,7 +122,11 @@ class Account(Base):
         lazy="select",
     )
     walls: Mapped[set[Wall]] = relationship(
-        "Wall", collection_class=set, back_populates="account", lazy="select"
+        "Wall",
+        collection_class=set,
+        back_populates="account",
+        lazy="select",
+        cascade="all, delete-orphan",
     )
     following: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     avatar: Mapped[Media | None] = relationship(
@@ -310,7 +315,7 @@ class AccountMedia(Base):
             connection.execute(cls.__table__.delete().where(cls.accountId == target.id))
 
     mediaId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("media.id"), primary_key=True
+        Integer, ForeignKey("media.id", ondelete="CASCADE"), primary_key=True
     )
     media: Mapped[Media] = relationship(
         "Media",
@@ -403,6 +408,7 @@ class AccountMediaBundle(Base):
     UniqueConstraint("accountId", "mediaId")
 
 
+@require_database_config
 @retry_on_locked_db
 def process_account_data(
     config: FanslyConfig,
@@ -625,6 +631,7 @@ def process_timeline_stats(session: Session, data: dict) -> None:
     session.flush()
 
 
+@require_database_config
 @retry_on_locked_db
 def process_media_bundles(
     config: FanslyConfig,
@@ -679,6 +686,8 @@ def process_media_bundles(
                 "permissions",
                 "accountPermissionFlags",
                 "price",
+                "likeCount",
+                "mediaId",  # not sure what this mediaId is for
             }
 
             # Process bundle data

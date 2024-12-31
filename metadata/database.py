@@ -29,6 +29,7 @@ import time
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -61,7 +62,7 @@ sqlalchemy_logger = logging.getLogger("sqlalchemy.engine")
 sqlalchemy_logger.setLevel(logging.INFO)
 time_handler = SizeAndTimeRotatingFileHandler(
     "sqlalchemy.log",
-    maxBytes=50 * 1000 * 1000,
+    maxBytes=500 * 1000 * 1000,
     when="h",
     interval=2,
     backupCount=20,
@@ -800,3 +801,19 @@ class Database:
         await self.async_engine.dispose()
         await self._optimized_connection.close_async()
         # Cleanup is handled by atexit registered in get_local_db_path
+
+
+def require_database_config(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        config = kwargs.get("config")
+        if config is None:
+            for arg in args:
+                if hasattr(arg, "_database"):
+                    config = arg
+                    break
+        if config is None or config._database is None:
+            raise ValueError("Database configuration is missing in config.")
+        return func(*args, **kwargs)
+
+    return wrapper

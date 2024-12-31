@@ -64,12 +64,14 @@ types-pillow = "^10.2.0"
 memory-profiler = "^0.61.0"
 
 [tool.poetry.group.test.dependencies]
-pytest = "^7.4.4"
-pytest-cov = "^4.1.0"
-pytest-asyncio = "^0.23.3"
-pytest-xdist = "^3.5.0"  # For parallel test execution
-pytest-timeout = "^2.2.0"  # For test timeouts
-pytest-randomly = "^3.15.0"  # For random test ordering
+pytest = ">=7.4.4"
+pytest-cov = ">=4.0.0"
+pytest-asyncio = ">=0.23.0"
+pytest-xdist = ">=3.5.0"
+pytest-timeout = ">=2.3.1"
+pytest-randomly = ">=3.16.0"
+pytest-mock = ">=3.14.0"
+coverage = {extras = ["toml"], version = ">=7.4.3"}
 
 [build-system]
 requires = ["poetry-core"]
@@ -120,8 +122,9 @@ addopts = """
     --strict-markers
     --strict-config
     --tb=short
-    --cov=metadata
+    --cov=.
     --cov-report=term-missing
+    --cov-report=xml
     --cov-report=html
     --randomly-seed=1234
     -n auto
@@ -129,6 +132,7 @@ addopts = """
     --timeout=300
 """
 testpaths = ["tests"]
+pythonpath = "."
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -143,3 +147,32 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
 ]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["*/__pycache__/*", "*/venv/*"]
+command_line = "-m pytest discover -s tests/"
+
+[tool.coverage.report]
+exclude_also = [
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    "pass",
+    "\\.\\.\\.$",
+]
+ignore_errors = true
+fail_under = 80
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"

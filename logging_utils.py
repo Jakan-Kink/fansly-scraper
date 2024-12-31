@@ -30,7 +30,7 @@ def json_output(level: int, log_type: str, message: str) -> None:
     # Use our custom handler for JSON logs with size and time rotation
     json_handler = SizeTimeRotatingHandler(
         filename=str(Path.cwd() / JSON_FILE_NAME),
-        max_bytes=50 * 1000 * 1000,  # 50MB
+        max_bytes=500 * 1000 * 1000,  # 50MB
         backup_count=20,  # Keep 20 files total
         when="h",
         interval=2,  # Rotate every 2 hours if needed

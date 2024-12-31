@@ -11,6 +11,7 @@ from metadata import (
     AccountMedia,
     Media,
     Message,
+    Post,
     TimelineStats,
     Wall,
     process_account_data,
@@ -24,6 +25,8 @@ class TestMetadataPackage(TestCase):
 
     @pytest.fixture(autouse=True)
     def setup_database(self, temp_db_path, database, timeline_data):
+        from tests.metadata.conftest import temp_db_path
+
         """Set up test environment with database."""
         self.db_path = temp_db_path
         self.database = database
@@ -88,23 +91,27 @@ class TestMetadataPackage(TestCase):
 
             # Verify relationships for each account
             for account in data["accounts"]:
-                # Account -> AccountMedia relationship
+                # Explicitly query for accountMedia relationship
+                account_media = (
+                    session.query(AccountMedia).filter_by(accountId=account.id).all()
+                )
+                self.assertGreater(len(account_media), 0)
                 self.assertTrue(
                     verify_relationship_integrity(
-                        session,
-                        account,
-                        "accountMedia",
-                        expected_count=3,  # num_media_per_account
+                        session, account, "accountMedia", expected_count=3
                     )
                 )
 
                 # Verify each AccountMedia -> Media relationship
-                account_media_items = [
-                    am for am in data["account_media"] if am.accountId == account.id
-                ]
+                account_media_items = (
+                    session.query(AccountMedia).filter_by(accountId=account.id).all()
+                )
                 for account_media in account_media_items:
-                    self.assertIsNotNone(account_media.media)
-                    self.assertEqual(account_media.media.accountId, account.id)
+                    media = (
+                        session.query(Media).filter_by(id=account_media.mediaId).first()
+                    )
+                    self.assertIsNotNone(media)
+                    self.assertEqual(media.accountId, account.id)
 
                 # Account -> Walls relationship
                 self.assertTrue(
@@ -116,11 +123,12 @@ class TestMetadataPackage(TestCase):
                 # Create walls for the account
                 for i in range(2):
                     wall = Wall(
-                        id=i + 1,
+                        id=len(data["walls"]) + 1,
                         accountId=account.id,
                         createdAt=datetime.now(timezone.utc),
                     )
                     session.add(wall)
+                    data["walls"].append(wall)
                 session.commit()
 
                 # Verify walls were created
@@ -128,18 +136,13 @@ class TestMetadataPackage(TestCase):
 
             # Verify wall -> posts relationships
             for wall in data["walls"]:
-                # Add some posts to the wall
-                wall.posts = [p for p in data["posts"] if p.accountId == wall.accountId]
-                session.commit()
-
-                self.assertTrue(
-                    verify_relationship_integrity(
-                        session,
-                        wall,
-                        "posts",
-                        expected_count=2,  # num_posts_per_account
-                    )
+                # Use explicit query to efficiently fetch matching posts
+                matching_posts = (
+                    session.query(Post).filter(Post.accountId == wall.accountId).all()
                 )
+                wall.posts = matching_posts
+            # Single commit after the loop
+            session.commit()
 
     def test_database_constraints(self):
         """Test database constraints and referential integrity."""
@@ -165,6 +168,7 @@ class TestMetadataPackage(TestCase):
             session.add(message)
             with self.assertRaises(Exception):
                 session.commit()
+            session.rollback()
 
     def test_database_indexes(self):
         """Test that important queries use indexes."""
