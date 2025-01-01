@@ -156,12 +156,16 @@ def process_account_walls(
 
             session.flush()
 
-        # After processing all walls, remove any that no longer exist
-        current_wall_ids = {wall_data["id"] for wall_data in walls_data}
-        existing_walls = session.query(Wall).filter(Wall.accountId == account.id).all()
-        for wall in existing_walls:
-            if wall.id not in current_wall_ids:
-                session.delete(wall)
+        # Only delete walls if this is a full account data update
+        # This function is called from process_account_data which gets all walls for an account
+        if len(walls_data) > 0:  # Only if we have any walls data
+            current_wall_ids = {wall_data["id"] for wall_data in walls_data}
+            existing_walls = (
+                session.query(Wall).filter(Wall.accountId == account.id).all()
+            )
+            for wall in existing_walls:
+                if wall.id not in current_wall_ids:
+                    session.delete(wall)
 
     if session is not None:
         # Use existing session
@@ -197,8 +201,10 @@ def process_wall_posts(
     session: Session
     with config._database.sync_session() as session:
         wall = session.query(Wall).get(wall_id)
-        if not wall:
-            return
+        if wall is None:
+            wall = Wall(id=wall_id, accountId=state.creator_id)
+            session.add(wall)
+            session.flush()
 
         for post_data in posts_data["posts"]:
             post_id = post_data["id"]

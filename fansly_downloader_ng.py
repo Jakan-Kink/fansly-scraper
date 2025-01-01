@@ -53,6 +53,7 @@ from errors import (
 from fileio.dedupe import dedupe_init
 from helpers.common import open_location
 from helpers.timer import Timer
+from logging_utils import json_output
 from pathio import delete_temporary_pyinstaller_files
 from textio import (
     input_enter_close,
@@ -207,12 +208,22 @@ def main(config: FanslyConfig) -> int:
                     from metadata.account import process_account_data
 
                     # Load client account into the database
+                    creator_dict = (
+                        config.get_api()
+                        .get_creator_account_info(creator_name=client_user_name)
+                        .json()["response"][0]
+                    )
+
+                    json_output(
+                        1,
+                        "main - client-account-data",
+                        (creator_dict),
+                    )
+
                     process_account_data(
                         config=config,
                         state=state,
-                        data=config.get_api()
-                        .get_creator_account_info(creator_name=client_user_name)
-                        .json()["response"][0],
+                        data=creator_dict,
                     )
 
                     print_download_info(config)

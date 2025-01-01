@@ -428,6 +428,8 @@ def process_account_data(
     from .post import process_pinned_posts
     from .wall import process_account_walls
 
+    json_output(1, "meta/account - p_a_data - full_data", data)
+
     # Create deep copy of input data
     data = copy.deepcopy(data)
 
@@ -439,8 +441,50 @@ def process_account_data(
 
             if existing_account is None:
                 # Only create a new Account if one doesn't exist
-                existing_account = Account(id=account_id)
+                existing_account = Account(id=account_id, username=data["username"])
                 session.add(existing_account)
+                session.flush()
+
+            # Process timeline stats
+            if "timelineStats" in data:
+                process_timeline_stats(session, data)
+
+            # Process media story state
+            if "mediaStoryState" in data:
+                process_media_story_state(
+                    config, existing_account, data["mediaStoryState"], session=session
+                )
+
+            # Process pinned posts
+            if "pinnedPosts" in data:
+                process_pinned_posts(
+                    config, existing_account, data["pinnedPosts"], session=session
+                )
+
+            # Process walls
+            if "walls" in data:
+                json_output(1, "meta/account - p_a_data - walls", data["walls"])
+                process_account_walls(
+                    config, existing_account, data["walls"], session=session
+                )
+
+            # Process media bundles
+            if "accountMediaBundles" in data:
+                process_media_bundles(
+                    config, account_id, data["accountMediaBundles"], session=session
+                )
+
+            # Process avatar
+            if "avatar" in data:
+                process_avatar(
+                    config, existing_account, data["avatar"], session=session
+                )
+
+            # Process banner
+            if "banner" in data:
+                process_banner(
+                    config, existing_account, data["banner"], session=session
+                )
 
             # Known attributes that are handled separately
             known_relations = {
@@ -488,47 +532,6 @@ def process_account_data(
             )
 
             session.flush()
-
-            # Process timeline stats
-            if "timelineStats" in data:
-                process_timeline_stats(session, data)
-
-            # Process media story state
-            if "mediaStoryState" in data:
-                process_media_story_state(
-                    config, existing_account, data["mediaStoryState"], session=session
-                )
-
-            # Process pinned posts
-            if "pinnedPosts" in data:
-                process_pinned_posts(
-                    config, existing_account, data["pinnedPosts"], session=session
-                )
-
-            # Process walls
-            if "walls" in data:
-                process_account_walls(
-                    config, existing_account, data["walls"], session=session
-                )
-
-            # Process media bundles
-            if "accountMediaBundles" in data:
-                process_media_bundles(
-                    config, account_id, data["accountMediaBundles"], session=session
-                )
-
-            # Process avatar
-            if "avatar" in data:
-                process_avatar(
-                    config, existing_account, data["avatar"], session=session
-                )
-
-            # Process banner
-            if "banner" in data:
-                process_banner(
-                    config, existing_account, data["banner"], session=session
-                )
-
             session.commit()
         except (exc.SQLAlchemyError, exc.DBAPIError) as e:
             session.rollback()
