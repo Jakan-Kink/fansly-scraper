@@ -522,7 +522,7 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
 
         if arg_attribute is not None:
 
-            if attr_name == "download_directory":
+            if attr_name in ["download_directory", "temp_folder"]:
                 setattr(config, attr_name, Path(arg_attribute))
 
             else:
