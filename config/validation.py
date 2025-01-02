@@ -438,11 +438,31 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 
 
 def validate_adjust_download_directory(config: FanslyConfig) -> None:
-    """Validates the `download_directory` value from `config.ini`
-    and corrects it if possible.
+    """Validates the `download_directory` and `temp_folder` values from `config.ini`
+    and corrects them if possible.
 
     :param FanslyConfig config: The configuration to validate and correct.
     """
+    # Validate temp_folder if specified
+    if config.temp_folder is not None:
+        if not config.temp_folder.exists():
+            try:
+                config.temp_folder.mkdir(parents=True, exist_ok=True)
+                print_info(f"Created temp folder: '{config.temp_folder}'")
+            except Exception as e:
+                print_warning(
+                    f"Could not create temp folder '{config.temp_folder}': {e}"
+                )
+                print_info("Falling back to system default temp folder")
+                config.temp_folder = None
+        elif not config.temp_folder.is_dir():
+            print_warning(
+                f"Temp folder path '{config.temp_folder}' exists but is not a directory"
+            )
+            print_info("Falling back to system default temp folder")
+            config.temp_folder = None
+        else:
+            print_info(f"Using custom temp folder: '{config.temp_folder}'")
     # if user didn't specify custom downloads path
     if "local_dir" in str(config.download_directory).lower():
 

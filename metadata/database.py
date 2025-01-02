@@ -196,7 +196,10 @@ class BackgroundSync:
         # Check if we should use background sync based on size
         try:
             size_mb = local_path.stat().st_size / (1024 * 1024)
-            self.use_background = size_mb >= config.db_sync_min_size
+            min_size = (
+                config.db_sync_min_size if config.db_sync_min_size is not None else 50
+            )
+            self.use_background = size_mb >= min_size
         except OSError:
             self.use_background = False
 
@@ -224,11 +227,23 @@ class BackgroundSync:
             should_sync = False
 
             with self.sync_lock:
+                # Get default values if not set
+                sync_seconds = (
+                    self.config.db_sync_seconds
+                    if self.config.db_sync_seconds is not None
+                    else 60
+                )
+                sync_commits = (
+                    self.config.db_sync_commits
+                    if self.config.db_sync_commits is not None
+                    else 1000
+                )
+
                 # Check time-based sync
-                if current_time - self.last_sync >= self.config.db_sync_seconds:
+                if current_time - self.last_sync >= sync_seconds:
                     should_sync = True
                 # Check commit-based sync
-                elif self.commit_count >= self.config.db_sync_commits:
+                elif self.commit_count >= sync_commits:
                     should_sync = True
 
                 if should_sync:

@@ -287,9 +287,11 @@ def load_config(config: FanslyConfig) -> None:
         config.prompt_on_exit = config._parser.getboolean(
             options_section, "prompt_on_exit", fallback=True
         )
-        config.include_meta_database = config._parser.getboolean(
-            options_section, "include_meta_database", fallback=False
-        )
+
+        # Remove deprecated include_meta_database option if it exists
+        if config._parser.has_option(options_section, "include_meta_database"):
+            config._parser.remove_option(options_section, "include_meta_database")
+
         # Load metadata_db_file if configured, otherwise leave as None for default handling
         metadata_db_path = config._parser.get(
             options_section, "metadata_db_file", fallback=None
@@ -306,15 +308,25 @@ def load_config(config: FanslyConfig) -> None:
         )
 
         # Database sync settings
-        config.db_sync_commits = config._parser.getint(
-            options_section, "db_sync_commits", fallback=1000
+        if config._parser.has_option(options_section, "db_sync_commits"):
+            config.db_sync_commits = config._parser.getint(
+                options_section, "db_sync_commits"
+            )
+        if config._parser.has_option(options_section, "db_sync_seconds"):
+            config.db_sync_seconds = config._parser.getint(
+                options_section, "db_sync_seconds"
+            )
+        if config._parser.has_option(options_section, "db_sync_min_size"):
+            config.db_sync_min_size = config._parser.getint(
+                options_section, "db_sync_min_size"
+            )
+
+        # Temp folder
+        temp_folder_path = config._parser.get(
+            options_section, "temp_folder", fallback=None
         )
-        config.db_sync_seconds = config._parser.getint(
-            options_section, "db_sync_seconds", fallback=60
-        )
-        config.db_sync_min_size = config._parser.getint(
-            options_section, "db_sync_min_size", fallback=50
-        )
+        if temp_folder_path:
+            config.temp_folder = Path(temp_folder_path)
 
         # region Renamed Options
 

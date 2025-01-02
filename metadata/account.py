@@ -511,6 +511,7 @@ def process_account_data(
                 "lastSeenAt",
                 "streaming",
                 "profileAccessFlags",
+                "ignoring",
             }
 
             # Process account data

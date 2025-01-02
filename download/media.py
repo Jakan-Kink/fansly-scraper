@@ -175,9 +175,10 @@ def download_media(
             if media_item.file_extension != "m3u8":
                 temp_path = None
                 try:
-                    with tempfile.NamedTemporaryFile(
-                        suffix=check_path.suffix, delete=False
-                    ) as temp_file:
+                    kwargs = {"suffix": check_path.suffix, "delete": False}
+                    if config.temp_folder:
+                        kwargs["dir"] = config.temp_folder
+                    with tempfile.NamedTemporaryFile(**kwargs) as temp_file:
                         temp_path = Path(temp_file.name)
                         # Download to temp file
                         with config.get_api().get_with_ngsw(
@@ -244,7 +245,10 @@ def download_media(
             # Download the file
             if media_item.file_extension == "m3u8":
                 # For m3u8, download to temp location first
-                temp_dir = Path(tempfile.mkdtemp())
+                kwargs = {}
+                if config.temp_folder:
+                    kwargs["dir"] = config.temp_folder
+                temp_dir = Path(tempfile.mkdtemp(**kwargs))
                 temp_path = temp_dir / f"temp_{check_path.name}"
                 try:
                     # Download and create the video file
@@ -296,7 +300,6 @@ def download_media(
                 finally:
                     # Clean up temp directory
                     if temp_dir.exists():
-
                         shutil.rmtree(temp_dir)
             else:
                 # Handle normal media file download

@@ -86,9 +86,14 @@ class FanslyConfig(PathConfig):
     # Anti-rate-limiting delay in seconds
     timeline_delay_seconds: int = 60
     # Database sync settings
-    db_sync_commits: int = 1000  # Sync after this many commits
-    db_sync_seconds: int = 60  # Sync after this many seconds
-    db_sync_min_size: int = 50  # Only use background sync for DBs larger than this (MB)
+    db_sync_commits: int | None = None  # Sync after this many commits (default: 1000)
+    db_sync_seconds: int | None = None  # Sync after this many seconds (default: 60)
+    db_sync_min_size: int | None = (
+        None  # Only use background sync for DBs larger than this MB (default: 50)
+    )
+
+    # Temporary folder for downloads
+    temp_folder: Path | None = None  # When None, use system default temp folder
 
     # Cache
     cached_device_id: str | None = None
@@ -206,10 +211,17 @@ class FanslyConfig(PathConfig):
             "Options", "timeline_delay_seconds", str(self.timeline_delay_seconds)
         )
 
-        # Database sync settings
-        self._parser.set("Options", "db_sync_commits", str(self.db_sync_commits))
-        self._parser.set("Options", "db_sync_seconds", str(self.db_sync_seconds))
-        self._parser.set("Options", "db_sync_min_size", str(self.db_sync_min_size))
+        # Database sync settings - only save if explicitly set
+        if self.db_sync_commits is not None:
+            self._parser.set("Options", "db_sync_commits", str(self.db_sync_commits))
+        if self.db_sync_seconds is not None:
+            self._parser.set("Options", "db_sync_seconds", str(self.db_sync_seconds))
+        if self.db_sync_min_size is not None:
+            self._parser.set("Options", "db_sync_min_size", str(self.db_sync_min_size))
+
+        # Temp folder
+        if self.temp_folder:
+            self._parser.set("Options", "temp_folder", str(self.temp_folder))
 
         # Cache
         if self._api is not None:

@@ -238,6 +238,7 @@ def _process_media_item_dict_inner(
         # Handled relationships
         "locations",
         "variants",
+        "filename",
         # Intentionally ignored fields
         "metadata",  # Handled by mapping to meta_info
         "variantHash",  # Not used in database

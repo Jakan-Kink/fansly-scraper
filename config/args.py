@@ -300,32 +300,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--db-sync-commits",
         required=False,
-        default=1000,
+        default=None,
         type=int,
         dest="db_sync_commits",
         help="Number of commits before syncing database to remote location. "
         "Only applies to databases larger than --db-sync-min-size. "
-        "Default: 1000",
+        "If not specified, defaults to 1000.",
     )
     parser.add_argument(
         "--db-sync-seconds",
         required=False,
-        default=60,
+        default=None,
         type=int,
         dest="db_sync_seconds",
         help="Number of seconds between database syncs to remote location. "
         "Only applies to databases larger than --db-sync-min-size. "
-        "Default: 60",
+        "If not specified, defaults to 60.",
     )
     parser.add_argument(
         "--db-sync-min-size",
         required=False,
-        default=50,
+        default=None,
         type=int,
         dest="db_sync_min_size",
         help="Minimum database size in MB to enable background syncing. "
         "Smaller databases are synced immediately. "
-        "Default: 50",
+        "If not specified, defaults to 50.",
     )
     parser.add_argument(
         "--metadata-db-file",
@@ -336,6 +336,15 @@ def parse_args() -> argparse.Namespace:
         help="Custom path for the metadata database file. "
         "If not specified, uses download_directory/metadata_db.sqlite3 "
         "or ./metadata_db.sqlite3 in current directory.",
+    )
+    parser.add_argument(
+        "--temp-folder",
+        required=False,
+        default=None,
+        type=str,
+        dest="temp_folder",
+        help="Custom path for temporary files. "
+        "If not specified, uses system default temp folder.",
     )
 
     # endregion Other Options
@@ -503,6 +512,7 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
         "db_sync_seconds",
         "db_sync_min_size",
         "metadata_db_file",
+        "temp_folder",
     ]
 
     # Sets config when arguments are not None
