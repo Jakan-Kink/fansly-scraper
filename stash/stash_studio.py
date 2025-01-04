@@ -1,7 +1,35 @@
 from datetime import datetime
 
+from stashapi.stashapp import StashInterface
 
-class StashStudio:
+from .stash_context import StashQL
+from .stash_group import StashGroup
+from .stash_tag import StashTag
+
+
+class StashStudio(StashQL):
+    @staticmethod
+    def find(id: str, interface: StashInterface) -> "StashStudio":
+        data = interface.find_studio(id)
+        return StashStudio.from_dict(data) if data else None
+
+    def save(self, interface: StashInterface) -> None:
+        interface.update_studio(self.to_dict())
+
+    name: str
+    url: str | None
+    parent_studio: "StashStudio" | None
+    child_studios: list["StashStudio"]
+    aliases: list[str]
+    tags: list[StashTag]
+    ignore_auto_tag: bool
+    image_path: str | None
+    rating100: int | None
+    favorite: bool
+    details: str | None
+    groups: list[StashGroup]
+    stash_ids: list[str]
+
     def __init__(
         self,
         id: str,
@@ -15,7 +43,7 @@ class StashStudio:
         created_at: datetime = datetime.now(),
         updated_at: datetime = datetime.now(),
     ):
-        self.id = id
+        super().__init__(id=id, urls=[], created_at=created_at, updated_at=updated_at)
         self.name = name
         self.url = url
         self.parent_studio = None
@@ -27,8 +55,6 @@ class StashStudio:
         self.rating100 = rating100
         self.favorite = favorite
         self.details = details
-        self.created_at = created_at
-        self.updated_at = updated_at
         self.groups = []
         self.stash_ids = []
 

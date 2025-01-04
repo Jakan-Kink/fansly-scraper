@@ -5,6 +5,15 @@ from .visual_file import VisualFile
 
 
 class StashSceneFile(StashBaseFile, VisualFile):
+    format: str
+    width: int
+    height: int
+    duration: float
+    video_codec: str
+    audio_codec: str
+    frame_rate: float
+    bit_rate: int
+
     def get_path(self) -> str:
         return self.path
 
@@ -30,7 +39,7 @@ class StashSceneFile(StashBaseFile, VisualFile):
         created_at: datetime = datetime.now(),
         updated_at: datetime = datetime.now(),
         zip_file_id: str | None = None,
-    ):
+    ) -> None:
         super().__init__(
             id,
             path,

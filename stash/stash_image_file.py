@@ -5,6 +5,9 @@ from .visual_file import VisualFile
 
 
 class StashImageFile(StashBaseFile, VisualFile):
+    width: int
+    height: int
+
     def get_path(self) -> str:
         return self.path
 
@@ -24,7 +27,7 @@ class StashImageFile(StashBaseFile, VisualFile):
         created_at: datetime = datetime.now(tz=timezone.utc),
         updated_at: datetime = datetime.now(tz=timezone.utc),
         zip_file_id: str | None = None,
-    ):
+    ) -> None:
         super().__init__(
             id,
             path,

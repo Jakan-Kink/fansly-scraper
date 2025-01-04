@@ -4,9 +4,12 @@ from .visual_file_type import VisualFileType
 
 
 class VisualFile:
+    file: StashSceneFile | StashImageFile
+    file_type: VisualFileType
+
     def __init__(
         self, file: StashSceneFile | StashImageFile, file_type: VisualFileType
-    ):
+    ) -> None:
         self.file = file
         self.file_type = file_type
 

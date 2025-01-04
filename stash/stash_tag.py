@@ -1,7 +1,28 @@
 from datetime import datetime
 
+from stashapi.stashapp import StashInterface
 
-class StashTag:
+from .stash_context import StashQL
+
+
+class StashTag(StashQL):
+    @staticmethod
+    def find(id: str, interface: StashInterface) -> "StashTag":
+        data = interface.find_tag(id)
+        return StashTag.from_dict(data) if data else None
+
+    def save(self, interface: StashInterface) -> None:
+        interface.update_tag(self.to_dict())
+
+    name: str
+    description: str | None
+    aliases: list[str]
+    ignore_auto_tag: bool
+    image_path: str | None
+    favorite: bool
+    parents: list["StashTag"]
+    children: list["StashTag"]
+
     def __init__(
         self,
         id: str,
@@ -13,15 +34,13 @@ class StashTag:
         created_at: datetime = datetime.now(),
         updated_at: datetime = datetime.now(),
     ):
-        self.id = id
+        super().__init__(id=id, urls=[], created_at=created_at, updated_at=updated_at)
         self.name = name
         self.description = description
         self.aliases = []
         self.ignore_auto_tag = ignore_auto_tag
         self.image_path = image_path
         self.favorite = favorite
-        self.created_at = created_at
-        self.updated_at = updated_at
         self.parents = []
         self.children = []
 

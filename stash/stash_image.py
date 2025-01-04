@@ -1,6 +1,9 @@
 from datetime import datetime
 
+from stashapi.stashapp import StashInterface
+
 from .image_paths_type import ImagePathsType
+from .stash_context import StashQL
 from .stash_gallery import StashGallery
 from .stash_performer import StashPerformer
 from .stash_studio import StashStudio
@@ -8,7 +11,30 @@ from .stash_tag import StashTag
 from .visual_file import VisualFile
 
 
-class StashImage:
+class StashImage(StashQL):
+    @staticmethod
+    def find(id: str, interface: StashInterface) -> "StashImage":
+        data = interface.find_image(id)
+        return StashImage.from_dict(data) if data else None
+
+    def save(self, interface: StashInterface) -> None:
+        interface.update_image(self.to_dict())
+
+    title: str | None
+    code: str | None
+    rating100: int | None
+    date: datetime | str | None
+    details: str | None
+    photographer: str | None
+    o_counter: int | None
+    organized: bool
+    visual_files: list[VisualFile]
+    paths: list[ImagePathsType] | None
+    galleries: list[StashGallery]
+    studio: StashStudio | None
+    tags: list[StashTag]
+    performers: list[StashPerformer]
+
     def __init__(
         self,
         id: str,
@@ -24,18 +50,15 @@ class StashImage:
         created_at: datetime = datetime.now(),
         updated_at: datetime = datetime.now(),
     ):
-        self.id = id
+        super().__init__(id=id, urls=urls, created_at=created_at, updated_at=updated_at)
         self.title = title
         self.code = code
         self.rating100 = rating100
-        self.urls = urls
         self.date: datetime = date
         self.details: str = details
         self.photographer: str = photographer
         self.o_counter = o_counter
         self.organized: bool = organized
-        self.created_at = created_at
-        self.updated_at = updated_at
         self.visual_files: list[VisualFile] = []
         self.paths: list[ImagePathsType] | None = None
         self.galleries: list[StashGallery] = []
