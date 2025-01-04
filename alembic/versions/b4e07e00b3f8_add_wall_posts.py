@@ -10,6 +10,16 @@ depends_on = None
 
 
 def upgrade():
+    """Add wall_posts table with foreign key constraints.
+
+    Note: Foreign keys are intentionally disabled during this migration
+    because the API data needs to be imported in a specific order that may
+    not match the foreign key constraints. The application handles data
+    integrity at the business logic level.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
     # Create wall_posts table
     op.create_table(
         "wall_posts",
@@ -32,5 +42,13 @@ def upgrade():
 
 
 def downgrade():
+    """Remove wall_posts table.
+
+    Note: Foreign keys remain disabled to maintain consistency with
+    the application's data integrity approach.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
     # Drop wall_posts table
     op.drop_table("wall_posts")

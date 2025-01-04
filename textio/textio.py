@@ -11,7 +11,6 @@ from time import sleep
 from loguru import logger
 
 LOG_FILE_NAME: str = "fansly_downloader_ng.log"
-JSON_FILE_NAME: str = "fansly_downloader_ng_json.log"
 
 # Global debug flag
 DEBUG_ENABLED = False

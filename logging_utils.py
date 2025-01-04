@@ -1,5 +1,6 @@
 """Logging utilities shared across modules."""
 
+import os
 from functools import partialmethod
 from pathlib import Path
 
@@ -7,7 +8,14 @@ from loguru import logger
 
 from textio.logging import SizeTimeRotatingHandler
 
-JSON_FILE_NAME: str = "fansly_downloader_ng_json.log"
+
+def get_json_log_path() -> str:
+    """Get the path to the JSON log file.
+
+    Returns:
+        The path to use for JSON logging, using environment variable if set
+    """
+    return os.getenv("LOGURU_JSON_LOG_FILE", "fansly_downloader_ng_json.log")
 
 
 def json_output(level: int, log_type: str, message: str) -> None:
@@ -29,7 +37,7 @@ def json_output(level: int, log_type: str, message: str) -> None:
 
     # Use our custom handler for JSON logs with size and time rotation
     json_handler = SizeTimeRotatingHandler(
-        filename=str(Path.cwd() / JSON_FILE_NAME),
+        filename=str(Path.cwd() / get_json_log_path()),
         max_bytes=500 * 1000 * 1000,  # 50MB
         backup_count=20,  # Keep 20 files total
         when="h",

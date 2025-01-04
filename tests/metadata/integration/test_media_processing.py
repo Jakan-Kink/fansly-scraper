@@ -55,31 +55,95 @@ class TestMediaProcessing(TestCase):
 
     def test_process_video_from_timeline(self):
         """Test processing a video from timeline data."""
-        # Find a video in the test data
-        media_data = None
-        for media in self.timeline_data["response"]["accountMedia"]:
-            if media.get("media", {}).get("mimetype", "").startswith("video/"):
-                media_data = media
-                break
+        try:
+            # Find a video in the test data
+            media_data = None
+            for media in self.timeline_data["response"]["accountMedia"]:
+                if media.get("media", {}).get("mimetype", "").startswith("video/"):
+                    media_data = media
+                    break
 
-        if not media_data:
-            self.skipTest("No video found in test data")
+            if not media_data:
+                self.skipTest("No video found in test data")
 
-        # Process the media
-        process_media_info(self.config, media_data)
+            # Ensure we have all required fields
+            self.assertIn("mediaId", media_data, "Missing mediaId in media_data")
+            self.assertIn("media", media_data, "Missing media object in media_data")
+            self.assertIn(
+                "mimetype", media_data["media"], "Missing mimetype in media object"
+            )
 
-        # Verify the results
-        with self.config._database.sync_session() as session:
-            media = session.query(Media).filter_by(id=media_data["mediaId"]).first()
-            self.assertIsNotNone(media)
-            self.assertEqual(media.mimetype, media_data["media"]["mimetype"])
-            if "metadata" in media_data["media"]:
-                metadata = json.loads(media_data["media"]["metadata"])
-                if "duration" in metadata:
-                    self.assertEqual(media.duration, float(metadata["duration"]))
-                if "original" in metadata:
-                    self.assertEqual(media.width, metadata["original"].get("width"))
-                    self.assertEqual(media.height, metadata["original"].get("height"))
+            # Process the media
+            process_media_info(self.config, media_data)
+
+            # Verify the results
+            with self.config._database.sync_session() as session:
+                # Test 1: Basic media record creation
+                media = session.query(Media).filter_by(id=media_data["mediaId"]).first()
+                self.assertIsNotNone(media, f"Media {media_data['mediaId']} not found")
+                self.assertEqual(
+                    media.mimetype,
+                    media_data["media"]["mimetype"],
+                    "Mimetype mismatch",
+                )
+
+                # Test 2: Metadata handling
+                if "metadata" in media_data["media"]:
+                    try:
+                        metadata = json.loads(media_data["media"]["metadata"])
+                    except json.JSONDecodeError as e:
+                        self.fail(f"Invalid JSON in metadata: {e}")
+
+                    # Test 2.1: Duration
+                    if "duration" in metadata:
+                        try:
+                            expected_duration = float(metadata["duration"])
+                            self.assertEqual(
+                                media.duration,
+                                expected_duration,
+                                f"Duration mismatch: got {media.duration}, expected {expected_duration}",
+                            )
+                        except (ValueError, TypeError) as e:
+                            self.fail(f"Invalid duration value: {e}")
+
+                    # Test 2.2: Dimensions
+                    if "original" in metadata:
+                        original = metadata["original"]
+                        # Width
+                        if "width" in original:
+                            try:
+                                expected_width = int(original["width"])
+                                self.assertEqual(
+                                    media.width,
+                                    expected_width,
+                                    f"Width mismatch: got {media.width}, expected {expected_width}",
+                                )
+                            except (ValueError, TypeError) as e:
+                                self.fail(f"Invalid width value: {e}")
+
+                        # Height
+                        if "height" in original:
+                            try:
+                                expected_height = int(original["height"])
+                                self.assertEqual(
+                                    media.height,
+                                    expected_height,
+                                    f"Height mismatch: got {media.height}, expected {expected_height}",
+                                )
+                            except (ValueError, TypeError) as e:
+                                self.fail(f"Invalid height value: {e}")
+
+                # Test 3: Process same media again to test unique constraint handling
+                process_media_info(self.config, media_data)
+                # Verify only one record exists
+                count = session.query(Media).filter_by(id=media_data["mediaId"]).count()
+                self.assertEqual(count, 1, "Duplicate media record created")
+
+        finally:
+            # Cleanup
+            with self.config._database.sync_session() as session:
+                session.query(Media).delete()
+                session.commit()
 
     def test_process_media_bundle_from_timeline(self):
         """Test processing a media bundle from timeline data."""

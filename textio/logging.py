@@ -172,9 +172,11 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
     def doRollover(self):
         if self.stream:
-            self.stream.flush()
-            self.stream.close()
-            self.stream = None
+            try:
+                self.stream.flush()
+                self.stream.close()
+            finally:
+                self.stream = None
 
         # Remove oldest backup if it exists
         if self.backupCount > 0:
@@ -217,6 +219,17 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
         if not self.delay:
             self.stream = self._open()
+
+    def close(self):
+        """
+        Closes the stream and ensures proper cleanup.
+        """
+        if self.stream:
+            try:
+                self.stream.flush()
+                self.stream.close()
+            finally:
+                self.stream = None
 
     def _compress_file(self, filepath):
         if not self.compression:
@@ -377,13 +390,33 @@ class SizeTimeRotatingHandler:
                     exc_info=None,
                     func=None,
                 )
-            self.handler.emit(record)
+
+            # Ensure proper cleanup after emission
+            try:
+                self.handler.emit(record)
+            finally:
+                if self.handler.stream:
+                    self.handler.stream.flush()
         except Exception as e:
             print(f"Error in SizeTimeRotatingHandler: {e}", file=sys.stderr)
+            # Ensure stream is flushed even on error
+            try:
+                if self.handler.stream:
+                    self.handler.stream.flush()
+            except Exception:
+                pass
 
-    def stop(self) -> None:
-        """Close the handler."""
+    def close(self) -> None:
+        """Close the handler and all file handles."""
         try:
+            if self.handler.stream:
+                self.handler.stream.flush()
+                self.handler.stream.close()
+                self.handler.stream = None
             self.handler.close()
         except Exception as e:
             print(f"Error closing handler: {e}", file=sys.stderr)
+
+    def stop(self) -> None:
+        """Close the handler (alias for close)."""
+        self.close()

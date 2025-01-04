@@ -20,18 +20,77 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("messages", schema=None) as batch_op:
-        # Add the new column
-        batch_op.add_column(sa.Column("recipientId", sa.Integer(), nullable=True))
-        # Create the foreign key constraint
-        batch_op.create_foreign_key(
-            "messages_recipientId", "accounts", ["recipientId"], ["id"]
+    # Create a new table with the desired schema
+    op.create_table(
+        "_messages_new",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("groupId", sa.Integer(), nullable=True),
+        sa.Column("senderId", sa.Integer(), nullable=False),
+        sa.Column("recipientId", sa.Integer(), nullable=True),
+        sa.Column("content", sa.String(), nullable=False),
+        sa.Column("createdAt", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("deletedAt", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("deleted", sa.Boolean(), nullable=False),
+        sa.ForeignKeyConstraint(["groupId"], ["groups.id"]),
+        sa.ForeignKeyConstraint(["recipientId"], ["accounts.id"]),
+        sa.ForeignKeyConstraint(["senderId"], ["accounts.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+
+    # Copy data from old table
+    op.execute(
+        """
+        INSERT INTO _messages_new (
+            id, groupId, senderId, content, createdAt, deletedAt, deleted
         )
+        SELECT id, groupId, senderId, content, createdAt, deletedAt, deleted
+        FROM messages
+        """
+    )
+
+    # Drop old table and rename new one
+    op.drop_table("messages")
+    op.rename_table("_messages_new", "messages")
+
+    # Create indexes
+    op.create_index(
+        "ix_messages_recipientId", "messages", ["recipientId"], unique=False
+    )
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("messages", schema=None) as batch_op:
-        # Drop the foreign key constraint
-        batch_op.drop_constraint("messages_recipientId", type_="foreignkey")
-        # Drop the column
-        batch_op.drop_column("recipientId")
+    # Drop the index first
+    try:
+        op.drop_index("ix_messages_recipientId", table_name="messages")
+    except Exception:
+        pass  # Index might not exist
+
+    # Create a new table without recipientId
+    op.create_table(
+        "_messages_new",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("groupId", sa.Integer(), nullable=True),
+        sa.Column("senderId", sa.Integer(), nullable=False),
+        sa.Column("content", sa.String(), nullable=False),
+        sa.Column("createdAt", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("deletedAt", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("deleted", sa.Boolean(), nullable=False),
+        sa.ForeignKeyConstraint(["groupId"], ["groups.id"]),
+        sa.ForeignKeyConstraint(["senderId"], ["accounts.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+
+    # Copy data from old table
+    op.execute(
+        """
+        INSERT INTO _messages_new (
+            id, groupId, senderId, content, createdAt, deletedAt, deleted
+        )
+        SELECT id, groupId, senderId, content, createdAt, deletedAt, deleted
+        FROM messages
+        """
+    )
+
+    # Drop old table and rename new one
+    op.drop_table("messages")
+    op.rename_table("_messages_new", "messages")

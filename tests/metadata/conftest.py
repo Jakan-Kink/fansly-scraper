@@ -1,18 +1,28 @@
-"""Test configuration and fixtures for metadata tests.
+"""Enhanced test configuration and fixtures for metadata tests.
 
-This module provides common fixtures and utilities for testing the metadata package.
-It includes database setup, test data loading, and common test scenarios.
+This module provides comprehensive fixtures for database testing, including:
+- Transaction management
+- Isolation level control
+- Performance monitoring
+- Error handling
+- Cleanup procedures
 """
 
 import json
 import os
 import tempfile
-from collections.abc import Generator
+import time
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import TypeVar
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 from config import FanslyConfig
 from metadata import (
@@ -27,6 +37,81 @@ from metadata import (
     Wall,
     account_media_bundle_media,
 )
+
+T = TypeVar("T")
+
+
+class TestDatabase(Database):
+    """Enhanced database class for testing."""
+
+    def __init__(self, config: FanslyConfig, isolation_level: str = "SERIALIZABLE"):
+        """Initialize test database with configurable isolation level."""
+        super().__init__(config)
+        self.isolation_level = isolation_level
+        self._setup_engine()
+
+    def _setup_engine(self) -> None:
+        """Set up database engine with enhanced configuration."""
+        self.sync_engine = create_engine(
+            f"sqlite:///{self.config.metadata_db_file}",
+            isolation_level=self.isolation_level,
+            poolclass=QueuePool,
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_recycle=1800,
+            echo=False,
+        )
+
+        # Add event listeners for debugging and monitoring
+        event.listen(
+            self.sync_engine, "before_cursor_execute", self._before_cursor_execute
+        )
+        event.listen(
+            self.sync_engine, "after_cursor_execute", self._after_cursor_execute
+        )
+
+    def _before_cursor_execute(
+        self, conn, cursor, statement, parameters, context, executemany
+    ):
+        """Log query execution start time."""
+        conn.info.setdefault("query_start_time", []).append(time.time())
+
+    def _after_cursor_execute(
+        self, conn, cursor, statement, parameters, context, executemany
+    ):
+        """Log query execution time."""
+        total = time.time() - conn.info["query_start_time"].pop()
+        # Log if query takes more than 100ms
+        if total > 0.1:
+            print(f"Long running query ({total:.2f}s): {statement}")
+
+    def _make_session(self) -> Session:
+        """Create a new session with proper typing."""
+        return sessionmaker(bind=self.sync_engine)()
+
+    @contextmanager
+    def transaction(
+        self,
+        *,
+        isolation_level: str | None = None,
+        readonly: bool = False,
+    ) -> Generator[Session, None, None]:
+        """Create a transaction with specific isolation level."""
+        session: Session = self._make_session()  # type: ignore[no-untyped-call]
+
+        try:
+            if isolation_level:
+                session.execute(text(f"PRAGMA isolation_level = {isolation_level}"))  # type: ignore[attr-defined]
+            if readonly:
+                session.execute(text("PRAGMA query_only = ON"))  # type: ignore[attr-defined]
+            yield session
+            session.commit()  # type: ignore[attr-defined]
+        except Exception:
+            session.rollback()  # type: ignore[attr-defined]
+            raise
+        finally:
+            session.close()  # type: ignore[attr-defined]
 
 
 @pytest.fixture(scope="session")
@@ -79,34 +164,49 @@ def config(temp_db_path) -> FanslyConfig:
     config.db_sync_min_size = 50  # Add required database sync settings
     config.db_sync_commits = 1000
     config.db_sync_seconds = 60
+
+    # Initialize database
+    from metadata.base import Base
+    from metadata.database import Database
+
+    config._database = Database(config)
+    Base.metadata.create_all(config._database.sync_engine)
+
     return config
 
 
 @pytest.fixture(scope="function")
-def database(config: FanslyConfig) -> Database:
-    """Create a test database instance."""
-    db = Database(config)
+def database(config: FanslyConfig) -> Generator[TestDatabase, None, None]:
+    """Create a test database instance with enhanced features."""
+    db = TestDatabase(config)
     try:
-        # Create tables in proper order
+        # Create tables with proper ordering and foreign key handling
         inspector = inspect(db.sync_engine)
         if not inspector.get_table_names():
-            # Create tables without foreign keys first
-            tables_without_fks = [
-                table for table in Base.metadata.sorted_tables if not table.foreign_keys
-            ]
-            for table in tables_without_fks:
-                table.create(db.sync_engine)
+            # Disable foreign keys during initial creation
+            with db.transaction() as session:
+                session.execute(text("PRAGMA foreign_keys = OFF"))
 
-            # Create remaining tables
-            remaining_tables = [
-                table
-                for table in Base.metadata.sorted_tables
-                if table not in tables_without_fks
-            ]
-            for table in remaining_tables:
-                table.create(db.sync_engine)
+                # Create tables in dependency order
+                tables_without_fks = [
+                    table
+                    for table in Base.metadata.sorted_tables
+                    if not table.foreign_keys
+                ]
+                remaining_tables = [
+                    table
+                    for table in Base.metadata.sorted_tables
+                    if table not in tables_without_fks
+                ]
 
-        # Verify tables were created
+                # Create tables in proper order
+                for table in tables_without_fks + remaining_tables:
+                    table.create(db.sync_engine)
+
+                # Re-enable foreign keys
+                session.execute(text("PRAGMA foreign_keys = ON"))
+
+        # Verify database setup
         inspector = inspect(db.sync_engine)
         table_names = inspector.get_table_names()
         if not table_names:
@@ -115,30 +215,23 @@ def database(config: FanslyConfig) -> Database:
         yield db
     finally:
         try:
-            # Ensure proper cleanup
-            with db.get_sync_session() as session:
+            # Enhanced cleanup procedure
+            with db.transaction() as session:
                 try:
-                    # Disable foreign key checks temporarily
+                    # Disable foreign keys for cleanup
                     session.execute(text("PRAGMA foreign_keys = OFF"))
 
-                    # Delete all data in reverse order of dependencies
+                    # Delete data in reverse dependency order
                     for table in reversed(Base.metadata.sorted_tables):
                         session.execute(table.delete())
 
-                    # Re-enable foreign key checks
+                    # Re-enable foreign keys
                     session.execute(text("PRAGMA foreign_keys = ON"))
-                    session.commit()
-                except Exception:
-                    session.rollback()
-                    raise
-        except Exception:
-            pass  # Ignore cleanup errors
-        finally:
-            try:
-                # Always close the database, even if cleanup fails
-                db.close()
-            except Exception:
-                pass  # Ignore close errors
+                except Exception as e:
+                    print(f"Warning: Error during table cleanup: {e}")
+
+            # Close database connections
+            db.close()
 
             # Clean up temporary files if using a file-based database
             if config.metadata_db_file not in [":memory:", None]:
@@ -151,8 +244,10 @@ def database(config: FanslyConfig) -> Database:
                     db_dir = os.path.dirname(config.metadata_db_file)
                     if os.path.exists(db_dir):
                         shutil.rmtree(db_dir)  # Remove directory and all its contents
-                except Exception:
-                    pass  # Ignore cleanup errors
+                except Exception as e:
+                    print(f"Warning: Error during file cleanup: {e}")
+        except Exception as e:
+            print(f"Warning: Error during database cleanup: {e}")
 
 
 @pytest.fixture(scope="function")
@@ -173,167 +268,245 @@ def session(database: Database) -> Generator[Session, None, None]:
     with database.get_sync_session() as session:
         try:
             yield session
-            session.commit()  # Commit any pending changes
+            try:
+                session.commit()  # Commit any pending changes
+            except Exception:
+                # Ignore errors during commit if database is closed
+                pass
         except Exception:
-            session.rollback()  # Rollback on error
+            try:
+                session.rollback()  # Rollback on error
+            except Exception:
+                # Ignore errors during rollback if database is closed
+                pass
             raise
+
+
+def create_test_entity(
+    session: Session,
+    entity_class: type[T],
+    test_name: str,
+    create_func: Callable[[Session, int], T],
+) -> T:
+    """Generic function to create test entities with proper error handling."""
+    # Generate unique ID based on test name
+    import hashlib
+
+    unique_id = int(hashlib.sha1(test_name.encode()).hexdigest()[:8], 16) % 1000000
+
+    try:
+        # Try to create entity
+        entity = create_func(session, unique_id)
+        session.add(entity)
+        session.commit()
+        session.refresh(entity)
+        return entity
+    except IntegrityError:
+        # Handle unique constraint violations
+        session.rollback()
+        existing = session.query(entity_class).get(unique_id)
+        if existing:
+            return existing
+        raise
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to create test {entity_class.__name__}: {e}") from e
 
 
 @pytest.fixture(scope="function")
 def test_account(session: Session, request) -> Account:
-    """Create a test account with a unique ID based on test name."""
-    # Generate a unique ID based on test name and test class
+    """Create a test account with enhanced error handling."""
+
+    def create_account(session: Session, unique_id: int) -> Account:
+        return Account(
+            id=unique_id,
+            username=f"test_user_{unique_id}",
+            displayName=f"Test User {unique_id}",
+            about="Test account for automated testing",
+            location="Test Location",
+            createdAt=datetime.now(timezone.utc),
+        )
+
+    # Handle both class and function test cases
     test_name = request.node.name
-    test_class = request.node.cls.__name__ if request.node.cls else "NoClass"
-    import hashlib
-
-    unique_id = (
-        int(hashlib.sha1(f"{test_class}_{test_name}".encode()).hexdigest()[:8], 16)
-        % 1000000
+    if request.node.cls is not None:
+        test_name = f"{request.node.cls.__name__}_{test_name}"
+    return create_test_entity(
+        session,
+        Account,
+        test_name,
+        create_account,
     )
-
-    # Query for existing account first
-    account = (
-        session.query(Account).filter_by(username=f"test_user_{unique_id}").first()
-    )
-    if account is None:
-        account = Account(id=unique_id, username=f"test_user_{unique_id}")
-        session.add(account)
-        session.commit()
-        session.refresh(account)  # Refresh to ensure all fields are loaded
-    return account
 
 
 @pytest.fixture(scope="function")
 def test_media(session: Session, test_account: Account) -> Media:
-    """Create a test media item."""
-    # Query for existing media first
-    media = session.query(Media).filter_by(accountId=test_account.id).first()
-    if media is None:
-        media = Media(
-            id=1,
+    """Create a test media item with enhanced attributes."""
+
+    def create_media(session: Session, unique_id: int) -> Media:
+        return Media(
+            id=unique_id,
             accountId=test_account.id,
             mimetype="video/mp4",
             width=1920,
             height=1080,
             duration=30.5,
+            size=1024 * 1024,  # 1MB
+            hash="test_hash",
+            url="https://example.com/test.mp4",
+            createdAt=datetime.now(timezone.utc),
         )
-        session.add(media)
-        session.commit()
-        session.refresh(media)  # Refresh to ensure all fields are loaded
-    return media
+
+    return create_test_entity(
+        session,
+        Media,
+        f"media_{test_account.id}",
+        create_media,
+    )
 
 
 @pytest.fixture(scope="function")
 def test_account_media(
     session: Session, test_account: Account, test_media: Media
 ) -> AccountMedia:
-    """Create a test account media association."""
-    # Query for existing account media first
-    account_media = (
-        session.query(AccountMedia)
-        .filter_by(accountId=test_account.id, mediaId=test_media.id)
-        .first()
-    )
-    if account_media is None:
-        account_media = AccountMedia(
-            id=1,
+    """Create a test account media association with enhanced attributes."""
+
+    def create_account_media(session: Session, unique_id: int) -> AccountMedia:
+        return AccountMedia(
+            id=unique_id,
             accountId=test_account.id,
             mediaId=test_media.id,
             createdAt=datetime.now(timezone.utc),
+            updatedAt=datetime.now(timezone.utc),
+            status="active",
+            type="video",
+            title="Test Media Title",
+            description="Test media description",
         )
-        session.add(account_media)
-        session.commit()
-        session.refresh(account_media)  # Refresh to ensure all fields are loaded
-    return account_media
+
+    return create_test_entity(
+        session,
+        AccountMedia,
+        f"account_media_{test_account.id}_{test_media.id}",
+        create_account_media,
+    )
 
 
 @pytest.fixture(scope="function")
 def test_post(session: Session, test_account: Account) -> Post:
-    """Create a test post."""
-    # Query for existing post first
-    post = session.query(Post).filter_by(accountId=test_account.id).first()
-    if post is None:
-        post = Post(
-            id=1,
+    """Create a test post with enhanced attributes."""
+
+    def create_post(session: Session, unique_id: int) -> Post:
+        return Post(
+            id=unique_id,
             accountId=test_account.id,
             content="Test post content",
             createdAt=datetime.now(timezone.utc),
+            updatedAt=datetime.now(timezone.utc),
+            type="text",
+            status="published",
+            title="Test Post Title",
+            description="Test post description",
+            likes=0,
+            comments=0,
         )
-        session.add(post)
-        session.commit()
-        session.refresh(post)  # Refresh to ensure all fields are loaded
-    return post
+
+    return create_test_entity(
+        session,
+        Post,
+        f"post_{test_account.id}",
+        create_post,
+    )
 
 
 @pytest.fixture(scope="function")
 def test_wall(session: Session, test_account: Account) -> Wall:
-    """Create a test wall."""
-    # Query for existing wall first
-    wall = session.query(Wall).filter_by(accountId=test_account.id).first()
-    if wall is None:
-        wall = Wall(
-            id=1,
+    """Create a test wall with enhanced attributes."""
+
+    def create_wall(session: Session, unique_id: int) -> Wall:
+        return Wall(
+            id=unique_id,
             accountId=test_account.id,
-            name="Test Wall",
+            name=f"Test Wall {unique_id}",
             description="Test wall description",
             pos=1,
+            createdAt=datetime.now(timezone.utc),
+            updatedAt=datetime.now(timezone.utc),
+            status="active",
+            type="default",
+            postCount=0,
         )
-        session.add(wall)
-        session.commit()
-        session.refresh(wall)  # Refresh to ensure all fields are loaded
-    return wall
+
+    return create_test_entity(
+        session,
+        Wall,
+        f"wall_{test_account.id}",
+        create_wall,
+    )
 
 
 @pytest.fixture(scope="function")
 def test_message(session: Session, test_account: Account) -> Message:
-    """Create a test message."""
-    # Query for existing message first
-    message = session.query(Message).filter_by(senderId=test_account.id).first()
-    if message is None:
-        message = Message(
-            id=1,
+    """Create a test message with enhanced attributes."""
+
+    def create_message(session: Session, unique_id: int) -> Message:
+        return Message(
+            id=unique_id,
             senderId=test_account.id,
             content="Test message content",
             createdAt=datetime.now(timezone.utc),
+            updatedAt=datetime.now(timezone.utc),
+            type="text",
+            status="sent",
+            isEdited=False,
+            isDeleted=False,
+            hasAttachments=False,
         )
-        session.add(message)
-        session.commit()
-        session.refresh(message)  # Refresh to ensure all fields are loaded
-    return message
+
+    return create_test_entity(
+        session,
+        Message,
+        f"message_{test_account.id}",
+        create_message,
+    )
 
 
 @pytest.fixture(scope="function")
 def test_bundle(
-    session: Session, test_account: Account, test_account_media: AccountMedia
+    session: Session,
+    test_account: Account,
+    test_media: Media,
 ) -> AccountMediaBundle:
-    """Create a test media bundle."""
-    # Query for existing bundle first
-    bundle = (
-        session.query(AccountMediaBundle).filter_by(accountId=test_account.id).first()
-    )
-    if bundle is None:
+    """Create a test media bundle with enhanced attributes."""
+
+    def create_bundle(session: Session, unique_id: int) -> AccountMediaBundle:
         bundle = AccountMediaBundle(
-            id=1, accountId=test_account.id, createdAt=datetime.now(timezone.utc)
+            id=unique_id,
+            accountId=test_account.id,
+            createdAt=datetime.now(timezone.utc),
+            updatedAt=datetime.now(timezone.utc),
+            name=f"Test Bundle {unique_id}",
+            description="Test bundle description",
+            status="active",
+            type="collection",
+            mediaCount=1,
         )
         session.add(bundle)
         session.flush()
 
-        # Check if media is already in bundle
-        existing = session.execute(
-            account_media_bundle_media.select().where(
-                account_media_bundle_media.c.bundle_id == bundle.id,
-                account_media_bundle_media.c.media_id == test_account_media.id,
+        # Add media to bundle
+        session.execute(
+            account_media_bundle_media.insert().values(
+                bundle_id=bundle.id,
+                media_id=test_media.id,
+                pos=1,
             )
-        ).first()
+        )
+        return bundle
 
-        if existing is None:
-            # Add media to bundle
-            session.execute(
-                account_media_bundle_media.insert().values(
-                    bundle_id=bundle.id, media_id=test_account_media.id, pos=1
-                )
-            )
-        session.commit()
-        session.refresh(bundle)  # Refresh to ensure all fields are loaded
-    return bundle
+    return create_test_entity(
+        session,
+        AccountMediaBundle,
+        f"bundle_{test_account.id}",
+        create_bundle,
+    )

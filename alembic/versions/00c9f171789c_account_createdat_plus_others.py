@@ -20,6 +20,16 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Add account timestamps and update foreign key constraints.
+
+    Note: Foreign keys are intentionally disabled during this migration
+    because the API data needs to be imported in a specific order that may
+    not match the foreign key constraints. The application handles data
+    integrity at the business logic level.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
     # Create media_story_states table with foreign key included in creation
     op.create_table(
         "media_story_states",
@@ -67,13 +77,37 @@ def upgrade() -> None:
         )
         batch_op.add_column(sa.Column("subscribed", sa.Boolean(), nullable=True))
 
-    # Create walls index
-    op.create_index(op.f("ix_walls_accountId"), "walls", ["accountId"], unique=False)
+    # Create walls index if it doesn't exist
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='ix_walls_accountId'"
+        )
+    )
+    if result.fetchone() is None:
+        op.create_index(
+            op.f("ix_walls_accountId"), "walls", ["accountId"], unique=False
+        )
 
 
 def downgrade() -> None:
-    # Drop walls index
-    op.drop_index(op.f("ix_walls_accountId"), table_name="walls")
+    """Revert account timestamps and foreign key changes.
+
+    Note: Foreign keys remain disabled to maintain consistency with
+    the application's data integrity approach.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
+    # Drop walls index if it exists
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='ix_walls_accountId'"
+        )
+    )
+    if result.fetchone() is not None:
+        op.drop_index(op.f("ix_walls_accountId"), table_name="walls")
 
     # Handle accounts table changes
     with op.batch_alter_table("accounts") as batch_op:

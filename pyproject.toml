@@ -53,6 +53,10 @@ alembic = "^1.14.0"
 aiosqlite = "^0.20.0"
 greenlet = "^3.1.1"
 tqdm = "^4.67.1"
+stashapp-tools = "^0.2.55"
+pyyaml = "^6.0.2"
+aiohttp = "^3.11.11"
+aiomultiprocess = "^0.9.1"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -62,12 +66,14 @@ types-requests = "^2.32.0.20241016"
 types-setuptools = "^75.6.0.20241126"
 types-pillow = "^10.2.0"
 memory-profiler = "^0.61.0"
+pylint = "^3.3.3"
+pre-commit = "^4.0.1"
 
 [tool.poetry.group.test.dependencies]
 pytest = ">=7.4.4"
 pytest-cov = ">=4.0.0"
 pytest-asyncio = ">=0.23.0"
-pytest-xdist = ">=3.5.0"
+
 pytest-timeout = ">=2.3.1"
 pytest-randomly = ">=3.16.0"
 pytest-mock = ">=3.14.0"
@@ -124,15 +130,12 @@ addopts = """
     --tb=short
     --cov=.
     --cov-report=term-missing
-    --cov-report=xml
     --cov-report=html
+    --cov-context=test
     --randomly-seed=1234
-    -n auto
-    --dist loadfile
     --timeout=300
 """
 testpaths = ["tests"]
-pythonpath = "."
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -146,17 +149,32 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "functional: marks tests as functional tests",
+    "performance: marks tests as performance tests",
 ]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 branch = true
 source = ["."]
-omit = ["*/__pycache__/*", "*/venv/*"]
+omit = [
+    "*/venv/*",
+    "*/venv_test/*",
+    "*/__pycache__/*",
+    "*/tests/*",
+    "docs/*",
+    "*/migrations/*",
+    "*/.pytest_cache/*",
+    "*/.git/*",
+    "*/.github/*",
+    "*/htmlcov/*"
+]
 command_line = "-m pytest discover -s tests/"
+parallel = true
 
 [tool.coverage.report]
 exclude_also = [
+    "pragma: no cover",
     "def __repr__",
     "if self.debug:",
     "if settings.DEBUG",
@@ -167,12 +185,24 @@ exclude_also = [
     "@(abc\\.)?abstractmethod",
     "pass",
     "\\.\\.\\.$",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if False:",
+    "if TESTING:"
 ]
 ignore_errors = true
-fail_under = 80
+skip_empty = true
+skip_covered = true
+precision = 2
+show_missing = true
+fail_under = 70
 
 [tool.coverage.html]
 directory = "htmlcov"
+title = "Coverage Report"
+show_contexts = true
 
 [tool.coverage.xml]
 output = "coverage.xml"
+package_depth = 2

@@ -408,7 +408,8 @@ def load_config(config: FanslyConfig) -> None:
         error_string = str(e)
 
         if "a boolean" in error_string:
-            if config.interactive:
+            # Only open URL in interactive mode and not during tests
+            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
                 open_url(
                     "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
                 )
@@ -419,7 +420,8 @@ def load_config(config: FanslyConfig) -> None:
             )
 
         else:
-            if config.interactive:
+            # Only open URL in interactive mode and not during tests
+            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
                 open_url(
                     "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
                 )
@@ -430,7 +432,8 @@ def load_config(config: FanslyConfig) -> None:
             )
 
     except (KeyError, NameError) as key:
-        if config.interactive:
+        # Only open URL in interactive mode and not during tests
+        if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
             open_url(
                 "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
             )

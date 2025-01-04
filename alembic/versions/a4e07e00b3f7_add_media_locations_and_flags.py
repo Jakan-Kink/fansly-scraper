@@ -10,6 +10,16 @@ depends_on = None
 
 
 def upgrade():
+    """Add media locations table and flags.
+
+    Note: Foreign keys are intentionally disabled during this migration
+    because the API data needs to be imported in a specific order that may
+    not match the foreign key constraints. The application handles data
+    integrity at the business logic level.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
     # Add flags and meta_info columns to media table
     op.add_column("media", sa.Column("flags", sa.Integer(), nullable=True))
     op.add_column("media", sa.Column("meta_info", sa.String(), nullable=True))
@@ -32,6 +42,14 @@ def upgrade():
 
 
 def downgrade():
+    """Remove media locations table and flags.
+
+    Note: Foreign keys remain disabled to maintain consistency with
+    the application's data integrity approach.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
     # Drop media_locations table
     op.drop_table("media_locations")
 

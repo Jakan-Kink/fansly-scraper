@@ -135,17 +135,17 @@ class FanslyConfig(PathConfig):
 
         return self._api
 
-    def user_names_str(self) -> str | None:
+    def user_names_str(self) -> str:
         """Returns a nicely formatted and alphabetically sorted list of
         creator names - for console or config file output.
 
         :return: A single line of all creator names, alphabetically sorted
             and separated by commas eg. "alice, bob, chris, dora".
-            Returns None if user_names is None.
-        :rtype: Optional[str]
+            Returns "ReplaceMe" if user_names is None.
+        :rtype: str
         """
         if self.user_names is None:
-            return None
+            return "ReplaceMe"
 
         return ", ".join(sorted(self.user_names))
 
@@ -163,11 +163,28 @@ class FanslyConfig(PathConfig):
 
         This helper is required before saving.
         """
+        # Ensure all required sections exist
+        for section in ["TargetedCreator", "MyAccount", "Options", "Cache", "Logic"]:
+            if not self._parser.has_section(section):
+                self._parser.add_section(section)
+
         self._parser.set("TargetedCreator", "username", self.user_names_str())
 
-        self._parser.set("MyAccount", "authorization_token", self.token)
-        self._parser.set("MyAccount", "user_agent", self.user_agent)
-        self._parser.set("MyAccount", "check_key", self.check_key)
+        self._parser.set(
+            "MyAccount",
+            "authorization_token",
+            str(self.token) if self.token is not None else "",
+        )
+        self._parser.set(
+            "MyAccount",
+            "user_agent",
+            str(self.user_agent) if self.user_agent is not None else "",
+        )
+        self._parser.set(
+            "MyAccount",
+            "check_key",
+            str(self.check_key) if self.check_key is not None else "",
+        )
         # self._parser.set('MyAccount', 'session_id', self.session_id)
 
         if self.download_directory is None:
@@ -196,7 +213,7 @@ class FanslyConfig(PathConfig):
         self._parser.set("Options", "separate_timeline", str(self.separate_timeline))
         self._parser.set("Options", "separate_metadata", str(self.separate_metadata))
         # Only save metadata_db_file if explicitly configured
-        if self.metadata_db_file:
+        if self.metadata_db_file is not None:
             self._parser.set("Options", "metadata_db_file", str(self.metadata_db_file))
         self._parser.set(
             "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
@@ -220,7 +237,7 @@ class FanslyConfig(PathConfig):
             self._parser.set("Options", "db_sync_min_size", str(self.db_sync_min_size))
 
         # Temp folder
-        if self.temp_folder:
+        if self.temp_folder is not None:
             self._parser.set("Options", "temp_folder", str(self.temp_folder))
 
         # Cache

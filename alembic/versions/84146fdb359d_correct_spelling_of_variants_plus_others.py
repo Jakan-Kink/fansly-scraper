@@ -13,6 +13,16 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Fix spelling of variants table and add group lastMessageId.
+
+    Note: Foreign keys are intentionally disabled during this migration
+    because the API data needs to be imported in a specific order that may
+    not match the foreign key constraints. The application handles data
+    integrity at the business logic level.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
     # Create the new "media_variants" table
     op.create_table(
         "media_variants",
@@ -48,6 +58,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Revert variant spelling fix and group lastMessageId.
+
+    Note: Foreign keys remain disabled to maintain consistency with
+    the application's data integrity approach.
+    """
+    conn = op.get_bind()
+    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+
     # Revert changes to the "groups" table
     with op.batch_alter_table("groups", schema=None) as batch_op:
         batch_op.drop_constraint("group_lastMessageId_fkey", type_="foreignkey")

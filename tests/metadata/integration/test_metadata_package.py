@@ -80,69 +80,115 @@ class TestMetadataPackage(TestCase):
         )
 
         with self.database.get_sync_session() as session:
-            # Create a complete set of test data
-            data = create_test_data_set(
-                session,
-                num_accounts=2,
-                num_media_per_account=3,
-                num_posts_per_account=2,
-                num_walls_per_account=2,
-            )
-
-            # Verify relationships for each account
-            for account in data["accounts"]:
-                # Explicitly query for accountMedia relationship
-                account_media = (
-                    session.query(AccountMedia).filter_by(accountId=account.id).all()
-                )
-                self.assertGreater(len(account_media), 0)
-                self.assertTrue(
-                    verify_relationship_integrity(
-                        session, account, "accountMedia", expected_count=3
-                    )
+            try:
+                # Create a complete set of test data
+                data = create_test_data_set(
+                    session,
+                    num_accounts=2,
+                    num_media_per_account=3,
+                    num_posts_per_account=2,
+                    num_walls_per_account=2,
                 )
 
-                # Verify each AccountMedia -> Media relationship
-                account_media_items = (
-                    session.query(AccountMedia).filter_by(accountId=account.id).all()
-                )
-                for account_media in account_media_items:
-                    media = (
-                        session.query(Media).filter_by(id=account_media.mediaId).first()
+                # Verify relationships for each account
+                for account in data["accounts"]:
+                    # Test 1: Account -> AccountMedia relationship
+                    account_media = (
+                        session.query(AccountMedia)
+                        .filter_by(accountId=account.id)
+                        .order_by(AccountMedia.id)
+                        .all()
                     )
-                    self.assertIsNotNone(media)
-                    self.assertEqual(media.accountId, account.id)
+                    self.assertEqual(
+                        len(account_media), 3
+                    )  # Expect exactly 3 media items
+                    self.assertTrue(
+                        verify_relationship_integrity(
+                            session, account, "accountMedia", expected_count=3
+                        )
+                    )
 
-                # Account -> Walls relationship
-                self.assertTrue(
-                    verify_relationship_integrity(
-                        session, account, "walls", expected_count=2
-                    )
-                )
+                    # Test 2: AccountMedia -> Media relationship
+                    for account_media in account_media:
+                        media = (
+                            session.query(Media)
+                            .filter_by(id=account_media.mediaId)
+                            .first()
+                        )
+                        self.assertIsNotNone(
+                            media,
+                            f"Media {account_media.mediaId} not found for AccountMedia {account_media.id}",
+                        )
+                        self.assertEqual(
+                            media.accountId,
+                            account.id,
+                            f"Media {media.id} has wrong accountId {media.accountId}, expected {account.id}",
+                        )
 
-                # Create walls for the account
-                for i in range(2):
-                    wall = Wall(
-                        id=len(data["walls"]) + 1,
-                        accountId=account.id,
-                        createdAt=datetime.now(timezone.utc),
+                    # Test 3: Account -> Walls relationship (existing walls)
+                    existing_walls = (
+                        session.query(Wall)
+                        .filter_by(accountId=account.id)
+                        .order_by(Wall.id)
+                        .all()
                     )
-                    session.add(wall)
-                    data["walls"].append(wall)
+                    self.assertEqual(
+                        len(existing_walls),
+                        2,
+                        f"Expected 2 walls for account {account.id}, found {len(existing_walls)}",
+                    )
+                    self.assertTrue(
+                        verify_relationship_integrity(
+                            session, account, "walls", expected_count=2
+                        )
+                    )
+
+                    # Test 4: Wall -> Posts relationship
+                    for wall in existing_walls:
+                        # Get posts for this wall's account
+                        account_posts = (
+                            session.query(Post)
+                            .filter_by(accountId=wall.accountId)
+                            .order_by(Post.id)
+                            .all()
+                        )
+                        self.assertEqual(
+                            len(account_posts),
+                            2,
+                            f"Expected 2 posts for account {wall.accountId}, found {len(account_posts)}",
+                        )
+
+                        # Verify each post belongs to the correct account
+                        for post in account_posts:
+                            self.assertEqual(
+                                post.accountId,
+                                wall.accountId,
+                                f"Post {post.id} has wrong accountId {post.accountId}, expected {wall.accountId}",
+                            )
+
+                # Test 5: Verify no orphaned records
+                # Count total records
+                total_accounts = session.query(Account).count()
+                total_media = session.query(Media).count()
+                total_account_media = session.query(AccountMedia).count()
+                total_walls = session.query(Wall).count()
+                total_posts = session.query(Post).count()
+
+                # Verify expected counts
+                self.assertEqual(total_accounts, 2)  # num_accounts
+                self.assertEqual(total_media, 6)  # num_accounts * num_media_per_account
+                self.assertEqual(total_account_media, 6)  # Same as media count
+                self.assertEqual(total_walls, 4)  # num_accounts * num_walls_per_account
+                self.assertEqual(total_posts, 4)  # num_accounts * num_posts_per_account
+
+            finally:
+                # Cleanup in reverse order of dependencies
+                session.query(Post).delete()
+                session.query(Wall).delete()
+                session.query(AccountMedia).delete()
+                session.query(Media).delete()
+                session.query(Account).delete()
                 session.commit()
-
-                # Verify walls were created
-                self.assertEqual(len(account.walls), 2)
-
-            # Verify wall -> posts relationships
-            for wall in data["walls"]:
-                # Use explicit query to efficiently fetch matching posts
-                matching_posts = (
-                    session.query(Post).filter(Post.accountId == wall.accountId).all()
-                )
-                wall.posts = matching_posts
-            # Single commit after the loop
-            session.commit()
 
     def test_database_constraints(self):
         """Test database constraints and referential integrity."""

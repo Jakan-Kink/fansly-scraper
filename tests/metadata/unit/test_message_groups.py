@@ -14,35 +14,8 @@ from metadata.messages import Group, Message, process_groups_response
 
 
 @pytest.fixture
-def temp_db():
-    """Create a temporary database file."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = os.path.join(temp_dir, "test.db")
-    yield temp_dir, db_path
-
-    # Cleanup after tests
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    os.rmdir(temp_dir)
-
-
-@pytest.fixture
-def mock_config(temp_db):
-    """Create a mock configuration."""
-    _, db_path = temp_db
-    config = FanslyConfig(program_version="test")
-    config.metadata_db_file = db_path
-    return config
-
-
-@pytest.fixture
-def database(mock_config):
-    """Create and configure test database."""
-    db = Database(mock_config)
-    Base.metadata.create_all(db.sync_engine)
-    yield db
-    Base.metadata.drop_all(db.sync_engine)
-    db.sync_engine.dispose()
+def database(test_database):
+    return test_database
 
 
 @pytest.fixture

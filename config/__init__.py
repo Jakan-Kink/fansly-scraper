@@ -1,5 +1,6 @@
 """Configuration File Manipulation"""
 
+from .args import map_args_to_config
 from .browser import (
     close_browser_by_name,
     find_leveldb_folders,
@@ -42,4 +43,5 @@ __all__ = [
     "DownloadMode",
     "FanslyConfig",
     "MetadataHandling",
+    "map_args_to_config",
 ]

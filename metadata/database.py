@@ -386,7 +386,7 @@ class OptimizedSQLiteMemory:
             cursor.execute("PRAGMA synchronous=NORMAL")
             cursor.execute(
                 "PRAGMA foreign_keys=OFF"
-            )  # Disabled due to import order dependencies
+            )  # Disabled because API data often references objects before they exist
             print_info(
                 f"SQLite cache size set to {cache_size_mb}MB for {db_size_mb:.1f}MB database"
             )
@@ -459,7 +459,8 @@ class Database:
 
     This class handles database configuration, connection management, and session
     creation. It provides both synchronous and asynchronous access to the database,
-    with proper connection pooling and event handling.
+    with proper connection pooling and event handling. It also supports API data
+    import with deferred foreign key validation.
 
     Attributes:
         sync_engine: SQLAlchemy engine for synchronous operations
@@ -468,6 +469,16 @@ class Database:
         config: FanslyConfig instance containing database configuration
         _optimized_connection: Optimized SQLite connection with caching
     """
+
+    def __init__(
+        self,
+        config: FanslyConfig,
+    ) -> None:
+        self.config = config
+        self.db_file = Path(config.metadata_db_file)
+        self._setup_optimized_connection()
+        self._setup_engines_and_sessions()
+        self._setup_event_listeners()
 
     sync_engine: Engine
     async_engine: AsyncEngine
@@ -767,16 +778,6 @@ class Database:
         # Create public session context managers with corruption handling
         self.sync_session = self._safe_session_factory
         self.async_session = self._safe_session_factory_async
-
-    def __init__(
-        self,
-        config: FanslyConfig,
-    ) -> None:
-        self.config = config
-        self.db_file = Path(config.metadata_db_file)
-        self._setup_optimized_connection()
-        self._setup_engines_and_sessions()
-        self._setup_event_listeners()
 
     def _setup_optimized_connection(self) -> None:
         self._optimized_connection = OptimizedSQLiteMemory(self.db_file, self.config)
