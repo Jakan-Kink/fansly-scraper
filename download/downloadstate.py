@@ -21,6 +21,7 @@ class DownloadState(GlobalState):
 
     base_path: Path | None = None
     download_path: Path | None = None
+    fetchedTimelineDuplication: bool = False
 
     # History
     recent_audio_media_ids: set = field(default_factory=set)

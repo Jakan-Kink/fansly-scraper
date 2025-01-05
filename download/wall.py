@@ -35,6 +35,14 @@ def download_wall(config: FanslyConfig, state: DownloadState, wall_id: str) -> N
     before_cursor = "0"
     attempts = 0
 
+    if config.use_duplicate_threshold and state.fetchedTimelineDuplication:
+        print_info(
+            "Deduplication is enabled and the timeline has been fetched before. "
+            "Only new media items will be downloaded."
+        )
+        print()
+        return
+
     # Careful - "retry" means (1 + retries) runs
     while True and attempts <= config.timeline_retries:
         starting_duplicates = state.duplicate_count

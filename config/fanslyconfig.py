@@ -1,5 +1,6 @@
 """Configuration Class for Shared State"""
 
+import asyncio
 from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,8 @@ class FanslyConfig(PathConfig):
     _database: Database | None = None
     _base: Base | None = None
     _stash: StashContext | None = None
+    _background_tasks: list[asyncio.Task] = []
+
     # endregion File-Independent
 
     # region config.ini Fields
@@ -369,3 +372,12 @@ class FanslyConfig(PathConfig):
             return stash_context.interface
         except RuntimeError as e:
             raise RuntimeError(f"Failed to initialize Stash API: {e}")
+
+    def get_background_tasks(self) -> list[asyncio.Task]:
+        return self._background_tasks
+
+    def cancel_background_tasks(self):
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+        self._background_tasks.clear()

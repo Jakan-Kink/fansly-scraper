@@ -30,6 +30,11 @@ def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
     # this has to be up here so it doesn't get looped
     timeline_cursor = 0
     attempts = 0
+    if config.use_duplicate_threshold and state.fetchedTimelineDuplication:
+        print_info(
+            "Skipping Timeline download as the current fetchedAt time matches the last pass."
+        )
+        return
 
     # Careful - "retry" means (1 + retries) runs
     while True and attempts <= config.timeline_retries:

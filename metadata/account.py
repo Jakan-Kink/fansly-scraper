@@ -158,6 +158,7 @@ class Account(Base):
         lazy="select",
         collection_class=set,
     )
+    stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class MediaStoryState(Base):
@@ -447,6 +448,10 @@ def process_account_data(
 
             # Process timeline stats
             if "timelineStats" in data:
+                if context == "creator":
+                    compare_timeline_stats(
+                        data["timelineStats"], existing_account, state, session
+                    )
                 process_timeline_stats(session, data)
 
             # Process media story state
@@ -539,6 +544,26 @@ def process_account_data(
             raise exc.SQLAlchemyError(
                 f"Database error while processing account data: {str(e)}"
             ) from e
+
+
+def compare_timeline_stats(
+    timeline_stats: dict, account: Account, state: DownloadState, session: Session
+):
+    existing_stats = (
+        session.query(TimelineStats).filter_by(accountId=account.id).first()
+    )
+    if (
+        existing_stats
+        and existing_stats.fetchedAt == timeline_stats.get("fetchedAt")
+        and existing_stats.imageCount == timeline_stats.get("imageCount")
+        and existing_stats.videoCount == timeline_stats.get("videoCount")
+    ):
+        json_output(
+            1,
+            "meta/account - p_a_data - timeline_stats_duplication",
+            (existing_stats, timeline_stats),
+        )
+        state.fetchedTimelineDuplication = True
 
 
 def process_creator_data(

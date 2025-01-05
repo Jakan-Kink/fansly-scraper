@@ -8,6 +8,44 @@ from .stash_group import StashGroup
 from .stash_performer import StashPerformer
 from .stash_tag import StashTag
 
+scene_fragment = (
+    "id "
+    "title "
+    "code "
+    "details "
+    "director "
+    "urls "
+    "date "
+    "organized "
+    "created_at "
+    "updated_at "
+    "files { "
+    "id "
+    "path "
+    "basename "
+    "parent_folder_id "
+    "size "
+    "format "
+    "width "
+    "height "
+    "duration "
+    "created_at "
+    "updated_at "
+    "} "
+    "galleries { "
+    "id "
+    "} "
+    "studio { "
+    "id "
+    "} "
+    "tags { "
+    "id "
+    "} "
+    "performers { "
+    "id "
+    "} "
+)
+
 
 class StashScene(StashQL):
     @staticmethod

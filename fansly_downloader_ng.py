@@ -9,6 +9,7 @@ __version__ = "0.10.0"
 # TODO: Rate-limiting fix works but is terribly slow - would be nice to know how to interface with Fansly API properly
 # TODO: Check whether messages are rate-limited too or not
 
+import asyncio
 import atexit
 import base64
 import traceback
@@ -292,28 +293,10 @@ def main(config: FanslyConfig) -> int:
                         )
 
                     if config.stash_context_conn is not None:
-                        scan_metadata_input = {
-                            "rescan": False,
-                            "scanGenerateCovers": True,
-                            "scanGeneratePreviews": True,
-                            "scanGenerateThumbnails": True,
-                            "scanGenerateImagePreviews": True,
-                            "scanGenerateSprites": True,
-                            "scanGeneratePhashes": True,
-                            "scanGenerateClipPreviews": True,
-                        }
-                        jobId = config.get_stash_api().metadata_scan(
-                            paths=[state.download_path], flags=scan_metadata_input
-                        )
-                        print_info(f"Metadata scan job ID: {jobId}")
-                        finished_job = False
-                        while not finished_job:
-                            try:
-                                finished_job = config.get_stash_api().wait_for_job(
-                                    jobId
-                                )
-                            except Exception:
-                                finished_job = False
+                        from stash.stash_processing import StashProcessing
+
+                        stash_processor = StashProcessing(config, state)
+                        asyncio.run(stash_processor.start_creator_processing())
 
                 finally:
                     # Clean up creator database if used
@@ -337,6 +320,14 @@ def main(config: FanslyConfig) -> int:
 
     print_global_statistics(config, global_download_state)
 
+    # Wait for all background tasks to complete
+    if config.get_background_tasks():
+        print_info("Waiting for background tasks to complete...")
+        asyncio.run(
+            asyncio.gather(*config.get_background_tasks(), return_exceptions=True)
+        )
+        print_info("All background tasks completed.")
+
     return exit_code
 
 
@@ -348,9 +339,7 @@ if __name__ == "__main__":
         exit_code = main(config)
 
     except KeyboardInterrupt:
-        # TODO: Should there be any clean-up or in-program handling during Ctrl+C?
         print()
-        print_warning("Program aborted.")
         exit_code = EXIT_ABORT
 
     except ApiError as e:
@@ -372,6 +361,9 @@ if __name__ == "__main__":
         print()
         print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
+    finally:
+        print_warning("Program aborted. Cancelling background tasks...")
+        config.cancel_background_tasks()
     # Ensure database is closed before final input prompt
     cleanup_database(config)
 

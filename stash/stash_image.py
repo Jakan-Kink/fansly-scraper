@@ -10,6 +10,30 @@ from .stash_studio import StashStudio
 from .stash_tag import StashTag
 from .visual_file import VisualFile
 
+image_fragment = (
+    "id "
+    "title "
+    "code "
+    "urls "
+    "date "
+    "details "
+    "created_at "
+    "updated_at "
+    "visual_files { "
+    "... on ImageFile {id path basename parent_folder_id size created_at updated_at} "
+    "... on VideoFile {id path basename parent_folder_id size format created_at updated_at} "
+    " } "
+    "galleries { "
+    "id "
+    "} "
+    "performers { "
+    "id "
+    "} "
+    "studio { "
+    "id "
+    "} "
+)
+
 
 class StashImage(StashQL):
     @staticmethod

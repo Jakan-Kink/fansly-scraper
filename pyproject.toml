@@ -25,12 +25,13 @@ packages = [
     { include = "api" },
     { include = "config" },
     { include = "download" },
-    { include = "errors"},
+    { include = "errors" },
     { include = "fileio" },
     { include = "helpers" },
     { include = "media" },
     { include = "metadata" },
-    { include = "pathio"},
+    { include = "pathio" },
+    { include = "stash" },
     { include = "textio" },
     { include = "updater" },
 ]
@@ -68,12 +69,16 @@ types-pillow = "^10.2.0"
 memory-profiler = "^0.61.0"
 pylint = "^3.3.3"
 pre-commit = "^4.0.1"
+black = "^24.10.0"
+isort = "^5.13.2"
+flake8 = "^7.1.1"
+pyupgrade = "^3.19.1"
+bandit = {extras = ["toml"], version = "^1.8.0"}
 
 [tool.poetry.group.test.dependencies]
 pytest = ">=7.4.4"
 pytest-cov = ">=4.0.0"
 pytest-asyncio = ">=0.23.0"
-
 pytest-timeout = ">=2.3.1"
 pytest-randomly = ">=3.16.0"
 pytest-mock = ">=3.14.0"

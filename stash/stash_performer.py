@@ -6,17 +6,40 @@ from stashapi.stashapp import StashInterface
 from .stash_context import StashQL
 from .stash_group import StashGroup
 from .stash_scene import StashScene
+from .stash_tag import StashTag
+
+performer_fragment = (
+    "id "
+    "name "
+    "disambiguation "
+    "urls "
+    "gender "
+    "birthdate "
+    "ethnicity "
+    "country "
+    "eye_color "
+    "height_cm "
+    "measurements "
+    "fake_tits "
+    "penis_length "
+    "career_length "
+    "tattoos "
+    "piercings "
+    "alias_list "
+    "favorite "
+    "tags { id name aliases } "
+    "ignore_auto_tag "
+    "image_path "
+    "details "
+    "death_date "
+    "hair_color "
+    "weight "
+    "created_at "
+    "updated_at "
+)
 
 
 class StashPerformer(StashQL):
-    @staticmethod
-    def find(id: str, interface: StashInterface) -> "StashPerformer":
-        data = interface.find_performer(id)
-        return StashPerformer.from_dict(data) if data else None
-
-    def save(self, interface: StashInterface) -> None:
-        interface.update_performer(self.to_dict())
-
     name: str
     disambiguation: str | None
     urls: list[str]
@@ -46,6 +69,7 @@ class StashPerformer(StashQL):
     stash_ids: list[str]
     groups: list[StashGroup]
     custom_fields: dict[str, str]
+    tags: list[StashTag]
 
     def __init__(
         self,
@@ -112,6 +136,84 @@ class StashPerformer(StashQL):
         self.groups = []
         self.custom_fields: dict[str, str] = {}
 
+    def stash_create(self, interface: StashInterface) -> dict:
+        return interface.create_performer(self.to_create_input_dict())
+
+    def to_update_input_dict(self) -> dict:
+        """
+        Converts the StashPerformer object into a dictionary matching the PerformerUpdateInput GraphQL definition.
+        """
+        return {
+            "id": self.id,
+            "name": self.name,
+            "disambiguation": self.disambiguation,
+            "url": self.urls[0] if self.urls else None,
+            "urls": self.urls,
+            "gender": self.gender.value if self.gender else None,
+            "birthdate": self.birthdate.isoformat() if self.birthdate else None,
+            "ethnicity": self.ethnicity,
+            "country": self.country,
+            "eye_color": self.eye_color,
+            "height_cm": self.height_cm,
+            "measurements": self.measurements,
+            "fake_tits": self.fake_tits,
+            "penis_length": self.penis_length,
+            "circumcised": self.circumcised,
+            "career_length": self.career_length,
+            "tattoos": self.tattoos,
+            "piercings": self.piercings,
+            "alias_list": self.alias_list,
+            "twitter": None,  # Placeholder for now
+            "instagram": None,  # Placeholder for now
+            "favorite": self.favorite,
+            "tag_ids": [],  # Placeholder for now
+            "image": self.image_path,
+            "stash_ids": self.stash_ids,
+            "rating100": self.rating100,
+            "details": self.details,
+            "death_date": self.death_date.isoformat() if self.death_date else None,
+            "hair_color": self.hair_color,
+            "weight": self.weight,
+            "ignore_auto_tag": self.ignore_auto_tag,
+            "custom_fields": self.custom_fields,
+        }
+
+    def to_create_input_dict(self) -> dict:
+        """
+        This converts the StashPerformer object into a dictionary that matches the PerformerCreateInput of StashApp's GraphQL.
+        """
+        return {
+            "name": self.name,
+            "disambiguation": self.disambiguation,
+            "urls": self.urls,
+            "gender": self.gender.value if self.gender else None,
+            "birthdate": self.birthdate.isoformat() if self.birthdate else None,
+            "ethnicity": self.ethnicity,
+            "country": self.country,
+            "eye_color": self.eye_color,
+            "height_cm": self.height_cm,
+            "measurements": self.measurements,
+            "fake_tits": self.fake_tits,
+            "penis_length": self.penis_length,
+            "career_length": self.career_length,
+            "tattoos": self.tattoos,
+            "piercings": self.piercings,
+            "alias_list": self.alias_list,
+            "twitter": None,  # Placeholder for now
+            "instagram": None,  # Placeholder for now
+            "favorite": self.favorite,
+            "tag_ids": [],  # Placeholder for now
+            "image": self.image_path,
+            "stash_ids": self.stash_ids,
+            "rating100": self.rating100,
+            "details": self.details,
+            "death_date": self.death_date.isoformat() if self.death_date else None,
+            "hair_color": self.hair_color,
+            "weight": self.weight,
+            "ignore_auto_tag": self.ignore_auto_tag,
+            "custom_fields": self.custom_fields,
+        }
+
     def to_dict(self) -> dict:
         base_dict = super().to_dict()
         performer_dict = {
@@ -145,6 +247,14 @@ class StashPerformer(StashQL):
             "custom_fields": self.custom_fields,
         }
         return {**base_dict, **performer_dict}
+
+    @staticmethod
+    def find(id: str, interface: StashInterface) -> "StashPerformer":
+        data = interface.find_performer(id)
+        return StashPerformer.from_dict(data) if data else None
+
+    def save(self, interface: StashInterface) -> None:
+        interface.update_performer(self.to_update_input_dict())
 
     def scene_count(self) -> int:
         return len(self.scenes)

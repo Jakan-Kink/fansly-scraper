@@ -6,6 +6,40 @@ from .stash_context import StashQL
 from .stash_scene import StashScene
 from .visual_file import VisualFile
 
+gallery_fragment = (
+    "id "
+    "title "
+    "code "
+    "urls "
+    "date "
+    "details "
+    "created_at "
+    "updated_at "
+    "files { "
+    "id "
+    "path "
+    "basename "
+    "parent_folder_id "
+    "size "
+    "zip_file_id "
+    "created_at "
+    "updated_at "
+    "} "
+    "scenes { "
+    "id "
+    "} "
+    "performers { "
+    "id "
+    "} "
+    "tags { "
+    "id "
+    "} "
+    "cover { id } "
+    "studio { "
+    "id "
+    "} "
+)
+
 
 class StashGallery(StashQL):
     @staticmethod

@@ -66,3 +66,13 @@ class StashQL:
                 value = value.replace(tzinfo=timezone.utc)
             return value.astimezone(timezone.utc)
         raise TypeError(f"Unsupported type: {type(value)}")
+
+    @classmethod
+    def stash_create(self, interface: StashInterface):
+        raise NotImplementedError("stash_create must be implemented in subclasses.")
+
+    def find(self, interface: StashInterface):
+        raise NotImplementedError("find must be implemented in subclasses.")
+
+    def save(self, interface: StashInterface):
+        raise NotImplementedError("save must be implemented in subclasses.")
