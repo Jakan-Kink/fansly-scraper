@@ -395,6 +395,16 @@ def load_config(config: FanslyConfig) -> None:
 
         # endregion Logic
 
+        # region Stash
+        stash_section = "StashContext"
+        if config._parser.has_section(stash_section):
+            config.stash_context_conn = {
+                "scheme": config._parser.get(stash_section, "scheme", fallback="http"),
+                "host": config._parser.get(stash_section, "host", fallback="localhost"),
+                "port": config._parser.getint(stash_section, "port", fallback=9999),
+                "apikey": config._parser.get(stash_section, "apikey", fallback=""),
+            }
+
         # Safe to save! :-)
         save_config_or_raise(config)
 

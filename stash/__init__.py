@@ -1,7 +1,8 @@
 """ Integration with Stash-App
 """
 
-from .gender_enum import GenderEnum
+from stashapi.stashapp import StashInterface
+
 from .group_description import StashGroupDescription
 from .image_paths_type import ImagePathsType
 from .stash_base_file import StashBaseFile
@@ -21,9 +22,9 @@ from .visual_file import VisualFile
 from .visual_file_type import VisualFileType
 
 __all__ = [
-    "GenderEnum",
     "StashContext",
     "StashQL",
+    "StashInterface",
     "StashScene",
     "StashImage",
     "StashGallery",

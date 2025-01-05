@@ -163,9 +163,15 @@ def process_account_walls(
             existing_walls = (
                 session.query(Wall).filter(Wall.accountId == account.id).all()
             )
+            json_output(
+                1, "meta/wall - existing_walls", [wall.id for wall in existing_walls]
+            )
+            json_output(1, "meta/wall - current_wall_ids", list(current_wall_ids))
             for wall in existing_walls:
-                if wall.id not in current_wall_ids:
-                    session.delete(wall)
+                if wall.accountId != account.id:
+                    continue
+                # if wall.id not in current_wall_ids:
+                #     session.delete(wall)
 
     if session is not None:
         # Use existing session

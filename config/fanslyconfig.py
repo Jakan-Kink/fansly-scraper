@@ -9,6 +9,7 @@ from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from metadata import Base, Database
 from pathio import PathConfig
+from stash import StashContext, StashInterface
 
 
 @dataclass
@@ -43,7 +44,7 @@ class FanslyConfig(PathConfig):
     _api: FanslyApi | None = None
     _database: Database | None = None
     _base: Base | None = None
-
+    _stash: StashContext | None = None
     # endregion File-Independent
 
     # region config.ini Fields
@@ -103,6 +104,8 @@ class FanslyConfig(PathConfig):
     check_key_pattern: str | None = None
     main_js_pattern: str | None = None
 
+    # StashContext
+    stash_context_conn: dict[str, str] | None = None
     # endregion config.ini
 
     # endregion Fields
@@ -240,6 +243,15 @@ class FanslyConfig(PathConfig):
         if self.temp_folder is not None:
             self._parser.set("Options", "temp_folder", str(self.temp_folder))
 
+        # StashContext
+        if self._stash is not None:
+            conn = self._stash.conn
+            if not self._parser.has_section("StashContext"):
+                self._parser.add_section("StashContext")
+            self._parser.set("StashContext", "scheme", conn["scheme"])
+            self._parser.set("StashContext", "host", conn["host"])
+            self._parser.set("StashContext", "port", str(conn["port"]))
+            self._parser.set("StashContext", "apikey", conn["apikey"])
         # Cache
         if self._api is not None:
             self._parser.set("Cache", "device_id", str(self._api.device_id))
@@ -340,3 +352,20 @@ class FanslyConfig(PathConfig):
         if self.download_directory:
             return self.download_directory / "metadata_db.sqlite3"
         return Path.cwd() / "metadata_db.sqlite3"
+
+    def get_stash_context(self) -> StashContext:
+        if self._stash is None:
+            if self.stash_context_conn is None:
+                raise RuntimeError("No StashContext connection data available.")
+
+            self._stash = StashContext(conn=self.stash_context_conn)
+            self._save_config()
+
+        return self._stash
+
+    def get_stash_api(self) -> StashInterface:
+        try:
+            stash_context = self.get_stash_context()
+            return stash_context.interface
+        except RuntimeError as e:
+            raise RuntimeError(f"Failed to initialize Stash API: {e}")

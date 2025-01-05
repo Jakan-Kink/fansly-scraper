@@ -348,6 +348,35 @@ def parse_args() -> argparse.Namespace:
     )
 
     # endregion Other Options
+    parser.add_argument(
+        "--stash-scheme",
+        required=False,
+        default=None,
+        dest="stash_scheme",
+        help="Scheme for StashContext (e.g., http or https).",
+    )
+    parser.add_argument(
+        "--stash-host",
+        required=False,
+        default=None,
+        dest="stash_host",
+        help="Host for StashContext (e.g., localhost).",
+    )
+    parser.add_argument(
+        "--stash-port",
+        required=False,
+        default=None,
+        type=int,
+        dest="stash_port",
+        help="Port for StashContext (e.g., 9999).",
+    )
+    parser.add_argument(
+        "--stash-apikey",
+        required=False,
+        default=None,
+        dest="stash_apikey",
+        help="API key for StashContext.",
+    )
 
     # region Developer/troubleshooting arguments
 
@@ -391,6 +420,13 @@ def check_attributes(
 
     :raise RuntimeError: Raised when an attribute does not exist.
 
+    if args.stash_scheme or args.stash_host or args.stash_port or args.stash_apikey:
+        config.stash_context_conn = {
+            "scheme": args.stash_scheme or config.stash_context_conn.get("scheme", "http"),
+            "host": args.stash_host or config.stash_context_conn.get("host", "localhost"),
+            "port": args.stash_port or config.stash_context_conn.get("port", 9999),
+            "apikey": args.stash_apikey or config.stash_context_conn.get("apikey", ""),
+        }
     """
     if hasattr(args, arg_attribute) and hasattr(config, config_attribute):
         return

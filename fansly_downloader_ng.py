@@ -291,6 +291,30 @@ def main(config: FanslyConfig) -> int:
                             config.interactive,
                         )
 
+                    if config.stash_context_conn is not None:
+                        scan_metadata_input = {
+                            "rescan": False,
+                            "scanGenerateCovers": True,
+                            "scanGeneratePreviews": True,
+                            "scanGenerateThumbnails": True,
+                            "scanGenerateImagePreviews": True,
+                            "scanGenerateSprites": True,
+                            "scanGeneratePhashes": True,
+                            "scanGenerateClipPreviews": True,
+                        }
+                        jobId = config.get_stash_api().metadata_scan(
+                            paths=[state.download_path], flags=scan_metadata_input
+                        )
+                        print_info(f"Metadata scan job ID: {jobId}")
+                        finished_job = False
+                        while not finished_job:
+                            try:
+                                finished_job = config.get_stash_api().wait_for_job(
+                                    jobId
+                                )
+                            except Exception:
+                                finished_job = False
+
                 finally:
                     # Clean up creator database if used
                     if config.separate_metadata and creator_database:
