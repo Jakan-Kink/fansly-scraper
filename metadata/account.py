@@ -691,6 +691,7 @@ def process_media_bundles(
                 "accountPermissionFlags",
                 "price",
                 "likeCount",
+                "liked",
                 "mediaId",  # not sure what this mediaId is for
             }
 

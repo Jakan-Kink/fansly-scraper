@@ -154,6 +154,7 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
         "purchased",
         "whitelisted",
         "accountPermissionFlags",
+        "liked",
     }
 
     # Process media data

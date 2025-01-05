@@ -222,6 +222,7 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
         "replyPermissionFlags",
         "replyCount",
         "postReplyPermissionFlags",
+        "liked",
     }
 
     # Process post data
@@ -254,6 +255,18 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
                 setattr(post_obj, key, value)
 
         session.flush()
+
+        # Process account mentions if present
+        if "accountMentions" in post:
+            for mention in post["accountMentions"]:
+                mention_data = {
+                    "postId": post_obj.id,
+                    "accountId": mention["accountId"],
+                    "handle": mention.get("handle", ""),
+                }
+                insert_stmt = sqlite_insert(post_mentions).values(mention_data)
+                update_stmt = insert_stmt.on_conflict_do_nothing()
+                session.execute(update_stmt)
 
         # Process attachments if present
         if "attachments" in post:
