@@ -261,9 +261,16 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
             for mention in post["accountMentions"]:
                 mention_data = {
                     "postId": post_obj.id,
-                    "accountId": mention["accountId"],
+                    "accountId": mention.get("accountId", None),
                     "handle": mention.get("handle", ""),
                 }
+                if mention_data["accountId"] is None:
+                    json_output(
+                        2,
+                        "meta/post - _p_t_p - missing_account_id for mention",
+                        {"postId": post_obj.id, "mention": mention},
+                    )
+                    continue
                 insert_stmt = sqlite_insert(post_mentions).values(mention_data)
                 update_stmt = insert_stmt.on_conflict_do_nothing()
                 session.execute(update_stmt)
