@@ -2,7 +2,7 @@
 
 import asyncio
 from configparser import ConfigParser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from api import FanslyApi
@@ -46,7 +46,7 @@ class FanslyConfig(PathConfig):
     _database: Database | None = None
     _base: Base | None = None
     _stash: StashContext | None = None
-    _background_tasks: list[asyncio.Task] = []
+    _background_tasks: list[asyncio.Task] = field(default_factory=list)
 
     # endregion File-Independent
 

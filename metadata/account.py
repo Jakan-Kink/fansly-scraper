@@ -549,21 +549,49 @@ def process_account_data(
 def compare_timeline_stats(
     timeline_stats: dict, account: Account, state: DownloadState, session: Session
 ):
+    def convert_ms_timestamp(ms_timestamp: int) -> datetime:
+        return datetime.fromtimestamp(ms_timestamp / 1000, tz=timezone.utc)
+
     existing_stats = (
         session.query(TimelineStats).filter_by(accountId=account.id).first()
     )
-    if (
-        existing_stats
-        and existing_stats.fetchedAt == timeline_stats.get("fetchedAt")
-        and existing_stats.imageCount == timeline_stats.get("imageCount")
-        and existing_stats.videoCount == timeline_stats.get("videoCount")
-    ):
+
+    if existing_stats:
+        converted_timestamp = convert_ms_timestamp(timeline_stats["fetchedAt"])
+
         json_output(
             1,
-            "meta/account - p_a_data - timeline_stats_duplication",
-            (existing_stats, timeline_stats),
+            "meta/account - debug - timestamp comparison",
+            {
+                "converted": converted_timestamp,
+                "existing": existing_stats.fetchedAt,
+                "equal": converted_timestamp == existing_stats.fetchedAt,
+            },
         )
-        state.fetchedTimelineDuplication = True
+
+        json_output(
+            1,
+            "meta/account - debug - counts comparison",
+            {
+                "images_match": existing_stats.imageCount
+                == timeline_stats.get("imageCount"),
+                "videos_match": existing_stats.videoCount
+                == timeline_stats.get("videoCount"),
+            },
+        )
+
+        if (
+            existing_stats.fetchedAt.replace(tzinfo=timezone.utc) == converted_timestamp
+            and existing_stats.imageCount == timeline_stats.get("imageCount")
+            and existing_stats.videoCount == timeline_stats.get("videoCount")
+        ):
+
+            json_output(
+                1,
+                "meta/account - p_a_data - timeline_stats_duplication",
+                (existing_stats, timeline_stats),
+            )
+            state.fetchedTimelineDuplication = True
 
 
 def process_creator_data(

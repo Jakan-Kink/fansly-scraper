@@ -323,9 +323,14 @@ def main(config: FanslyConfig) -> int:
     # Wait for all background tasks to complete
     if config.get_background_tasks():
         print_info("Waiting for background tasks to complete...")
-        asyncio.run(
-            asyncio.gather(*config.get_background_tasks(), return_exceptions=True)
-        )
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(
+                asyncio.gather(*config.get_background_tasks(), return_exceptions=True)
+            )
+        finally:
+            loop.close()
         print_info("All background tasks completed.")
 
     return exit_code

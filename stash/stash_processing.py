@@ -1,5 +1,6 @@
 import asyncio
 
+from sqlalchemy.sql.expression import select
 from stashapi.stashapp import StashInterface
 
 from config import FanslyConfig
@@ -47,7 +48,7 @@ class StashProcessing:
 
         try:
             job_id = self.stash_interface.metadata_scan(
-                paths=[self.state.download_path], flags=scan_metadata_input
+                paths=[str(self.state.download_path)], flags=scan_metadata_input
             )
             print_info(f"Metadata scan job ID: {job_id}")
 
@@ -64,11 +65,9 @@ class StashProcessing:
     async def process_creator(self):
         async with self.config._database.get_async_session() as session:
             try:
-                account = (
-                    session.query(Account)
-                    .filter_by(username=self.state.creator_name)
-                    .first()
-                )
+                stmt = select(Account).where(Account.id == self.state.creator_id)
+                account = await session.execute(stmt)
+                account = account.scalar_one_or_none()
                 if not account:
                     print_info(
                         f"No account found for username: {self.state.creator_name}"

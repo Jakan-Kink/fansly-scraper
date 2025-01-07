@@ -1,10 +1,10 @@
-from .stash_studio import StashStudio
+from .types import StashStudioProtocol, StashStudioRelationshipProtocol
 
 
-class StashStudioRelationship:
-    parent_studio: StashStudio
-    child_studio: StashStudio
-
-    def __init__(self, parent_studio: StashStudio, child_studio: StashStudio) -> None:
+class StashStudioRelationship(StashStudioRelationshipProtocol):
+    def __init__(
+        self, parent_studio: StashStudioProtocol, child_studio: StashStudioProtocol
+    ) -> None:
+        StashStudioRelationshipProtocol.__init__(self)
         self.parent_studio = parent_studio
         self.child_studio = child_studio

@@ -2,13 +2,10 @@ from datetime import datetime
 
 from stashapi.stashapp import StashInterface
 
-from .group_description import StashGroupDescription as GroupDescription
-from .stash_context import StashQL
-from .stash_scene import StashScene
-from .stash_tag import StashTag
+from .types import StashGroupDescriptionProtocol, StashGroupProtocol
 
 
-class StashGroup(StashQL):
+class StashGroup(StashGroupProtocol):
     @staticmethod
     def find(id: str, interface: StashInterface) -> "StashGroup":
         data = interface.find_group(id)
@@ -17,25 +14,11 @@ class StashGroup(StashQL):
     def save(self, interface: StashInterface) -> None:
         interface.update_group(self.to_dict())
 
-    name: str
-    aliases: str | None
-    duration: int | None
-    date: str | None
-    rating100: int | None
-    director: str | None
-    synopsis: str | None
-    urls: list[str]
-    front_image_path: str | None
-    back_image_path: str | None
-    studio: None
-    tags: list[StashTag]
-    containing_groups: list[GroupDescription]
-    sub_groups: list[GroupDescription]
-    scenes: list[StashScene]
-
     def to_dict(self) -> dict:
-        base_dict = super().to_dict()
         group_dict = {
+            "id": self.id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "name": self.name,
             "aliases": self.aliases,
             "duration": self.duration,
@@ -52,7 +35,7 @@ class StashGroup(StashQL):
             "sub_groups": [group.id for group in self.sub_groups],
             "scenes": [scene.id for scene in self.scenes],
         }
-        return {**base_dict, **group_dict}
+        return group_dict
 
     def __init__(
         self,
@@ -70,7 +53,9 @@ class StashGroup(StashQL):
         created_at: datetime | str | None = None,
         updated_at: datetime | str | None = None,
     ):
-        super().__init__(id=id, urls=urls, created_at=created_at, updated_at=updated_at)
+        StashGroupProtocol.__init__(
+            self=self, id=id, urls=urls, created_at=created_at, updated_at=updated_at
+        )
         self.name = name
         self.aliases = aliases
         self.duration = duration
@@ -82,8 +67,8 @@ class StashGroup(StashQL):
         self.back_image_path = back_image_path
         self.studio = None
         self.tags = []
-        self.containing_groups: list[GroupDescription] = []
-        self.sub_groups: list[GroupDescription] = []
+        self.containing_groups: list[StashGroupDescriptionProtocol] = []
+        self.sub_groups: list[StashGroupDescriptionProtocol] = []
         self.scenes = []
 
     def scene_count(self, depth: int | None = None) -> int:
@@ -93,3 +78,70 @@ class StashGroup(StashQL):
     def sub_group_count(self, depth: int | None = None) -> int:
         # Implement logic to count sub-groups
         return 0
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "StashGroup":
+        """Create a StashGroup instance from a dictionary.
+
+        Args:
+            data: Dictionary containing group data from GraphQL or other sources.
+
+        Returns:
+            A new StashGroup instance.
+        """
+        # Handle both GraphQL response format and direct dictionary format
+        group_data = data.get("group", data)
+
+        # Create the base group object
+        group = cls(
+            id=str(group_data.get("id", "")),
+            name=str(group_data.get("name", "")),
+            aliases=group_data.get("aliases"),
+            duration=group_data.get("duration"),
+            date=group_data.get("date"),
+            rating100=group_data.get("rating100"),
+            director=group_data.get("director"),
+            synopsis=group_data.get("synopsis"),
+            urls=list(group_data.get("urls", [])),
+            front_image_path=group_data.get("front_image_path"),
+            back_image_path=group_data.get("back_image_path"),
+            created_at=group_data.get("created_at"),
+            updated_at=group_data.get("updated_at"),
+        )
+
+        # Handle studio if present
+        if "studio" in group_data and group_data["studio"]:
+            from .stash_studio import StashStudio
+
+            group.studio = StashStudio.from_dict(group_data["studio"])
+
+        # Handle tags if present
+        if "tags" in group_data:
+            from .stash_tag import StashTag
+
+            group.tags = [StashTag.from_dict(t) for t in group_data["tags"]]
+
+        # Handle scenes if present
+        if "scenes" in group_data:
+            from .stash_scene import StashScene
+
+            group.scenes = [StashScene.from_dict(s) for s in group_data["scenes"]]
+
+        # Handle containing_groups if present
+        if "containing_groups" in group_data:
+            from .group_description import StashGroupDescription
+
+            group.containing_groups = [
+                StashGroupDescription.from_dict(g)
+                for g in group_data["containing_groups"]
+            ]
+
+        # Handle sub_groups if present
+        if "sub_groups" in group_data:
+            from .group_description import StashGroupDescription
+
+            group.sub_groups = [
+                StashGroupDescription.from_dict(g) for g in group_data["sub_groups"]
+            ]
+
+        return group

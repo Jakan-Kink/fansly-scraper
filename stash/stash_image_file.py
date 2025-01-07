@@ -1,13 +1,9 @@
 from datetime import datetime, timezone
 
-from .stash_base_file import StashBaseFile
-from .visual_file import VisualFile
+from .types import StashImageFileProtocol
 
 
-class StashImageFile(StashBaseFile, VisualFile):
-    width: int
-    height: int
-
+class StashImageFile(StashImageFileProtocol):
     def get_path(self) -> str:
         return self.path
 
@@ -28,16 +24,39 @@ class StashImageFile(StashBaseFile, VisualFile):
         updated_at: datetime = datetime.now(tz=timezone.utc),
         zip_file_id: str | None = None,
     ) -> None:
-        super().__init__(
-            id,
-            path,
-            basename,
-            parent_folder_id,
-            mod_time,
-            size,
-            created_at,
-            updated_at,
-            zip_file_id,
+        StashImageFileProtocol.__init__(
+            self, id=id, created_at=created_at, updated_at=updated_at
         )
+        self.path = path
+        self.basename = basename
+        self.parent_folder_id = parent_folder_id
+        self.zip_file_id = zip_file_id
+        self.mod_time = self.sanitize_datetime(mod_time)
+        self.size = size
         self.width = width
         self.height = height
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "StashImageFile":
+        """Create a StashImageFile instance from a dictionary.
+
+        Args:
+            data: Dictionary containing image file data
+
+        Returns:
+            A new StashImageFile instance
+        """
+        file_data = data.get("image_file", {})
+        return cls(
+            id=str(file_data.get("id", "")),
+            path=file_data.get("path", ""),
+            basename=file_data.get("basename", ""),
+            parent_folder_id=file_data.get("parent_folder_id", ""),
+            mod_time=file_data.get("mod_time", datetime.now(tz=timezone.utc)),
+            size=file_data.get("size", 0),
+            width=file_data.get("width", 0),
+            height=file_data.get("height", 0),
+            created_at=file_data.get("created_at", datetime.now(tz=timezone.utc)),
+            updated_at=file_data.get("updated_at", datetime.now(tz=timezone.utc)),
+            zip_file_id=file_data.get("zip_file_id"),
+        )

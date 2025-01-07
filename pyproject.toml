@@ -119,8 +119,9 @@ max-doc-length = 140
 extend-ignore = [
     "E203",
     "E501",
-    "W505",
+    "E704",
     "F401",
+    "W505",
 ]
 namespace-packages = true
 

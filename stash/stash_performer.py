@@ -3,10 +3,7 @@ from datetime import datetime
 from stashapi.stash_types import Gender
 from stashapi.stashapp import StashInterface
 
-from .stash_context import StashQL
-from .stash_group import StashGroup
-from .stash_scene import StashScene
-from .stash_tag import StashTag
+from .types import StashPerformerProtocol
 
 performer_fragment = (
     "id "
@@ -39,41 +36,11 @@ performer_fragment = (
 )
 
 
-class StashPerformer(StashQL):
-    name: str
-    disambiguation: str | None
-    urls: list[str]
-    gender: Gender | None
-    birthdate: str | None
-    ethnicity: str | None
-    country: str | None
-    eye_color: str | None
-    height_cm: int | None
-    measurements: str | None
-    fake_tits: str | None
-    penis_length: float | None
-    circumcised: str | None
-    career_length: str | None
-    tattoos: str | None
-    piercings: str | None
-    favorite: bool
-    ignore_auto_tag: bool
-    image_path: str | None
-    o_counter: int | None
-    rating100: int | None
-    details: str | None
-    death_date: str | None
-    hair_color: str | None
-    weight: int | None
-    scenes: list[StashScene]
-    stash_ids: list[str]
-    groups: list[StashGroup]
-    custom_fields: dict[str, str]
-    tags: list[StashTag]
+class StashPerformer(StashPerformerProtocol):
 
     def __init__(
         self,
-        id: str,
+        id: str | None = None,
         urls: list[str] = [],
         name: str = "ReplaceMe",
         disambiguation: str | None = None,
@@ -215,8 +182,11 @@ class StashPerformer(StashQL):
         }
 
     def to_dict(self) -> dict:
-        base_dict = super().to_dict()
         performer_dict = {
+            "id": self.id,
+            "urls": self.urls,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
             "name": self.name,
             "disambiguation": self.disambiguation,
             "gender": self.gender.value if self.gender else None,
@@ -246,31 +216,156 @@ class StashPerformer(StashQL):
             "groups": [group.id for group in self.groups],
             "custom_fields": self.custom_fields,
         }
-        return {**base_dict, **performer_dict}
+        return performer_dict
 
     @staticmethod
     def find(id: str, interface: StashInterface) -> "StashPerformer":
+        """Find a performer by ID.
+
+        Args:
+            id: The ID of the performer to find
+            interface: StashInterface instance to use for querying
+
+        Returns:
+            StashPerformer instance if found, None otherwise
+        """
         data = interface.find_performer(id)
         return StashPerformer.from_dict(data) if data else None
 
+    @staticmethod
+    def find_by_name(
+        name: str, interface: StashInterface, create: bool = False
+    ) -> "StashPerformer":
+        """Find a performer by name.
+
+        Args:
+            name: The name of the performer to find
+            interface: StashInterface instance to use for querying
+            create: If True, create the performer if it doesn't exist
+
+        Returns:
+            StashPerformer instance if found, None otherwise
+        """
+        data = interface.find_performer(name, create=create)
+        return StashPerformer.from_dict(data) if data else None
+
+    @staticmethod
+    def find_all(
+        interface: StashInterface, filter: dict = {"per_page": -1}, q: str = ""
+    ) -> list["StashPerformer"]:
+        """Find all performers matching the filter/query.
+
+        Args:
+            interface: StashInterface instance to use for querying
+            filter: Filter parameters for the query
+            q: Query string to search for
+
+        Returns:
+            List of StashPerformer instances matching the criteria
+        """
+        data = interface.find_performers(filter=filter, q=q)
+        return [StashPerformer.from_dict(p) for p in data]
+
     def save(self, interface: StashInterface) -> None:
+        """Save changes to this performer in stash.
+
+        Args:
+            interface: StashInterface instance to use for updating
+        """
         interface.update_performer(self.to_update_input_dict())
 
-    def scene_count(self) -> int:
-        return len(self.scenes)
+    @classmethod
+    def from_dict(cls, data: dict) -> "StashPerformer":
+        """Create a StashPerformer instance from a dictionary.
 
-    def image_count(self) -> int:
-        # Implement logic to count images
-        return 0
+        Args:
+            data: Dictionary containing performer data from GraphQL or other sources.
 
-    def gallery_count(self) -> int:
-        # Implement logic to count galleries
-        return 0
+        Returns:
+            A new StashPerformer instance.
+        """
+        from logging_utils import json_output
 
-    def group_count(self) -> int:
-        # Implement logic to count groups
-        return 0
+        # Log incoming data
+        json_output(1, "StashPerformer.from_dict - input data", data)
 
-    def performer_count(self) -> int:
-        # Implement logic to count performers
-        return 0
+        # Handle both GraphQL response format and direct dictionary format
+        performer_data = data.get("performer", data)
+        json_output(1, "StashPerformer.from_dict - normalized data", performer_data)
+
+        # Convert numeric fields
+        try:
+            height_cm = (
+                int(performer_data["height_cm"])
+                if performer_data.get("height_cm")
+                else None
+            )
+        except (ValueError, TypeError):
+            height_cm = None
+
+        try:
+            weight = (
+                int(performer_data["weight"]) if performer_data.get("weight") else None
+            )
+        except (ValueError, TypeError):
+            weight = None
+
+        try:
+            penis_length = (
+                float(performer_data["penis_length"])
+                if performer_data.get("penis_length")
+                else None
+            )
+        except (ValueError, TypeError):
+            penis_length = None
+
+        # Handle timestamps
+        created_at = performer_data.get("created_at")
+        updated_at = performer_data.get("updated_at")
+        birthdate = performer_data.get("birthdate")
+        death_date = performer_data.get("death_date")
+
+        # Extract basic fields with defaults and type conversions
+        performer = cls(
+            id=str(performer_data.get("id", "")),
+            name=str(performer_data.get("name", "")),
+            urls=list(performer_data.get("urls", [])),
+            disambiguation=performer_data.get("disambiguation"),
+            gender=(
+                Gender(performer_data["gender"])
+                if performer_data.get("gender")
+                else None
+            ),
+            birthdate=birthdate,  # __init__ will handle datetime conversion
+            ethnicity=performer_data.get("ethnicity"),
+            country=performer_data.get("country"),
+            eye_color=performer_data.get("eye_color"),
+            height_cm=height_cm,
+            measurements=performer_data.get("measurements"),
+            fake_tits=performer_data.get("fake_tits"),
+            penis_length=penis_length,
+            career_length=performer_data.get("career_length"),
+            tattoos=performer_data.get("tattoos"),
+            piercings=performer_data.get("piercings"),
+            favorite=bool(performer_data.get("favorite", False)),
+            ignore_auto_tag=bool(performer_data.get("ignore_auto_tag", False)),
+            image_path=performer_data.get("image_path"),
+            details=performer_data.get("details"),
+            death_date=death_date,  # __init__ will handle datetime conversion
+            hair_color=performer_data.get("hair_color"),
+            weight=weight,
+            created_at=created_at,  # __init__ will handle datetime conversion
+            updated_at=updated_at,  # __init__ will handle datetime conversion
+        )
+
+        # Handle aliases
+        performer.alias_list = list(performer_data.get("alias_list", []))
+        if "aliases" in performer_data:
+            performer.alias_list.extend(performer_data["aliases"])
+
+        # Log the final performer object
+        json_output(
+            1, "StashPerformer.from_dict - created performer", performer.to_dict()
+        )
+
+        return performer

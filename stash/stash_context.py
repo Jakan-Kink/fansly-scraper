@@ -3,6 +3,8 @@ from datetime import date, datetime, timezone
 from requests.structures import CaseInsensitiveDict
 from stashapi.stashapp import StashInterface
 
+from .base_protocols import StashQLProtocol
+
 
 class StashContext:
     def __init__(self, conn: dict):
@@ -13,10 +15,13 @@ class StashContext:
         return self.interface
 
 
-class StashQL:
+class StashQL(StashQLProtocol):
+    """Base class implementing StashQLProtocol."""
+
     id: str
     created_at: datetime
     updated_at: datetime
+    urls: list[str]
     tags: list
     relationships: dict[str, list]
 
@@ -37,8 +42,9 @@ class StashQL:
             "id": self.id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "tags": self.tags,
-            "relationships": self.relationships,
+            "urls": self.urls or [],
+            "tags": self.tags or [],
+            "relationships": self.relationships or {},
         }
 
     @classmethod
