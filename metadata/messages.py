@@ -59,8 +59,14 @@ class Group(Base):
     )
     lastMessageId: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("messages.id", use_alter=True, name="fk_group_last_message"),
         nullable=True,
+    )
+    last_message: Mapped[Message | None] = relationship(
+        "Message",
+        primaryjoin="and_(Group.id == Message.groupId, Group.lastMessageId == Message.id)",
+        foreign_keys=[lastMessageId],
+        post_update=True,  # Prevents circular dependency issues
+        uselist=False,
     )
 
 
@@ -95,7 +101,7 @@ class Message(Base):
     __tablename__ = "messages"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     groupId: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("groups.id"), nullable=True
+        Integer, ForeignKey("groups.id"), nullable=True, index=True
     )
     senderId: Mapped[int] = mapped_column(
         Integer, ForeignKey("accounts.id"), nullable=False
@@ -117,6 +123,7 @@ class Message(Base):
     )
     sender: Mapped[Account] = relationship("Account", foreign_keys=[senderId])
     recipient: Mapped[Account] = relationship("Account", foreign_keys=[recipientId])
+    stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 @require_database_config
@@ -379,6 +386,30 @@ def process_groups_response(
                 data_group, known_relations, "meta/mess - p_g_resp"
             )
 
+            # Ensure required fields are present
+            if "id" not in filtered_group:
+                json_output(
+                    1,
+                    "meta/mess - missing_required_field",
+                    {
+                        "missing_field": "id",
+                        "source": "data_groups",
+                    },
+                )
+                continue  # Skip this group if id is missing
+
+            if "createdBy" not in filtered_group:
+                json_output(
+                    1,
+                    "meta/mess - missing_required_field",
+                    {
+                        "groupId": filtered_group.get("id"),
+                        "missing_field": "createdBy",
+                        "source": "data_groups",
+                    },
+                )
+                continue  # Skip this group if createdBy is missing
+
             # Track relationships even though we're not enforcing them
             if "createdBy" in filtered_group:
                 log_missing_relationship(
@@ -405,38 +436,26 @@ def process_groups_response(
                         "source": "data_groups",
                     },
                 )
-                # Still remove lastMessageId if message doesn't exist to avoid potential issues
-                if not message_exists:
-                    del filtered_group["lastMessageId"]
+                # Keep lastMessageId even if message doesn't exist yet
+                # The foreign key constraint is handled by SQLAlchemy's relationship configuration
 
             # Query first approach
             existing_group = session.execute(
-                select(Group).where(Group.id == filtered_group.get("id"))
+                select(Group).where(Group.id == filtered_group["id"])
             ).scalar_one_or_none()
-
-            # Ensure required fields are present
-            if "createdBy" not in filtered_group:
-                json_output(
-                    1,
-                    "meta/mess - missing_required_field",
-                    {
-                        "groupId": filtered_group.get("id"),
-                        "missing_field": "createdBy",
-                        "source": "data_groups",
-                    },
-                )
-                continue  # Skip this group if createdBy is missing
 
             if existing_group is None:
                 existing_group = Group(
                     id=filtered_group["id"], createdBy=filtered_group["createdBy"]
                 )
                 session.add(existing_group)
+                session.flush()  # Ensure the group is created before updating
 
             # Update any changed values
             for key, value in filtered_group.items():
                 if getattr(existing_group, key) != value:
                     setattr(existing_group, key, value)
+            session.flush()  # Ensure changes are persisted
 
         # Process groups from aggregation data
         for group in groups:
@@ -450,54 +469,18 @@ def process_groups_response(
                 group, known_relations, "meta/mess - p_g_resp-group"
             )
 
-            # Check if createdBy account exists
-            if "createdBy" in filtered_group:
-                account_exists = (
-                    session.execute(
-                        select(Account).where(Account.id == filtered_group["createdBy"])
-                    ).scalar_one_or_none()
-                    is not None
-                )
-                if not account_exists:
-                    json_output(
-                        1,
-                        "meta/mess - p_g_resp - skipping_group",
-                        {
-                            "groupId": filtered_group.get("id"),
-                            "createdBy": filtered_group["createdBy"],
-                            "reason": "Creator account does not exist in database",
-                        },
-                    )
-                    continue  # Skip this group entirely since creator is required
-
-            # Check if lastMessageId exists
-            if "lastMessageId" in filtered_group:
-                message_exists = (
-                    session.execute(
-                        select(Message).where(
-                            Message.id == filtered_group["lastMessageId"]
-                        )
-                    ).scalar_one_or_none()
-                    is not None
-                )
-                if not message_exists:
-                    json_output(
-                        1,
-                        "meta/mess - p_g_resp - skipping_last_message",
-                        {
-                            "groupId": filtered_group.get("id"),
-                            "lastMessageId": filtered_group["lastMessageId"],
-                            "reason": "Message does not exist in database",
-                        },
-                    )
-                    del filtered_group["lastMessageId"]
-
-            # Query first approach
-            existing_group = session.execute(
-                select(Group).where(Group.id == filtered_group.get("id"))
-            ).scalar_one_or_none()
-
             # Ensure required fields are present
+            if "id" not in filtered_group:
+                json_output(
+                    1,
+                    "meta/mess - missing_required_field",
+                    {
+                        "missing_field": "id",
+                        "source": "aggregation_groups",
+                    },
+                )
+                continue  # Skip this group if id is missing
+
             if "createdBy" not in filtered_group:
                 json_output(
                     1,
@@ -510,16 +493,53 @@ def process_groups_response(
                 )
                 continue  # Skip this group if createdBy is missing
 
+            # Track relationships even though we're not enforcing them
+            if "createdBy" in filtered_group:
+                log_missing_relationship(
+                    session=session,
+                    table_name="groups",
+                    field_name="createdBy",
+                    missing_id=filtered_group["createdBy"],
+                    referenced_table="accounts",
+                    context={
+                        "groupId": filtered_group.get("id"),
+                        "source": "aggregation_groups",
+                    },
+                )
+
+            # Check if lastMessageId exists
+            if "lastMessageId" in filtered_group:
+                message_exists = log_missing_relationship(
+                    session=session,
+                    table_name="groups",
+                    field_name="lastMessageId",
+                    missing_id=filtered_group["lastMessageId"],
+                    referenced_table="messages",
+                    context={
+                        "groupId": filtered_group.get("id"),
+                        "source": "aggregation_groups",
+                    },
+                )
+                if not message_exists:
+                    del filtered_group["lastMessageId"]
+
+            # Query first approach
+            existing_group = session.execute(
+                select(Group).where(Group.id == filtered_group["id"])
+            ).scalar_one_or_none()
+
             if existing_group is None:
                 existing_group = Group(
                     id=filtered_group["id"], createdBy=filtered_group["createdBy"]
                 )
                 session.add(existing_group)
+                session.flush()  # Ensure the group is created before updating
 
             # Update any changed values
             for key, value in filtered_group.items():
                 if getattr(existing_group, key) != value:
                     setattr(existing_group, key, value)
+            session.flush()  # Ensure changes are persisted
 
             # Process group users
             existing_group = session.execute(
@@ -530,8 +550,8 @@ def process_groups_response(
                 for user in group.get("users", ()):
                     user_id = user.get("userId")
 
-                    # Track missing user accounts
-                    account_exists = log_missing_relationship(
+                    # Track missing user accounts, but add them anyway since foreign keys are disabled
+                    log_missing_relationship(
                         session=session,
                         table_name="group_users",
                         field_name="accountId",
@@ -539,8 +559,6 @@ def process_groups_response(
                         referenced_table="accounts",
                         context={"groupId": existing_group.id, "source": "group_users"},
                     )
-
-                    # Always try to add the user since foreign keys are disabled
                     group_user = {
                         "groupId": existing_group.id,
                         "accountId": user_id,

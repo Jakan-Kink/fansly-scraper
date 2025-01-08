@@ -49,6 +49,7 @@ from .database import (
     require_database_config,
     run_migrations_if_needed,
 )
+from .hashtag import Hashtag, extract_hashtags, post_hashtags, process_post_hashtags
 from .media import (
     Media,
     media_variants,
@@ -104,4 +105,8 @@ __all__ = [
     "media_variants",
     "pinned_posts",
     "post_mentions",
+    "post_hashtags",
+    "Hashtag",
+    "extract_hashtags",
+    "process_post_hashtags",
 ]

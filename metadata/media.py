@@ -111,7 +111,12 @@ class Media(Base):
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     local_filename: Mapped[str] = mapped_column(String, nullable=True)
     content_hash: Mapped[str] = mapped_column(String, nullable=True, index=True)
-    is_downloaded: Mapped[bool] = mapped_column(Integer, default=False, nullable=False)
+    is_downloaded: Mapped[bool] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",  # Set explicit server default
+    )
     variants: Mapped[set[Media]] = relationship(
         "Media",
         collection_class=set,
@@ -127,6 +132,7 @@ class Media(Base):
         lazy="select",
         back_populates="media",
     )
+    stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 def process_media_metadata(metadata: dict) -> None:

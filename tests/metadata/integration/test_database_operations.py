@@ -11,20 +11,28 @@ This module demonstrates:
 - Database cleanup
 """
 
+# pylint: disable=unused-argument  # Test fixtures are used indirectly
+
+from __future__ import annotations
+
 import concurrent.futures
 import threading
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import exc, text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from metadata import Account, AccountMedia, Media, Message, Post
-from metadata.database import Database
+
+if TYPE_CHECKING:
+    from metadata.database import Database
 
 
-def test_complex_relationships(database, session: Session, test_account):
+def test_complex_relationships(
+    database: Database, session: Session, test_account: Account
+):
     """Test complex relationships between multiple models."""
     # Create media
     media = Media(
@@ -77,7 +85,9 @@ def test_complex_relationships(database, session: Session, test_account):
     assert saved_media.duration == 30.5
 
 
-def test_cascade_operations(database, session, test_account):
+def test_cascade_operations(
+    database: Database, session: Session, test_account: Account
+):
     """Test cascade operations across relationships."""
     # Create media and account media
     media = Media(id=1, accountId=test_account.id)
@@ -104,7 +114,9 @@ def test_cascade_operations(database, session, test_account):
     assert session.query(Media).first() is not None
 
 
-def test_database_constraints(database, session, test_account):
+def test_database_constraints(
+    database: Database, session: Session, test_account: Account
+):
     """Test database constraints and integrity."""
     # Create a Media object
     media = Media(
@@ -116,7 +128,7 @@ def test_database_constraints(database, session, test_account):
     session.flush()
 
     # Test 1: Create account media with non-existent account
-    # Since foreign keys are disabled, this should succeed but we should validate at the application level
+    # Since foreign keys are disabled, this should succeed but validate at app level
     account_media = AccountMedia(
         id=100,
         accountId=999,  # Non-existent account
@@ -181,7 +193,7 @@ def test_database_constraints(database, session, test_account):
     assert referenced_sender is None
 
 
-def test_transaction_isolation(database, session_factory):
+def test_transaction_isolation(database: Database, session_factory: Session):
     """Test transaction isolation levels."""
     # Create test data in first session
     with database.get_sync_session() as session1:
@@ -217,10 +229,10 @@ def test_transaction_isolation(database, session_factory):
         assert accounts[1].id == 2
 
 
-def test_concurrent_access(database, test_account):
+def test_concurrent_access(database: Database, test_account: Account):
     """Test concurrent database access patterns."""
-    NUM_THREADS = 5
-    NUM_MESSAGES = 10
+    num_threads = 5
+    num_messages = 10
 
     def add_messages(account_id: int, start_id: int) -> list[int]:
         """Add messages in separate thread."""
@@ -228,7 +240,7 @@ def test_concurrent_access(database, test_account):
         with database.get_sync_session() as session:
             # Disable foreign key checks
             session.execute(text("PRAGMA foreign_keys = OFF"))
-            for i in range(NUM_MESSAGES):
+            for i in range(num_messages):
                 msg = Message(
                     id=start_id + i,
                     senderId=account_id,
@@ -241,13 +253,13 @@ def test_concurrent_access(database, test_account):
         return message_ids
 
     # Create messages concurrently
-    with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
         futures = []
-        for i in range(NUM_THREADS):
+        for i in range(num_threads):
             future = executor.submit(
                 add_messages,
                 test_account.id,
-                i * NUM_MESSAGES + 1,
+                i * num_messages + 1,
             )
             futures.append(future)
 
@@ -265,11 +277,11 @@ def test_concurrent_access(database, test_account):
             .all()
         )
 
-        assert len(messages) == NUM_THREADS * NUM_MESSAGES
+        assert len(messages) == num_threads * num_messages
         assert all(msg.senderId == test_account.id for msg in messages)
 
 
-def test_query_performance(database, session, test_account):
+def test_query_performance(database: Database, session: Session, test_account: Account):
     """Test query performance with indexes."""
     # Create multiple media items
     for i in range(100):
@@ -303,7 +315,8 @@ def test_query_performance(database, session, test_account):
     ), "Query not using index for account_media.accountId"
 
 
-def test_bulk_operations(database):
+def test_bulk_operations(database: Database):
+    """Test bulk database operations with transaction management."""
     # Ensure we're not in a transaction
     with database.session_scope() as session:
         session.rollback()  # Clear any existing transaction
@@ -352,27 +365,29 @@ def test_write_through_cache_integration(
         assert saved_media.accountId == 1
 
 
-def test_database_cleanup_integration(database, session, test_account):
+def test_database_cleanup_integration(
+    database: Database, session: Session, test_account: Account
+):
     """Test database cleanup in integration scenario."""
     # Create some data
-    with database.get_sync_session() as session:
+    with database.get_sync_session() as test_session:
         account = Account(id=1, username=test_account.username)
-        session.add(account)
-        session.commit()
+        test_session.add(account)
+        test_session.commit()
 
     # Close the database
     database.close()
 
     # Verify we can't use the database after closing
     with pytest.raises(Exception):
-        with database.get_sync_session() as session:
-            session.query(Account).first()
+        with database.get_sync_session() as test_session:
+            test_session.query(Account).first()
 
     # Create a new connection to verify data persists
-    db2 = Database(database.config)
+    db2: Database = Database(database.config)
     try:
-        with db2.get_sync_session() as session:
-            saved_account = session.query(Account).first()
+        with db2.get_sync_session() as test_session:
+            saved_account = test_session.query(Account).first()
             assert saved_account.username == test_account.username
     finally:
         db2.close()

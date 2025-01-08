@@ -1,22 +1,27 @@
 """Unit tests for message group functionality."""
 
-import os
-import tempfile
 from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
 
 from config import FanslyConfig
+from config.version import get_project_version
 from download.core import DownloadState
-from metadata.base import Base
-from metadata.database import Database
 from metadata.messages import Group, Message, process_groups_response
 
 
 @pytest.fixture
 def database(test_database):
     return test_database
+
+
+@pytest.fixture
+def mock_config(database):
+    """Create a mock config for testing."""
+    config = FanslyConfig(program_version=get_project_version())
+    config._database = database
+    return config
 
 
 @pytest.fixture
@@ -92,8 +97,8 @@ def test_process_groups_response_basic(database, mock_config, download_state):
     with database.get_sync_session() as session:
         group = session.execute(select(Group)).scalar_one_or_none()
         assert group.id == 1
-        # lastMessageId should not be set yet since message doesn't exist
-        assert group.lastMessageId is None
+        # lastMessageId should be set even though message doesn't exist yet
+        assert group.lastMessageId == 789
 
         # Now create the message
         message = Message(

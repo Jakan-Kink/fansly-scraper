@@ -25,6 +25,7 @@ from textio import json_output
 from .attachment import Attachment, ContentType
 from .base import Base
 from .database import require_database_config
+from .hashtag import Hashtag, process_post_hashtags
 
 if TYPE_CHECKING:
     from config import FanslyConfig
@@ -67,6 +68,13 @@ class Post(Base):
         back_populates="posts",
         lazy="select",
     )
+    hashtags: Mapped[list[Hashtag]] = relationship(
+        "Hashtag",
+        secondary="post_hashtags",
+        back_populates="posts",
+        lazy="select",
+    )
+    stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 pinned_posts = Table(
@@ -278,6 +286,11 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
                 insert_stmt = sqlite_insert(post_mentions).values(mention_data)
                 update_stmt = insert_stmt.on_conflict_do_nothing()
                 session.execute(update_stmt)
+
+        # Process hashtags from content
+        if post_obj.content:
+            process_post_hashtags(session, post_obj, post_obj.content)
+            session.flush()
 
         # Process attachments if present
         if "attachments" in post:

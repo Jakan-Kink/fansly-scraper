@@ -8,17 +8,22 @@ Tests performance characteristics including:
 - Memory usage
 """
 
+from __future__ import annotations
+
 import gc
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from metadata import Account, Media, Message, Post, Wall
-from metadata.database import Database
+from metadata import Account, Message, Post
+
+if TYPE_CHECKING:
+    from metadata.database import Database
 
 
 def measure_time(func):
@@ -93,16 +98,9 @@ class TestPerformancePatterns:
 
     @contextmanager
     def session_scope(self):
-        """Provide a get_sync_sessional scope around a series of operations."""
-        session = self.database.get_sync_session()
-        try:
+        """Provide a transactional scope around a series of operations."""
+        with self.database.get_sync_session() as session:
             yield session
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
 
     # def test_query_caching(self):
     #     with self.session_scope() as session:
@@ -123,7 +121,8 @@ class TestPerformancePatterns:
     def performance_data(self, database: Database) -> list[Account]:
         """Create performance test data."""
         with database.get_sync_session() as session:
-            return create_bulk_data(session)
+            accounts = create_bulk_data(session)
+            return accounts
 
     @measure_time
     def test_bulk_insert_performance(self):

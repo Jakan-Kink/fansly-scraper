@@ -78,6 +78,7 @@ class Wall(Base):
         back_populates="walls",
         lazy="select",
     )
+    stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 wall_posts = Table(

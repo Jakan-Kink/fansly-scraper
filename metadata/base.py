@@ -10,9 +10,10 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
+from sqlalchemy import DateTime, event
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapper
 
 from logging_utils import json_output
 
@@ -26,6 +27,7 @@ class Base(AsyncAttrs, DeclarativeBase):
     application. It inherits from both AsyncAttrs and DeclarativeBase to provide:
     - Async operation support through AsyncAttrs
     - Modern declarative mapping through DeclarativeBase
+    - Automatic timezone handling for datetime columns
 
     All model classes should inherit from this base class to ensure consistent
     behavior and metadata handling, with support for both sync and async operations.
@@ -38,7 +40,38 @@ class Base(AsyncAttrs, DeclarativeBase):
             # Supports both sync and async operations
             async def async_method(self):
                 ...
+
+    Note:
+        This base class automatically handles timezone conversion for all datetime
+        columns marked with timezone=True. Since SQLite doesn't support timezone-aware
+        datetimes natively, we attach UTC timezone information to all datetime values
+        when they are loaded from the database.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Register event listener for timezone handling
+        event.listen(Base, "load", Base._attach_timezone)
+
+    @staticmethod
+    def _attach_timezone(target: Any, _context: Any) -> None:
+        """Attach UTC timezone to all timezone-aware datetime columns on load.
+
+        This method is called automatically when an object is loaded from the database.
+        It finds all DateTime columns with timezone=True and ensures their values
+        have UTC timezone information attached.
+
+        Args:
+            target: The model instance being loaded
+            _context: SQLAlchemy context (unused)
+        """
+        # Get all datetime columns with timezone=True
+        mapper: Mapper = inspect(target.__class__)
+        for column in mapper.columns:
+            if isinstance(column.type, DateTime) and column.type.timezone:
+                value = getattr(target, column.key)
+                if value is not None and value.tzinfo is None:
+                    setattr(target, column.key, value.replace(tzinfo=timezone.utc))
 
     @staticmethod
     def convert_timestamps(data: dict[str, Any], date_fields: Sequence[str]) -> None:

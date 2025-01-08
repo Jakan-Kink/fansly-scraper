@@ -58,6 +58,7 @@ stashapp-tools = "^0.2.55"
 pyyaml = "^6.0.2"
 aiohttp = "^3.11.11"
 aiomultiprocess = "^0.9.1"
+toml = "^0.10.2"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -83,6 +84,7 @@ pytest-timeout = ">=2.3.1"
 pytest-randomly = ">=3.16.0"
 pytest-mock = ">=3.14.0"
 coverage = {extras = ["toml"], version = ">=7.4.3"}
+psutil = "^6.1.1"
 
 [build-system]
 requires = ["poetry-core"]

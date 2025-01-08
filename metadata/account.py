@@ -344,6 +344,7 @@ class AccountMedia(Base):
     )
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class AccountMediaBundle(Base):
@@ -407,6 +408,7 @@ class AccountMediaBundle(Base):
     access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     purchased: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     whitelisted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     UniqueConstraint("accountId", "mediaId")
 
 
@@ -582,7 +584,7 @@ def compare_timeline_stats(
         )
 
         if (
-            existing_stats.fetchedAt.replace(tzinfo=timezone.utc) == converted_timestamp
+            existing_stats.fetchedAt == converted_timestamp
             and existing_stats.imageCount == timeline_stats.get("imageCount")
             and existing_stats.videoCount == timeline_stats.get("videoCount")
         ):

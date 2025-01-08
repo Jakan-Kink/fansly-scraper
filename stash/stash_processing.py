@@ -83,7 +83,7 @@ class StashProcessing:
                     finished_job = False
 
         except RuntimeError as e:
-            print_info(f"Failed to process metadata: {e}")
+            raise RuntimeError(f"Failed to process metadata: {e}") from e
 
     async def process_creator(self):
         async with self.database.get_async_session() as session:
@@ -99,23 +99,16 @@ class StashProcessing:
 
                 # If we have a stash_id, use that to find the performer
                 if account.stash_id:
-                    print_info(
-                        f"Searching for performer by stash_id: {account.stash_id}"
-                    )
                     performer_data = self.stash_interface.find_performer(
                         performer=account.stash_id, fragment=performer_fragment
                     )
                 else:
-                    print_info(
-                        f"Searching for performer by username: {account.username}"
-                    )
                     performer_data = self.stash_interface.find_performer(
                         performer=account.username, fragment=performer_fragment
                     )
                 performer: StashPerformer = None
 
                 if performer_data is None:
-                    print_info("No existing performer found, creating new one")
                     performer_data = {
                         "name": account.displayName or account.username,
                         "aliases": [account.username],
@@ -123,26 +116,15 @@ class StashProcessing:
                         "urls": [f"https://fansly.com/{account.username}/posts"],
                         "country": account.location,
                     }
-                    print_info(f"Initial performer data: {performer_data}")
-
                     performer = StashPerformer.from_dict(performer_data)
-                    print_info("Converting to StashPerformer object")
-
-                    print_info("Creating performer in Stash")
                     try:
                         created_performer_data = performer.stash_create(
                             self.stash_interface
                         )
-                        print_info(f"Stash create response: {created_performer_data}")
-
                         if (
                             not created_performer_data
                             or "id" not in created_performer_data
                         ):
-                            print_error(
-                                "Stash API response missing required 'id' field"
-                            )
-                            print_error(f"Full response: {created_performer_data}")
                             raise ValueError(
                                 "Invalid response from Stash API - missing ID"
                             )
@@ -150,9 +132,6 @@ class StashProcessing:
                         # Update performer with the created data which includes the ID
                         performer = StashPerformer.from_dict(created_performer_data)
                         if not performer.id:
-                            print_error("Failed to set performer ID after creation")
-                            print_error(f"Response data: {created_performer_data}")
-                            print_error(f"Performer object: {performer.to_dict()}")
                             raise ValueError("Failed to set performer ID")
 
                         print_info(
@@ -162,17 +141,11 @@ class StashProcessing:
                         print_error(f"Error during performer creation: {e}")
                         raise
                 else:
-                    print_info(f"Found existing performer data: {performer_data}")
                     if not performer_data or "id" not in performer_data:
-                        print_error("Found performer data missing required 'id' field")
-                        print_error(f"Full data: {performer_data}")
                         raise ValueError("Invalid performer data - missing ID")
 
                     performer = StashPerformer.from_dict(performer_data)
                     if not performer.id:
-                        print_error("Found performer missing ID after object creation")
-                        print_error(f"Original data: {performer_data}")
-                        print_error(f"Performer object: {performer.to_dict()}")
                         raise ValueError("Found performer missing ID")
                     print_info(
                         f"Found performer: {performer.name} with ID: {performer.id}"
@@ -180,11 +153,6 @@ class StashProcessing:
 
                 # Final ID check
                 if not hasattr(performer, "id") or not performer.id:
-                    print_error(
-                        "Performer object is missing 'id' attribute or ID is empty!"
-                    )
-                    print_error(f"Performer object attributes: {dir(performer)}")
-                    print_error(f"Performer object dict: {performer.to_dict()}")
                     raise AttributeError(
                         "Performer object missing required 'id' attribute"
                     )
@@ -200,18 +168,9 @@ class StashProcessing:
         print_info("Continuing Stash GraphQL processing in the background...")
         try:
             async with self.database.get_async_session() as session:
-                try:
-                    if account is not None:
-                        account.stash_id = performer.id
-                        session.add(account)
-                        await session.commit()
-                except Exception as e:
-                    print_error(f"Failed to continue Stash processing: {e}")
-                    return
+                if account is not None and account.stash_id != performer.id:
+                    account.stash_id = performer.id
+                    await session.commit()
         finally:
-            # Clean up database connection if we own it
             if self._owns_db_connection:
-                try:
-                    self.database.close()
-                except Exception as e:
-                    print_error(f"Error closing database connection: {e}")
+                self.database.close()

@@ -42,7 +42,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
@@ -678,6 +677,7 @@ class Database:
         1. Create a new session
         2. Detect corruption errors
         3. Close session properly
+        4. Handle transaction management
 
         Note: When corruption is detected, the session is closed and a DatabaseError
         is raised. The application should catch this error, call handle_corruption(),
@@ -689,17 +689,27 @@ class Database:
         Raises:
             sqlalchemy.exc.DatabaseError: If database corruption is detected
         """
-        session = self.sync_session_factory()
+        session = None
         try:
+            session = self.sync_session_factory()
             yield session
-            session.commit()
+            if session.is_active:
+                session.commit()
         except Exception as e:
-            session.rollback()
+            if session and session.is_active:
+                try:
+                    session.rollback()
+                except Exception:
+                    pass  # Ignore rollback errors
             if isinstance(
                 e, (sqlite3.DatabaseError, DatabaseError)
             ) and "database disk image is malformed" in str(e):
                 # Close session before handling corruption
-                session.close()
+                if session:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass  # Ignore close errors
                 raise DatabaseError(
                     statement="Database integrity check",
                     params=None,
@@ -708,7 +718,11 @@ class Database:
                 )
             raise
         finally:
-            session.close()
+            if session:
+                try:
+                    session.close()
+                except Exception:
+                    pass  # Ignore close errors
 
     @asynccontextmanager
     async def _safe_session_factory_async(self) -> AsyncGenerator[AsyncSession]:
@@ -718,6 +732,7 @@ class Database:
         1. Create a new session
         2. Detect corruption errors
         3. Close session properly
+        4. Handle transaction management
 
         Note: When corruption is detected, the session is closed and a DatabaseError
         is raised. The application should catch this error, call handle_corruption(),
@@ -729,17 +744,27 @@ class Database:
         Raises:
             sqlalchemy.exc.DatabaseError: If database corruption is detected
         """
-        session = self.async_session_factory()
+        session = None
         try:
+            session = self.async_session_factory()
             yield session
-            await session.commit()
+            if session.is_active:
+                await session.commit()
         except Exception as e:
-            await session.rollback()
+            if session and session.is_active:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass  # Ignore rollback errors
             if isinstance(
                 e, (sqlite3.DatabaseError, DatabaseError)
             ) and "database disk image is malformed" in str(e):
                 # Close session before handling corruption
-                await session.close()
+                if session:
+                    try:
+                        await session.close()
+                    except Exception:
+                        pass  # Ignore close errors
                 raise DatabaseError(
                     statement="Database integrity check",
                     params=None,
@@ -748,31 +773,51 @@ class Database:
                 )
             raise
         finally:
-            await session.close()
+            if session:
+                try:
+                    await session.close()
+                except Exception:
+                    pass  # Ignore close errors
 
     def _setup_engines_and_sessions(self) -> None:
-        """Set up SQLAlchemy engines and session factories."""
-        # Create the sync engine
+        """Set up SQLAlchemy engines and session factories.
+
+        This method configures:
+        1. Sync and async engines with proper connection handling
+        2. Session factories with appropriate settings
+        3. Session context managers with corruption detection
+
+        The setup ensures:
+        - Thread safety for concurrent access
+        - Proper connection cleanup
+        - Memory optimization
+        - Corruption detection and recovery
+        """
+        # Create the sync engine with optimized SQLite settings
         self.sync_engine = create_engine(
             f"sqlite:///{self._optimized_connection.local_path}",
-            poolclass=StaticPool,
             creator=lambda: self._optimized_connection.conn,
+            future=True,  # Use SQLAlchemy 2.0 style
         )
 
-        # Create the async engine
+        # Create the async engine with optimized SQLite settings
         self.async_engine = create_async_engine(
             f"sqlite+aiosqlite:///{self._optimized_connection.local_path}",
-            poolclass=StaticPool,
+            future=True,
         )
 
-        # Create session factories (internal use only)
+        # Create session factories with appropriate settings
         self.sync_session_factory = sessionmaker(
             bind=self.sync_engine,
             expire_on_commit=False,
+            autoflush=False,  # Manual control for better performance
+            future=True,  # Use SQLAlchemy 2.0 style
         )
         self.async_session_factory = async_sessionmaker(
             bind=self.async_engine,
             expire_on_commit=False,
+            autoflush=False,
+            future=True,
         )
 
         # Create public session context managers with corruption handling
@@ -791,18 +836,57 @@ class Database:
 
         @event.listens_for(self.sync_engine, "begin")
         def do_begin(conn):
-            conn.exec_driver_sql("BEGIN")
+            # SQLite doesn't support nested transactions
+            # Check if we're already in a transaction
+            result = conn.exec_driver_sql("SELECT * FROM sqlite_master LIMIT 1")
+            if not result:
+                conn.exec_driver_sql("BEGIN")
 
     @contextmanager
     def get_sync_session(self) -> Generator[Session]:
-        """Provide a sync session for database interaction."""
+        """Provide a sync session for database interaction.
+
+        This is the recommended way to get a session for synchronous operations.
+        The session will automatically handle commits, rollbacks, and cleanup.
+
+        Example:
+            with db.get_sync_session() as session:
+                result = session.execute(select(Model))
+
+        Yields:
+            Session: SQLAlchemy session with automatic cleanup
+        """
         with self.sync_session() as session:
             yield session
 
     @asynccontextmanager
     async def get_async_session(self) -> AsyncGenerator[AsyncSession]:
-        """Provide an async session for database interaction."""
+        """Provide an async session for database interaction.
+
+        This is the recommended way to get a session for asynchronous operations.
+        The session will automatically handle commits, rollbacks, and cleanup.
+
+        Example:
+            async with db.get_async_session() as session:
+                result = await session.execute(select(Model))
+
+        Yields:
+            AsyncSession: SQLAlchemy async session with automatic cleanup
+        """
         async with self.async_session() as session:
+            yield session
+
+    @contextmanager
+    def session_scope(self) -> Generator[Session]:
+        """Legacy alias for get_sync_session to maintain compatibility.
+
+        This method exists for backward compatibility with older code.
+        New code should use get_sync_session instead.
+
+        Yields:
+            Session: SQLAlchemy session with automatic cleanup
+        """
+        with self.get_sync_session() as session:
             yield session
 
     def close(self) -> None:

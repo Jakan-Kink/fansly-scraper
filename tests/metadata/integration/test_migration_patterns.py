@@ -7,13 +7,15 @@ Tests migration behavior including:
 - Performance monitoring
 """
 
+from __future__ import annotations
+
+import threading
 import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import MetaData, Table, create_engine, inspect, text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -22,8 +24,10 @@ from alembic import command
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from metadata import Account, Base, Message, Post
-from metadata.database import Database
+from metadata import Account, Message, Post
+
+if TYPE_CHECKING:
+    from metadata.database import Database
 
 
 def get_current_revision(engine: Engine) -> str | None:
@@ -253,8 +257,6 @@ class TestMigrationPatterns:
         self, database: Database, alembic_cfg: AlembicConfig
     ):
         """Test handling of concurrent migration attempts."""
-        import threading
-        import time
 
         def attempt_migration():
             try:
