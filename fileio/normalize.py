@@ -4,6 +4,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
+
 from config import FanslyConfig
 from metadata.database import require_database_config
 from metadata.media import Media
@@ -56,7 +58,9 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
                 # Try to get createdAt from database if we have an ID
                 media_id = int(id_match.group(2))  # Extract just the numeric ID
                 with config._database.sync_session() as session:
-                    media = session.query(Media).filter_by(id=media_id).first()
+                    media = session.execute(
+                        select(Media).where(Media.id == media_id)
+                    ).scalar_one_or_none()
                     if media and media.created_at:
                         created_at = media.created_at
 

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Integer
+from sqlalchemy import ForeignKey, Integer, select, text
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from .base import Base
@@ -94,15 +94,15 @@ class Attachment(Base):
         :return: The related AccountMedia or AccountMediaBundle object, or None
         """
         if self.contentType == ContentType.ACCOUNT_MEDIA:
-            return (
-                session.query("AccountMedia").filter_by(id=self.contentId).one_or_none()
-            )
+            return session.execute(
+                select("AccountMedia").where(text("id = :id")).params(id=self.contentId)
+            ).scalar_one_or_none()
         elif self.contentType == ContentType.ACCOUNT_MEDIA_BUNDLE:
-            return (
-                session.query("AccountMediaBundle")
-                .filter_by(id=self.contentId)
-                .one_or_none()
-            )
+            return session.execute(
+                select("AccountMediaBundle")
+                .where(text("id = :id"))
+                .params(id=self.contentId)
+            ).scalar_one_or_none()
         return None
 
     @property

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from metadata.account import Account
@@ -41,7 +41,7 @@ class TestWall(TestCase):
         self.session.add(wall)
         self.session.commit()
 
-        saved_wall = self.session.query(Wall).first()
+        saved_wall = self.session.execute(select(Wall)).scalar_one_or_none()
         self.assertEqual(saved_wall.name, "Test Wall")
         self.assertEqual(saved_wall.description, "Test Description")
         self.assertEqual(saved_wall.pos, 1)
@@ -71,7 +71,7 @@ class TestWall(TestCase):
         self.session.commit()
 
         # Verify associations
-        saved_wall = self.session.query(Wall).first()
+        saved_wall = self.session.execute(select(Wall)).scalar_one_or_none()
         self.assertEqual(len(saved_wall.posts), 3)
         self.assertEqual(
             [p.content for p in saved_wall.posts], ["Post 1", "Post 2", "Post 3"]
@@ -90,7 +90,7 @@ class TestWall(TestCase):
         process_account_walls(config_mock, self.account, walls_data)
 
         # Verify walls were created
-        walls = self.session.query(Wall).order_by(Wall.pos).all()
+        walls = self.session.execute(select(Wall).order_by(Wall.pos)).scalars().all()
         self.assertEqual(len(walls), 2)
         self.assertEqual(walls[0].name, "Wall 1")
         self.assertEqual(walls[1].name, "Wall 2")
@@ -116,7 +116,9 @@ class TestWall(TestCase):
         process_account_walls(config_mock, self.account, new_walls_data)
 
         # Verify wall 2 was removed
-        remaining_walls = self.session.query(Wall).order_by(Wall.pos).all()
+        remaining_walls = (
+            self.session.execute(select(Wall).order_by(Wall.pos)).scalars().all()
+        )
         self.assertEqual(len(remaining_walls), 2)
         self.assertEqual([w.id for w in remaining_walls], [1, 3])
 
@@ -153,6 +155,6 @@ class TestWall(TestCase):
         process_wall_posts(config_mock, None, wall.id, posts_data)
 
         # Verify posts were associated with wall
-        saved_wall = self.session.query(Wall).first()
+        saved_wall = self.session.execute(select(Wall)).scalar_one_or_none()
         self.assertEqual(len(saved_wall.posts), 2)
         self.assertEqual(sorted(p.id for p in saved_wall.posts), [1, 2])

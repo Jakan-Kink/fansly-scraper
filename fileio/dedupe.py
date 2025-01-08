@@ -4,7 +4,7 @@ import mimetypes
 import re
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
@@ -35,11 +35,12 @@ def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
     with config._database.sync_session() as session:
         # First, let's count how many records need updating
         # Look for records containing path separators (both / and \)
-        count_query = text(
-            "SELECT COUNT(*) "
-            "FROM media "
-            "WHERE local_filename LIKE '%/%' "
-            "   OR local_filename LIKE '%\\%'"
+        count_query = (
+            select(func.count())  # pylint: disable=not-callable
+            .select_from(Media)
+            .where(
+                or_(Media.local_filename.like("%/%"), Media.local_filename.like("%\\%"))
+            )
         )
         count = session.execute(count_query).scalar()
 
@@ -50,11 +51,8 @@ def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
         print_info(f"Found {count} records with full paths to update...")
 
         # Get all records that need updating
-        records_query = text(
-            "SELECT id, local_filename "
-            "FROM media "
-            "WHERE local_filename LIKE '%/%' "
-            "   OR local_filename LIKE '%\\%'"
+        records_query = select(Media.id, Media.local_filename).where(
+            or_(Media.local_filename.like("%/%"), Media.local_filename.like("%\\%"))
         )
         records = session.execute(records_query).fetchall()
 
@@ -66,14 +64,9 @@ def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
                 new_filename = get_filename_only(record.local_filename)
 
                 # Update the record
-                update_query = text(
-                    "UPDATE media "
-                    "SET local_filename = :new_filename "
-                    "WHERE id = :id"
-                )
-                session.execute(
-                    update_query, {"new_filename": new_filename, "id": record.id}
-                )
+                media = session.get(Media, record.id)
+                if media:
+                    media.local_filename = new_filename
                 updated += 1
 
                 # Commit every 100 records to avoid large transactions
@@ -130,7 +123,9 @@ def get_or_create_media(
 
     # First try by ID if available
     if media_id:
-        media = session.query(Media).filter_by(id=media_id).with_for_update().first()
+        media = session.execute(
+            select(Media).where(Media.id == media_id).with_for_update()
+        ).scalar_one_or_none()
         if media:
             # If filenames match
             if media.local_filename == filename:
@@ -151,11 +146,9 @@ def get_or_create_media(
                     calculated_hash = get_hash_for_other_content(file_path)
 
                 if calculated_hash:
-                    other_media = (
-                        session.query(Media)
-                        .filter_by(content_hash=calculated_hash)
-                        .first()
-                    )
+                    other_media = session.execute(
+                        select(Media).where(Media.content_hash == calculated_hash)
+                    ).scalar_one_or_none()
                     if other_media and other_media.id != media.id:
                         # Merge the records - keep the one with the correct ID
                         media.content_hash = calculated_hash
@@ -174,7 +167,9 @@ def get_or_create_media(
 
     # Try by hash if we have one
     if file_hash:
-        media = session.query(Media).filter_by(content_hash=file_hash).first()
+        media = session.execute(
+            select(Media).where(Media.content_hash == file_hash)
+        ).scalar_one_or_none()
         if media:
             hash_verified = True
             return media, hash_verified
@@ -187,7 +182,9 @@ def get_or_create_media(
             calculated_hash = get_hash_for_other_content(file_path)
 
         if calculated_hash:
-            media = session.query(Media).filter_by(content_hash=calculated_hash).first()
+            media = session.execute(
+                select(Media).where(Media.content_hash == calculated_hash)
+            ).scalar_one_or_none()
             if media:
                 hash_verified = True
                 return media, hash_verified
@@ -196,7 +193,9 @@ def get_or_create_media(
     # Double-check for ID before creating new record
     if media_id:
         # One final check with row lock before creating
-        media = session.query(Media).filter_by(id=media_id).with_for_update().first()
+        media = session.execute(
+            select(Media).where(Media.id == media_id).with_for_update()
+        ).scalar_one_or_none()
         if media:
             # If we have a hash in the DB, verify it matches
             if media.content_hash:
@@ -295,11 +294,14 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
 
     # Count existing records
     with config._database.sync_session() as session:
-        existing_downloaded = (
-            session.query(Media)
-            .filter_by(is_downloaded=True, accountId=state.creator_id)
-            .count()
-        )
+        existing_downloaded = session.execute(
+            select(func.count())  # pylint: disable=not-callable
+            .select_from(Media)
+            .where(
+                Media.is_downloaded == True,  # noqa: E712
+                Media.accountId == state.creator_id,
+            )
+        ).scalar_one()
         print_info(f"Existing downloaded records: {existing_downloaded}")
 
     # Initialize patterns and counters
@@ -388,8 +390,13 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
 
     with config._database.sync_session() as session:
         downloaded_list = (
-            session.query(Media)
-            .filter_by(is_downloaded=True, accountId=state.creator_id)
+            session.execute(
+                select(Media).where(
+                    Media.is_downloaded == True,  # noqa: E712
+                    Media.accountId == state.creator_id,
+                )
+            )
+            .scalars()
             .all()
         )
         with tqdm(
@@ -416,11 +423,14 @@ def dedupe_init(config: FanslyConfig, state: DownloadState):
 
     # Get updated counts
     with config._database.sync_session() as session:
-        new_downloaded = (
-            session.query(Media)
-            .filter_by(is_downloaded=True, accountId=state.creator_id)
-            .count()
-        )
+        new_downloaded = session.execute(
+            select(func.count())  # pylint: disable=not-callable
+            .select_from(Media)
+            .where(
+                Media.is_downloaded == True,  # noqa: E712
+                Media.accountId == state.creator_id,
+            )
+        ).scalar_one()
 
     print_info(
         f"Database deduplication initialized!"

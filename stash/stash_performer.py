@@ -69,7 +69,14 @@ class StashPerformer(StashPerformerProtocol):
         created_at: datetime = datetime.now(),
         updated_at: datetime = datetime.now(),
     ) -> None:
-        super().__init__(id=id, urls=urls, created_at=created_at, updated_at=updated_at)
+        # Initialize id attribute first to ensure it exists
+        self.id = id
+        # Initialize other base attributes
+        self.urls = list(urls)  # Create a new list to avoid sharing
+        self.created_at = self.sanitize_datetime(created_at)
+        self.updated_at = self.sanitize_datetime(updated_at)
+
+        # Initialize remaining attributes
         self.name = name
         self.disambiguation = disambiguation
         self.gender = gender
@@ -96,20 +103,42 @@ class StashPerformer(StashPerformerProtocol):
         self.death_date = self.sanitize_datetime(death_date)
         self.hair_color = hair_color
         self.weight = weight
-        self.created_at = self.sanitize_datetime(created_at)
-        self.updated_at = self.sanitize_datetime(updated_at)
         self.scenes = []
         self.stash_ids = []
         self.groups = []
         self.custom_fields: dict[str, str] = {}
 
     def stash_create(self, interface: StashInterface) -> dict:
-        return interface.create_performer(self.to_create_input_dict())
+        """Create a performer in Stash and return the response data.
+
+        The response should contain the created performer data including the ID.
+        """
+        from logging_utils import json_output
+
+        input_data = self.to_create_input_dict()
+        json_output(1, "StashPerformer.stash_create - input", input_data)
+
+        response = interface.create_performer(input_data)
+        json_output(1, "StashPerformer.stash_create - response", response)
+
+        # The response should be in the format: {"performer": {...}} or just {...}
+        if isinstance(response, dict):
+            if "performer" in response:
+                return response["performer"]
+            return response
+
+        raise ValueError(
+            f"Unexpected response format from create_performer: {response}"
+        )
 
     def to_update_input_dict(self) -> dict:
         """
         Converts the StashPerformer object into a dictionary matching the PerformerUpdateInput GraphQL definition.
+        Ensures aliases don't include the performer's name to avoid duplicate alias errors.
         """
+        # Filter out the name from alias_list to prevent duplicates
+        filtered_aliases = [alias for alias in self.alias_list if alias != self.name]
+
         return {
             "id": self.id,
             "name": self.name,
@@ -129,7 +158,7 @@ class StashPerformer(StashPerformerProtocol):
             "career_length": self.career_length,
             "tattoos": self.tattoos,
             "piercings": self.piercings,
-            "alias_list": self.alias_list,
+            "alias_list": filtered_aliases,
             "twitter": None,  # Placeholder for now
             "instagram": None,  # Placeholder for now
             "favorite": self.favorite,
@@ -148,7 +177,11 @@ class StashPerformer(StashPerformerProtocol):
     def to_create_input_dict(self) -> dict:
         """
         This converts the StashPerformer object into a dictionary that matches the PerformerCreateInput of StashApp's GraphQL.
+        Ensures aliases don't include the performer's name to avoid duplicate alias errors.
         """
+        # Filter out the name from alias_list to prevent duplicates
+        filtered_aliases = [alias for alias in self.alias_list if alias != self.name]
+
         return {
             "name": self.name,
             "disambiguation": self.disambiguation,
@@ -165,7 +198,7 @@ class StashPerformer(StashPerformerProtocol):
             "career_length": self.career_length,
             "tattoos": self.tattoos,
             "piercings": self.piercings,
-            "alias_list": self.alias_list,
+            "alias_list": filtered_aliases,
             "twitter": None,  # Placeholder for now
             "instagram": None,  # Placeholder for now
             "favorite": self.favorite,
@@ -327,7 +360,7 @@ class StashPerformer(StashPerformerProtocol):
 
         # Extract basic fields with defaults and type conversions
         performer = cls(
-            id=str(performer_data.get("id", "")),
+            id=str(performer_data["id"]) if performer_data.get("id") else None,
             name=str(performer_data.get("name", "")),
             urls=list(performer_data.get("urls", [])),
             disambiguation=performer_data.get("disambiguation"),

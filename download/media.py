@@ -8,6 +8,7 @@ from time import sleep
 
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Column
+from sqlalchemy import select
 
 from config import FanslyConfig
 from errors import ApiError, DownloadError, DuplicateCountError, M3U8Error, MediaError
@@ -267,14 +268,12 @@ def download_media(
                         from metadata.media import Media
 
                         session.add(media_record)
-                        existing_by_hash = (
-                            session.query(Media)
-                            .filter(
+                        existing_by_hash = session.execute(
+                            select(Media).where(
                                 Media.content_hash == new_hash,
                                 Media.id != media_record.id,
                             )
-                            .first()
-                        )
+                        ).scalar_one_or_none()
 
                         if existing_by_hash and existing_by_hash.is_downloaded:
                             # We found a duplicate

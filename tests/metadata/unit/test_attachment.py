@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from unittest import TestCase
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from metadata.account import Account
@@ -53,7 +53,7 @@ class TestAttachment(TestCase):
         self.session.commit()
 
         # Verify order
-        saved_post = self.session.query(Post).first()
+        saved_post = self.session.execute(select(Post)).scalar_one_or_none()
         attachment_positions = [a.pos for a in saved_post.attachments]
         self.assertEqual(attachment_positions, [1, 2, 3])  # Should be ordered
         attachment_content_ids = [a.contentId for a in saved_post.attachments]
@@ -84,7 +84,7 @@ class TestAttachment(TestCase):
         self.session.commit()
 
         # Verify order
-        saved_message = self.session.query(Message).first()
+        saved_message = self.session.execute(select(Message)).scalar_one_or_none()
         attachment_positions = [a.pos for a in saved_message.attachments]
         self.assertEqual(attachment_positions, [1, 2, 3])  # Should be ordered
         attachment_content_ids = [a.contentId for a in saved_message.attachments]
@@ -118,7 +118,7 @@ class TestAttachment(TestCase):
         self.session.commit()
 
         # Verify content type properties
-        saved_post = self.session.query(Post).first()
+        saved_post = self.session.execute(select(Post)).scalar_one_or_none()
         self.assertTrue(saved_post.attachments[0].is_account_media)
         self.assertTrue(saved_post.attachments[1].is_account_media_bundle)
         self.assertFalse(saved_post.attachments[2].is_account_media)

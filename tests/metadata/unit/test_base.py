@@ -3,7 +3,7 @@
 import asyncio
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from sqlalchemy import Integer, String, create_engine
+from sqlalchemy import Integer, String, create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
@@ -48,7 +48,7 @@ class TestBase(TestCase):
         self.session.add(model)
         self.session.commit()
 
-        saved_model = self.session.query(TestModel).first()
+        saved_model = self.session.execute(select(TestModel)).scalar_one_or_none()
         self.assertEqual(saved_model.name, "test")
         self.assertEqual(saved_model.sync_method(), "Sync test")
 
@@ -61,7 +61,7 @@ class TestBase(TestCase):
         model.name = "updated"
         self.session.commit()
 
-        saved_model = self.session.query(TestModel).first()
+        saved_model = self.session.execute(select(TestModel)).scalar_one_or_none()
         self.assertEqual(saved_model.name, "updated")
 
 

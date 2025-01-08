@@ -24,7 +24,9 @@ def test_post_model_basic(session, test_account):
     session.commit()
 
     # Query and verify
-    queried_post = session.query(Post).filter_by(id=1).first()
+    queried_post = session.execute(
+        select(Post).where(Post.id == 1)
+    ).scalar_one_or_none()
     assert queried_post is not None
     assert queried_post.content == "Test post content"
     assert queried_post.accountId == test_account.id
@@ -55,7 +57,9 @@ def test_post_with_attachments(session, test_account):
     session.commit()
 
     # Verify attachments
-    queried_post = session.query(Post).filter_by(id=1).first()
+    queried_post = session.execute(
+        select(Post).where(Post.id == 1)
+    ).scalar_one_or_none()
     assert len(queried_post.attachments) == 3
     assert all(isinstance(a, Attachment) for a in queried_post.attachments)
     assert [a.pos for a in queried_post.attachments] == [0, 1, 2]
@@ -83,7 +87,9 @@ def test_post_mentions(session, test_account):
     session.commit()
 
     # Verify mention
-    queried_post = session.query(Post).filter_by(id=1).first()
+    queried_post = session.execute(
+        select(Post).where(Post.id == 1)
+    ).scalar_one_or_none()
     assert len(queried_post.accountMentions) == 1
     assert queried_post.accountMentions[0].id == test_account.id
 
@@ -215,7 +221,9 @@ def test_post_reply_fields(session, test_account):
     session.commit()
 
     # Verify reply relationships
-    queried_reply = session.query(Post).filter_by(id=2).first()
+    queried_reply = session.execute(
+        select(Post).where(Post.id == 2)
+    ).scalar_one_or_none()
     assert queried_reply.inReplyTo == parent_post.id
     assert queried_reply.inReplyToRoot == parent_post.id
 
@@ -239,7 +247,9 @@ def test_post_expiration(session, test_account, expires_at):
     session.add(post)
     session.commit()
 
-    queried_post = session.query(Post).filter_by(id=1).first()
+    queried_post = session.execute(
+        select(Post).where(Post.id == 1)
+    ).scalar_one_or_none()
     assert queried_post.expiresAt == expires_at
 
 
@@ -280,8 +290,15 @@ def test_post_cascade_delete(session, test_account):
     session.commit()
 
     # Verify cascade deletion
-    assert session.query(Post).filter_by(id=1).first() is None
-    assert session.query(Attachment).filter_by(postId=1).first() is None
+    assert (
+        session.execute(select(Post).where(Post.id == 1)).scalar_one_or_none() is None
+    )
+    assert (
+        session.execute(
+            select(Attachment).where(Attachment.postId == 1)
+        ).scalar_one_or_none()
+        is None
+    )
     assert (
         session.execute(
             select(post_mentions).where(post_mentions.c.postId == 1)

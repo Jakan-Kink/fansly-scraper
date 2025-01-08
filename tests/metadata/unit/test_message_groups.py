@@ -5,6 +5,7 @@ import tempfile
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import select
 
 from config import FanslyConfig
 from download.core import DownloadState
@@ -31,7 +32,7 @@ def test_group_creation(database):
         session.add(group)
         session.commit()
 
-        result = session.query(Group).first()
+        result = session.execute(select(Group)).scalar_one_or_none()
         assert result.id == 1
         assert result.createdBy == 123
         assert result.lastMessageId is None
@@ -46,7 +47,7 @@ def test_message_creation(database):
         session.add(message)
         session.commit()
 
-        result = session.query(Message).first()
+        result = session.execute(select(Message)).scalar_one_or_none()
         assert result.id == 1
         assert result.senderId == 123
         assert result.content == "test"
@@ -67,7 +68,7 @@ def test_group_message_relationship(database):
         session.add(group)
         session.commit()
 
-        result = session.query(Group).first()
+        result = session.execute(select(Group)).scalar_one_or_none()
         assert result.lastMessageId == 1
 
 
@@ -89,7 +90,7 @@ def test_process_groups_response_basic(database, mock_config, download_state):
     process_groups_response(mock_config, download_state, response)
 
     with database.get_sync_session() as session:
-        group = session.query(Group).first()
+        group = session.execute(select(Group)).scalar_one_or_none()
         assert group.id == 1
         # lastMessageId should not be set yet since message doesn't exist
         assert group.lastMessageId is None
@@ -106,7 +107,7 @@ def test_process_groups_response_basic(database, mock_config, download_state):
         session.commit()
 
         # Now lastMessageId should be set
-        group = session.query(Group).first()
+        group = session.execute(select(Group)).scalar_one_or_none()
         assert group.lastMessageId == 789
 
 
@@ -130,7 +131,7 @@ def test_process_groups_response_with_users(database, mock_config, download_stat
     process_groups_response(mock_config, download_state, response)
 
     with database.get_sync_session() as session:
-        group = session.query(Group).first()
+        group = session.execute(select(Group)).scalar_one_or_none()
         assert group.id == 1
         assert len(group.users) == 0  # Users won't be added until accounts exist
 
@@ -162,7 +163,11 @@ def test_process_groups_response_multiple_commits(
     process_groups_response(mock_config, download_state, response)
 
     with database.get_sync_session() as session:
-        group1 = session.query(Group).filter_by(id=1).first()
-        group2 = session.query(Group).filter_by(id=2).first()
+        group1 = session.execute(
+            select(Group).where(Group.id == 1)
+        ).scalar_one_or_none()
+        group2 = session.execute(
+            select(Group).where(Group.id == 2)
+        ).scalar_one_or_none()
         assert group1.lastMessageId == 789  # Message exists
         assert group2.lastMessageId is None  # Message doesn't exist yet

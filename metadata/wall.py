@@ -17,7 +17,7 @@ import copy
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, select
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from textio import json_output
@@ -133,7 +133,7 @@ def process_account_walls(
             )
 
             # Query first approach
-            wall = session.query(Wall).get(wall_data["id"])
+            wall = session.get(Wall, wall_data["id"])
 
             # Ensure required fields are present before proceeding
             if "id" not in filtered_wall:
@@ -161,7 +161,9 @@ def process_account_walls(
         if len(walls_data) > 0:  # Only if we have any walls data
             current_wall_ids = {wall_data["id"] for wall_data in walls_data}
             existing_walls = (
-                session.query(Wall).filter(Wall.accountId == account.id).all()
+                session.execute(select(Wall).where(Wall.accountId == account.id))
+                .scalars()
+                .all()
             )
             json_output(
                 1, "meta/wall - existing_walls", [wall.id for wall in existing_walls]
@@ -206,7 +208,7 @@ def process_wall_posts(
     # Then add wall association for each post
     session: Session
     with config._database.sync_session() as session:
-        wall = session.query(Wall).get(wall_id)
+        wall = session.get(Wall, wall_id)
         if wall is None:
             wall = Wall(id=wall_id, accountId=state.creator_id)
             session.add(wall)

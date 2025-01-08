@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -112,7 +113,10 @@ def process_pinned_posts(
         for post in posts:
             # Check if the post exists in the database
             post_exists = (
-                session.query(Post).filter_by(id=post["postId"]).first() is not None
+                session.execute(
+                    select(Post).where(Post.id == post["postId"])
+                ).scalar_one_or_none()
+                is not None
             )
             if not post_exists:
                 json_output(
@@ -234,7 +238,7 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
 
     with config._database.sync_session() as session:
         # Query first approach
-        post_obj = session.query(Post).get(filtered_post["id"])
+        post_obj = session.get(Post, filtered_post["id"])
 
         # Ensure required fields are present before proceeding
         if "accountId" not in filtered_post:
@@ -320,13 +324,12 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
                 )
 
                 # Query existing attachment
-                attachment = (
-                    session.query(Attachment)
-                    .filter_by(
-                        postId=post_obj.id, contentId=filtered_attachment["contentId"]
+                attachment = session.execute(
+                    select(Attachment).where(
+                        Attachment.postId == post_obj.id,
+                        Attachment.contentId == filtered_attachment["contentId"],
                     )
-                    .first()
-                )
+                ).scalar_one_or_none()
 
                 if attachment is None:
                     attachment = Attachment(**filtered_attachment)

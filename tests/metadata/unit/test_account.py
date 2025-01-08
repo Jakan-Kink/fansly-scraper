@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from metadata.account import (
@@ -67,7 +67,9 @@ class TestAccount(TestCase):
         self.session.commit()
 
         # Verify bundle content order
-        saved_bundle = self.session.query(AccountMediaBundle).first()
+        saved_bundle = self.session.execute(
+            select(AccountMediaBundle)
+        ).scalar_one_or_none()
         media_ids = sorted(
             [m.id for m in saved_bundle.accountMediaIds], key=lambda x: x
         )
@@ -184,7 +186,7 @@ class TestAccount(TestCase):
         process_media_bundles(mock_config, 1, bundles_data)
 
         # Verify bundle was created with correct order
-        bundle = self.session.query(AccountMediaBundle).first()
+        bundle = self.session.execute(select(AccountMediaBundle)).scalar_one_or_none()
         self.assertIsNotNone(bundle)
         media_ids = [m.id for m in bundle.accountMediaIds]
         self.assertEqual(

@@ -35,7 +35,7 @@ Notes about the challenges and important changes during the major rewrite.
 Major Infrastructure Changes:
 * Switched from requirements.txt to Poetry for dependency management
 * Added pre-commit hooks: pyupgrade, flake8, black, bandit
-* Added SQLAlchemy and Alembic for metadata database support
+* Added SQLAlchemy 2.x and Alembic for metadata database support
 * Added test suite with pytest
 
 Database Schema:
@@ -82,14 +82,16 @@ Deduplication Changes:
 * Supports both filename and hash-based lookups
 
 Database Operations:
-* Added metadata database support with SQLAlchemy
+* Added metadata database support with SQLAlchemy 2.x
 * Added relationship handling between models
 * Added write-through caching for improved performance
 * Added proper database cleanup and resource management
-* Added query-first approach pattern:
+* Added query-first approach pattern with SQLAlchemy 2.x style:
   ```python
-  # Query first
-  obj = session.query(Model).get(id)
+  # Query first (SQLAlchemy 2.x style)
+  obj = session.execute(
+      select(Model).where(Model.id == id)
+  ).scalar_one_or_none()
 
   # Check required fields
   if required_field not in data:

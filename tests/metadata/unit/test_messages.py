@@ -2,9 +2,9 @@
 
 from datetime import datetime, timezone
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from metadata.account import Account
@@ -46,7 +46,7 @@ class TestMessages(TestCase):
         self.session.add(message)
         self.session.commit()
 
-        saved_message = self.session.query(Message).first()
+        saved_message = self.session.execute(select(Message)).scalar_one_or_none()
         self.assertEqual(saved_message.content, "Test message")
         self.assertEqual(saved_message.senderId, 1)
         self.assertEqual(saved_message.recipientId, 2)
@@ -66,7 +66,7 @@ class TestMessages(TestCase):
         )
         self.session.commit()
 
-        saved_group = self.session.query(Group).first()
+        saved_group = self.session.execute(select(Group)).scalar_one_or_none()
         self.assertEqual(saved_group.createdBy, 1)
         self.assertEqual(len(saved_group.users), 2)
         user_ids = {u.id for u in saved_group.users}
@@ -94,9 +94,9 @@ class TestMessages(TestCase):
         group.lastMessageId = message.id
         self.session.commit()
 
-        saved_group = self.session.query(Group).first()
+        saved_group = self.session.execute(select(Group)).scalar_one_or_none()
         self.assertEqual(saved_group.lastMessageId, 1)
-        saved_message = self.session.query(Message).first()
+        saved_message = self.session.execute(select(Message)).scalar_one_or_none()
         self.assertEqual(saved_message.groupId, 1)
         self.assertEqual(saved_message.content, "Group message")
 
@@ -121,7 +121,7 @@ class TestMessages(TestCase):
         self.session.add(attachment)
         self.session.commit()
 
-        saved_message = self.session.query(Message).first()
+        saved_message = self.session.execute(select(Message)).scalar_one_or_none()
         self.assertEqual(len(saved_message.attachments), 1)
         self.assertEqual(
             saved_message.attachments[0].contentType, ContentType.ACCOUNT_MEDIA
@@ -151,7 +151,7 @@ class TestMessages(TestCase):
         config_mock._database.sync_session = self.Session
         process_messages_metadata(config_mock, None, messages_data)
 
-        saved_message = self.session.query(Message).first()
+        saved_message = self.session.execute(select(Message)).scalar_one_or_none()
         self.assertEqual(saved_message.content, "Test message")
         self.assertEqual(len(saved_message.attachments), 1)
         self.assertEqual(saved_message.attachments[0].contentId, "test_content")

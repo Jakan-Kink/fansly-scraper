@@ -51,8 +51,8 @@ repos:
   hooks:
     - id: pylint
       name: pylint
-      entry: ../../.virtualenvs/fansly/bin/pylint
-      language: system
+      entry: env PYTHONPATH=. python -m pylint
+      language: python
       types: [python]
       args:
         [
@@ -61,6 +61,16 @@ repos:
           "-sn", # Don't display the score
           "--rcfile=.pylintrc",
         ]
+      additional_dependencies:
+        - pylint>=3.3.3
+        - sqlalchemy>=2.0.0
+        - alembic>=1.14.0
+        - rich>=13.7.0
+        - tqdm>=4.67.1
+        - stashapp-tools>=0.2.55
+        - pytest>=7.4.4
+        - aiosqlite>=0.20.0
+        - greenlet>=3.1.1
 # -   repo: https://github.com/pre-commit/mirrors-mypy
 #     rev: 'v1.10.1'
 #     hooks:

@@ -4,7 +4,18 @@ import copy
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    and_,
+    func,
+    select,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from textio import json_output
@@ -195,15 +206,13 @@ def process_messages_metadata(
             )
 
             # Query first approach
-            existing_message = (
-                session.query(Message)
-                .filter_by(
-                    senderId=message.get("senderId"),
-                    recipientId=message.get("recipientId"),
-                    createdAt=message.get("createdAt"),
+            existing_message = session.execute(
+                select(Message).where(
+                    Message.senderId == message.get("senderId"),
+                    Message.recipientId == message.get("recipientId"),
+                    Message.createdAt == message.get("createdAt"),
                 )
-                .first()
-            )
+            ).scalar_one_or_none()
 
             # Create if doesn't exist with minimum required fields
             if existing_message is None:
@@ -263,25 +272,23 @@ def process_messages_metadata(
                     filtered_attachment["messageId"] = existing_message.id
 
                     # Query first approach
-                    existing_attachment = (
-                        session.query(Attachment)
-                        .filter_by(
-                            messageId=existing_message.id,
-                            contentId=filtered_attachment["contentId"],
+                    existing_attachment = session.execute(
+                        select(Attachment).where(
+                            Attachment.messageId == existing_message.id,
+                            Attachment.contentId == filtered_attachment["contentId"],
                         )
-                        .first()
-                    )
+                    ).scalar_one_or_none()
 
                     # Create if doesn't exist with minimum required fields
                     if existing_attachment is None:
                         # Set position if not provided
                         if "pos" not in filtered_attachment:
                             # Get max position for this message's attachments
-                            max_pos = (
-                                session.query(Attachment)
-                                .filter_by(messageId=existing_message.id)
-                                .count()
-                            )
+                            max_pos = session.execute(
+                                select(func.count())  # pylint: disable=not-callable
+                                .select_from(Attachment)
+                                .where(Attachment.messageId == existing_message.id)
+                            ).scalar_one()
                             filtered_attachment["pos"] = max_pos + 1
 
                         existing_attachment = Attachment(**filtered_attachment)
@@ -403,9 +410,9 @@ def process_groups_response(
                     del filtered_group["lastMessageId"]
 
             # Query first approach
-            existing_group = (
-                session.query(Group).filter_by(id=filtered_group.get("id")).first()
-            )
+            existing_group = session.execute(
+                select(Group).where(Group.id == filtered_group.get("id"))
+            ).scalar_one_or_none()
 
             # Ensure required fields are present
             if "createdBy" not in filtered_group:
@@ -446,9 +453,9 @@ def process_groups_response(
             # Check if createdBy account exists
             if "createdBy" in filtered_group:
                 account_exists = (
-                    session.query(Account)
-                    .filter_by(id=filtered_group["createdBy"])
-                    .first()
+                    session.execute(
+                        select(Account).where(Account.id == filtered_group["createdBy"])
+                    ).scalar_one_or_none()
                     is not None
                 )
                 if not account_exists:
@@ -466,9 +473,11 @@ def process_groups_response(
             # Check if lastMessageId exists
             if "lastMessageId" in filtered_group:
                 message_exists = (
-                    session.query(Message)
-                    .filter_by(id=filtered_group["lastMessageId"])
-                    .first()
+                    session.execute(
+                        select(Message).where(
+                            Message.id == filtered_group["lastMessageId"]
+                        )
+                    ).scalar_one_or_none()
                     is not None
                 )
                 if not message_exists:
@@ -484,9 +493,9 @@ def process_groups_response(
                     del filtered_group["lastMessageId"]
 
             # Query first approach
-            existing_group = (
-                session.query(Group).filter_by(id=filtered_group.get("id")).first()
-            )
+            existing_group = session.execute(
+                select(Group).where(Group.id == filtered_group.get("id"))
+            ).scalar_one_or_none()
 
             # Ensure required fields are present
             if "createdBy" not in filtered_group:
@@ -513,9 +522,9 @@ def process_groups_response(
                     setattr(existing_group, key, value)
 
             # Process group users
-            existing_group = (
-                session.query(Group).filter_by(id=filtered_group.get("id")).first()
-            )
+            existing_group = session.execute(
+                select(Group).where(Group.id == filtered_group.get("id"))
+            ).scalar_one_or_none()
             if existing_group:
                 existing_group.users = set()
                 for user in group.get("users", ()):
@@ -536,9 +545,16 @@ def process_groups_response(
                         "groupId": existing_group.id,
                         "accountId": user_id,
                     }
-                    existing_group_user = (
-                        session.query(group_users).filter_by(**group_user).first()
-                    )
+                    existing_group_user = session.execute(
+                        select(group_users).where(
+                            and_(
+                                *[
+                                    getattr(group_users.c, k) == v
+                                    for k, v in group_user.items()
+                                ]
+                            )
+                        )
+                    ).scalar_one_or_none()
                     if not existing_group_user:
                         session.execute(group_users.insert().values(group_user))
 

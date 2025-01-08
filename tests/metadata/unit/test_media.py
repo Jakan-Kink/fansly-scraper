@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from metadata.base import Base
@@ -40,7 +40,7 @@ class TestMedia(TestCase):
         self.session.add(media)
         self.session.commit()
 
-        saved_media = self.session.query(Media).first()
+        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
         self.assertEqual(saved_media.id, 1)
         self.assertEqual(saved_media.accountId, 123)
         self.assertEqual(saved_media.mimetype, "video/mp4")
@@ -62,7 +62,7 @@ class TestMedia(TestCase):
 
         _process_media_item_dict_inner(config_mock, media_item, self.session)
 
-        saved_media = self.session.query(Media).first()
+        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
         self.assertEqual(saved_media.width, 1920)
         self.assertEqual(saved_media.height, 1080)
         self.assertEqual(saved_media.duration, 30.5)
@@ -77,7 +77,7 @@ class TestMedia(TestCase):
         self.session.add(location)
         self.session.commit()
 
-        saved_media = self.session.query(Media).first()
+        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
         self.assertEqual(len(saved_media.locations), 1)
         self.assertEqual(
             saved_media.locations["loc1"].location, "https://example.com/video.mp4"
@@ -95,7 +95,7 @@ class TestMedia(TestCase):
 
         _process_media_item_dict_inner(config_mock, media_item, self.session)
 
-        saved_media = self.session.query(Media).first()
+        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
         self.assertEqual(saved_media.meta_info, "invalid json")
         self.assertIsNone(saved_media.duration)
         self.assertIsNone(saved_media.width)

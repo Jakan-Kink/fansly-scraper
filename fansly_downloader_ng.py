@@ -296,7 +296,17 @@ def main(config: FanslyConfig) -> int:
                         from stash.stash_processing import StashProcessing
 
                         stash_processor = StashProcessing(config, state)
-                        asyncio.run(stash_processor.start_creator_processing())
+                        # Get or create event loop
+                        try:
+                            loop = asyncio.get_event_loop()
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+
+                        # Run initial processing and let background tasks continue
+                        loop.run_until_complete(
+                            stash_processor.start_creator_processing()
+                        )
 
                 finally:
                     # Clean up creator database if used
@@ -323,14 +333,15 @@ def main(config: FanslyConfig) -> int:
     # Wait for all background tasks to complete
     if config.get_background_tasks():
         print_info("Waiting for background tasks to complete...")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
+            # Get the current event loop
+            loop = asyncio.get_event_loop()
+            # Run the tasks in the current loop
             loop.run_until_complete(
                 asyncio.gather(*config.get_background_tasks(), return_exceptions=True)
             )
-        finally:
-            loop.close()
+        except Exception as e:
+            print_error(f"Error in background tasks: {e}")
         print_info("All background tasks completed.")
 
     return exit_code
@@ -367,10 +378,40 @@ if __name__ == "__main__":
         print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
     finally:
-        print_warning("Program aborted. Cancelling background tasks...")
-        config.cancel_background_tasks()
-    # Ensure database is closed before final input prompt
-    cleanup_database(config)
+        try:
+            # Try to gracefully complete or cancel background tasks
+            if config.get_background_tasks():
+                print_warning(
+                    "Program stopping. Attempting to complete background tasks..."
+                )
+                try:
+                    loop = asyncio.get_event_loop()
+                    # Give tasks a chance to complete with a timeout
+                    loop.run_until_complete(
+                        asyncio.wait_for(
+                            asyncio.gather(
+                                *config.get_background_tasks(), return_exceptions=True
+                            ),
+                            timeout=60.0,
+                        )
+                    )
+                except (TimeoutError, Exception) as e:
+                    print_warning(f"Could not complete background tasks: {e}")
+                    config.cancel_background_tasks()
 
-    input_enter_close(config.prompt_on_exit)
-    exit(exit_code)
+            # Ensure database is closed before final input prompt
+            cleanup_database(config)
+
+            # Clean up the event loop
+            try:
+                loop = asyncio.get_event_loop()
+                if not loop.is_closed():
+                    loop.stop()
+                    loop.close()
+            except Exception:
+                pass
+        except Exception as e:
+            print_error(f"Error during cleanup: {e}")
+
+        input_enter_close(config.prompt_on_exit)
+        exit(exit_code)

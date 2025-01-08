@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    select,
 )
 from sqlalchemy.orm import (
     Mapped,
@@ -165,15 +166,13 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
 
     with config._database.sync_session() as session:
         # Query first approach
-        account_media = (
-            session.query(AccountMedia)
-            .filter_by(
-                id=filtered_account_media["id"],
-                accountId=filtered_account_media["accountId"],
-                mediaId=filtered_account_media["mediaId"],
+        account_media = session.execute(
+            select(AccountMedia).where(
+                AccountMedia.id == filtered_account_media["id"],
+                AccountMedia.accountId == filtered_account_media["accountId"],
+                AccountMedia.mediaId == filtered_account_media["mediaId"],
             )
-            .first()
-        )
+        ).scalar_one_or_none()
 
         # Create if doesn't exist with minimum required fields
         if account_media is None:
@@ -278,7 +277,9 @@ def _process_media_item_dict_inner(
         )
         return  # Skip this media if accountId is missing
     # Query first approach
-    media = session.query(Media).filter_by(id=filtered_media["id"]).first()
+    media = session.execute(
+        select(Media).where(Media.id == filtered_media["id"])
+    ).scalar_one_or_none()
 
     if media is None:
         media = Media(**filtered_media)
@@ -296,7 +297,11 @@ def _process_media_item_dict_inner(
         # Get existing locations
         existing_locations = {
             loc.locationId: loc
-            for loc in session.query(MediaLocation).filter_by(mediaId=media.id).all()
+            for loc in session.execute(
+                select(MediaLocation).where(MediaLocation.mediaId == media.id)
+            )
+            .scalars()
+            .all()
         }
 
         # Process each location
@@ -360,7 +365,9 @@ def process_media_download(
 
     with config._database.sync_session() as session:
         # Query first approach
-        existing_media = session.query(Media).filter_by(id=media.media_id).first()
+        existing_media = session.execute(
+            select(Media).where(Media.id == media.media_id)
+        ).scalar_one_or_none()
 
         # If found and already downloaded with hash, skip it
         if (

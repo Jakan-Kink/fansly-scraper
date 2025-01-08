@@ -1,13 +1,15 @@
 """Unit tests for metadata.database module."""
 
 import os
+import random
 import sqlite3
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import Integer, String, text
+from sqlalchemy import Integer, String, func, select, text
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,28 +29,68 @@ class TestModel(Base):
 
 @pytest.fixture
 def temp_db():
-    """Create a temporary database file."""
+    """Create a temporary database file with proper cleanup handling."""
+    import shutil
+    from contextlib import suppress
+
     temp_dir = tempfile.mkdtemp()
     db_path = os.path.join(temp_dir, "test.db")
     yield temp_dir, db_path
 
-    # Cleanup after tests
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    # Clean up WAL and SHM files if they exist
-    for ext in ["-wal", "-shm"]:
-        wal_path = db_path + ext
-        if os.path.exists(wal_path):
-            os.remove(wal_path)
-    # List and remove any remaining files
-    for filename in os.listdir(temp_dir):
-        filepath = os.path.join(temp_dir, filename)
-        print(f"Found unexpected file: {filepath}")
+    def remove_with_retry(path, max_retries=5, base_delay=0.1):
+        """Remove a file with retry on failure."""
+        for attempt in range(max_retries):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                return True
+            except (OSError, PermissionError) as e:
+                if attempt == max_retries - 1:
+                    print(f"Failed to remove {path} after {max_retries} attempts: {e}")
+                    return False
+                time.sleep(base_delay * (2**attempt))
+        return False
+
+    def cleanup_database_files():
+        """Clean up database and related files."""
+        # Close any remaining database connections
+        with suppress(Exception):
+            sqlite3.connect(db_path).close()
+
+        # Remove main database file
+        remove_with_retry(db_path)
+
+        # Remove WAL and SHM files
+        for ext in ["-wal", "-shm"]:
+            remove_with_retry(db_path + ext)
+
+        # List and remove any remaining files
+        remaining_files = []
         try:
-            os.remove(filepath)
-        except Exception as e:
-            print(f"Error removing {filepath}: {e}")
-    os.rmdir(temp_dir)
+            remaining_files = os.listdir(temp_dir)
+        except OSError:
+            pass
+
+        for filename in remaining_files:
+            filepath = os.path.join(temp_dir, filename)
+            if not remove_with_retry(filepath):
+                print(f"Warning: Could not remove file: {filepath}")
+
+    def remove_temp_dir():
+        """Remove temporary directory with retry."""
+        for attempt in range(5):
+            try:
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                return
+            except OSError as e:
+                if attempt == 4:
+                    print(f"Failed to remove temp directory {temp_dir}: {e}")
+                time.sleep(0.1 * (2**attempt))
+
+    # Cleanup in correct order
+    cleanup_database_files()
+    remove_temp_dir()
 
 
 @pytest.fixture
@@ -119,7 +161,7 @@ def test_session_management(database):
         session.commit()
 
         # Verify record was saved
-        result = session.query(TestModel).first()
+        result = session.execute(select(TestModel)).scalar_one_or_none()
         assert result.name == "test"
 
 
@@ -130,9 +172,16 @@ def test_concurrent_access(database):
     from functools import wraps
     from queue import Queue
 
-    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.exc import IntegrityError, OperationalError, StatementError
 
-    def retry_on_db_error(max_retries=3, delay=0.1):
+    def retry_on_db_error(max_retries=5, delay=0.1):
+        """Retry decorator for database operations.
+
+        Args:
+            max_retries: Number of retry attempts
+            delay: Base delay between retries (uses exponential backoff)
+        """
+
         def decorator(func):
             @wraps(func)
             def wrapper(*args, **kwargs):
@@ -140,22 +189,37 @@ def test_concurrent_access(database):
                 for attempt in range(max_retries):
                     try:
                         return func(*args, **kwargs)
-                    except Exception as e:
+                    except (OperationalError, IntegrityError, StatementError) as e:
                         last_error = e
                         error_msg = str(e).lower()
+
+                        # Common SQLite error messages that indicate retry-able conditions
+                        retry_messages = {
+                            "database is locked",
+                            "cannot start a transaction within a transaction",
+                            "disk i/o error",
+                            "database table is locked",
+                            "database schema has changed",
+                            "constraint failed",
+                            "record not found",
+                            "not an error",  # SQLite "not an error" is actually not an error
+                            "busy timeout expired",
+                            "database connection failed",
+                        }
+
                         if attempt < max_retries - 1 and any(
-                            msg in error_msg
-                            for msg in [
-                                "database is locked",
-                                "cannot start a transaction within a transaction",
-                                "disk i/o error",
-                                "record not found",
-                                "not an error",  # SQLite "not an error" is actually not an error
-                            ]
+                            msg in error_msg for msg in retry_messages
                         ):
-                            time.sleep(delay * (2**attempt))  # Exponential backoff
+                            # Use exponential backoff with jitter
+                            jitter = random.uniform(0, 0.1)  # Add 0-100ms random jitter
+                            sleep_time = delay * (2**attempt) + jitter
+                            time.sleep(sleep_time)
                             continue
                         raise
+                    except Exception:
+                        # Don't retry on non-database errors
+                        raise
+
                 raise last_error or Exception("Max retries exceeded")
 
             return wrapper
@@ -163,24 +227,52 @@ def test_concurrent_access(database):
         return decorator
 
     def insert_with_retry(thread_id, error_queue):
-        """Insert a record with retries on failure."""
+        """Insert a record with retries on failure.
+
+        Uses optimistic locking pattern with retry on conflicts.
+        """
 
         @retry_on_db_error(max_retries=5, delay=0.01)
         def _do_insert():
             with database.get_sync_session() as session:
                 try:
-                    # Check if record already exists
-                    existing = session.query(TestModel).filter_by(id=thread_id).first()
-                    if existing is not None:
-                        return  # Record already exists, no need to insert
+                    # Use select for update to lock the row
+                    stmt = (
+                        select(TestModel)
+                        .where(TestModel.id == thread_id)
+                        .with_for_update()
+                    )
+                    existing = session.execute(stmt).scalar_one_or_none()
 
+                    if existing is not None:
+                        # Record exists, verify its integrity
+                        if existing.name != f"test_{thread_id}":
+                            # Data inconsistency found
+                            error_queue.put(
+                                (
+                                    thread_id,
+                                    f"Data inconsistency: expected name 'test_{thread_id}' but found '{existing.name}'",
+                                )
+                            )
+                        return
+
+                    # Record doesn't exist, create it
                     model = TestModel(id=thread_id, name=f"test_{thread_id}")
                     session.add(model)
-                    session.commit()
+
+                    try:
+                        session.commit()
+                    except IntegrityError:
+                        # Another thread might have created the record
+                        session.rollback()
+                        # Verify the record was created correctly
+                        existing = session.execute(
+                            select(TestModel).where(TestModel.id == thread_id)
+                        ).scalar_one_or_none()
+                        if existing is None or existing.name != f"test_{thread_id}":
+                            raise  # Re-raise if record is missing or incorrect
                 except Exception as e:
-                    if (
-                        "not an error" not in str(e).lower()
-                    ):  # Ignore SQLite "not an error"
+                    if "not an error" not in str(e).lower():
                         session.rollback()
                         raise
 
@@ -188,90 +280,170 @@ def test_concurrent_access(database):
         def _verify_insert():
             with database.get_sync_session() as session:
                 try:
-                    saved = session.query(TestModel).filter_by(id=thread_id).first()
+                    saved = session.execute(
+                        select(TestModel).where(TestModel.id == thread_id)
+                    ).scalar_one_or_none()
+
                     if saved is None:
+                        error_queue.put(
+                            (thread_id, "Record not found during verification")
+                        )
                         raise OperationalError("Record not found", None, None)
-                    assert (
-                        saved.name == f"test_{thread_id}"
-                    ), f"Record for thread {thread_id} has incorrect name"
+
+                    if saved.name != f"test_{thread_id}":
+                        error_queue.put(
+                            (
+                                thread_id,
+                                f"Data verification failed: expected name 'test_{thread_id}' but found '{saved.name}'",
+                            )
+                        )
+                        raise AssertionError(
+                            f"Record for thread {thread_id} has incorrect name"
+                        )
                 except Exception as e:
-                    if (
-                        "not an error" not in str(e).lower()
-                    ):  # Ignore SQLite "not an error"
+                    if "not an error" not in str(e).lower():
                         raise
 
-        try:
-            # Try to insert and verify
-            for _ in range(5):  # Add retries for the entire operation
-                try:
-                    _do_insert()
-                    _verify_insert()
-                    return  # Success
-                except Exception as e:
-                    if (
-                        "not an error" not in str(e).lower()
-                    ):  # Only retry on real errors
-                        time.sleep(0.2)
-                        continue
-                    raise
-            raise Exception(
-                f"Failed to insert/verify record for thread {thread_id} after 5 attempts"
-            )
-        except Exception as e:
-            error_queue.put((thread_id, str(e)))
-            raise
+        success = False
+        last_error = None
+
+        # Try the operation multiple times
+        for attempt in range(5):
+            try:
+                _do_insert()
+                _verify_insert()
+                success = True
+                break
+            except Exception as e:
+                last_error = e
+                if "not an error" not in str(e).lower():
+                    # Add context to the error
+                    error_queue.put(
+                        (thread_id, f"Attempt {attempt + 1} failed: {str(e)}")
+                    )
+                    time.sleep(0.2 * (2**attempt))  # Exponential backoff
+                    continue
+                raise
+
+        if not success:
+            error_msg = f"Failed to insert/verify record for thread {thread_id} after 5 attempts"
+            if last_error:
+                error_msg += f": {str(last_error)}"
+            error_queue.put((thread_id, error_msg))
+            raise Exception(error_msg)
 
     # Create an error queue to collect errors from threads
     error_queue = Queue()
 
-    def worker(thread_id):
-        """Worker function that handles its own retries."""
-        try:
-            insert_with_retry(thread_id, error_queue)
-        except Exception as e:
-            if "not an error" not in str(e).lower():  # Only log real errors
-                print(f"Worker {thread_id} failed: {e}")
-                error_queue.put((thread_id, str(e)))
+    class Worker(threading.Thread):
+        """Worker thread that handles database operations with proper error tracking."""
 
-    # Create multiple threads
-    threads = []
-    for i in range(3):  # Reduced number of threads to avoid excessive contention
-        thread = threading.Thread(target=worker, args=(i,))
-        threads.append(thread)
-        thread.start()
+        def __init__(self, thread_id, error_queue):
+            super().__init__()
+            self.thread_id = thread_id
+            self.error_queue = error_queue
+            self.success = False
+            self.exception = None
 
-    # Wait for all threads to complete
-    for thread in threads:
-        thread.join()
+        def run(self):
+            try:
+                insert_with_retry(self.thread_id, self.error_queue)
+                self.success = True
+            except Exception as e:
+                self.exception = e
+                if "not an error" not in str(e).lower():
+                    self.error_queue.put(
+                        (self.thread_id, f"Worker failed with error: {str(e)}")
+                    )
 
-    # Check for any errors in the queue
+    # Create and start workers
+    num_threads = 5  # Increased number of threads to better test concurrency
+    workers = []
+    for i in range(num_threads):
+        worker = Worker(i, error_queue)
+        workers.append(worker)
+        worker.start()
+
+    # Wait for all workers to complete
+    for worker in workers:
+        worker.join(timeout=30)  # Add timeout to prevent hanging
+        if worker.is_alive():
+            error_queue.put((worker.thread_id, "Worker timed out after 30 seconds"))
+            continue
+
+    # Collect all errors and worker status
     errors = []
+    successful_workers = 0
     while not error_queue.empty():
         thread_id, error = error_queue.get()
         errors.append(f"Thread {thread_id}: {error}")
 
-    # Verify all records were saved
+    for worker in workers:
+        if worker.success:
+            successful_workers += 1
+        elif worker.exception and "not an error" not in str(worker.exception).lower():
+            errors.append(f"Thread {worker.thread_id} failed: {worker.exception}")
+
+    # Verify database state
     with database.get_sync_session() as session:
-        records = session.query(TestModel).order_by(TestModel.id).all()
-        count = len(records)
+        # Use a transaction with isolation level to ensure consistent read
+        session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
 
-        # If we don't have all records, print detailed error info
-        if count != 3:
-            error_msg = [f"Expected 3 records but found {count}"]
-            if errors:
-                error_msg.append("Thread errors:")
-                error_msg.extend(errors)
-            error_msg.append("Existing records:")
-            for record in records:
-                error_msg.append(f"  ID: {record.id}, Name: {record.name}")
-            raise AssertionError("\n".join(error_msg))
+        try:
+            records = (
+                session.execute(
+                    select(TestModel)
+                    .order_by(TestModel.id)
+                    .with_for_update()  # Lock records during verification
+                )
+                .scalars()
+                .all()
+            )
 
-        # Verify each record has correct data
-        for i, record in enumerate(records):
-            assert record.id == i, f"Record {i} has wrong ID: {record.id}"
-            assert (
-                record.name == f"test_{i}"
-            ), f"Record {i} has wrong name: {record.name}"
+            count = len(records)
+            expected_count = num_threads  # Should match number of threads
+
+            # Build detailed error report if needed
+            if count != expected_count or errors:
+                error_msg = []
+
+                # Database state report
+                error_msg.append(f"Expected {expected_count} records but found {count}")
+                error_msg.append(
+                    f"Successful workers: {successful_workers}/{num_threads}"
+                )
+
+                # Thread errors
+                if errors:
+                    error_msg.append("\nThread errors:")
+                    error_msg.extend(f"  {error}" for error in errors)
+
+                # Record state
+                error_msg.append("\nExisting records:")
+                for record in records:
+                    error_msg.append(f"  ID: {record.id}, Name: {record.name}")
+
+                # Missing records
+                existing_ids = {r.id for r in records}
+                missing_ids = set(range(num_threads)) - existing_ids
+                if missing_ids:
+                    error_msg.append("\nMissing record IDs:")
+                    error_msg.extend(f"  {id}" for id in sorted(missing_ids))
+
+                raise AssertionError("\n".join(error_msg))
+
+            # Verify record integrity
+            for i, record in enumerate(records):
+                assert record.id == i, f"Record {i} has wrong ID: {record.id}"
+                assert (
+                    record.name == f"test_{i}"
+                ), f"Record {i} has wrong name: {record.name}"
+
+            session.commit()  # Commit the verification transaction
+
+        except Exception:
+            session.rollback()
+            raise
 
 
 @patch("metadata.database.alembic_upgrade")
@@ -291,25 +463,112 @@ def test_migrations(mock_upgrade, database):
 
 
 def test_transaction_isolation(database):
-    """Test transaction isolation."""
-    # Start two sessions
+    """Test transaction isolation levels and behavior."""
+
+    def verify_isolation(isolation_level):
+        """Test specific isolation level behavior."""
+        # Create initial record
+        with database.get_sync_session() as session:
+            session.connection(execution_options={"isolation_level": isolation_level})
+            model = TestModel(id=1, name="initial")
+            session.add(model)
+            session.commit()
+
+        # Test concurrent modifications
+        with database.get_sync_session() as session1:
+            # Set isolation level for session1
+            session1.connection(execution_options={"isolation_level": isolation_level})
+
+            # Session 1 reads the record
+            record1 = session1.execute(
+                select(TestModel).where(TestModel.id == 1).with_for_update()
+            ).scalar_one()
+
+            # Session 2 tries to modify the same record
+            with database.get_sync_session() as session2:
+                session2.connection(
+                    execution_options={"isolation_level": isolation_level}
+                )
+
+                if isolation_level in ("SERIALIZABLE", "REPEATABLE READ"):
+                    # Should not be able to modify record until session1 commits
+                    with pytest.raises(Exception) as exc_info:
+                        record2 = session2.execute(
+                            select(TestModel).where(TestModel.id == 1).with_for_update()
+                        ).scalar_one()
+                        record2.name = "modified by session2"
+                        session2.commit()
+                    assert any(
+                        msg in str(exc_info.value).lower()
+                        for msg in ["deadlock", "lock", "timeout", "busy"]
+                    )
+
+                elif isolation_level == "READ COMMITTED":
+                    # Should see committed changes but allow modifications
+                    record2 = session2.execute(
+                        select(TestModel).where(TestModel.id == 1)
+                    ).scalar_one()
+                    assert record2.name == "initial"
+
+                    # Modify in session2
+                    record2.name = "modified by session2"
+                    session2.commit()
+
+                    # Session1's transaction should fail on commit due to concurrent modification
+                    record1.name = "modified by session1"
+                    with pytest.raises(Exception) as exc_info:
+                        session1.commit()
+                    assert any(
+                        msg in str(exc_info.value).lower()
+                        for msg in ["serialization", "concurrent modification"]
+                    )
+
+    # Test different isolation levels
+    for isolation_level in ["SERIALIZABLE", "REPEATABLE READ", "READ COMMITTED"]:
+        try:
+            verify_isolation(isolation_level)
+        except Exception as e:
+            if "isolation level" not in str(e).lower():
+                raise  # Re-raise if not an isolation level support issue
+            print(f"Isolation level {isolation_level} not supported: {e}")
+
+    # Test dirty reads are prevented
     with database.get_sync_session() as session1:
         # Session 1 creates a record but doesn't commit
-        model = TestModel(id=1, name="test")
+        model = TestModel(id=100, name="uncommitted")
         session1.add(model)
 
-        # Session 2 shouldn't see the uncommitted record
+        # Session 2 should not see the uncommitted record
         with database.get_sync_session() as session2:
-            result = session2.query(TestModel).first()
-            assert result is None
+            result = session2.execute(
+                select(TestModel).where(TestModel.id == 100)
+            ).scalar_one_or_none()
+            assert result is None, "Dirty read detected!"
 
-        # After commit, session 2 should see the record
-        session1.commit()
+        # Rollback session1's changes
+        session1.rollback()
 
+    # Test phantom reads are prevented
+    with database.get_sync_session() as session1:
+        session1.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+
+        # First read
+        count1 = session1.execute(
+            select(func.count()).select_from(TestModel)  # pylint: disable=not-callable
+        ).scalar_one()
+
+        # Session 2 adds a new record
         with database.get_sync_session() as session2:
-            result = session2.query(TestModel).first()
-            assert result is not None
-            assert result.name == "test"
+            model = TestModel(id=200, name="phantom")
+            session2.add(model)
+            session2.commit()
+
+        # Second read in session1 should see same count
+        count2 = session1.execute(
+            select(func.count()).select_from(TestModel)  # pylint: disable=not-callable
+        ).scalar_one()
+
+        assert count1 == count2, "Phantom read detected!"
 
 
 def test_error_handling(database):
@@ -327,7 +586,7 @@ def test_error_handling(database):
         session.rollback()
 
         # Session should be rolled back
-        result = session.query(TestModel).first()
+        result = session.execute(select(TestModel)).scalar_one_or_none()
         assert result is None
 
 
@@ -367,7 +626,7 @@ def test_session_context_error_handling(database):
 
     # Verify the session was rolled back
     with database.get_sync_session() as session:
-        result = session.query(TestModel).first()
+        result = session.execute(select(TestModel)).scalar_one_or_none()
         assert result is None
 
 
@@ -410,14 +669,20 @@ def test_write_through_cache(database):
 
         # Verify data is immediately available in second connection
         with db2.get_sync_session() as session:
-            results = session.query(TestModel).order_by(TestModel.id).all()
+            results = (
+                session.execute(select(TestModel).order_by(TestModel.id))
+                .scalars()
+                .all()
+            )
             assert len(results) == 2
             assert results[0].name == "test"
             assert results[1].name == "test2"
 
         # Test cache invalidation through second connection
         with db2.get_sync_session() as session:
-            model = session.query(TestModel).filter_by(id=1).first()
+            model = session.execute(
+                select(TestModel).where(TestModel.id == 1)
+            ).scalar_one_or_none()
             model.name = "updated"
             session.commit()
 
@@ -426,7 +691,9 @@ def test_write_through_cache(database):
 
         # Verify update is visible in first connection
         with database.get_sync_session() as session:
-            result = session.query(TestModel).filter_by(id=1).first()
+            result = session.execute(
+                select(TestModel).where(TestModel.id == 1)
+            ).scalar_one_or_none()
             assert result.name == "updated"
 
     finally:
@@ -453,4 +720,4 @@ def test_database_cleanup(mock_config):
     # Verify we can't use the database after closing
     with pytest.raises(Exception):
         with db.get_sync_session() as session:
-            session.query(TestModel).first()
+            session.execute(select(TestModel)).scalar_one_or_none()

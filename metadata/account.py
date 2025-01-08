@@ -15,6 +15,7 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     exc,
+    select,
 )
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
@@ -438,7 +439,7 @@ def process_account_data(
         try:
             # Process base account data
             account_id = data["id"]
-            existing_account = session.query(Account).get(account_id)
+            existing_account = session.get(Account, account_id)
 
             if existing_account is None:
                 # Only create a new Account if one doesn't exist
@@ -552,9 +553,9 @@ def compare_timeline_stats(
     def convert_ms_timestamp(ms_timestamp: int) -> datetime:
         return datetime.fromtimestamp(ms_timestamp / 1000, tz=timezone.utc)
 
-    existing_stats = (
-        session.query(TimelineStats).filter_by(accountId=account.id).first()
-    )
+    existing_stats = session.execute(
+        select(TimelineStats).where(TimelineStats.accountId == account.id)
+    ).scalar_one_or_none()
 
     if existing_stats:
         converted_timestamp = convert_ms_timestamp(timeline_stats["fetchedAt"])
@@ -632,7 +633,7 @@ def process_media_story_state(
     )
 
     # Get or create story state
-    story_state = session.query(MediaStoryState).get(account.id)
+    story_state = session.get(MediaStoryState, account.id)
     if story_state is None:
         story_state = MediaStoryState(accountId=account.id)
         session.add(story_state)
@@ -675,7 +676,7 @@ def process_timeline_stats(session: Session, data: dict) -> None:
     )
 
     # Get or create timeline stats
-    existing_timeline_stats = session.query(TimelineStats).get(account_id)
+    existing_timeline_stats = session.get(TimelineStats, account_id)
     if existing_timeline_stats is None:
         existing_timeline_stats = TimelineStats(accountId=account_id)
         session.add(existing_timeline_stats)
@@ -757,7 +758,7 @@ def process_media_bundles(
             )
 
             # Get or create bundle
-            existing_bundle = session.query(AccountMediaBundle).get(bundle["id"])
+            existing_bundle = session.get(AccountMediaBundle, bundle["id"])
             if existing_bundle is None:
                 # Create new bundle with filtered data
                 filtered_data["accountId"] = account_id  # Ensure accountId is set
