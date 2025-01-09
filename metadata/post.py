@@ -90,9 +90,13 @@ post_mentions = Table(
     "post_mentions",
     Base.metadata,
     Column("postId", Integer, ForeignKey("posts.id"), primary_key=True),
-    Column("accountId", Integer, ForeignKey("accounts.id"), primary_key=True),
-    Column("handle", String, nullable=True),
-    UniqueConstraint("postId", "accountId"),
+    Column("accountId", Integer, ForeignKey("accounts.id"), nullable=True),
+    Column(
+        "handle", String, nullable=False
+    ),  # Make handle required since it's our fallback
+    # Composite unique constraint: either (postId, accountId) or (postId, handle) must be unique
+    UniqueConstraint("postId", "accountId", name="uix_post_mentions_account"),
+    UniqueConstraint("postId", "handle", name="uix_post_mentions_handle"),
 )
 
 
@@ -271,20 +275,58 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
         # Process account mentions if present
         if "accountMentions" in post:
             for mention in post["accountMentions"]:
-                mention_data = {
-                    "postId": post_obj.id,
-                    "accountId": mention.get("accountId", None),
-                    "handle": mention.get("handle", ""),
-                }
-                if mention_data["accountId"] is None:
+                handle = mention.get("handle", "").strip()
+                account_id = mention.get("accountId", None)
+
+                # Skip if we have neither a handle nor an accountId
+                if not handle and account_id is None:
                     json_output(
                         2,
-                        "meta/post - _p_t_p - missing_account_id for mention",
+                        "meta/post - _p_t_p - skipping mention with no handle or accountId",
                         {"postId": post_obj.id, "mention": mention},
                     )
                     continue
+
+                mention_data = {
+                    "postId": post_obj.id,
+                    "accountId": account_id,
+                    "handle": handle,
+                }
+
+                # Log if we're storing a mention without an accountId
+                if account_id is None:
+                    json_output(
+                        2,
+                        "meta/post - _p_t_p - storing mention with handle only",
+                        {"postId": post_obj.id, "handle": handle},
+                    )
+
+                # Try to insert/update the mention
                 insert_stmt = sqlite_insert(post_mentions).values(mention_data)
-                update_stmt = insert_stmt.on_conflict_do_nothing()
+
+                # If there's a conflict, update the handle if we have an accountId,
+                # or update the accountId if we have one now
+                update_stmt = insert_stmt.on_conflict_do_update(
+                    index_elements=(
+                        ["postId", "handle"]
+                        if account_id is None
+                        else ["postId", "accountId"]
+                    ),
+                    set_=(
+                        {"handle": handle}
+                        if account_id is None
+                        else {"accountId": account_id, "handle": handle}
+                    ),
+                    where=(
+                        # Only update if we have new information
+                        (
+                            post_mentions.c.accountId.is_(None)
+                            & (account_id.is_not(None))
+                        )
+                        if account_id is not None
+                        else None
+                    ),
+                )
                 session.execute(update_stmt)
 
         # Process hashtags from content
