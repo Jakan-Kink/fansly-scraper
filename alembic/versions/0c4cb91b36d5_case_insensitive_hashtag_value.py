@@ -78,7 +78,35 @@ def upgrade() -> None:
 
             # Update all post_hashtags references to point to the canonical version
             for dupe in duplicates:
-                # Update references
+                # First, find posts that would have conflicts
+                conflict_posts = conn.execute(
+                    select(post_hashtags.c.postId)
+                    .where(post_hashtags.c.hashtagId == dupe[0])
+                    .where(
+                        post_hashtags.c.postId.in_(
+                            select(post_hashtags.c.postId).where(
+                                post_hashtags.c.hashtagId == canonical[0]
+                            )
+                        )
+                    )
+                ).fetchall()
+
+                # For posts with conflicts, delete the duplicate reference
+                if conflict_posts:
+                    print(
+                        f"Found {len(conflict_posts)} posts with conflicting hashtags "
+                        f"between {dupe[1]}(id={dupe[0]}) and {canonical[1]}(id={canonical[0]})"
+                    )
+                    delete_conflicts = (
+                        post_hashtags.delete()
+                        .where(post_hashtags.c.hashtagId == dupe[0])
+                        .where(
+                            post_hashtags.c.postId.in_([p[0] for p in conflict_posts])
+                        )
+                    )
+                    conn.execute(delete_conflicts)
+
+                # Update remaining references that won't cause conflicts
                 update_stmt = (
                     post_hashtags.update()
                     .where(post_hashtags.c.hashtagId == dupe[0])
@@ -86,7 +114,7 @@ def upgrade() -> None:
                 )
                 conn.execute(update_stmt)
 
-                # Delete duplicate
+                # Delete duplicate hashtag
                 delete_stmt = hashtags.delete().where(hashtags.c.id == dupe[0])
                 conn.execute(delete_stmt)
 
@@ -94,8 +122,9 @@ def upgrade() -> None:
     with op.batch_alter_table("hashtags", schema=None) as batch_op:
         batch_op.drop_index("ix_hashtags_value")
         # Create new case-insensitive unique index
+        # SQLite collation needs to be part of the column name with COLLATE NOCASE
         batch_op.create_index(
-            "ix_hashtags_value", ["value"], unique=True, sqlite_collation="NOCASE"
+            "ix_hashtags_value", [sa.text("value COLLATE NOCASE")], unique=True
         )
 
 

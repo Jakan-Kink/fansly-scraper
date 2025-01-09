@@ -79,7 +79,36 @@ def upgrade() -> None:
             ).scalar()
 
             if existing:
-                # Update post references to point to existing hashtag
+                # Find posts that would have conflicts
+                conflict_posts = conn.execute(
+                    select(post_hashtags.c.postId)
+                    .where(post_hashtags.c.hashtagId == hashtag_id)
+                    .where(
+                        post_hashtags.c.postId.in_(
+                            select(post_hashtags.c.postId).where(
+                                post_hashtags.c.hashtagId == existing
+                            )
+                        )
+                    )
+                ).fetchall()
+
+                # For posts with conflicts, skip updating their references
+                if conflict_posts:
+                    print(
+                        f"  Found {len(conflict_posts)} posts with conflicting hashtags "
+                        f"between malformed hashtag (id={hashtag_id}) and "
+                        f"existing {new_value} (id={existing})"
+                    )
+                    # Delete the conflicting references to the malformed hashtag
+                    conn.execute(
+                        post_hashtags.delete()
+                        .where(post_hashtags.c.hashtagId == hashtag_id)
+                        .where(
+                            post_hashtags.c.postId.in_([p[0] for p in conflict_posts])
+                        )
+                    )
+
+                # Update remaining references that won't cause conflicts
                 print(f"  Merging with existing hashtag: {new_value} (id={existing})")
                 conn.execute(
                     post_hashtags.update()
@@ -94,15 +123,33 @@ def upgrade() -> None:
                 )
                 new_id = result.scalar()
 
-                # Copy post references to new hashtag
-                conn.execute(
-                    post_hashtags.insert().from_select(
-                        ["postId", "hashtagId"],
-                        select(post_hashtags.c.postId, sa.literal(new_id)).where(
-                            post_hashtags.c.hashtagId == hashtag_id
-                        ),
+                # Find posts that would have conflicts
+                posts_to_copy = conn.execute(
+                    select(post_hashtags.c.postId)
+                    .where(post_hashtags.c.hashtagId == hashtag_id)
+                    .where(
+                        ~post_hashtags.c.postId.in_(
+                            select(post_hashtags.c.postId).where(
+                                post_hashtags.c.hashtagId == new_id
+                            )
+                        )
                     )
-                )
+                ).fetchall()
+
+                if posts_to_copy:
+                    # Copy only non-conflicting post references to new hashtag
+                    conn.execute(
+                        post_hashtags.insert().values(
+                            [
+                                {"postId": post_id[0], "hashtagId": new_id}
+                                for post_id in posts_to_copy
+                            ]
+                        )
+                    )
+                else:
+                    print(
+                        f"  No non-conflicting posts found to copy to new hashtag {new_value}"
+                    )
 
         # Delete the original malformed hashtag
         conn.execute(
