@@ -41,17 +41,11 @@ def upgrade() -> None:
 
     # Copy data from the old table to the new table
     # We'll need to handle any NULL handles by using a default value
-    conn = op.get_bind()
-    conn.execute(
-        """
-        INSERT INTO post_mentions_new (postId, accountId, handle)
-        SELECT
-            postId,
-            accountId,
-            COALESCE(handle, '') as handle
-        FROM post_mentions
-        WHERE handle IS NOT NULL OR accountId IS NOT NULL
-    """
+    op.execute(
+        "INSERT INTO post_mentions_new (postId, accountId, handle) "
+        "SELECT postId, accountId, COALESCE(handle, '') as handle "
+        "FROM post_mentions "
+        "WHERE handle IS NOT NULL OR accountId IS NOT NULL"
     )
 
     # Drop the old table
@@ -82,14 +76,11 @@ def downgrade() -> None:
 
     # Copy data from the current table to the old structure
     # We'll only copy records that have an accountId since that's required in the old structure
-    conn = op.get_bind()
-    conn.execute(
-        """
-        INSERT INTO post_mentions_old (postId, accountId, handle)
-        SELECT postId, accountId, handle
-        FROM post_mentions
-        WHERE accountId IS NOT NULL
-    """
+    op.execute(
+        "INSERT INTO post_mentions_old (postId, accountId, handle) "
+        "SELECT postId, accountId, handle "
+        "FROM post_mentions "
+        "WHERE accountId IS NOT NULL"
     )
 
     # Drop the current table

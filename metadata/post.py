@@ -319,10 +319,8 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
                     ),
                     where=(
                         # Only update if we have new information
-                        (
-                            post_mentions.c.accountId.is_(None)
-                            & (account_id.is_not(None))
-                        )
+                        # Only update if we have a new accountId and the existing one is NULL
+                        post_mentions.c.accountId.is_(None)
                         if account_id is not None
                         else None
                     ),

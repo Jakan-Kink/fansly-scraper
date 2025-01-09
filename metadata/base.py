@@ -48,8 +48,11 @@ class Base(AsyncAttrs, DeclarativeBase):
         when they are loaded from the database.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__()
+        # Set attributes from kwargs
+        for key, value in kwargs.items():
+            setattr(self, key, value)
         # Register event listener for timezone handling
         event.listen(Base, "load", Base._attach_timezone)
 
