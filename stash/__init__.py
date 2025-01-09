@@ -1,84 +1,90 @@
-""" Integration with Stash-App """
+"""Stash API client library for Python.
+
+This module provides a high-level interface to the Stash GraphQL API using dataclasses.
+"""
 
 from stashapi.stashapp import StashInterface
 
-from .group_description import StashGroupDescription
-from .image_paths_type import ImagePathsType
-from .stash_base_file import StashBaseFile
-from .stash_context import StashContext, StashQL
-from .stash_gallery import StashGallery, gallery_fragment
-from .stash_group import StashGroup
-from .stash_image import StashImage, image_fragment
-from .stash_image_file import StashImageFile
-from .stash_performer import StashPerformer, performer_fragment
-from .stash_scene import StashScene, scene_fragment
-from .stash_scene_file import StashSceneFile
-from .stash_studio import StashStudio
-from .stash_tag import StashTag
-from .studio_relationship import StashStudioRelationship
-from .tag_relationship import StashTagRelationship
-from .types import (
-    StashBaseFileProtocol,
+# Protocol definitions
+# Core functionality
+from .base_protocols import (
+    BaseFileProtocol,
+    ImageFileProtocol,
+    StashBaseProtocol,
+    StashContentProtocol,
     StashGalleryProtocol,
     StashGroupDescriptionProtocol,
     StashGroupProtocol,
-    StashImageFileProtocol,
     StashImageProtocol,
     StashPerformerProtocol,
-    StashSceneFileProtocol,
+    StashQLProtocol,
     StashSceneProtocol,
     StashStudioProtocol,
-    StashStudioRelationshipProtocol,
     StashTagProtocol,
-    StashTagRelationshipProtocol,
+    VideoFileProtocol,
     VisualFileProtocol,
     VisualFileType,
 )
-from .visual_file import VisualFile
+
+# Dataclass implementations
+from .file import BaseFile, FileType, ImageFile, SceneFile, VisualFile
+from .gallery import Gallery, GalleryChapter
+from .group import Group, GroupDescription
+from .image import Image, ImagePathsType
+from .performer import Performer
+from .processing import StashProcessing
+from .scene import (
+    Scene,
+    SceneFileType,
+    ScenePathsType,
+    SceneStreamEndpoint,
+    VideoCaption,
+)
+from .stash_context import StashContext, StashQL  # Core classes for Stash interaction
+from .studio import Studio
+from .tag import Tag
 
 __all__ = [
-    # Fragments
-    "image_fragment",
-    "gallery_fragment",
-    "performer_fragment",
-    "scene_fragment",
-    # Core classes
+    # Core functionality
     "StashContext",
     "StashQL",
     "StashInterface",
-    # Main classes (with their instance and static methods)
-    "StashScene",  # find, find_all, save, stash_create, update_batch, create_batch
-    "StashImage",  # find, find_all, save, stash_create, update_batch
-    "StashGallery",  # find, find_all, save, stash_create, update_batch
-    "StashPerformer",  # find, find_by_name, find_all, save, stash_create
-    "StashGroup",  # find, save
-    "StashStudio",  # find, find_by_name, find_all, save, stash_create
-    "StashTag",  # find, find_by_name, find_all, save, stash_create, delete
-    # File classes
-    "StashImageFile",
-    "StashSceneFile",
-    "StashBaseFile",
-    "VisualFile",
-    # Relationship classes
-    "StashGroupDescription",
-    "StashTagRelationship",
-    "StashStudioRelationship",
-    # Types
-    "VisualFileType",
+    "StashQLProtocol",
+    "StashProcessing",
+    # Dataclass implementations
+    "BaseFile",
+    "FileType",
+    "Gallery",
+    "GalleryChapter",
+    "Group",
+    "GroupDescription",
+    "Image",
+    "ImageFile",
     "ImagePathsType",
-    # Protocols
-    "StashGroupDescriptionProtocol",
-    "StashBaseFileProtocol",
+    "Performer",
+    "Scene",
+    "SceneFile",
+    "SceneFileType",
+    "ScenePathsType",
+    "SceneStreamEndpoint",
+    "Studio",
+    "Tag",
+    "VideoCaption",
+    "VisualFile",
+    # Protocol definitions
+    "BaseFileProtocol",
+    "ImageFileProtocol",
+    "StashBaseProtocol",
+    "StashContentProtocol",
     "StashGalleryProtocol",
+    "StashGroupDescriptionProtocol",
     "StashGroupProtocol",
     "StashImageProtocol",
-    "StashImageFileProtocol",
     "StashPerformerProtocol",
     "StashSceneProtocol",
-    "StashSceneFileProtocol",
     "StashStudioProtocol",
     "StashTagProtocol",
-    "StashStudioRelationshipProtocol",
-    "StashTagRelationshipProtocol",
+    "VideoFileProtocol",
     "VisualFileProtocol",
+    "VisualFileType",
 ]

@@ -293,9 +293,11 @@ def main(config: FanslyConfig) -> int:
                         )
 
                     if config.stash_context_conn is not None:
-                        from stash.stash_processing import StashProcessing
+                        from stash.processing import StashProcessing
 
-                        stash_processor = StashProcessing(config, state)
+                        # Create processor using factory method
+                        stash_processor = StashProcessing.from_config(config, state)
+
                         # Get or create event loop
                         try:
                             loop = asyncio.get_event_loop()

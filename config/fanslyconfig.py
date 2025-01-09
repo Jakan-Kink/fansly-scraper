@@ -1,16 +1,21 @@
 """Configuration Class for Shared State"""
 
+from __future__ import annotations
+
 import asyncio
 from configparser import ConfigParser
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from metadata import Base, Database
 from pathio import PathConfig
-from stash import StashContext, StashInterface
+
+if TYPE_CHECKING:
+    from stash import StashContext, StashInterface
 
 
 @dataclass
@@ -45,7 +50,7 @@ class FanslyConfig(PathConfig):
     _api: FanslyApi | None = None
     _database: Database | None = None
     _base: Base | None = None
-    _stash: StashContext | None = None
+    _stash: Any | None = None  # StashContext | None
     _background_tasks: list[asyncio.Task] = field(default_factory=list)
 
     # endregion File-Independent
@@ -360,6 +365,8 @@ class FanslyConfig(PathConfig):
         if self._stash is None:
             if self.stash_context_conn is None:
                 raise RuntimeError("No StashContext connection data available.")
+
+            from stash import StashContext
 
             self._stash = StashContext(conn=self.stash_context_conn)
             self._save_config()
