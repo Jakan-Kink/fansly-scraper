@@ -2,15 +2,26 @@
 
 import os
 import random
+import shutil
 import sqlite3
 import tempfile
+import threading
 import time
+from contextlib import suppress
+from functools import wraps
 from pathlib import Path
+from queue import Queue
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import Integer, String, func, select, text
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import (
+    DatabaseError,
+    IntegrityError,
+    OperationalError,
+    StatementError,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from alembic.config import Config as AlembicConfig
@@ -27,70 +38,68 @@ class TestModel(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
 
 
+def _remove_with_retry(
+    path: str | Path, max_retries: int = 5, base_delay: float = 0.1
+) -> bool:
+    """Remove a file with retry on failure."""
+    for attempt in range(max_retries):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+            return True
+        except (OSError, PermissionError) as e:
+            if attempt == max_retries - 1:
+                print(f"Failed to remove {path} after {max_retries} attempts: {e}")
+                return False
+            time.sleep(base_delay * (2**attempt))
+    return False
+
+
+def _cleanup_database_files(db_path: str | Path, temp_dir: str | Path) -> None:
+    """Clean up database and related files."""
+    # Close any remaining database connections
+    with suppress(Exception):
+        sqlite3.connect(db_path).close()
+
+    # Remove main database file and WAL/SHM files
+    for path in [db_path, f"{db_path}-wal", f"{db_path}-shm"]:
+        _remove_with_retry(path)
+
+    # List and remove any remaining files
+    try:
+        for filename in os.listdir(temp_dir):
+            filepath = os.path.join(temp_dir, filename)
+            if not _remove_with_retry(filepath):
+                print(f"Warning: Could not remove file: {filepath}")
+    except OSError:
+        pass
+
+
+def _remove_temp_dir(
+    temp_dir: str | Path, max_retries: int = 5, base_delay: float = 0.1
+) -> None:
+    """Remove temporary directory with retry."""
+    for attempt in range(max_retries):
+        try:
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            return
+        except OSError as e:
+            if attempt == max_retries - 1:
+                print(f"Failed to remove temp directory {temp_dir}: {e}")
+            time.sleep(base_delay * (2**attempt))
+
+
 @pytest.fixture
 def temp_db():
     """Create a temporary database file with proper cleanup handling."""
-    import shutil
-    from contextlib import suppress
-
     temp_dir = tempfile.mkdtemp()
     db_path = os.path.join(temp_dir, "test.db")
     yield temp_dir, db_path
 
-    def remove_with_retry(path, max_retries=5, base_delay=0.1):
-        """Remove a file with retry on failure."""
-        for attempt in range(max_retries):
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-                return True
-            except (OSError, PermissionError) as e:
-                if attempt == max_retries - 1:
-                    print(f"Failed to remove {path} after {max_retries} attempts: {e}")
-                    return False
-                time.sleep(base_delay * (2**attempt))
-        return False
-
-    def cleanup_database_files():
-        """Clean up database and related files."""
-        # Close any remaining database connections
-        with suppress(Exception):
-            sqlite3.connect(db_path).close()
-
-        # Remove main database file
-        remove_with_retry(db_path)
-
-        # Remove WAL and SHM files
-        for ext in ["-wal", "-shm"]:
-            remove_with_retry(db_path + ext)
-
-        # List and remove any remaining files
-        remaining_files = []
-        try:
-            remaining_files = os.listdir(temp_dir)
-        except OSError:
-            pass
-
-        for filename in remaining_files:
-            filepath = os.path.join(temp_dir, filename)
-            if not remove_with_retry(filepath):
-                print(f"Warning: Could not remove file: {filepath}")
-
-    def remove_temp_dir():
-        """Remove temporary directory with retry."""
-        for attempt in range(5):
-            try:
-                if os.path.exists(temp_dir):
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                return
-            except OSError as e:
-                if attempt == 4:
-                    print(f"Failed to remove temp directory {temp_dir}: {e}")
-                time.sleep(0.1 * (2**attempt))
-
     # Cleanup in correct order
-    cleanup_database_files()
-    remove_temp_dir()
+    _cleanup_database_files(db_path, temp_dir)
+    _remove_temp_dir(temp_dir)
 
 
 @pytest.fixture
@@ -165,226 +174,233 @@ def test_session_management(database):
         assert result.name == "test"
 
 
-def test_concurrent_access(database):
-    """Test concurrent database access."""
-    import threading
-    import time
-    from functools import wraps
-    from queue import Queue
+def _get_retry_messages() -> set[str]:
+    """Get set of retry-able SQLite error messages."""
+    return {
+        "database is locked",
+        "cannot start a transaction within a transaction",
+        "disk i/o error",
+        "database table is locked",
+        "database schema has changed",
+        "constraint failed",
+        "record not found",
+        "not an error",  # SQLite "not an error" is actually not an error
+        "busy timeout expired",
+        "database connection failed",
+    }
 
-    from sqlalchemy.exc import IntegrityError, OperationalError, StatementError
 
-    def retry_on_db_error(max_retries=5, delay=0.1):
-        """Retry decorator for database operations.
+def retry_on_db_error(max_retries=5, delay=0.1):
+    """Retry decorator for database operations.
 
-        Args:
-            max_retries: Number of retry attempts
-            delay: Base delay between retries (uses exponential backoff)
-        """
+    Args:
+        max_retries: Number of retry attempts
+        delay: Base delay between retries (uses exponential backoff)
+    """
+    retry_messages = _get_retry_messages()
 
-        def decorator(func):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                last_error = None
-                for attempt in range(max_retries):
-                    try:
-                        return func(*args, **kwargs)
-                    except (OperationalError, IntegrityError, StatementError) as e:
-                        last_error = e
-                        error_msg = str(e).lower()
-
-                        # Common SQLite error messages that indicate retry-able conditions
-                        retry_messages = {
-                            "database is locked",
-                            "cannot start a transaction within a transaction",
-                            "disk i/o error",
-                            "database table is locked",
-                            "database schema has changed",
-                            "constraint failed",
-                            "record not found",
-                            "not an error",  # SQLite "not an error" is actually not an error
-                            "busy timeout expired",
-                            "database connection failed",
-                        }
-
-                        if attempt < max_retries - 1 and any(
-                            msg in error_msg for msg in retry_messages
-                        ):
-                            # Use exponential backoff with jitter
-                            jitter = random.uniform(0, 0.1)  # Add 0-100ms random jitter
-                            sleep_time = delay * (2**attempt) + jitter
-                            time.sleep(sleep_time)
-                            continue
-                        raise
-                    except Exception:
-                        # Don't retry on non-database errors
-                        raise
-
-                raise last_error or Exception("Max retries exceeded")
-
-            return wrapper
-
-        return decorator
-
-    def insert_with_retry(thread_id, error_queue):
-        """Insert a record with retries on failure.
-
-        Uses optimistic locking pattern with retry on conflicts.
-        """
-
-        @retry_on_db_error(max_retries=5, delay=0.01)
-        def _do_insert():
-            with database.get_sync_session() as session:
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(max_retries):
                 try:
-                    # Use select for update to lock the row
-                    stmt = (
-                        select(TestModel)
-                        .where(TestModel.id == thread_id)
-                        .with_for_update()
-                    )
-                    existing = session.execute(stmt).scalar_one_or_none()
+                    return func(*args, **kwargs)
+                except (OperationalError, IntegrityError, StatementError) as e:
+                    last_error = e
+                    error_msg = str(e).lower()
 
-                    if existing is not None:
-                        # Record exists, verify its integrity
-                        if existing.name != f"test_{thread_id}":
-                            # Data inconsistency found
-                            error_queue.put(
-                                (
-                                    thread_id,
-                                    f"Data inconsistency: expected name 'test_{thread_id}' but found '{existing.name}'",
-                                )
-                            )
-                        return
+                    if attempt < max_retries - 1 and any(
+                        msg in error_msg for msg in retry_messages
+                    ):
+                        # Use exponential backoff with jitter
+                        jitter = random.uniform(0, 0.1)  # Add 0-100ms random jitter
+                        sleep_time = delay * (2**attempt) + jitter
+                        time.sleep(sleep_time)
+                        continue
+                    raise
+                except Exception:
+                    # Don't retry on non-database errors
+                    raise
 
-                    # Record doesn't exist, create it
-                    model = TestModel(id=thread_id, name=f"test_{thread_id}")
-                    session.add(model)
+            raise last_error or Exception("Max retries exceeded")
 
-                    try:
-                        session.commit()
-                    except IntegrityError:
-                        # Another thread might have created the record
-                        session.rollback()
-                        # Verify the record was created correctly
-                        existing = session.execute(
-                            select(TestModel).where(TestModel.id == thread_id)
-                        ).scalar_one_or_none()
-                        if existing is None or existing.name != f"test_{thread_id}":
-                            raise  # Re-raise if record is missing or incorrect
-                except Exception as e:
-                    if "not an error" not in str(e).lower():
-                        session.rollback()
-                        raise
+        return wrapper
 
-        @retry_on_db_error(max_retries=5, delay=0.01)
-        def _verify_insert():
-            with database.get_sync_session() as session:
-                try:
-                    saved = session.execute(
-                        select(TestModel).where(TestModel.id == thread_id)
-                    ).scalar_one_or_none()
+    return decorator
 
-                    if saved is None:
-                        error_queue.put(
-                            (thread_id, "Record not found during verification")
-                        )
-                        raise OperationalError("Record not found", None, None)
 
-                    if saved.name != f"test_{thread_id}":
-                        error_queue.put(
-                            (
-                                thread_id,
-                                f"Data verification failed: expected name 'test_{thread_id}' but found '{saved.name}'",
-                            )
-                        )
-                        raise AssertionError(
-                            f"Record for thread {thread_id} has incorrect name"
-                        )
-                except Exception as e:
-                    if "not an error" not in str(e).lower():
-                        raise
+def _verify_record_integrity(
+    thread_id: int, record: TestModel, error_queue: Queue
+) -> bool:
+    """Verify record integrity and report errors.
+    Returns True if record is valid."""
+    if record is None:
+        error_queue.put((thread_id, "Record not found during verification"))
+        return False
 
-        success = False
-        last_error = None
+    if record.name != f"test_{thread_id}":
+        error_queue.put(
+            (
+                thread_id,
+                f"Data verification failed: expected name 'test_{thread_id}' but found '{record.name}'",
+            )
+        )
+        return False
 
-        # Try the operation multiple times
-        for attempt in range(5):
-            try:
-                _do_insert()
-                _verify_insert()
-                success = True
-                break
-            except Exception as e:
-                last_error = e
-                if "not an error" not in str(e).lower():
-                    # Add context to the error
-                    error_queue.put(
-                        (thread_id, f"Attempt {attempt + 1} failed: {str(e)}")
-                    )
-                    time.sleep(0.2 * (2**attempt))  # Exponential backoff
-                    continue
-                raise
+    return True
 
-        if not success:
-            error_msg = f"Failed to insert/verify record for thread {thread_id} after 5 attempts"
-            if last_error:
-                error_msg += f": {str(last_error)}"
-            error_queue.put((thread_id, error_msg))
-            raise Exception(error_msg)
 
-    # Create an error queue to collect errors from threads
-    error_queue = Queue()
+def _get_existing_record(session, thread_id: int) -> TestModel | None:
+    """Get existing record with lock."""
+    stmt = select(TestModel).where(TestModel.id == thread_id).with_for_update()
+    return session.execute(stmt).scalar_one_or_none()
 
-    class Worker(threading.Thread):
-        """Worker thread that handles database operations with proper error tracking."""
 
-        def __init__(self, thread_id, error_queue):
-            super().__init__()
-            self.thread_id = thread_id
-            self.error_queue = error_queue
-            self.success = False
-            self.exception = None
+def _create_record(session, thread_id: int, error_queue: Queue) -> bool:
+    """Create a new record. Returns True if successful."""
+    model = TestModel(id=thread_id, name=f"test_{thread_id}")
+    session.add(model)
 
-        def run(self):
-            try:
-                insert_with_retry(self.thread_id, self.error_queue)
-                self.success = True
-            except Exception as e:
-                self.exception = e
-                if "not an error" not in str(e).lower():
-                    self.error_queue.put(
-                        (self.thread_id, f"Worker failed with error: {str(e)}")
-                    )
+    try:
+        session.commit()
+        return True
+    except IntegrityError:
+        # Another thread might have created the record
+        session.rollback()
+        # Verify the record was created correctly
+        existing = session.execute(
+            select(TestModel).where(TestModel.id == thread_id)
+        ).scalar_one_or_none()
+        if not _verify_record_integrity(thread_id, existing, error_queue):
+            raise  # Re-raise if record is missing or incorrect
+        return True
+    except Exception as e:
+        if "not an error" not in str(e).lower():
+            session.rollback()
+            raise
+        return False
 
-    # Create and start workers
-    num_threads = 5  # Increased number of threads to better test concurrency
-    workers = []
-    for i in range(num_threads):
-        worker = Worker(i, error_queue)
-        workers.append(worker)
-        worker.start()
 
-    # Wait for all workers to complete
-    for worker in workers:
-        worker.join(timeout=30)  # Add timeout to prevent hanging
-        if worker.is_alive():
-            error_queue.put((worker.thread_id, "Worker timed out after 30 seconds"))
-            continue
+@retry_on_db_error(max_retries=5, delay=0.01)
+def _do_insert(database, thread_id: int, error_queue: Queue) -> None:
+    """Insert a record with retry."""
+    with database.get_sync_session() as session:
+        existing = _get_existing_record(session, thread_id)
 
-    # Collect all errors and worker status
+        if existing is not None:
+            # Record exists, verify its integrity
+            if not _verify_record_integrity(thread_id, existing, error_queue):
+                raise AssertionError("Record integrity check failed")
+            return
+
+        # Record doesn't exist, create it
+        if not _create_record(session, thread_id, error_queue):
+            raise AssertionError("Failed to create record")
+
+
+@retry_on_db_error(max_retries=5, delay=0.01)
+def _verify_insert(database, thread_id: int, error_queue: Queue) -> None:
+    """Verify record was inserted correctly."""
+    with database.get_sync_session() as session:
+        saved = session.execute(
+            select(TestModel).where(TestModel.id == thread_id)
+        ).scalar_one_or_none()
+
+        if not _verify_record_integrity(thread_id, saved, error_queue):
+            raise AssertionError(f"Record for thread {thread_id} has incorrect name")
+
+
+def _handle_retry_error(
+    e: Exception, thread_id: int, attempt: int, error_queue: Queue
+) -> None:
+    """Handle error during retry."""
+    if "not an error" not in str(e).lower():
+        error_queue.put((thread_id, f"Attempt {attempt + 1} failed: {str(e)}"))
+        time.sleep(0.2 * (2**attempt))  # Exponential backoff
+    else:
+        raise
+
+
+def _do_insert_with_retry(database, thread_id: int, error_queue: Queue) -> None:
+    """Insert a record with retries."""
+    success = False
+    last_error = None
+
+    # Try the operation multiple times
+    for attempt in range(5):
+        try:
+            _do_insert(database, thread_id, error_queue)
+            _verify_insert(database, thread_id, error_queue)
+            success = True
+            break
+        except Exception as e:
+            last_error = e
+            _handle_retry_error(e, thread_id, attempt, error_queue)
+
+    if not success:
+        error_msg = (
+            f"Failed to insert/verify record for thread {thread_id} after 5 attempts"
+        )
+        if last_error:
+            error_msg += f": {str(last_error)}"
+        error_queue.put((thread_id, error_msg))
+        raise Exception(error_msg)
+
+
+class DatabaseWorker(threading.Thread):
+    """Worker thread that handles database operations with proper error tracking."""
+
+    def __init__(self, thread_id: int, database, error_queue: Queue):
+        super().__init__()
+        self.thread_id = thread_id
+        self.database = database
+        self.error_queue = error_queue
+        self.success = False
+        self.exception = None
+
+    def run(self):
+        try:
+            _do_insert_with_retry(self.database, self.thread_id, self.error_queue)
+            self.success = True
+        except Exception as e:
+            self.exception = e
+            if "not an error" not in str(e).lower():
+                self.error_queue.put(
+                    (self.thread_id, f"Worker failed with error: {str(e)}")
+                )
+
+
+def _collect_worker_results(
+    workers: list[DatabaseWorker], error_queue: Queue
+) -> tuple[list[str], int]:
+    """Collect results from workers and error queue.
+    Returns (errors, successful_workers)."""
     errors = []
     successful_workers = 0
+
+    # Get errors from queue
     while not error_queue.empty():
         thread_id, error = error_queue.get()
         errors.append(f"Thread {thread_id}: {error}")
 
+    # Check worker status
     for worker in workers:
         if worker.success:
             successful_workers += 1
         elif worker.exception and "not an error" not in str(worker.exception).lower():
             errors.append(f"Thread {worker.thread_id} failed: {worker.exception}")
 
-    # Verify database state
+    return errors, successful_workers
+
+
+def _verify_database_state(
+    database,
+    num_threads: int,
+    errors: list[str],
+    successful_workers: int,
+) -> None:
+    """Verify final database state matches expected state."""
     with database.get_sync_session() as session:
         # Use a transaction with isolation level to ensure consistent read
         session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
@@ -401,7 +417,7 @@ def test_concurrent_access(database):
             )
 
             count = len(records)
-            expected_count = num_threads  # Should match number of threads
+            expected_count = num_threads
 
             # Build detailed error report if needed
             if count != expected_count or errors:
@@ -444,6 +460,32 @@ def test_concurrent_access(database):
         except Exception:
             session.rollback()
             raise
+
+
+def test_concurrent_access(database):
+    """Test concurrent database access."""
+
+    # Create an error queue to collect errors from threads
+    error_queue = Queue()
+
+    # Create and start workers
+    num_threads = 5  # Increased number of threads to better test concurrency
+    workers = []
+    for i in range(num_threads):
+        worker = DatabaseWorker(i, database, error_queue)
+        workers.append(worker)
+        worker.start()
+
+    # Wait for all workers to complete
+    for worker in workers:
+        worker.join(timeout=30)  # Add timeout to prevent hanging
+        if worker.is_alive():
+            error_queue.put((worker.thread_id, "Worker timed out after 30 seconds"))
+            continue
+
+    # Collect results and verify database state
+    errors, successful_workers = _collect_worker_results(workers, error_queue)
+    _verify_database_state(database, num_threads, errors, successful_workers)
 
 
 @patch("metadata.database.alembic_upgrade")

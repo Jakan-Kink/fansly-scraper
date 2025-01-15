@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 from stashapi.stash_types import Gender
-from stashapi.stashapp import StashInterface
 
+from .stash_interface import StashInterface
 from .types import (
     StashGroupProtocol,
     StashPerformerProtocol,
@@ -88,7 +87,7 @@ class Performer(StashPerformerProtocol):
         Args:
             interface: StashInterface instance to use for updating
         """
-        interface.update_performer(self.to_dict())
+        interface.update_performer(self.to_update_input_dict())
 
     @staticmethod
     def create_batch(
@@ -160,37 +159,80 @@ class Performer(StashPerformerProtocol):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
+    _input_fields = {
+        "name": ("name", None, None, True),
+        "urls": ("urls", [], None, False),
+        "disambiguation": ("disambiguation", None, None, False),
+        "gender": ("gender", None, lambda x: x.value if x else None, False),
+        "birthdate": (
+            "birthdate",
+            None,
+            lambda x: x.date().isoformat() if x else None,
+            False,
+        ),
+        "ethnicity": ("ethnicity", None, None, False),
+        "country": ("country", None, None, False),
+        "eye_color": ("eye_color", None, None, False),
+        "height_cm": ("height_cm", None, None, False),
+        "measurements": ("measurements", None, None, False),
+        "fake_tits": ("fake_tits", None, None, False),
+        "penis_length": ("penis_length", None, None, False),
+        "circumcised": ("circumcised", None, None, False),
+        "career_length": ("career_length", None, None, False),
+        "tattoos": ("tattoos", None, None, False),
+        "piercings": ("piercings", None, None, False),
+        "favorite": ("favorite", False, None, False),
+        "ignore_auto_tag": ("ignore_auto_tag", False, None, False),
+        "image_path": ("image_path", None, None, False),
+        "o_counter": ("o_counter", None, None, False),
+        "rating100": ("rating100", None, None, False),
+        "details": ("details", None, None, False),
+        "death_date": (
+            "death_date",
+            None,
+            lambda x: x.date().isoformat() if x else None,
+            False,
+        ),
+        "hair_color": ("hair_color", None, None, False),
+        "weight": ("weight", None, None, False),
+        "tag_ids": ("tags", [], lambda x: [t.id for t in x], False),
+        "stash_ids": ("stash_ids", [], None, False),
+        "custom_fields": ("custom_fields", {}, None, False),
+    }
+
     def to_create_input_dict(self) -> dict:
-        """Converts the Performer object into a dictionary matching the PerformerCreateInput GraphQL definition."""
-        return {
-            "name": self.name,
-            "urls": self.urls,
-            "disambiguation": self.disambiguation,
-            "gender": self.gender.value if self.gender else None,
-            "birthdate": self.birthdate.isoformat() if self.birthdate else None,
-            "ethnicity": self.ethnicity,
-            "country": self.country,
-            "eye_color": self.eye_color,
-            "height_cm": self.height_cm,
-            "measurements": self.measurements,
-            "fake_tits": self.fake_tits,
-            "penis_length": self.penis_length,
-            "circumcised": self.circumcised,
-            "career_length": self.career_length,
-            "tattoos": self.tattoos,
-            "piercings": self.piercings,
-            "favorite": self.favorite,
-            "ignore_auto_tag": self.ignore_auto_tag,
-            "image_path": self.image_path,
-            "rating100": self.rating100,
-            "details": self.details,
-            "death_date": self.death_date.isoformat() if self.death_date else None,
-            "hair_color": self.hair_color,
-            "weight": self.weight,
-            "tag_ids": [t.id for t in self.tags],
-            "stash_ids": self.stash_ids,
-            "custom_fields": self.custom_fields,
-        }
+        """Converts the Performer object into a dictionary matching the PerformerCreateInput GraphQL definition.
+
+        Only includes fields that have non-default values to prevent unintended overwrites.
+        Uses _input_fields configuration to determine what to include.
+        """
+        result = {}
+
+        for field_name, (
+            attr_name,
+            default_value,
+            transform_func,
+            required,
+        ) in self._input_fields.items():
+            value = getattr(self, attr_name)
+
+            # Skip None values for non-required fields
+            if value is None and not required:
+                continue
+
+            # Skip if value equals default (but still include required fields)
+            if not required and value == default_value:
+                continue
+
+            # For empty lists (but still include required fields)
+            if not required and isinstance(default_value, list) and not value:
+                continue
+
+            # Special handling for numeric fields that could be 0
+            if isinstance(value, (int, float)) or value is not None:
+                result[field_name] = transform_func(value) if transform_func else value
+
+        return result
 
     def to_update_input_dict(self) -> dict:
         """Converts the Performer object into a dictionary matching the PerformerUpdateInput GraphQL definition."""
@@ -255,7 +297,7 @@ class Performer(StashPerformerProtocol):
         # Create the performer instance
         performer = cls(
             id=str(performer_data.get("id", "")),
-            name=performer_data["name"],
+            name=performer_data.get("name", None),
             urls=list(performer_data.get("urls", [])),
             disambiguation=performer_data.get("disambiguation"),
             gender=gender,

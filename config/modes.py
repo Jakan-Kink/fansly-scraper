@@ -13,3 +13,4 @@ class DownloadMode(StrEnum):
     SINGLE = auto()
     TIMELINE = auto()
     WALL = auto()
+    STASH_ONLY = auto()

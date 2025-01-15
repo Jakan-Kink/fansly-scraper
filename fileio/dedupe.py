@@ -130,11 +130,11 @@ def get_or_create_media(
             # If filenames match
             if media.local_filename == filename:
                 # If record has a hash, we can trust it
-                json_output(
-                    1,
-                    "dedupe-get_or_create_media",
-                    f"file_path: {file_path} -- media_id: {media_id} -- media.local_filename: {media.local_filename} -- media.is_downloaded: {media.is_downloaded} -- media.content_hash: {media.content_hash}",
-                )
+                # json_output(
+                #     1,
+                #     "dedupe-get_or_create_media",
+                #     f"file_path: {file_path} -- media_id: {media_id} -- media.local_filename: {media.local_filename} -- media.is_downloaded: {media.is_downloaded} -- media.content_hash: {media.content_hash}",
+                # )
                 if media.content_hash:
                     hash_verified = True
                     return media, hash_verified

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -13,14 +13,13 @@ from sqlalchemy import (
     String,
     Table,
     and_,
-    func,
     select,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from textio import json_output
 
-from .account import Account
+from .account import Account, process_media_bundles_data
 from .base import Base
 from .database import require_database_config
 from .relationship_logger import log_missing_relationship
@@ -126,6 +125,64 @@ class Message(Base):
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+def _process_single_message(
+    session: Session,
+    message_data: dict[str, any],
+    known_relations: set[str],
+) -> Message | None:
+    """Process a single message's data and return the message instance.
+
+    Args:
+        session: SQLAlchemy session
+        message_data: Dictionary containing message data
+        known_relations: Set of known relationship fields
+
+    Returns:
+        Message instance if successful, None if required fields are missing
+    """
+    # Process message data
+    filtered_message, _ = Message.process_data(
+        message_data,
+        known_relations,
+        "meta/mess - p_m_m-message",
+        ("createdAt", "deletedAt"),
+    )
+
+    # Validate required fields
+    required_fields = {"senderId", "createdAt"}
+    missing_required = {
+        field for field in required_fields if field not in filtered_message
+    }
+    if missing_required:
+        for field in missing_required:
+            json_output(
+                1,
+                "meta/mess - missing_required_field",
+                {"missing_field": field},
+            )
+        return None
+
+    # Get or create message
+    message, created = Message.get_or_create(
+        session,
+        {
+            "senderId": filtered_message["senderId"],
+            "recipientId": filtered_message.get("recipientId"),
+            "createdAt": filtered_message["createdAt"],
+        },
+        {
+            "content": filtered_message.get("content", ""),
+            "deleted": filtered_message.get("deleted", False),
+        },
+    )
+
+    # Update fields
+    Base.update_fields(message, filtered_message)
+    session.flush()
+
+    return message
+
+
 @require_database_config
 def process_messages_metadata(
     config: FanslyConfig, state: DownloadState, messages: list[dict[str, any]]
@@ -140,9 +197,6 @@ def process_messages_metadata(
         state: Current download state
         messages: List of message data dictionaries
     """
-    from .account import process_media_bundles
-    from .attachment import Attachment, ContentType
-
     # Create a deep copy of messages to avoid modifying the original
     messages = copy.deepcopy(messages)
 
@@ -188,125 +242,147 @@ def process_messages_metadata(
 
     with config._database.sync_session() as session:
         # Process any media bundles if present
-        if "accountMediaBundles" in messages:
-            # Try to get account ID from the first message
-            account_id = None
-            if messages.get("messages"):
-                first_message = messages["messages"][0]
-                account_id = first_message.get("senderId") or first_message.get(
-                    "recipientId"
-                )
+        process_media_bundles_data(session, messages, config)
+        from .attachment import Attachment
 
-            if account_id:
-                process_media_bundles(
-                    config, account_id, messages["accountMediaBundles"], session
-                )
-        session.commit()
-
-        for message in messages:
-            # Process message data
-            filtered_message, _ = Message.process_data(
-                message,
-                known_relations,
-                "meta/mess - p_m_m-message",
-                ("createdAt", "deletedAt"),
-            )
-
-            # Query first approach
-            existing_message = session.execute(
-                select(Message).where(
-                    Message.senderId == message.get("senderId"),
-                    Message.recipientId == message.get("recipientId"),
-                    Message.createdAt == message.get("createdAt"),
-                )
-            ).scalar_one_or_none()
-
-            # Create if doesn't exist with minimum required fields
-            if existing_message is None:
-                existing_message = Message(
-                    senderId=filtered_message.get("senderId"),
-                    content=filtered_message.get("content", ""),
-                    createdAt=filtered_message.get(
-                        "createdAt", datetime.now(timezone.utc)
-                    ),
-                    deleted=filtered_message.get("deleted", False),
-                )
-                session.add(existing_message)
-
-            # Update any changed values
-            for key, value in filtered_message.items():
-                if getattr(existing_message, key) != value:
-                    setattr(existing_message, key, value)
-            session.flush()
+        # Process messages
+        for message_data in messages:
+            message = _process_single_message(session, message_data, known_relations)
+            if not message:
+                continue
 
             # Process attachments if present
-            if "attachments" in message:
-                for attachment in message["attachments"]:
-                    # Convert contentType to enum first
-                    try:
-                        attachment["contentType"] = ContentType(
-                            attachment["contentType"]
-                        )
-                    except ValueError:
-                        old_content_type = attachment["contentType"]
-                        attachment["contentType"] = None
-                        json_output(
-                            2,
-                            f"meta/mess - _p_m_p - invalid_content_type: {old_content_type}",
-                            attachment,
-                        )
-
-                    # Process attachment data
-                    filtered_attachment, _ = Attachment.process_data(
-                        attachment,
+            if "attachments" in message_data:
+                for attachment_data in message_data["attachments"]:
+                    Attachment.process_attachment(
+                        session,
+                        attachment_data,
+                        message,
                         attachment_known_relations,
-                        "meta/mess - p_m_m-attach",
+                        "messageId",
+                        "mess",
                     )
 
-                    # Ensure required fields are present before proceeding
-                    if "contentId" not in filtered_attachment:
-                        json_output(
-                            1,
-                            "meta/mess - missing_required_field",
-                            {
-                                "messageId": existing_message.id,
-                                "missing_field": "contentId",
-                            },
-                        )
-                        continue  # Skip this attachment if contentId is missing
-
-                    # Set messageId after filtering to ensure it's not overwritten
-                    filtered_attachment["messageId"] = existing_message.id
-
-                    # Query first approach
-                    existing_attachment = session.execute(
-                        select(Attachment).where(
-                            Attachment.messageId == existing_message.id,
-                            Attachment.contentId == filtered_attachment["contentId"],
-                        )
-                    ).scalar_one_or_none()
-
-                    # Create if doesn't exist with minimum required fields
-                    if existing_attachment is None:
-                        # Set position if not provided
-                        if "pos" not in filtered_attachment:
-                            # Get max position for this message's attachments
-                            max_pos = session.execute(
-                                select(func.count())  # pylint: disable=not-callable
-                                .select_from(Attachment)
-                                .where(Attachment.messageId == existing_message.id)
-                            ).scalar_one()
-                            filtered_attachment["pos"] = max_pos + 1
-
-                        existing_attachment = Attachment(**filtered_attachment)
-                        session.add(existing_attachment)
-                    # Update fields that have changed
-                    for key, value in filtered_attachment.items():
-                        if getattr(existing_attachment, key) != value:
-                            setattr(existing_attachment, key, value)
-
-                    session.flush()
         session.commit()
+
+
+def _process_single_group(
+    session: Session,
+    group_data: dict[str, any],
+    known_relations: set[str],
+    source: str,
+) -> Group | None:
+    """Process a single group's data and return the group instance.
+
+    Args:
+        session: SQLAlchemy session
+        group_data: Dictionary containing group data
+        known_relations: Set of known relationship fields
+        source: Source identifier for logging (e.g., "data_groups")
+
+    Returns:
+        Group instance if successful, None if required fields are missing
+    """
+    # Map fields
+    if "groupId" in group_data:
+        group_data["id"] = group_data["groupId"]
+    if "account_id" in group_data:
+        group_data["createdBy"] = group_data["account_id"]
+
+    # Process group data
+    filtered_group, _ = Group.process_data(
+        group_data, known_relations, f"meta/mess - p_g_resp-{source}"
+    )
+
+    # Validate required fields
+    required_fields = {"id", "createdBy"}
+    missing_required = {
+        field for field in required_fields if field not in filtered_group
+    }
+    if missing_required:
+        for field in missing_required:
+            json_output(
+                1,
+                "meta/mess - missing_required_field",
+                {
+                    "groupId": filtered_group.get("id"),
+                    "missing_field": field,
+                    "source": source,
+                },
+            )
+        return None
+
+    # Track relationships
+    log_missing_relationship(
+        session=session,
+        table_name="groups",
+        field_name="createdBy",
+        missing_id=filtered_group["createdBy"],
+        referenced_table="accounts",
+        context={"groupId": filtered_group.get("id"), "source": source},
+    )
+
+    if "lastMessageId" in filtered_group:
+        message_exists = log_missing_relationship(
+            session=session,
+            table_name="groups",
+            field_name="lastMessageId",
+            missing_id=filtered_group["lastMessageId"],
+            referenced_table="messages",
+            context={"groupId": filtered_group.get("id"), "source": source},
+        )
+        if source == "aggregation_groups" and not message_exists:
+            del filtered_group["lastMessageId"]
+
+    # Get or create group
+    group, created = Group.get_or_create(
+        session,
+        {"id": filtered_group["id"]},
+        {"createdBy": filtered_group["createdBy"]},
+    )
+
+    # Update fields
+    Base.update_fields(group, filtered_group)
+    session.flush()
+
+    return group
+
+
+def _process_group_users(
+    session: Session, group: Group, users: list[dict[str, any]]
+) -> None:
+    """Process users for a group, updating group_users table.
+
+    Args:
+        session: SQLAlchemy session
+        group: Group instance
+        users: List of user data dictionaries
+    """
+    group.users = set()  # Clear existing users
+    for user in users:
+        user_id = user.get("userId")
+        if not user_id:
+            continue
+
+        # Track missing user accounts
+        log_missing_relationship(
+            session=session,
+            table_name="group_users",
+            field_name="accountId",
+            missing_id=user_id,
+            referenced_table="accounts",
+            context={"groupId": group.id, "source": "group_users"},
+        )
+
+        # Add user to group_users table
+        group_user = {"groupId": group.id, "accountId": user_id}
+        existing = session.execute(
+            select(group_users).where(
+                and_(*[getattr(group_users.c, k) == v for k, v in group_user.items()])
+            )
+        ).scalar_one_or_none()
+        if not existing:
+            session.execute(group_users.insert().values(group_user))
 
 
 @require_database_config
@@ -324,6 +400,7 @@ def process_groups_response(
         response: Response data containing groups and aggregated data
     """
     from .account import process_account_data
+    from .relationship_logger import print_missing_relationships_summary
 
     response = copy.deepcopy(response)
 
@@ -368,7 +445,7 @@ def process_groups_response(
         json_output(1, "meta/mess - p_g_resp - account", account)
         process_account_data(config, data=account, state=state)
 
-    # Now process groups
+    # Process groups
     data: list[dict] = response.get("data", {})
     json_output(1, "meta/mess - p_g_resp - data", data)
     groups: list = aggregation_data.get("groups", {})
@@ -376,210 +453,21 @@ def process_groups_response(
     with config._database.sync_session() as session:
         # Process groups from data
         for data_group in data:
-            # Map fields
-            data_group["id"] = data_group.get("groupId")
-            if "account_id" in data_group:
-                data_group["createdBy"] = data_group["account_id"]
-
-            # Process group data
-            filtered_group, _ = Group.process_data(
-                data_group, known_relations, "meta/mess - p_g_resp"
+            group = _process_single_group(
+                session, data_group, known_relations, "data_groups"
             )
-
-            # Ensure required fields are present
-            if "id" not in filtered_group:
-                json_output(
-                    1,
-                    "meta/mess - missing_required_field",
-                    {
-                        "missing_field": "id",
-                        "source": "data_groups",
-                    },
-                )
-                continue  # Skip this group if id is missing
-
-            if "createdBy" not in filtered_group:
-                json_output(
-                    1,
-                    "meta/mess - missing_required_field",
-                    {
-                        "groupId": filtered_group.get("id"),
-                        "missing_field": "createdBy",
-                        "source": "data_groups",
-                    },
-                )
-                continue  # Skip this group if createdBy is missing
-
-            # Track relationships even though we're not enforcing them
-            if "createdBy" in filtered_group:
-                log_missing_relationship(
-                    session=session,
-                    table_name="groups",
-                    field_name="createdBy",
-                    missing_id=filtered_group["createdBy"],
-                    referenced_table="accounts",
-                    context={
-                        "groupId": filtered_group.get("id"),
-                        "source": "data_groups",
-                    },
-                )
-
-            if "lastMessageId" in filtered_group:
-                message_exists = log_missing_relationship(
-                    session=session,
-                    table_name="groups",
-                    field_name="lastMessageId",
-                    missing_id=filtered_group["lastMessageId"],
-                    referenced_table="messages",
-                    context={
-                        "groupId": filtered_group.get("id"),
-                        "source": "data_groups",
-                    },
-                )
-                # Keep lastMessageId even if message doesn't exist yet
-                # The foreign key constraint is handled by SQLAlchemy's relationship configuration
-
-            # Query first approach
-            existing_group = session.execute(
-                select(Group).where(Group.id == filtered_group["id"])
-            ).scalar_one_or_none()
-
-            if existing_group is None:
-                existing_group = Group(
-                    id=filtered_group["id"], createdBy=filtered_group["createdBy"]
-                )
-                session.add(existing_group)
-                session.flush()  # Ensure the group is created before updating
-
-            # Update any changed values
-            for key, value in filtered_group.items():
-                if getattr(existing_group, key) != value:
-                    setattr(existing_group, key, value)
-            session.flush()  # Ensure changes are persisted
+            if group:
+                session.flush()
 
         # Process groups from aggregation data
-        for group in groups:
-            json_output(1, "meta/mess - p_g_resp - group", group)
-            # Map fields
-            if "account_id" in group:
-                group["createdBy"] = group["account_id"]
-
-            # Process group data
-            filtered_group, _ = Group.process_data(
-                group, known_relations, "meta/mess - p_g_resp-group"
+        for group_data in groups:
+            json_output(1, "meta/mess - p_g_resp - group", group_data)
+            group = _process_single_group(
+                session, group_data, known_relations, "aggregation_groups"
             )
+            if group and "users" in group_data:
+                _process_group_users(session, group, group_data["users"])
+                session.flush()
 
-            # Ensure required fields are present
-            if "id" not in filtered_group:
-                json_output(
-                    1,
-                    "meta/mess - missing_required_field",
-                    {
-                        "missing_field": "id",
-                        "source": "aggregation_groups",
-                    },
-                )
-                continue  # Skip this group if id is missing
-
-            if "createdBy" not in filtered_group:
-                json_output(
-                    1,
-                    "meta/mess - missing_required_field",
-                    {
-                        "groupId": filtered_group.get("id"),
-                        "missing_field": "createdBy",
-                        "source": "aggregation_groups",
-                    },
-                )
-                continue  # Skip this group if createdBy is missing
-
-            # Track relationships even though we're not enforcing them
-            if "createdBy" in filtered_group:
-                log_missing_relationship(
-                    session=session,
-                    table_name="groups",
-                    field_name="createdBy",
-                    missing_id=filtered_group["createdBy"],
-                    referenced_table="accounts",
-                    context={
-                        "groupId": filtered_group.get("id"),
-                        "source": "aggregation_groups",
-                    },
-                )
-
-            # Check if lastMessageId exists
-            if "lastMessageId" in filtered_group:
-                message_exists = log_missing_relationship(
-                    session=session,
-                    table_name="groups",
-                    field_name="lastMessageId",
-                    missing_id=filtered_group["lastMessageId"],
-                    referenced_table="messages",
-                    context={
-                        "groupId": filtered_group.get("id"),
-                        "source": "aggregation_groups",
-                    },
-                )
-                if not message_exists:
-                    del filtered_group["lastMessageId"]
-
-            # Query first approach
-            existing_group = session.execute(
-                select(Group).where(Group.id == filtered_group["id"])
-            ).scalar_one_or_none()
-
-            if existing_group is None:
-                existing_group = Group(
-                    id=filtered_group["id"], createdBy=filtered_group["createdBy"]
-                )
-                session.add(existing_group)
-                session.flush()  # Ensure the group is created before updating
-
-            # Update any changed values
-            for key, value in filtered_group.items():
-                if getattr(existing_group, key) != value:
-                    setattr(existing_group, key, value)
-            session.flush()  # Ensure changes are persisted
-
-            # Process group users
-            existing_group = session.execute(
-                select(Group).where(Group.id == filtered_group.get("id"))
-            ).scalar_one_or_none()
-            if existing_group:
-                existing_group.users = set()
-                for user in group.get("users", ()):
-                    user_id = user.get("userId")
-
-                    # Track missing user accounts, but add them anyway since foreign keys are disabled
-                    log_missing_relationship(
-                        session=session,
-                        table_name="group_users",
-                        field_name="accountId",
-                        missing_id=user_id,
-                        referenced_table="accounts",
-                        context={"groupId": existing_group.id, "source": "group_users"},
-                    )
-                    group_user = {
-                        "groupId": existing_group.id,
-                        "accountId": user_id,
-                    }
-                    existing_group_user = session.execute(
-                        select(group_users).where(
-                            and_(
-                                *[
-                                    getattr(group_users.c, k) == v
-                                    for k, v in group_user.items()
-                                ]
-                            )
-                        )
-                    ).scalar_one_or_none()
-                    if not existing_group_user:
-                        session.execute(group_users.insert().values(group_user))
-
-        # Commit all changes
         session.commit()
-
-        # Print summary of missing relationships
-        from .relationship_logger import print_missing_relationships_summary
-
         print_missing_relationships_summary()

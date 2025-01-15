@@ -4,9 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from stashapi.stashapp import StashInterface
-
 from .stash_context import StashQL
+from .stash_interface import StashInterface
 from .types import (
     StashGalleryProtocol,
     StashGroupDescriptionProtocol,
@@ -95,7 +94,7 @@ class Group(StashGroupProtocol):
         Args:
             interface: StashInterface instance to use for updating
         """
-        interface.update_group(self.to_dict())
+        interface.update_group(self.to_update_input_dict())
 
     @staticmethod
     def create_batch(interface: StashInterface, groups: list[Group]) -> list[dict]:
@@ -151,26 +150,58 @@ class Group(StashGroupProtocol):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
+    _input_fields = {
+        "name": ("name", None, None, True),
+        "aliases": ("aliases", None, None, False),
+        "duration": ("duration", None, None, False),
+        "date": ("date", None, lambda x: x.date().isoformat() if x else None, False),
+        "rating100": ("rating100", None, None, False),
+        "director": ("director", None, None, False),
+        "synopsis": ("synopsis", None, None, False),
+        "urls": ("urls", [], None, False),
+        "front_image_path": ("front_image_path", None, None, False),
+        "back_image_path": ("back_image_path", None, None, False),
+        "tag_ids": ("tags", [], lambda x: [t.id for t in x], False),
+        "scene_ids": ("scenes", [], lambda x: [s.id for s in x], False),
+        "performer_ids": ("performers", [], lambda x: [p.id for p in x], False),
+        "gallery_ids": ("galleries", [], lambda x: [g.id for g in x], False),
+        "image_ids": ("images", [], lambda x: [i.id for i in x], False),
+        "studio_id": ("studio", None, lambda x: x.id if x else None, False),
+    }
+
     def to_create_input_dict(self) -> dict:
-        """Converts the Group object into a dictionary matching the GroupCreateInput GraphQL definition."""
-        return {
-            "name": self.name,
-            "aliases": self.aliases,
-            "duration": self.duration,
-            "date": self.date.isoformat() if self.date else None,
-            "rating100": self.rating100,
-            "director": self.director,
-            "synopsis": self.synopsis,
-            "urls": self.urls,
-            "front_image_path": self.front_image_path,
-            "back_image_path": self.back_image_path,
-            "studio_id": self.studio.id if self.studio else None,
-            "tag_ids": [t.id for t in self.tags],
-            "scene_ids": [s.id for s in self.scenes],
-            "performer_ids": [p.id for p in self.performers],
-            "gallery_ids": [g.id for g in self.galleries],
-            "image_ids": [i.id for i in self.images],
-        }
+        """Converts the Group object into a dictionary matching the GroupCreateInput GraphQL definition.
+
+        Only includes fields that have non-default values to prevent unintended overwrites.
+        Uses _input_fields configuration to determine what to include.
+        """
+        result = {}
+
+        for field_name, (
+            attr_name,
+            default_value,
+            transform_func,
+            required,
+        ) in self._input_fields.items():
+            value = getattr(self, attr_name)
+
+            # Skip None values for non-required fields
+            if value is None and not required:
+                continue
+
+            # Skip if value equals default (but still include required fields)
+            if not required and value == default_value:
+                continue
+
+            # For empty lists (but still include required fields)
+            if not required and isinstance(default_value, list) and not value:
+                continue
+
+            # Special handling for numeric fields that could be 0
+            if isinstance(value, (int, float)) or value is not None:
+                result[field_name] = transform_func(value) if transform_func else value
+
+        return result
 
     def to_update_input_dict(self) -> dict:
         """Converts the Group object into a dictionary matching the GroupUpdateInput GraphQL definition."""

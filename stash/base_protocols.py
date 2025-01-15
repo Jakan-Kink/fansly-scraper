@@ -7,7 +7,8 @@ from enum import Enum
 from typing import Protocol, TypeVar, runtime_checkable
 
 from stashapi.stash_types import Gender
-from stashapi.stashapp import StashInterface
+
+from .stash_interface import StashInterface
 
 T = TypeVar("T", bound="StashBaseProtocol")
 
@@ -47,6 +48,7 @@ class StashBaseProtocol(StashQLProtocol, Protocol):
 class StashContentProtocol(StashBaseProtocol, Protocol):
     """Protocol for content types (scenes, images, galleries)."""
 
+    id: str
     title: str | None
     code: str | None
     details: str | None
@@ -57,6 +59,8 @@ class StashContentProtocol(StashBaseProtocol, Protocol):
     studio: StashStudioProtocol | None
     tags: list[StashTagProtocol]
     performers: list[StashPerformerProtocol]
+    created_at: datetime
+    updated_at: datetime
 
 
 @runtime_checkable
@@ -95,10 +99,11 @@ class VideoFileProtocol(ImageFileProtocol, Protocol):
 class StashPerformerProtocol(StashBaseProtocol, Protocol):
     """Protocol for performer types."""
 
+    id: str
     name: str
     disambiguation: str | None
-    gender: Gender | None
-    birthdate: datetime | None
+    gender: str | None
+    birthdate: str | None
     ethnicity: str | None
     country: str | None
     eye_color: str | None
@@ -116,16 +121,19 @@ class StashPerformerProtocol(StashBaseProtocol, Protocol):
     o_counter: int | None
     rating100: int | None
     details: str | None
-    death_date: datetime | None
+    death_date: str | None
     hair_color: str | None
     weight: int | None
     custom_fields: dict[str, str]
+    created_at: datetime
+    updated_at: datetime
 
 
 @runtime_checkable
 class StashStudioProtocol(StashBaseProtocol, Protocol):
     """Protocol for studio types."""
 
+    id: str
     name: str
     url: str | None
     parent_studio: StashStudioProtocol | None
@@ -136,20 +144,41 @@ class StashStudioProtocol(StashBaseProtocol, Protocol):
     rating100: int | None
     favorite: bool
     details: str | None
+    created_at: datetime
+    updated_at: datetime
+    scene_count: int
+    image_count: int
+    gallery_count: int
+    performer_count: int
+    group_count: int
+    stash_ids: list[str]
+    groups: list[str]
 
 
 @runtime_checkable
 class StashTagProtocol(StashBaseProtocol, Protocol):
     """Protocol for tag types."""
 
+    id: str
     name: str
     description: str | None
     aliases: list[str]
     ignore_auto_tag: bool
-    image_path: str | None
+    created_at: datetime
+    updated_at: datetime
     favorite: bool
+    image_path: str | None
+    scene_count: int
+    scene_marker_count: int
+    image_count: int
+    gallery_count: int
+    performer_count: int
+    studio_count: int
+    group_count: int
     parents: list[StashTagProtocol]
     children: list[StashTagProtocol]
+    parent_count: int
+    child_count: int
 
 
 @runtime_checkable
@@ -191,6 +220,7 @@ class StashGalleryProtocol(StashContentProtocol, Protocol):
 class StashGroupProtocol(StashBaseProtocol, Protocol):
     """Protocol for group types."""
 
+    id: str
     name: str
     aliases: str | None
     duration: int | None
@@ -200,6 +230,8 @@ class StashGroupProtocol(StashBaseProtocol, Protocol):
     synopsis: str | None
     front_image_path: str | None
     back_image_path: str | None
+    created_at: datetime
+    updated_at: datetime
     studio: StashStudioProtocol | None
     scenes: list[StashSceneProtocol]
     performers: list[StashPerformerProtocol]

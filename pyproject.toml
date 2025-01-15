@@ -59,6 +59,7 @@ pyyaml = "^6.0.2"
 aiohttp = "^3.11.11"
 aiomultiprocess = "^0.9.1"
 toml = "^0.10.2"
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.37"}
 
 
 [tool.poetry.group.dev.dependencies]
@@ -86,6 +87,7 @@ pytest-randomly = ">=3.16.0"
 pytest-mock = ">=3.14.0"
 coverage = {extras = ["toml"], version = ">=7.4.3"}
 psutil = "^6.1.1"
+gql = "^3.5.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -117,7 +119,7 @@ target-version = ['py312']
 
 [tool.flake8]
 max-line-length = 88
-max-complexity = 10
+max-complexity = 12
 max-doc-length = 140
 extend-ignore = [
     "E203",

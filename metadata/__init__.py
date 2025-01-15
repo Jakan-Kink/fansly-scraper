@@ -40,9 +40,9 @@ from .account import (
     account_banner,
     account_media_bundle_media,
     process_account_data,
-    process_creator_data,
+    process_media_bundles,
 )
-from .attachment import Attachment
+from .attachment import Attachment, ContentType, HasAttachments
 from .database import (
     Database,
     get_creator_database_path,
@@ -59,7 +59,7 @@ from .media import (
     process_media_info,
     process_media_metadata,
 )
-from .messages import Message, process_groups_response, process_messages_metadata
+from .messages import Group, Message, process_groups_response, process_messages_metadata
 from .post import (
     Post,
     pinned_posts,
@@ -68,19 +68,21 @@ from .post import (
     process_posts_metadata,
     process_timeline_posts,
 )
+from .story import Story
 from .wall import Wall, process_account_walls, process_wall_posts
 
 __all__ = [
     "process_account_data",
     "process_account_walls",
-    "process_creator_data",
     "process_groups_response",
+    "process_media_bundles",
     "process_media_download",
     "process_media_download_accessible",
     "process_media_download_handler",
     "process_media_metadata",
     "process_media_info",
     "process_messages_metadata",
+    "process_post_hashtags",
     "process_pinned_posts",
     "process_posts_metadata",
     "process_timeline_posts",
@@ -109,4 +111,7 @@ __all__ = [
     "Hashtag",
     "extract_hashtags",
     "process_post_hashtags",
+    "Story",
+    "ContentType",
+    "HasAttachments",
 ]

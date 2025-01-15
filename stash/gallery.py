@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Union
-
-from stashapi.stashapp import StashInterface
 
 from .stash_context import StashQL
+from .stash_interface import StashInterface
 from .types import (
     StashGalleryProtocol,
     StashSceneProtocol,
@@ -54,6 +52,23 @@ class Gallery(StashGalleryProtocol):
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
+    # Define input field configurations
+    _input_fields = {
+        # Field name: (attribute name, default value, transform function, required)
+        "title": ("title", None, None, False),
+        "code": ("code", None, None, False),
+        "urls": ("urls", [], None, False),
+        "date": ("date", None, lambda x: x.date().isoformat() if x else None, False),
+        "details": ("details", None, None, False),
+        "photographer": ("photographer", None, None, False),
+        "rating100": ("rating100", None, None, False),
+        "organized": ("organized", False, None, False),
+        "scene_ids": ("scenes", [], lambda x: [s.id for s in x], False),
+        "studio_id": ("studio", None, lambda x: x.id if x else None, False),
+        "tag_ids": ("tags", [], lambda x: [t.id for t in x], False),
+        "performer_ids": ("performers", [], lambda x: [p.id for p in x], False),
+    }
+
     @staticmethod
     def find(id: str, interface: StashInterface) -> Gallery | None:
         """Find a gallery by ID.
@@ -91,7 +106,7 @@ class Gallery(StashGalleryProtocol):
         Args:
             interface: StashInterface instance to use for updating
         """
-        interface.update_gallery(self.to_dict())
+        interface.update_gallery(self.to_update_input_dict())
 
     @staticmethod
     def create_batch(interface: StashInterface, galleries: list[Gallery]) -> list[dict]:
@@ -158,22 +173,38 @@ class Gallery(StashGalleryProtocol):
         }
 
     def to_create_input_dict(self) -> dict:
-        """Converts the Gallery object into a dictionary matching the GalleryCreateInput GraphQL definition."""
-        return {
-            "title": self.title,
-            "code": self.code,
-            "urls": self.urls,
-            "date": self.date.isoformat() if self.date else None,
-            "details": self.details,
-            "photographer": self.photographer,
-            "rating100": self.rating100,
-            "organized": self.organized,
-            "scene_ids": [s.id for s in self.scenes],
-            "studio_id": self.studio.id if self.studio else None,
-            "tag_ids": [t.id for t in self.tags],
-            "performer_ids": [p.id for p in self.performers],
-            "cover": self.cover,
-        }
+        """Converts the Gallery object into a dictionary matching the GalleryCreateInput GraphQL definition.
+
+        Only includes fields that have non-default values to prevent unintended overwrites.
+        Uses _input_fields configuration to determine what to include.
+        """
+        result = {}
+
+        for field_name, (
+            attr_name,
+            default_value,
+            transform_func,
+            required,
+        ) in self._input_fields.items():
+            value = getattr(self, attr_name)
+
+            # Skip None values for non-required fields
+            if value is None and not required:
+                continue
+
+            # Skip if value equals default (but still include required fields)
+            if not required and value == default_value:
+                continue
+
+            # For empty lists (but still include required fields)
+            if not required and isinstance(default_value, list) and not value:
+                continue
+
+            # Special handling for numeric fields that could be 0
+            if isinstance(value, (int, float)) or value is not None:
+                result[field_name] = transform_func(value) if transform_func else value
+
+        return result
 
     def to_update_input_dict(self) -> dict:
         """Converts the Gallery object into a dictionary matching the GalleryUpdateInput GraphQL definition."""

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
-from stashapi.stashapp import StashInterface
-
+from .stash_interface import StashInterface
 from .types import StashGroupProtocol, StashStudioProtocol, StashTagProtocol
 
 
@@ -27,6 +25,22 @@ class Studio(StashStudioProtocol):
     stash_ids: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+
+    # Define input field configurations
+    _input_fields = {
+        # Field name: (attribute name, default value, transform function, required)
+        "name": ("name", None, None, True),  # Required field
+        "url": ("url", None, None, False),
+        "parent_id": ("parent_studio", None, lambda x: x.id if x else None, False),
+        "aliases": ("aliases", [], None, False),
+        "tag_ids": ("tags", [], lambda x: [t.id for t in x], False),
+        "ignore_auto_tag": ("ignore_auto_tag", False, None, False),
+        "image_path": ("image_path", None, None, False),
+        "rating100": ("rating100", None, None, False),
+        "favorite": ("favorite", False, None, False),
+        "details": ("details", None, None, False),
+        "stash_ids": ("stash_ids", [], None, False),
+    }
 
     @staticmethod
     def find(id: str, interface: StashInterface) -> Studio | None:
@@ -65,35 +79,7 @@ class Studio(StashStudioProtocol):
         Args:
             interface: StashInterface instance to use for updating
         """
-        interface.update_studio(self.to_dict())
-
-    @staticmethod
-    def create_batch(interface: StashInterface, studios: list[Studio]) -> list[dict]:
-        """Create multiple studios at once.
-
-        Args:
-            interface: StashInterface instance to use for creation
-            studios: List of Studio instances to create
-
-        Returns:
-            List of created studio data from stash
-        """
-        inputs = [s.to_create_input_dict() for s in studios]
-        return interface.create_studios(inputs)
-
-    @staticmethod
-    def update_batch(interface: StashInterface, studios: list[Studio]) -> list[dict]:
-        """Update multiple studios at once.
-
-        Args:
-            interface: StashInterface instance to use for updating
-            studios: List of Studio instances to update
-
-        Returns:
-            List of updated studio data from stash
-        """
-        updates = [s.to_update_input_dict() for s in studios]
-        return interface.update_studios(updates)
+        interface.update_studio(self.to_update_input_dict())
 
     def to_dict(self) -> dict:
         """Convert the studio object to a dictionary."""
@@ -119,20 +105,39 @@ class Studio(StashStudioProtocol):
         }
 
     def to_create_input_dict(self) -> dict:
-        """Converts the Studio object into a dictionary matching the StudioCreateInput GraphQL definition."""
-        return {
-            "name": self.name,
-            "url": self.url,
-            "parent_id": self.parent_studio.id if self.parent_studio else None,
-            "aliases": self.aliases,
-            "tag_ids": [t.id for t in self.tags],
-            "ignore_auto_tag": self.ignore_auto_tag,
-            "image_path": self.image_path,
-            "rating100": self.rating100,
-            "favorite": self.favorite,
-            "details": self.details,
-            "stash_ids": self.stash_ids,
-        }
+        """Converts the Studio object into a dictionary matching the StudioCreateInput GraphQL definition.
+
+        Only includes fields that have non-default values to prevent unintended overwrites.
+        Uses _input_fields configuration to determine what to include.
+        Required fields (name) are always included.
+        """
+        result = {}
+
+        for field_name, (
+            attr_name,
+            default_value,
+            transform_func,
+            required,
+        ) in self._input_fields.items():
+            value = getattr(self, attr_name)
+
+            # Skip None values for non-required fields
+            if value is None and not required:
+                continue
+
+            # Skip if value equals default (but still include required fields)
+            if not required and value == default_value:
+                continue
+
+            # For empty lists (but still include required fields)
+            if not required and isinstance(default_value, list) and not value:
+                continue
+
+            # Special handling for numeric fields that could be 0
+            if isinstance(value, (int, float)) or value is not None:
+                result[field_name] = transform_func(value) if transform_func else value
+
+        return result
 
     def to_update_input_dict(self) -> dict:
         """Converts the Studio object into a dictionary matching the StudioUpdateInput GraphQL definition."""
@@ -150,7 +155,7 @@ class Studio(StashStudioProtocol):
         return interface.create_studio(self.to_create_input_dict())
 
     @classmethod
-    def from_dict(cls, data: dict) -> Studio:
+    def from_dict(cls, data: dict, interface: StashInterface | None = None) -> Studio:
         """Create a Studio instance from a dictionary.
 
         Args:
@@ -194,7 +199,7 @@ class Studio(StashStudioProtocol):
         # Create the studio instance
         studio = cls(
             id=str(studio_data.get("id", "")),
-            name=studio_data["name"],
+            name=studio_data.get("name"),
             url=studio_data.get("url"),
             parent_studio=parent_studio,
             child_studios=child_studios,

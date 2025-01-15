@@ -1,3 +1,9 @@
+"""Account module for SQLAlchemy models and processing functions.
+
+This module handles account-related models and their processing functions, including
+media bundles, timeline stats, and story states.
+"""
+
 from __future__ import annotations
 
 import copy
@@ -31,6 +37,7 @@ if TYPE_CHECKING:
 
     from .media import Media
     from .post import Post
+    from .story import Story
     from .wall import Wall
 
 
@@ -52,6 +59,36 @@ def retry_on_locked_db(func):
                 raise
 
     return wrapper
+
+
+def process_media_bundles_data(
+    session: Session,
+    data: dict[str, any],
+    config: FanslyConfig,
+    id_fields: list[str] = ["senderId", "recipientId"],
+) -> None:
+    """Process media bundles from data.
+
+    Args:
+        session: SQLAlchemy session
+        data: Dictionary containing data and media bundles
+        config: FanslyConfig instance for database access
+        id_fields: List of field names to check for account ID
+    """
+    if "accountMediaBundles" not in data:
+        return
+
+    # Try to get account ID from the first item
+    account_id = None
+    if data.get("messages") or data.get("posts"):
+        first_item = (data.get("messages") or data.get("posts"))[0]
+        for field in id_fields:
+            if account_id := first_item.get(field):
+                break
+
+    if account_id:
+        process_media_bundles(config, account_id, data["accountMediaBundles"], session)
+        session.commit()
 
 
 class Account(Base):
@@ -159,6 +196,12 @@ class Account(Base):
         lazy="select",
         collection_class=set,
     )
+    stories: Mapped[set[Story]] = relationship(
+        "Story",
+        back_populates="author",
+        lazy="select",
+        collection_class=set,
+    )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
@@ -195,6 +238,11 @@ class MediaStoryState(Base):
     hasActiveStories: Mapped[bool | None] = mapped_column(
         Boolean, nullable=True, default=False
     )
+
+    def __init__(self, **kwargs):
+        """Initialize a Story instance with timestamp conversion."""
+        self.convert_timestamps(kwargs, ("createdAt", "updatedAt"))
+        super().__init__(**kwargs)
 
 
 class TimelineStats(Base):
@@ -285,6 +333,7 @@ class AccountMedia(Base):
         deletedAt: When this media was deleted (if applicable)
         deleted: Whether this media is marked as deleted
         access: Whether the authenticated user has access to this media
+        attachments: Relationship to attachments that reference this media
     """
 
     __tablename__ = "account_media"
@@ -367,6 +416,7 @@ class AccountMediaBundle(Base):
         access: Whether the authenticated user has access to this bundle
         purchased: Whether the authenticated user has purchased this bundle
         whitelisted: Whether the authenticated user is whitelisted for this bundle
+        attachments: Relationship to attachments that reference this bundle
     Note:
         The following fields from the API are intentionally ignored as they are not
         needed for the application's functionality:
@@ -409,290 +459,153 @@ class AccountMediaBundle(Base):
     purchased: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     whitelisted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    UniqueConstraint("accountId", "mediaId")
 
 
-@require_database_config
-@retry_on_locked_db
-def process_account_data(
-    config: FanslyConfig,
-    data: dict,
-    state: DownloadState | None = None,
-    *,
-    context: str = "account",
+def _process_bundle_content(
+    session: Session,
+    bundle: dict,
 ) -> None:
-    """Process account or creator data and store it in the database.
+    """Process bundle content items.
 
     Args:
-        config: FanslyConfig instance
-        data: Dictionary containing account/creator data
-        state: Optional DownloadState instance
-        context: String indicating the context ("account" or "creator") for logging
+        session: SQLAlchemy session
+        bundle: Bundle data dictionary
     """
-    from .post import process_pinned_posts
-    from .wall import process_account_walls
+    from .media_utils import link_media_to_bundle, validate_media_id
 
-    json_output(1, "meta/account - p_a_data - full_data", data)
+    if "bundleContent" not in bundle:
+        return
 
-    # Create deep copy of input data
-    data = copy.deepcopy(data)
-
-    with config._database.sync_session() as session:
+    for content in bundle["bundleContent"]:
         try:
-            # Process base account data
-            account_id = data["id"]
-            existing_account = session.get(Account, account_id)
-
-            if existing_account is None:
-                # Only create a new Account if one doesn't exist
-                existing_account = Account(id=account_id, username=data["username"])
-                session.add(existing_account)
-                session.flush()
-
-            # Process timeline stats
-            if "timelineStats" in data:
-                if context == "creator":
-                    compare_timeline_stats(
-                        data["timelineStats"], existing_account, state, session
-                    )
-                process_timeline_stats(session, data)
-
-            # Process media story state
-            if "mediaStoryState" in data:
-                process_media_story_state(
-                    config, existing_account, data["mediaStoryState"], session=session
-                )
-
-            # Process pinned posts
-            if "pinnedPosts" in data:
-                process_pinned_posts(
-                    config, existing_account, data["pinnedPosts"], session=session
-                )
-
-            # Process walls
-            if "walls" in data:
-                json_output(1, "meta/account - p_a_data - walls", data["walls"])
-                process_account_walls(
-                    config, existing_account, data["walls"], session=session
-                )
-
-            # Process media bundles
-            if "accountMediaBundles" in data:
-                process_media_bundles(
-                    config, account_id, data["accountMediaBundles"], session=session
-                )
-
-            # Process avatar
-            if "avatar" in data:
-                process_avatar(
-                    config, existing_account, data["avatar"], session=session
-                )
-
-            # Process banner
-            if "banner" in data:
-                process_banner(
-                    config, existing_account, data["banner"], session=session
-                )
-
-            # Known attributes that are handled separately
-            known_relations = {
-                # Handled relationships
-                "timelineStats",
-                "pinnedPosts",
-                "walls",
-                "accountMediaBundles",
-                "avatar",
-                "banner",
-                "mediaStoryState",
-                # Intentionally ignored fields
-                "subscription",
-                "subscriptionTiers",
-                "profileSocials",
-                "profileBadges",
-                "followCount",
-                "subscriberCount",
-                "permissions",
-                "accountMediaLikes",
-                "profileFlags",
-                "postLikes",
-                "statusId",
-                "lastSeenAt",
-                "streaming",
-                "profileAccessFlags",
-                "ignoring",
-            }
-
-            # Process account data
-            filtered_data, _ = Account.process_data(
-                data, known_relations, "meta/account - p_a_d", ("createdAt",)
+            media_id = validate_media_id(
+                content["accountMediaId"],
+                bundle["id"],
+                content.get("pos"),
             )
+            if media_id is None:
+                continue
 
-            # Update account attributes directly, only if they've changed
-            for key, value in filtered_data.items():
-                if getattr(existing_account, key) != value:
-                    setattr(existing_account, key, value)
-
-            # Get all model columns for logging the full account state
-            model_columns = {column.name for column in inspect(Account).columns}
+            link_media_to_bundle(
+                session,
+                bundle["id"],
+                media_id,
+                content["pos"],
+            )
+        except (ValueError, KeyError) as e:
             json_output(
-                1,
-                f"meta/account - p_{context[0]}_data - account_update",
-                {key: getattr(existing_account, key) for key in model_columns},
+                2,
+                "meta/account - invalid_bundle_content",
+                {
+                    "error": str(e),
+                    "content": content,
+                    "bundle_id": bundle["id"],
+                },
             )
+            continue
 
-            session.flush()
-            session.commit()
-        except (exc.SQLAlchemyError, exc.DBAPIError) as e:
-            session.rollback()
-            raise exc.SQLAlchemyError(
-                f"Database error while processing account data: {str(e)}"
-            ) from e
+    bundle.pop("bundleContent", None)  # Remove bundleContent from bundle data
 
 
-def compare_timeline_stats(
-    timeline_stats: dict, account: Account, state: DownloadState, session: Session
-):
-    def convert_ms_timestamp(ms_timestamp: int) -> datetime:
-        return datetime.fromtimestamp(ms_timestamp / 1000, tz=timezone.utc)
-
-    existing_stats = session.execute(
-        select(TimelineStats).where(TimelineStats.accountId == account.id)
-    ).scalar_one_or_none()
-
-    if existing_stats:
-        converted_timestamp = convert_ms_timestamp(timeline_stats["fetchedAt"])
-
-        json_output(
-            1,
-            "meta/account - debug - timestamp comparison",
-            {
-                "converted": converted_timestamp,
-                "existing": existing_stats.fetchedAt,
-                "equal": converted_timestamp == existing_stats.fetchedAt,
-            },
-        )
-
-        json_output(
-            1,
-            "meta/account - debug - counts comparison",
-            {
-                "images_match": existing_stats.imageCount
-                == timeline_stats.get("imageCount"),
-                "videos_match": existing_stats.videoCount
-                == timeline_stats.get("videoCount"),
-            },
-        )
-
-        if (
-            existing_stats.fetchedAt == converted_timestamp
-            and existing_stats.imageCount == timeline_stats.get("imageCount")
-            and existing_stats.videoCount == timeline_stats.get("videoCount")
-        ):
-
-            json_output(
-                1,
-                "meta/account - p_a_data - timeline_stats_duplication",
-                (existing_stats, timeline_stats),
-            )
-            state.fetchedTimelineDuplication = True
-
-
-def process_creator_data(
-    config: FanslyConfig, state: DownloadState, data: dict
+def _process_bundle_media_items(
+    session: Session,
+    bundle: dict,
+    config: FanslyConfig,
 ) -> None:
-    """Process creator data by calling process_account_data with creator context."""
-    return process_account_data(config, data, state, context="creator")
-
-
-@retry_on_locked_db
-def process_media_story_state(
-    config: FanslyConfig, account: Account, story_state_data: dict, *, session: Session
-) -> None:
-    """Process media story state for an account.
-
-    Updates or creates media story state for an account, handling timestamp
-    conversion and data persistence.
+    """Process media items in a bundle.
 
     Args:
+        session: SQLAlchemy session
+        bundle: Bundle data dictionary
         config: FanslyConfig instance
-        account: Account instance to process story state for
-        story_state_data: Dictionary containing media story state data
-        session: SQLAlchemy session for database operations
     """
-    story_state_data = copy.deepcopy(story_state_data)
+    from .media import _process_media_item_dict_inner
+    from .media_utils import link_media_to_bundle, validate_media_id
 
-    # Known attributes that are handled separately
-    known_relations = {
-        "accountId",  # Handled separately
-    }
+    if "accountMediaIds" not in bundle:
+        return
 
-    # Process story state data
-    filtered_data, _ = MediaStoryState.process_data(
-        story_state_data,
-        known_relations,
-        "meta/account - p_m_s_s",
-        ("createdAt", "updatedAt"),
-    )
+    for pos, media_item in enumerate(bundle["accountMediaIds"]):
+        media_id = validate_media_id(media_item, bundle["id"], pos)
+        if media_id is None and not isinstance(media_item, dict):
+            continue
 
-    # Get or create story state
-    story_state = session.get(MediaStoryState, account.id)
-    if story_state is None:
-        story_state = MediaStoryState(accountId=account.id)
-        session.add(story_state)
+        if isinstance(media_item, dict):
+            _process_media_item_dict_inner(config, media_item, session)
+            media_id = media_item["id"]
 
-    # Update story state attributes
-    for key, value in filtered_data.items():
-        if getattr(story_state, key) != value:
-            setattr(story_state, key, value)
-
-    session.flush()
+        link_media_to_bundle(session, bundle["id"], media_id, pos)
 
 
-@retry_on_locked_db
-def process_timeline_stats(session: Session, data: dict) -> None:
-    """Process timeline statistics for an account.
-
-    Updates or creates timeline statistics for an account, handling timestamp
-    conversion and data persistence.
+def _process_single_bundle(
+    session: Session,
+    bundle: dict,
+    account_id: int,
+    config: FanslyConfig,
+) -> None:
+    """Process a single media bundle.
 
     Args:
-        session: SQLAlchemy session for database operations
-        data: Dictionary containing account data with timelineStats
+        session: SQLAlchemy session
+        bundle: Bundle data dictionary
+        account_id: ID of the account that owns the bundle
+        config: FanslyConfig instance
     """
-    data = copy.deepcopy(data)
-    account_id = data["id"]
-    timeline_stats = data["timelineStats"]
-    timeline_stats["accountId"] = account_id  # Ensure accountId is set
+    from .media_utils import process_preview
+
+    # Process bundle preview if it exists
+    if "preview" in bundle:
+        preview = bundle.pop("preview")  # Remove preview from bundle data
+        process_preview(session, config, bundle, preview)
 
     # Known attributes that are handled separately
     known_relations = {
-        "accountId",  # Handled separately
+        "preview",  # Handled separately above
+        "media",  # Handled separately
+        "accountId",  # Set explicitly
+        "accountMediaIds",  # Handled separately below
+        "bundleContent",  # Handled separately below
+        "permissionFlags",
+        "permissions",
+        "accountPermissionFlags",
+        "price",
+        "likeCount",
+        "liked",
+        "mediaId",  # not sure what this mediaId is for
     }
 
-    # Process timeline stats data
-    filtered_data, _ = TimelineStats.process_data(
-        timeline_stats,
+    # Process bundle data
+    filtered_data, _ = AccountMediaBundle.process_data(
+        bundle,
         known_relations,
-        "meta/account - p_t_s",
-        ("fetchedAt",),  # This will handle the milliseconds conversion
+        "meta/account - p_m_b-_p_b",
+        ("createdAt", "deletedAt"),
     )
 
-    # Get or create timeline stats
-    existing_timeline_stats = session.get(TimelineStats, account_id)
-    if existing_timeline_stats is None:
-        existing_timeline_stats = TimelineStats(accountId=account_id)
-        session.add(existing_timeline_stats)
+    # Get or create bundle
+    bundle_obj, created = AccountMediaBundle.get_or_create(
+        session,
+        {"id": bundle["id"]},
+        {
+            "accountId": account_id,
+            "createdAt": datetime.now(timezone.utc),
+            "deleted": False,
+            "access": False,
+            "purchased": False,
+            "whitelisted": False,
+        },
+    )
 
-    # Update attributes only if they've changed
-    for key, value in filtered_data.items():
-        if getattr(existing_timeline_stats, key) != value:
-            setattr(existing_timeline_stats, key, value)
+    # Update bundle attributes
+    Base.update_fields(bundle_obj, filtered_data)
+    session.flush()
 
+    # Process bundle content and media items
+    _process_bundle_content(session, bundle)
+    _process_bundle_media_items(session, bundle, config)
     session.flush()
 
 
-@require_database_config
-@retry_on_locked_db
 def process_media_bundles(
     config: FanslyConfig,
     account_id: int,
@@ -707,166 +620,15 @@ def process_media_bundles(
     Args:
         config: FanslyConfig instance for database access
         account_id: ID of the account the bundles belong to
-        bundles: List of bundle data dictionaries containing bundle information and content
+        media_bundles: List of bundle data dictionaries containing bundle information and content
         session: Optional SQLAlchemy session. If not provided, a new session will be created.
     """
     # Create deep copy of input data
     media_bundles = copy.deepcopy(media_bundles)
 
     def _process_bundles(session: Session) -> None:
-        from .media import _process_media_item_dict_inner
-
         for bundle in media_bundles:
-            # Process bundle preview if it exists
-            if "preview" in bundle:
-                preview = bundle["preview"]
-                bundle.pop("preview")  # Remove preview from bundle data
-                if (
-                    not isinstance(preview, (dict, str))
-                    or isinstance(preview, str)
-                    and not preview.strip()
-                ):
-                    json_output(
-                        2,
-                        "meta/account - invalid_preview_type",
-                        {"type": type(preview).__name__, "value": str(preview)},
-                    )
-                    continue
-                if isinstance(preview, dict):
-                    _process_media_item_dict_inner(config, preview, session)
-
-            # Known attributes that are handled separately
-            known_relations = {
-                "preview",  # Handled separately above
-                "media",  # Handled separately
-                "accountId",  # Set explicitly
-                "accountMediaIds",  # Handled separately below
-                "bundleContent",  # Handled separately below
-                "permissionFlags",
-                "permissions",
-                "accountPermissionFlags",
-                "price",
-                "likeCount",
-                "liked",
-                "mediaId",  # not sure what this mediaId is for
-            }
-
-            # Process bundle data
-            filtered_data, _ = AccountMediaBundle.process_data(
-                bundle,
-                known_relations,
-                "meta/account - p_m_b-_p_b",
-                ("createdAt", "deletedAt"),
-            )
-
-            # Get or create bundle
-            existing_bundle = session.get(AccountMediaBundle, bundle["id"])
-            if existing_bundle is None:
-                # Create new bundle with filtered data
-                filtered_data["accountId"] = account_id  # Ensure accountId is set
-                filtered_data.setdefault("createdAt", datetime.now(timezone.utc))
-                filtered_data.setdefault("deleted", False)
-                filtered_data.setdefault("access", False)
-                filtered_data.setdefault("purchased", False)
-                filtered_data.setdefault("whitelisted", False)
-                existing_bundle = AccountMediaBundle(**filtered_data)
-                session.add(existing_bundle)
-
-            # Update bundle attributes
-            for key, value in filtered_data.items():
-                if getattr(existing_bundle, key) != value:
-                    setattr(existing_bundle, key, value)
-
-            # Process bundleContent if present
-            if "bundleContent" in bundle:
-                for content in bundle["bundleContent"]:
-                    try:
-                        media_id = int(content["accountMediaId"])
-                        session.execute(
-                            account_media_bundle_media.insert()
-                            .prefix_with("OR IGNORE")
-                            .values(
-                                bundle_id=bundle["id"],
-                                media_id=media_id,
-                                pos=content["pos"],
-                            )
-                        )
-                    except (ValueError, KeyError) as e:
-                        json_output(
-                            2,
-                            "meta/account - invalid_bundle_content",
-                            {
-                                "error": str(e),
-                                "content": content,
-                                "bundle_id": bundle["id"],
-                            },
-                        )
-                        continue
-            bundle.pop("bundleContent", None)  # Remove bundleContent from bundle data
-
-            session.flush()
-
-            # Process media items
-            if "accountMediaIds" in bundle:
-                for pos, media_item in enumerate(bundle["accountMediaIds"]):
-                    # Handle string media IDs
-                    if isinstance(media_item, str):
-                        if media_item.isdigit():
-                            try:
-                                media_id = int(media_item)
-                                if not (-(2**63) <= media_id <= 2**63 - 1):
-                                    json_output(
-                                        2,
-                                        "meta/account - media_id_out_of_range",
-                                        {
-                                            "media_id": media_id,
-                                            "bundle_id": bundle["id"],
-                                        },
-                                    )
-                                    continue
-                            except ValueError:
-                                json_output(
-                                    2,
-                                    "meta/account - invalid_media_id",
-                                    {"media_id": media_item, "bundle_id": bundle["id"]},
-                                )
-                                continue
-                        else:
-                            json_output(
-                                2,
-                                "meta/account - non_numeric_media_id",
-                                {"media_id": media_item, "bundle_id": bundle["id"]},
-                            )
-                        continue
-                    else:
-                        if not isinstance(media_item, dict):
-                            json_output(
-                                2,
-                                "meta/account - invalid_media_item_type",
-                                {
-                                    "type": type(media_item).__name__,
-                                    "value": str(media_item),
-                                    "bundle_id": bundle["id"],
-                                    "pos": pos,
-                                },
-                            )
-                            continue
-
-                        # Process media item if it's a dict
-                        _process_media_item_dict_inner(config, media_item, session)
-                        media_id = media_item["id"]
-
-                    # Link media to bundle
-                    session.execute(
-                        account_media_bundle_media.insert()
-                        .prefix_with("OR IGNORE")
-                        .values(
-                            bundle_id=bundle["id"],
-                            media_id=media_id,
-                            pos=pos,
-                        )
-                    )
-                    session.flush()
+            _process_single_bundle(session, bundle, account_id, config)
 
     if session is not None:
         # Use existing session
@@ -893,18 +655,16 @@ def process_avatar(
     avatar_data = copy.deepcopy(avatar_data)
     from .media import _process_media_item_dict_inner
 
-    # Process avatar media and its variants first
+    # Process avatar media
     _process_media_item_dict_inner(config, avatar_data, session)
 
-    # First delete any existing avatar relationship
+    # Link avatar to account
     session.execute(
-        account_avatar.delete().where(account_avatar.c.accountId == account.id)
+        account_avatar.insert()
+        .prefix_with("OR IGNORE")
+        .values(accountId=account.id, mediaId=avatar_data["id"])
     )
-
-    # Then insert the new one
-    session.execute(
-        account_avatar.insert().values(accountId=account.id, mediaId=avatar_data["id"])
-    )
+    session.flush()
 
 
 @retry_on_locked_db
@@ -922,15 +682,140 @@ def process_banner(
     banner_data = copy.deepcopy(banner_data)
     from .media import _process_media_item_dict_inner
 
-    # Process banner media and its variants first
+    # Process banner media
     _process_media_item_dict_inner(config, banner_data, session)
 
-    # First delete any existing banner relationship
+    # Link banner to account
     session.execute(
-        account_banner.delete().where(account_banner.c.accountId == account.id)
+        account_banner.insert()
+        .prefix_with("OR IGNORE")
+        .values(accountId=account.id, mediaId=banner_data["id"])
     )
+    session.flush()
 
-    # Then insert the new one
-    session.execute(
-        account_banner.insert().values(accountId=account.id, mediaId=banner_data["id"])
-    )
+
+@retry_on_locked_db
+def process_account_data(
+    config: FanslyConfig,
+    data: dict[str, any],
+    state: DownloadState | None = None,
+    session: Session | None = None,
+) -> None:
+    """Process account data.
+
+    Args:
+        config: FanslyConfig instance for database access
+        data: Dictionary containing account data
+        state: Optional DownloadState instance for tracking progress
+        session: Optional SQLAlchemy session. If not provided, a new session will be created.
+    """
+    data = copy.deepcopy(data)
+
+    def _process_data(session: Session) -> None:
+        # Known attributes that are handled separately
+        known_relations = {
+            "avatar",  # Handled separately
+            "banner",  # Handled separately
+            "timelineStats",  # Handled separately
+            "mediaStoryState",  # Handled separately
+            "pinnedPosts",  # Handled separately
+            "walls",  # Handled separately
+            "accountMedia",  # Handled separately
+            "accountMediaBundles",  # Handled separately
+            "accountMediaLikes",  # Intentionally ignored
+            "postLikes",  # Intentionally ignored
+            "followCount",  # Intentionally ignored
+            "subscriberCount",  # Intentionally ignored
+            "permissions",  # Intentionally ignored
+            "profileFlags",  # Intentionally ignored
+            "statusId",  # Intentionally ignored
+            "lastSeenAt",  # Intentionally ignored
+            "streaming",  # Intentionally ignored
+            "profileAccessFlags",  # Intentionally ignored
+            "profileSocials",  # Intentionally ignored
+            "profileBadges",  # Intentionally ignored
+            "subscriptionTiers",  # Intentionally ignored
+        }
+
+        # Process account data
+        filtered_data, _ = Account.process_data(
+            data,
+            known_relations,
+            "meta/account - p_a_d",
+            ("createdAt",),
+        )
+
+        # Get or create account
+        account, created = Account.get_or_create(
+            session,
+            {"id": filtered_data["id"]},
+            {"username": filtered_data["username"]},
+        )
+
+        # Update account attributes
+        Base.update_fields(account, filtered_data)
+        session.flush()
+
+        # Process avatar if present
+        if "avatar" in data:
+            process_avatar(config, account, data["avatar"], session)
+
+        # Process banner if present
+        if "banner" in data:
+            process_banner(config, account, data["banner"], session)
+
+        # Process timeline stats if present
+        if "timelineStats" in data:
+            stats_data = data["timelineStats"]
+            stats_data["accountId"] = account.id
+            stats_data["fetchedAt"] = datetime.now(timezone.utc)
+
+            # Get or create timeline stats
+            stats, created = TimelineStats.get_or_create(
+                session,
+                {"accountId": account.id},
+                {
+                    "imageCount": 0,
+                    "videoCount": 0,
+                    "bundleCount": 0,
+                    "bundleImageCount": 0,
+                    "bundleVideoCount": 0,
+                },
+            )
+
+            # Update stats attributes
+            Base.update_fields(stats, stats_data)
+            session.flush()
+
+        # Process media story state if present
+        if "mediaStoryState" in data:
+            story_data = data["mediaStoryState"]
+            story_data["accountId"] = account.id
+
+            # Convert timestamps in story_data before creating/updating the instance
+            Base.convert_timestamps(story_data, ("createdAt", "updatedAt"))
+
+            # Get or create story state
+            story, created = MediaStoryState.get_or_create(
+                session,
+                {"accountId": account.id},
+                {
+                    "status": 0,
+                    "storyCount": 0,
+                    "version": 0,
+                    "hasActiveStories": False,
+                },
+            )
+
+            # Update story state attributes
+            Base.update_fields(story, story_data)
+            session.flush()
+
+    if session is not None:
+        # Use existing session
+        _process_data(session)
+    else:
+        # Create new session if none provided
+        with config._database.sync_session() as new_session:
+            _process_data(new_session)
+            new_session.commit()

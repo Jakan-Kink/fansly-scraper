@@ -7,7 +7,7 @@ import requests
 from config import FanslyConfig
 from config.modes import DownloadMode
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
-from metadata import process_creator_data
+from metadata import process_account_data
 from textio import print_info
 
 from .downloadstate import DownloadState
@@ -45,7 +45,7 @@ def get_creator_account_info(config: FanslyConfig, state: DownloadState) -> None
             account = raw_response.json()["response"][0]
 
             state.creator_id = account["id"]
-            process_creator_data(config=config, state=state, data=account)
+            process_account_data(config=config, state=state, data=account)
 
             # Store wall IDs in DownloadState if they exist
             if "walls" in account:

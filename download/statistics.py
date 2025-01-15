@@ -124,8 +124,6 @@ def print_statistics(config: FanslyConfig, state: DownloadState) -> None:
 
     print_statistics_helper(state, header, footer)
 
-    sleep(10)
-
 
 def print_global_statistics(config: FanslyConfig, state: GlobalState) -> None:
     """Print global statistics for all creators.

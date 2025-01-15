@@ -15,7 +15,7 @@ from metadata import Base, Database
 from pathio import PathConfig
 
 if TYPE_CHECKING:
-    from stash import StashContext, StashInterface
+    from stash import StashContext, StashInterface  # noqa: F401
 
 
 @dataclass

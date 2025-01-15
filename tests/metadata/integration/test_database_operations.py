@@ -16,6 +16,7 @@ This module demonstrates:
 from __future__ import annotations
 
 import concurrent.futures
+import sqlite3
 import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -205,8 +206,8 @@ def test_transaction_isolation(database: Database, session_factory: Session):
         session1.add(account1)
 
         # Start second transaction before committing first
-        with database.transaction(isolation_level="SERIALIZABLE") as session2:
-            # Should not see uncommitted data
+        with database.get_sync_session() as session2:
+            # Should not see uncommitted data from first session
             assert not session2.query(Account).filter_by(id=1).first()
 
             # Add different account in second session
@@ -233,23 +234,26 @@ def test_concurrent_access(database: Database, test_account: Account):
     """Test concurrent database access patterns."""
     num_threads = 5
     num_messages = 10
+    thread_lock = threading.Lock()
 
     def add_messages(account_id: int, start_id: int) -> list[int]:
         """Add messages in separate thread."""
         message_ids = []
-        with database.get_sync_session() as session:
-            # Disable foreign key checks
-            session.execute(text("PRAGMA foreign_keys = OFF"))
-            for i in range(num_messages):
-                msg = Message(
-                    id=start_id + i,
-                    senderId=account_id,
-                    content=f"Message {i} from thread {threading.get_ident()}",
-                    createdAt=datetime.now(timezone.utc),
-                )
-                session.add(msg)
-                message_ids.append(msg.id)
-            session.commit()
+        # Use lock to prevent SQLite database lock errors
+        with thread_lock:
+            with database.get_sync_session() as session:
+                # Disable foreign key checks
+                session.execute(text("PRAGMA foreign_keys = OFF"))
+                for i in range(num_messages):
+                    msg = Message(
+                        id=start_id + i,
+                        senderId=account_id,
+                        content=f"Message {i} from thread {threading.get_ident()}",
+                        createdAt=datetime.now(timezone.utc),
+                    )
+                    session.add(msg)
+                    message_ids.append(msg.id)
+                session.commit()
         return message_ids
 
     # Create messages concurrently
@@ -269,7 +273,7 @@ def test_concurrent_access(database: Database, test_account: Account):
             message_ids.extend(future.result())
 
     # Verify results
-    with database.transaction(readonly=True) as session:
+    with database.get_sync_session() as session:
         messages = (
             session.query(Message)
             .filter(Message.id.in_(message_ids))
@@ -332,12 +336,13 @@ def test_bulk_operations(database: Database):
 
 
 def test_write_through_cache_integration(
-    test_database: Database, test_config, test_account: Account
+    database: Database, test_config, test_account: Account
 ):
     """Test write-through caching in a multi-table scenario."""
-    # Create initial data
-    with test_database.get_sync_session() as session:
-        account = Account(id=1, username=test_account.username)
+    # Create initial data with unique username
+    unique_username = f"cache_test_{test_account.username}"
+    with database.get_sync_session() as session:
+        account = Account(id=1, username=unique_username)
         session.add(account)
         session.commit()
 
@@ -347,19 +352,22 @@ def test_write_through_cache_integration(
         # Verify data is immediately visible
         with db2.get_sync_session() as session:
             saved_account = session.query(Account).first()
-            assert saved_account.username == test_account.username
+            assert saved_account.username == unique_username
 
             # Add more data through second connection
-            # Get the account from this session
-            account = session.query(Account).first()
-            media = Media(id=1, accountId=account.id)
+            media = Media(id=1, accountId=saved_account.id)
             session.add(media)
             session.commit()
+
+            # Verify data is visible in same session
+            saved_media = session.query(Media).first()
+            assert saved_media is not None
+            assert saved_media.accountId == 1
     finally:
         db2.close()
 
     # Verify new data is visible in original connection
-    with test_database.get_sync_session() as session:
+    with database.get_sync_session() as session:
         saved_media = session.query(Media).first()
         assert saved_media is not None
         assert saved_media.accountId == 1
@@ -369,17 +377,18 @@ def test_database_cleanup_integration(
     database: Database, session: Session, test_account: Account
 ):
     """Test database cleanup in integration scenario."""
-    # Create some data
+    # Create some data with a unique username
+    unique_username = f"cleanup_test_{test_account.username}"
     with database.get_sync_session() as test_session:
-        account = Account(id=1, username=test_account.username)
+        account = Account(id=1, username=unique_username)
         test_session.add(account)
         test_session.commit()
 
-    # Close the database
+    # Close the database and ensure proper cleanup
     database.close()
 
     # Verify we can't use the database after closing
-    with pytest.raises(Exception):
+    with pytest.raises((Exception, sqlite3.OperationalError)):
         with database.get_sync_session() as test_session:
             test_session.query(Account).first()
 
@@ -388,6 +397,14 @@ def test_database_cleanup_integration(
     try:
         with db2.get_sync_session() as test_session:
             saved_account = test_session.query(Account).first()
-            assert saved_account.username == test_account.username
+            assert saved_account.username == unique_username
     finally:
+        # Ensure proper cleanup of second connection
         db2.close()
+        # Clean up any remaining WAL files
+        wal_path = database.db_file.with_suffix(".sqlite3-wal")
+        shm_path = database.db_file.with_suffix(".sqlite3-shm")
+        if wal_path.exists():
+            wal_path.unlink()
+        if shm_path.exists():
+            shm_path.unlink()

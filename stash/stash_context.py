@@ -3,9 +3,8 @@
 from datetime import date, datetime, timezone
 from typing import Any, ClassVar, Optional, Type, TypeVar
 
-from stashapi.stashapp import StashInterface
-
 from .base_protocols import StashQLProtocol
+from .stash_interface import StashInterface
 
 T = TypeVar("T", bound="StashQL")
 
@@ -19,6 +18,9 @@ class StashQL(StashQLProtocol):
     urls: list[str]
     tags: list
     relationships: dict[str, list]
+
+    # Class-level fragment name for GraphQL queries
+    fragment_name: ClassVar[str] = ""  # Override in subclasses
 
     @staticmethod
     def sanitize_datetime(value: str | date | datetime | None) -> datetime | None:

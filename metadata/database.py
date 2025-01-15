@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 sqlalchemy_logger = logging.getLogger("sqlalchemy.engine")
 sqlalchemy_logger.setLevel(logging.INFO)
 time_handler = SizeAndTimeRotatingFileHandler(
-    "sqlalchemy.log",
+    "logs/sqlalchemy.log",
     maxBytes=500 * 1000 * 1000,
     when="h",
     interval=2,
@@ -487,6 +487,103 @@ class Database:
     config: FanslyConfig
     _optimized_connection: OptimizedSQLiteMemory
 
+    def _handle_wal_files(self) -> None:
+        """Handle WAL and SHM files, attempting to checkpoint and backup if needed."""
+        wal_path = self.db_file.with_suffix(".sqlite3-wal")
+        shm_path = self.db_file.with_suffix(".sqlite3-shm")
+
+        if not wal_path.exists():
+            return
+
+        try:
+            with self.sync_engine.connect() as conn:
+                conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        except Exception as e:
+            print_warning(f"Failed to checkpoint WAL: {e}")
+            # Backup and remove WAL/SHM files if they might be corrupt
+            for path, suffix in [(wal_path, "wal"), (shm_path, "shm")]:
+                if path.exists():
+                    backup = path.with_suffix(
+                        f'.{suffix}.bak.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+                    )
+                    shutil.move(path, backup)
+
+    def _run_integrity_check(self, conn) -> tuple[bool, list[tuple[str]]]:
+        """Run database integrity checks.
+
+        Args:
+            conn: Database connection
+
+        Returns:
+            Tuple of (is_healthy, check_results)
+        """
+        # First try quick_check which is faster
+        quick_result = conn.execute(text("PRAGMA quick_check")).fetchall()
+        if quick_result == [("ok",)]:
+            return True, quick_result
+
+        # If quick_check fails, run full integrity check
+        result = conn.execute(text("PRAGMA integrity_check")).fetchall()
+        return result == [("ok",)], result
+
+    def _attempt_recovery(self) -> bool:
+        """Attempt to recover corrupted database using dump and reload.
+
+        Returns:
+            bool: True if recovery was successful
+        """
+        # Create backup of corrupted database
+        backup_path = self.db_file.with_suffix(
+            f'.sqlite3.corrupt.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        )
+        print_warning(f"Creating backup of corrupted database: {backup_path}")
+        shutil.copy2(self.db_file, backup_path)
+
+        # Try to recover using dump and reload
+        print_warning("Attempting database recovery...")
+        dump_path = self.db_file.with_suffix(".dump")
+        try:
+            # Try to dump the database with recovery mode
+            subprocess.run(
+                [
+                    "sqlite3",
+                    str(self.db_file),
+                    ".recover",
+                ],  # Use .recover instead of .dump for better corruption handling
+                stdout=open(dump_path, "w"),
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+
+            # Remove corrupted database
+            self.db_file.unlink()
+
+            # Create new database from dump
+            subprocess.run(
+                ["sqlite3", str(self.db_file)],
+                stdin=open(dump_path),
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+
+            # Verify recovered database
+            with self.sync_engine.connect() as conn:
+                is_healthy, _ = self._run_integrity_check(conn)
+                if is_healthy:
+                    print_warning("Database successfully recovered!")
+                    return True
+
+            print_warning("Recovery failed: New database also corrupt")
+            return False
+
+        except Exception as e:
+            print_warning(f"Recovery failed: {str(e)}")
+            return False
+        finally:
+            # Clean up dump file
+            if dump_path.exists():
+                dump_path.unlink()
+
     def check_integrity(self) -> bool:
         """Check database integrity and attempt recovery if needed.
 
@@ -494,102 +591,94 @@ class Database:
             bool: True if database is healthy or recovered, False if unrecoverable
         """
         try:
-            # Check WAL and SHM files first
-            wal_path = self.db_file.with_suffix(".sqlite3-wal")
-            shm_path = self.db_file.with_suffix(".sqlite3-shm")
+            # Handle WAL files first
+            self._handle_wal_files()
 
-            if wal_path.exists():
-                # Try to checkpoint and clear WAL
-                try:
-                    with self.sync_engine.connect() as conn:
-                        conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
-                except Exception as e:
-                    print_warning(f"Failed to checkpoint WAL: {e}")
-                    # Backup and remove WAL/SHM files if they might be corrupt
-                    if wal_path.exists():
-                        backup_wal = wal_path.with_suffix(
-                            f'.wal.bak.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-                        )
-                        shutil.move(wal_path, backup_wal)
-                    if shm_path.exists():
-                        backup_shm = shm_path.with_suffix(
-                            f'.shm.bak.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-                        )
-                        shutil.move(shm_path, backup_shm)
-
-            # Try to run integrity check
+            # Run integrity checks
             with self.sync_engine.connect() as conn:
-                # First try quick_check which is faster
-                quick_result = conn.execute(text("PRAGMA quick_check")).fetchall()
-                if quick_result != [("ok",)]:
-                    # If quick_check fails, run full integrity check
-                    result = conn.execute(text("PRAGMA integrity_check")).fetchall()
-                    if result != [("ok",)]:
-                        # Database is corrupt, try to recover
-                        print_warning(f"Database corruption detected: {result}")
+                is_healthy, result = self._run_integrity_check(conn)
+                if is_healthy:
+                    return True
 
-                        # Create backup of corrupted database
-                        backup_path = self.db_file.with_suffix(
-                            f'.sqlite3.corrupt.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-                        )
-                        print_warning(
-                            f"Creating backup of corrupted database: {backup_path}"
-                        )
-                        shutil.copy2(self.db_file, backup_path)
-
-                        # Try to recover using dump and reload
-                        print_warning("Attempting database recovery...")
-                        dump_path = self.db_file.with_suffix(".dump")
-                        try:
-                            # Try to dump the database with recovery mode
-
-                            subprocess.run(
-                                [
-                                    "sqlite3",
-                                    str(self.db_file),
-                                    ".recover",
-                                ],  # Use .recover instead of .dump for better corruption handling
-                                stdout=open(dump_path, "w"),
-                                stderr=subprocess.PIPE,
-                                check=True,
-                            )
-
-                            # Remove corrupted database
-                            self.db_file.unlink()
-
-                            # Create new database from dump
-                            subprocess.run(
-                                ["sqlite3", str(self.db_file)],
-                                stdin=open(dump_path),
-                                stderr=subprocess.PIPE,
-                                check=True,
-                            )
-
-                            # Verify recovered database
-                            with self.sync_engine.connect() as conn:
-                                result = conn.execute(
-                                    text("PRAGMA integrity_check")
-                                ).fetchall()
-                                if result == [("ok",)]:
-                                    print_warning("Database successfully recovered!")
-                                    return True
-
-                            print_warning("Recovery failed: New database also corrupt")
-                            return False
-
-                        except Exception as e:
-                            print_warning(f"Recovery failed: {str(e)}")
-                            return False
-                        finally:
-                            # Clean up dump file
-                            if dump_path.exists():
-                                dump_path.unlink()
-
-                return True  # Database is healthy
+                # Database is corrupt, try to recover
+                print_warning(f"Database corruption detected: {result}")
+                return self._attempt_recovery()
 
         except Exception as e:
             print_warning(f"Error checking database integrity: {str(e)}")
             return False
+
+    def _close_all_connections(self) -> None:
+        """Close all database connections."""
+        # Stop background sync first
+        if self._optimized_connection.sync_manager:
+            self._optimized_connection.sync_manager.stop_sync_thread()
+
+        # Close all existing connections
+        self.sync_engine.dispose()
+        if hasattr(self, "async_engine"):
+            self.async_engine.dispose()
+
+        # Close optimized connection
+        self._optimized_connection.conn.close()
+
+    def _sync_to_remote(self, local_path: Path, remote_path: Path) -> bool:
+        """Sync local database to remote location.
+
+        Args:
+            local_path: Path to local database
+            remote_path: Path to remote database
+
+        Returns:
+            bool: True if sync was successful
+        """
+        try:
+            shutil.copy2(local_path, remote_path)
+            # Copy WAL and SHM files if they exist
+            for ext in ["-wal", "-shm"]:
+                wal_path = local_path.with_suffix(f".sqlite3{ext}")
+                if wal_path.exists():
+                    shutil.copy2(wal_path, remote_path.with_suffix(f".sqlite3{ext}"))
+            return True
+        except Exception as e:
+            print_warning(f"Failed to sync database to remote: {e}")
+            return False
+
+    def _try_remote_recovery(self, local_path: Path, remote_path: Path) -> bool:
+        """Try to recover using remote database.
+
+        Args:
+            local_path: Path to local database
+            remote_path: Path to remote database
+
+        Returns:
+            bool: True if recovery was successful
+        """
+        if not remote_path.exists():
+            return False
+
+        try:
+            # Backup local corrupted database
+            backup_path = local_path.with_suffix(
+                f'.sqlite3.corrupt.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+            )
+            shutil.move(local_path, backup_path)
+
+            # Copy remote to local and try recovery
+            shutil.copy2(remote_path, local_path)
+            if self.check_integrity():
+                self._recreate_connections()
+                return True
+        except Exception as e:
+            print_warning(f"Failed to recover from remote: {e}")
+
+        return False
+
+    def _recreate_connections(self) -> None:
+        """Recreate all database connections."""
+        self._setup_optimized_connection()
+        self._setup_engines_and_sessions()
+        self._setup_event_listeners()
 
     def handle_corruption(self) -> bool:
         """Handle database corruption by attempting recovery.
@@ -605,63 +694,24 @@ class Database:
             bool: True if recovery was successful, False otherwise
         """
         try:
-            # Stop background sync first
-            if self._optimized_connection.sync_manager:
-                self._optimized_connection.sync_manager.stop_sync_thread()
-
             # Close all existing connections
-            self.sync_engine.dispose()
-            if hasattr(self, "async_engine"):
-                self.async_engine.dispose()
+            self._close_all_connections()
 
-            # Close optimized connection
-            self._optimized_connection.conn.close()
-
-            # Attempt recovery on local path first
+            # Get paths
             local_path = self._optimized_connection.local_path
             remote_path = self._optimized_connection.remote_path
 
+            # Try local recovery first
             if self.check_integrity():
                 # Recovery succeeded, sync back to remote
-                try:
-                    shutil.copy2(local_path, remote_path)
-                    # Copy WAL and SHM files if they exist
-                    for ext in ["-wal", "-shm"]:
-                        wal_path = local_path.with_suffix(f".sqlite3{ext}")
-                        if wal_path.exists():
-                            shutil.copy2(
-                                wal_path, remote_path.with_suffix(f".sqlite3{ext}")
-                            )
-                except Exception as e:
-                    print_warning(f"Failed to sync recovered database to remote: {e}")
+                if not self._sync_to_remote(local_path, remote_path):
                     return False
-
-                # Recreate optimized connection and engines
-                self._setup_optimized_connection()
-                self._setup_engines_and_sessions()
-                self._setup_event_listeners()
+                self._recreate_connections()
                 return True
 
-            # If local recovery failed, try recovering remote and copying back
-            if remote_path.exists():
-                try:
-                    # Backup local corrupted database
-
-                    backup_path = local_path.with_suffix(
-                        f'.sqlite3.corrupt.{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-                    )
-                    shutil.move(local_path, backup_path)
-
-                    # Copy remote to local and try recovery
-                    shutil.copy2(remote_path, local_path)
-                    if self.check_integrity():
-                        # Recreate optimized connection and engines
-                        self._setup_optimized_connection()
-                        self._setup_engines_and_sessions()
-                        self._setup_event_listeners()
-                        return True
-                except Exception as e:
-                    print_warning(f"Failed to recover from remote: {e}")
+            # If local recovery failed, try remote recovery
+            if self._try_remote_recovery(local_path, remote_path):
+                return True
 
             return False
 

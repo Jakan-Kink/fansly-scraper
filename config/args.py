@@ -346,6 +346,14 @@ def parse_args() -> argparse.Namespace:
         help="Custom path for temporary files. "
         "If not specified, uses system default temp folder.",
     )
+    parser.add_argument(
+        "--stash-only",
+        required=False,
+        default=False,
+        action="store_true",
+        dest="stash_only",
+        help="Only process Stash metadata, skip downloading media.",
+    )
 
     # endregion Other Options
     parser.add_argument(
@@ -438,6 +446,203 @@ def check_attributes(
     )
 
 
+def _handle_debug_settings(args: argparse.Namespace, config: FanslyConfig) -> None:
+    """Handle debug settings and logging."""
+    config.debug = args.debug
+    set_debug_enabled(args.debug)
+
+    if args.debug:
+        print_debug(f"Args: {args}")
+        print()
+
+
+def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
+    """Handle user settings and return if config was overridden."""
+    if args.users is None:
+        return False
+
+    users_line = " ".join(args.users)
+    config.user_names = sanitize_creator_names(parse_items_from_line(users_line))
+
+    if config.debug:
+        print_debug(f"Value of `args.users` is: {args.users}")
+        print_debug(f"`args.users` is None == {args.users is None}")
+        print_debug(f"`config.username` is: {config.user_names}")
+        print()
+
+    return True
+
+
+def _handle_download_mode(
+    args: argparse.Namespace, config: FanslyConfig
+) -> tuple[bool, bool]:
+    """Handle download mode settings and return (config_overridden, download_mode_set)."""
+    config_overridden = False
+    download_mode_set = False
+
+    # Map of argument flags to download modes
+    mode_map = {
+        "stash_only": DownloadMode.STASH_ONLY,
+        "download_mode_normal": DownloadMode.NORMAL,
+        "download_mode_messages": DownloadMode.MESSAGES,
+        "download_mode_timeline": DownloadMode.TIMELINE,
+        "download_mode_collection": DownloadMode.COLLECTION,
+    }
+
+    # Check each mode flag
+    for arg_name, mode in mode_map.items():
+        if getattr(args, arg_name, False):
+            config.download_mode = mode
+            return True, True
+
+    # Handle single mode separately due to additional validation
+    if args.download_mode_single is not None:
+        post_id = get_post_id_from_request(args.download_mode_single)
+        if not is_valid_post_id(post_id):
+            raise ConfigError(
+                f"Argument error - '{post_id}' is not a valid post ID. "
+                "For an ID at least 10 characters/only digits are required."
+            )
+        config.download_mode = DownloadMode.SINGLE
+        config.post_id = post_id
+        return True, True
+
+    return config_overridden, download_mode_set
+
+
+def _handle_metadata_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
+    """Handle metadata settings and return if config was overridden."""
+    if args.metadata_handling is None:
+        return False
+
+    handling = args.metadata_handling.strip().lower()
+    try:
+        config.metadata_handling = MetadataHandling(handling)
+        return True
+    except ValueError:
+        raise ConfigError(
+            f"Argument error - '{handling}' is not a valid metadata handling strategy."
+        )
+
+
+def _handle_path_settings(
+    args: argparse.Namespace, config: FanslyConfig, attr_name: str
+) -> bool:
+    """Handle path-type settings and return if config was overridden."""
+    arg_attribute = getattr(args, attr_name)
+    if arg_attribute is None:
+        return False
+
+    if attr_name == "temp_folder":
+        if arg_attribute:  # Only set if not empty string
+            setattr(config, attr_name, Path(arg_attribute))
+        else:
+            setattr(config, attr_name, None)
+    elif attr_name == "download_directory":
+        setattr(config, attr_name, Path(arg_attribute))
+    else:
+        setattr(config, attr_name, arg_attribute)
+
+    return True
+
+
+def _handle_not_none_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
+    """Handle settings that should be set when not None."""
+    check_attr = partial(check_attributes, args, config)
+    config_overridden = False
+
+    not_none_settings = [
+        "download_directory",
+        "token",
+        "user_agent",
+        "check_key",
+        "updated_to",
+        "db_sync_commits",
+        "db_sync_seconds",
+        "db_sync_min_size",
+        "metadata_db_file",
+        "temp_folder",
+    ]
+
+    for attr_name in not_none_settings:
+        check_attr(attr_name, attr_name)
+        if _handle_path_settings(args, config, attr_name):
+            config_overridden = True
+
+    return config_overridden
+
+
+def _handle_boolean_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
+    """Handle boolean settings and return if config was overridden."""
+    check_attr = partial(check_attributes, args, config)
+    config_overridden = False
+
+    # Handle positive boolean flags
+    positive_bools = [
+        "separate_previews",
+        "use_duplicate_threshold",
+        "separate_metadata",
+    ]
+
+    for attr_name in positive_bools:
+        check_attr(attr_name, attr_name)
+        arg_attribute = getattr(args, attr_name)
+        if arg_attribute is True:
+            setattr(config, attr_name, arg_attribute)
+            config_overridden = True
+
+    # Handle negative boolean flags
+    negative_bool_map = [
+        ("non_interactive", "interactive"),
+        ("no_prompt_on_exit", "prompt_on_exit"),
+        ("no_folder_suffix", "use_folder_suffix"),
+        ("no_media_previews", "download_media_previews"),
+        ("hide_downloads", "show_downloads"),
+        ("hide_skipped_downloads", "show_skipped_downloads"),
+        ("no_open_folder", "open_folder_when_finished"),
+        ("no_separate_messages", "separate_messages"),
+        ("no_separate_timeline", "separate_timeline"),
+    ]
+
+    for arg_name, config_name in negative_bool_map:
+        check_attr(arg_name, config_name)
+        arg_attribute = getattr(args, arg_name)
+        if arg_attribute is True:
+            setattr(config, config_name, not arg_attribute)
+            config_overridden = True
+
+    return config_overridden
+
+
+def _handle_unsigned_ints(args: argparse.Namespace, config: FanslyConfig) -> bool:
+    """Handle unsigned integer settings and return if config was overridden."""
+    check_attr = partial(check_attributes, args, config)
+    config_overridden = False
+
+    unsigned_ints = [
+        "timeline_retries",
+        "timeline_delay_seconds",
+    ]
+
+    for attr_name in unsigned_ints:
+        check_attr(attr_name, attr_name)
+        arg_attribute = getattr(args, attr_name)
+
+        if arg_attribute is None:
+            continue
+
+        try:
+            int_value = max(0, int(arg_attribute))
+            config_attribute = getattr(config, attr_name)
+            if int_value != int(config_attribute):
+                setattr(config, attr_name, int_value)
+                config_overridden = True
+        except ValueError:
+            pass
+
+    return config_overridden
+
+
 def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     """Maps command-line arguments to the configuration object of
     the current session.
@@ -458,191 +663,29 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     config_overridden = False
     download_mode_set = False
 
-    config.debug = args.debug
-    set_debug_enabled(args.debug)
+    # Handle each group of settings
+    _handle_debug_settings(args, config)
 
-    if args.debug:
-        print_debug(f"Args: {args}")
-        print()
-
-    if args.users is not None:
-        # If someone "abused" argparse like this:
-        #   -u creater1, creator7 , lovedcreator
-        # ... then it's best to re-construct a line and fully parse.
-        users_line = " ".join(args.users)
-        config.user_names = sanitize_creator_names(parse_items_from_line(users_line))
+    if _handle_user_settings(args, config):
         config_overridden = True
 
-    if config.debug:
-        print_debug(f"Value of `args.users` is: {args.users}")
-        print_debug(f"`args.users` is None == {args.users is None}")
-        print_debug(f"`config.username` is: {config.user_names}")
-        print()
-
-    # for all download modes, if one has been set, we don't want to ask later if the user wants to change it,
-    # therefore we return the boolean
-    if args.download_mode_normal:
-        config.download_mode = DownloadMode.NORMAL
+    mode_override, mode_set = _handle_download_mode(args, config)
+    if mode_override:
         config_overridden = True
+    if mode_set:
         download_mode_set = True
 
-    if args.download_mode_messages:
-        config.download_mode = DownloadMode.MESSAGES
+    if _handle_metadata_settings(args, config):
         config_overridden = True
-        download_mode_set = True
 
-    if args.download_mode_timeline:
-        config.download_mode = DownloadMode.TIMELINE
+    if _handle_not_none_settings(args, config):
         config_overridden = True
-        download_mode_set = True
 
-    if args.download_mode_collection:
-        config.download_mode = DownloadMode.COLLECTION
+    if _handle_boolean_settings(args, config):
         config_overridden = True
-        download_mode_set = True
 
-    if args.download_mode_single is not None:
-        post_id = get_post_id_from_request(args.download_mode_single)
-        config.download_mode = DownloadMode.SINGLE
-
-        if not is_valid_post_id(post_id):
-            raise ConfigError(
-                f"Argument error - '{post_id}' is not a valid post ID. "
-                "For an ID at least 10 characters/only digits are required."
-            )
-
-        config.post_id = post_id
+    if _handle_unsigned_ints(args, config):
         config_overridden = True
-        download_mode_set = True
-
-    if args.metadata_handling is not None:
-        handling = args.metadata_handling.strip().lower()
-
-        try:
-            config.metadata_handling = MetadataHandling(handling)
-            config_overridden = True
-
-        except ValueError:
-            raise ConfigError(
-                f"Argument error - '{handling}' is not a valid metadata handling strategy."
-            )
-
-    # The code following avoids code duplication of checking an
-    # argument and setting the override flag for each argument.
-    # On the other hand, this certainly is not refactoring/renaming friendly.
-    # But arguments following similar patterns can be changed or
-    # added more easily.
-
-    # Simplify since args and config arguments will always be the same
-    check_attr = partial(check_attributes, args, config)
-
-    # Not-None-settings to map
-    not_none_settings = [
-        "download_directory",
-        "token",
-        "user_agent",
-        "check_key",
-        # 'session_id',
-        "updated_to",
-        "db_sync_commits",
-        "db_sync_seconds",
-        "db_sync_min_size",
-        "metadata_db_file",
-        "temp_folder",
-    ]
-
-    # Sets config when arguments are not None
-    for attr_name in not_none_settings:
-        check_attr(attr_name, attr_name)
-        arg_attribute = getattr(args, attr_name)
-
-        if arg_attribute is not None:
-            if attr_name == "temp_folder":
-                if arg_attribute:  # Only set if not empty string
-                    setattr(config, attr_name, Path(arg_attribute))
-                else:
-                    setattr(config, attr_name, None)
-            elif attr_name == "download_directory":
-                setattr(config, attr_name, Path(arg_attribute))
-            else:
-                setattr(config, attr_name, arg_attribute)
-
-            config_overridden = True
-
-    # Do-settings to map to config
-    positive_bools = [
-        "separate_previews",
-        "use_duplicate_threshold",
-        "separate_metadata",
-    ]
-
-    # Sets config to arguments when arguments are True
-    for attr_name in positive_bools:
-        check_attr(attr_name, attr_name)
-        arg_attribute = getattr(args, attr_name)
-
-        if arg_attribute is True:
-            setattr(config, attr_name, arg_attribute)
-            config_overridden = True
-
-    # Do-not-settings to map to config
-    negative_bool_map = [
-        ("non_interactive", "interactive"),
-        ("no_prompt_on_exit", "prompt_on_exit"),
-        ("no_folder_suffix", "use_folder_suffix"),
-        ("no_media_previews", "download_media_previews"),
-        ("hide_downloads", "show_downloads"),
-        ("hide_skipped_downloads", "show_skipped_downloads"),
-        ("no_open_folder", "open_folder_when_finished"),
-        ("no_separate_messages", "separate_messages"),
-        ("no_separate_timeline", "separate_timeline"),
-        ("no_separate_messages", "separate_messages"),
-    ]
-
-    # Set config to the inverse (negation) of arguments that are True
-    for attributes in negative_bool_map:
-        arg_name = attributes[0]
-        config_name = attributes[1]
-        check_attr(arg_name, config_name)
-
-        arg_attribute = getattr(args, arg_name)
-
-        if arg_attribute is True:
-            setattr(config, config_name, not arg_attribute)
-
-    # Unsigned integers to map
-    unsigned_ints = [
-        "timeline_retries",
-        "timeline_delay_seconds",
-    ]
-
-    # Sets config to int(argument) if argument is a number >= 0
-    # or to 0 otherwise
-    for attr_name in unsigned_ints:
-        check_attr(attr_name, attr_name)
-        arg_attribute = getattr(args, attr_name)
-
-        if arg_attribute is None:
-            # No arg given, keep default or config.ini value
-            continue
-
-        int_value = 0
-
-        try:
-            int_value = int(arg_attribute)
-
-            if int_value < 0:
-                int_value = 0
-
-        except ValueError:
-            pass
-
-        config_attribute = getattr(config, attr_name)
-
-        # Does it differ from the defaults?
-        if int_value != int(config_attribute):
-            setattr(config, attr_name, int_value)
-            config_overridden = True
 
     if config_overridden:
         print_warning(

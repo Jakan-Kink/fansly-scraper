@@ -49,7 +49,7 @@ def output(level: int, log_type: str, color: str, message: str) -> None:
         filter=lambda record: not record["extra"].get("json", False),
     )
     logger.add(
-        Path.cwd() / LOG_FILE_NAME,
+        Path.cwd() / "logs" / LOG_FILE_NAME,
         encoding="utf-8",
         format="[{level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]: {message}",
         level=log_type,

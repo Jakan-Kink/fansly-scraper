@@ -3,8 +3,8 @@
 from datetime import datetime, timezone
 
 import pytest
-from stashapi.stashapp import StashInterface
 
+from stash import StashInterface
 from stash.performer import Performer
 from stash.stash_context import StashQL
 

@@ -138,12 +138,260 @@ def copy_old_config_values():
             new_config.write(config_file)
 
 
+def _ensure_section_exists(parser: configparser.ConfigParser, section: str) -> None:
+    """Ensure a section exists in the config parser."""
+    if not parser.has_section(section):
+        parser.add_section(section)
+
+
+def _handle_creator_section(config: FanslyConfig, replace_me_str: str) -> None:
+    """Handle TargetedCreator section configuration."""
+    creator_section = "TargetedCreator"
+    _ensure_section_exists(config._parser, creator_section)
+
+    # Check for command-line override - already set?
+    if config.user_names is None:
+        user_names = config._parser.get(
+            creator_section, "Username", fallback=replace_me_str
+        )
+        config.user_names = sanitize_creator_names(parse_items_from_line(user_names))
+
+
+def _handle_account_section(config: FanslyConfig, replace_me_str: str) -> None:
+    """Handle MyAccount section configuration."""
+    account_section = "MyAccount"
+    _ensure_section_exists(config._parser, account_section)
+
+    config.token = config._parser.get(
+        account_section, "Authorization_Token", fallback=replace_me_str
+    )
+    config.user_agent = config._parser.get(
+        account_section, "User_Agent", fallback=replace_me_str
+    )
+
+    default_check_key = "qybZy9-fyszis-bybxyf"
+    config.check_key = config._parser.get(
+        account_section, "Check_Key", fallback=default_check_key
+    )
+
+    if config.check_key in ["negwij-zyZnek-wavje1", "negwij-zyZnak-wavje1"]:
+        config.check_key = default_check_key
+
+
+def _handle_other_section(config: FanslyConfig) -> None:
+    """Handle Other section configuration."""
+    other_section = "Other"
+
+    # Remove obsolete version option
+    if config._parser.has_option(other_section, "version"):
+        config._parser.remove_option(other_section, "version")
+
+    # Remove empty section
+    if (
+        config._parser.has_section(other_section)
+        and len(config._parser[other_section]) == 0
+    ):
+        config._parser.remove_section(other_section)
+
+
+def _handle_boolean_options(config: FanslyConfig, section: str) -> None:
+    """Handle boolean options in a section."""
+    boolean_options = {
+        "download_media_previews": True,
+        "open_folder_when_finished": True,
+        "separate_messages": True,
+        "separate_previews": False,
+        "separate_timeline": True,
+        "separate_metadata": False,
+        "show_downloads": True,
+        "show_skipped_downloads": True,
+        "interactive": True,
+        "prompt_on_exit": True,
+    }
+
+    for option, default in boolean_options.items():
+        setattr(
+            config, option, config._parser.getboolean(section, option, fallback=default)
+        )
+
+
+def _handle_renamed_options(config: FanslyConfig, section: str) -> None:
+    """Handle renamed options in a section."""
+    # Handle use_duplicate_threshold (renamed from utilise_duplicate_threshold)
+    if config._parser.has_option(section, "utilise_duplicate_threshold"):
+        config.use_duplicate_threshold = config._parser.getboolean(
+            section, "utilise_duplicate_threshold", fallback=False
+        )
+        config._parser.remove_option(section, "utilise_duplicate_threshold")
+    else:
+        config.use_duplicate_threshold = config._parser.getboolean(
+            section, "use_duplicate_threshold", fallback=False
+        )
+
+    # Handle use_folder_suffix (renamed from use_suffix)
+    if config._parser.has_option(section, "use_suffix"):
+        config.use_folder_suffix = config._parser.getboolean(
+            section, "use_suffix", fallback=True
+        )
+        config._parser.remove_option(section, "use_suffix")
+    else:
+        config.use_folder_suffix = config._parser.getboolean(
+            section, "use_folder_suffix", fallback=True
+        )
+
+
+def _handle_path_options(config: FanslyConfig, section: str) -> None:
+    """Handle path-type options in a section."""
+    # Handle download directory
+    config.download_directory = Path(
+        config._parser.get(section, "download_directory", fallback="Local_directory")
+    )
+
+    # Handle metadata database file
+    metadata_db_path = config._parser.get(section, "metadata_db_file", fallback=None)
+    if metadata_db_path:
+        config.metadata_db_file = Path(metadata_db_path)
+
+    # Handle temp folder
+    temp_folder_path = config._parser.get(section, "temp_folder", fallback=None)
+    if temp_folder_path:
+        config.temp_folder = Path(temp_folder_path)
+
+
+def _handle_numeric_options(config: FanslyConfig, section: str) -> None:
+    """Handle numeric options in a section."""
+    # Handle timeline settings
+    config.timeline_retries = config._parser.getint(
+        section, "timeline_retries", fallback=1
+    )
+    config.timeline_delay_seconds = config._parser.getint(
+        section, "timeline_delay_seconds", fallback=60
+    )
+
+    # Handle database sync settings
+    db_sync_options = ["db_sync_commits", "db_sync_seconds", "db_sync_min_size"]
+    for option in db_sync_options:
+        if config._parser.has_option(section, option):
+            setattr(config, option, config._parser.getint(section, option))
+
+
+def _handle_options_section(config: FanslyConfig) -> None:
+    """Handle Options section configuration."""
+    options_section = "Options"
+    _ensure_section_exists(config._parser, options_section)
+
+    # Handle path options
+    _handle_path_options(config, options_section)
+
+    # Handle download mode
+    download_mode = config._parser.get(
+        options_section, "download_mode", fallback="Normal"
+    )
+    config.download_mode = DownloadMode(download_mode.upper())
+
+    # Handle metadata handling
+    metadata_handling = config._parser.get(
+        options_section, "metadata_handling", fallback="Advanced"
+    )
+    config.metadata_handling = MetadataHandling(metadata_handling.upper())
+
+    # Handle boolean options
+    _handle_boolean_options(config, options_section)
+
+    # Handle numeric options
+    _handle_numeric_options(config, options_section)
+
+    # Handle renamed options
+    _handle_renamed_options(config, options_section)
+
+    # Remove deprecated options
+    if config._parser.has_option(options_section, "include_meta_database"):
+        config._parser.remove_option(options_section, "include_meta_database")
+
+
+def _handle_cache_section(config: FanslyConfig) -> None:
+    """Handle Cache section configuration."""
+    cache_section = "Cache"
+    _ensure_section_exists(config._parser, cache_section)
+
+    config.cached_device_id = config._parser.get(
+        cache_section, "device_id", fallback=None
+    )
+    config.cached_device_id_timestamp = config._parser.getint(
+        cache_section, "device_id_timestamp", fallback=None
+    )
+
+
+def _handle_logic_section(config: FanslyConfig) -> None:
+    """Handle Logic section configuration."""
+    logic_section = "Logic"
+    _ensure_section_exists(config._parser, logic_section)
+
+    key_default_pattern = r"""this\.checkKey_\s*=\s*["']([^"']+)["']"""
+    main_js_default_pattern = r'''\ssrc\s*=\s*"(main\..*?\.js)"'''
+
+    config.check_key_pattern = config._parser.get(
+        logic_section, "check_key_pattern", fallback=key_default_pattern
+    )
+    config.main_js_pattern = config._parser.get(
+        logic_section, "main_js_pattern", fallback=main_js_default_pattern
+    )
+
+
+def _handle_stash_section(config: FanslyConfig) -> None:
+    """Handle StashContext section configuration."""
+    stash_section = "StashContext"
+    if config._parser.has_section(stash_section):
+        config.stash_context_conn = {
+            "scheme": config._parser.get(stash_section, "scheme", fallback="http"),
+            "host": config._parser.get(stash_section, "host", fallback="localhost"),
+            "port": config._parser.getint(stash_section, "port", fallback=9999),
+            "apikey": config._parser.get(stash_section, "apikey", fallback=""),
+        }
+
+
+def _handle_config_error(e: Exception, config: FanslyConfig) -> None:
+    """Handle configuration errors with appropriate messages."""
+    error_string = str(e)
+    wiki_url = "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
+
+    if isinstance(e, configparser.NoOptionError):
+        raise ConfigError(
+            f"Your config.ini file is invalid, please download a fresh version of it from GitHub.\n{error_string}"
+        )
+    elif isinstance(e, ValueError):
+        if "a boolean" in error_string:
+            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
+                open_url(wiki_url)
+            raise ConfigError(
+                f"'{error_string.rsplit('boolean: ')[1]}' is malformed in the configuration file! This value can only be True or False"
+                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [1]"
+            )
+        else:
+            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
+                open_url(wiki_url)
+            raise ConfigError(
+                f"You have entered a wrong value in the config.ini file -> '{error_string}'"
+                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [2]"
+            )
+    elif isinstance(e, (KeyError, NameError)):
+        if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
+            open_url(wiki_url)
+        raise ConfigError(
+            f"'{e}' is missing or malformed in the configuration file!"
+            f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [3]"
+        )
+    else:
+        raise ConfigError(
+            f"An error occurred while reading the configuration file: {error_string}"
+        )
+
+
 def load_config(config: FanslyConfig) -> None:
     """Loads the program configuration from file.
 
     :param FanslyConfig config: The configuration object to fill.
     """
-
     print_info("Reading config.ini file ...")
     print()
 
@@ -152,7 +400,6 @@ def load_config(config: FanslyConfig) -> None:
     if not config.config_path.exists():
         print_warning("Configuration file config.ini not found.")
         print_config("A default configuration file will be generated for you ...")
-
         with open(config.config_path, mode="w", encoding="utf-8"):
             pass
 
@@ -165,290 +412,17 @@ def load_config(config: FanslyConfig) -> None:
         # config would overwrite the existing configuration!
         replace_me_str = "ReplaceMe"
 
-        # region TargetedCreator
-
-        creator_section = "TargetedCreator"
-
-        if not config._parser.has_section(creator_section):
-            config._parser.add_section(creator_section)
-
-        # Check for command-line override - already set?
-        if config.user_names is None:
-            user_names = config._parser.get(
-                creator_section, "Username", fallback=replace_me_str
-            )  # string
-
-            config.user_names = sanitize_creator_names(
-                parse_items_from_line(user_names)
-            )
-
-        # endregion TargetedCreator
-
-        # region MyAccount
-
-        account_section = "MyAccount"
-
-        if not config._parser.has_section(account_section):
-            config._parser.add_section(account_section)
-
-        config.token = config._parser.get(
-            account_section, "Authorization_Token", fallback=replace_me_str
-        )  # string
-        config.user_agent = config._parser.get(
-            account_section, "User_Agent", fallback=replace_me_str
-        )  # string
-
-        default_check_key = "qybZy9-fyszis-bybxyf"
-
-        config.check_key = config._parser.get(
-            account_section, "Check_Key", fallback=default_check_key
-        )  # string
-
-        if config.check_key in [
-            "negwij-zyZnek-wavje1",
-            "negwij-zyZnak-wavje1",
-        ]:
-            config.check_key = default_check_key
-
-        # endregion MyAccount
-
-        # region Other
-
-        other_section = "Other"
-
-        # I obsoleted this ...
-        # config.current_version = config.parser.get('Other', 'version') # str
-        if config._parser.has_option(other_section, "version"):
-            config._parser.remove_option(other_section, "version")
-
-        # Remove empty section
-        if (
-            config._parser.has_section(other_section)
-            and len(config._parser[other_section]) == 0
-        ):
-            config._parser.remove_section(other_section)
-
-        # endregion Other
-
-        # region Options
-
-        options_section = "Options"
-
-        if not config._parser.has_section(options_section):
-            config._parser.add_section(options_section)
-
-        # Local_directory, C:\MyCustomFolderFilePath -> str
-        config.download_directory = Path(
-            config._parser.get(
-                options_section, "download_directory", fallback="Local_directory"
-            )
-        )
-
-        # Normal (Timeline & Messages), Timeline, Messages, Single (Single by post id) or Collections -> str
-        download_mode = config._parser.get(
-            options_section, "download_mode", fallback="Normal"
-        )
-        config.download_mode = DownloadMode(download_mode.upper())
-
-        # Advanced, Simple -> str
-        metadata_handling = config._parser.get(
-            options_section, "metadata_handling", fallback="Advanced"
-        )
-        config.metadata_handling = MetadataHandling(metadata_handling.upper())
-
-        # Booleans
-        config.download_media_previews = config._parser.getboolean(
-            options_section, "download_media_previews", fallback=True
-        )
-        config.open_folder_when_finished = config._parser.getboolean(
-            options_section, "open_folder_when_finished", fallback=True
-        )
-        config.separate_messages = config._parser.getboolean(
-            options_section, "separate_messages", fallback=True
-        )
-        config.separate_previews = config._parser.getboolean(
-            options_section, "separate_previews", fallback=False
-        )
-        config.separate_timeline = config._parser.getboolean(
-            options_section, "separate_timeline", fallback=True
-        )
-        config.separate_metadata = config._parser.getboolean(
-            options_section, "separate_metadata", fallback=False
-        )
-        config.show_downloads = config._parser.getboolean(
-            options_section, "show_downloads", fallback=True
-        )
-        config.show_skipped_downloads = config._parser.getboolean(
-            options_section, "show_skipped_downloads", fallback=True
-        )
-        config.interactive = config._parser.getboolean(
-            options_section, "interactive", fallback=True
-        )
-        config.prompt_on_exit = config._parser.getboolean(
-            options_section, "prompt_on_exit", fallback=True
-        )
-
-        # Remove deprecated include_meta_database option if it exists
-        if config._parser.has_option(options_section, "include_meta_database"):
-            config._parser.remove_option(options_section, "include_meta_database")
-
-        # Load metadata_db_file if configured, otherwise leave as None for default handling
-        metadata_db_path = config._parser.get(
-            options_section, "metadata_db_file", fallback=None
-        )
-        if metadata_db_path:
-            config.metadata_db_file = Path(metadata_db_path)
-
-        # Numbers
-        config.timeline_retries = config._parser.getint(
-            options_section, "timeline_retries", fallback=1
-        )
-        config.timeline_delay_seconds = config._parser.getint(
-            options_section, "timeline_delay_seconds", fallback=60
-        )
-
-        # Database sync settings
-        if config._parser.has_option(options_section, "db_sync_commits"):
-            config.db_sync_commits = config._parser.getint(
-                options_section, "db_sync_commits"
-            )
-        if config._parser.has_option(options_section, "db_sync_seconds"):
-            config.db_sync_seconds = config._parser.getint(
-                options_section, "db_sync_seconds"
-            )
-        if config._parser.has_option(options_section, "db_sync_min_size"):
-            config.db_sync_min_size = config._parser.getint(
-                options_section, "db_sync_min_size"
-            )
-
-        # Temp folder
-        temp_folder_path = config._parser.get(
-            options_section, "temp_folder", fallback=None
-        )
-        if temp_folder_path:
-            config.temp_folder = Path(temp_folder_path)
-
-        # region Renamed Options
-
-        # I renamed this to "use_duplicate_threshold" but retain older config.ini compatibility
-        # True, False -> boolean
-        if config._parser.has_option(options_section, "utilise_duplicate_threshold"):
-            config.use_duplicate_threshold = config._parser.getboolean(
-                options_section, "utilise_duplicate_threshold", fallback=False
-            )
-            config._parser.remove_option(options_section, "utilise_duplicate_threshold")
-
-        else:
-            config.use_duplicate_threshold = config._parser.getboolean(
-                options_section, "use_duplicate_threshold", fallback=False
-            )
-
-        # Renamed this to "use_folder_suffix"
-        # True, False -> boolean
-        if config._parser.has_option(options_section, "use_suffix"):
-            config.use_folder_suffix = config._parser.getboolean(
-                options_section, "use_suffix", fallback=True
-            )
-            config._parser.remove_option(options_section, "use_suffix")
-
-        else:
-            config.use_folder_suffix = config._parser.getboolean(
-                options_section, "use_folder_suffix", fallback=True
-            )
-
-        # endregion Renamed
-
-        # endregion Options
-
-        # region Cache
-
-        cache_section = "Cache"
-
-        if not config._parser.has_section(cache_section):
-            config._parser.add_section(cache_section)
-
-        config.cached_device_id = config._parser.get(
-            cache_section, "device_id", fallback=None
-        )
-        config.cached_device_id_timestamp = config._parser.getint(
-            cache_section, "device_id_timestamp", fallback=None
-        )
-
-        # endregion Cache
-
-        # region Logic
-
-        key_default_pattern = r"""this\.checkKey_\s*=\s*["']([^"']+)["']"""
-        main_js_default_pattern = r'''\ssrc\s*=\s*"(main\..*?\.js)"'''
-
-        logic_section = "Logic"
-
-        if not config._parser.has_section(logic_section):
-            config._parser.add_section(logic_section)
-
-        config.check_key_pattern = config._parser.get(
-            logic_section, "check_key_pattern", fallback=key_default_pattern
-        )
-        config.main_js_pattern = config._parser.get(
-            logic_section, "main_js_pattern", fallback=main_js_default_pattern
-        )
-
-        # endregion Logic
-
-        # region Stash
-        stash_section = "StashContext"
-        if config._parser.has_section(stash_section):
-            config.stash_context_conn = {
-                "scheme": config._parser.get(stash_section, "scheme", fallback="http"),
-                "host": config._parser.get(stash_section, "host", fallback="localhost"),
-                "port": config._parser.getint(stash_section, "port", fallback=9999),
-                "apikey": config._parser.get(stash_section, "apikey", fallback=""),
-            }
+        # Handle each section
+        _handle_creator_section(config, replace_me_str)
+        _handle_account_section(config, replace_me_str)
+        _handle_other_section(config)
+        _handle_options_section(config)
+        _handle_cache_section(config)
+        _handle_logic_section(config)
+        _handle_stash_section(config)
 
         # Safe to save! :-)
         save_config_or_raise(config)
 
-    except configparser.NoOptionError as e:
-        error_string = str(e)
-        raise ConfigError(
-            f"Your config.ini file is invalid, please download a fresh version of it from GitHub.\n{error_string}"
-        )
-
-    except ValueError as e:
-        error_string = str(e)
-
-        if "a boolean" in error_string:
-            # Only open URL in interactive mode and not during tests
-            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
-                open_url(
-                    "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
-                )
-
-            raise ConfigError(
-                f"'{error_string.rsplit('boolean: ')[1]}' is malformed in the configuration file! This value can only be True or False"
-                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [1]"
-            )
-
-        else:
-            # Only open URL in interactive mode and not during tests
-            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
-                open_url(
-                    "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
-                )
-
-            raise ConfigError(
-                f"You have entered a wrong value in the config.ini file -> '{error_string}'"
-                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [2]"
-            )
-
-    except (KeyError, NameError) as key:
-        # Only open URL in interactive mode and not during tests
-        if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
-            open_url(
-                "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
-            )
-
-        raise ConfigError(
-            f"'{key}' is missing or malformed in the configuration file!"
-            f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [3]"
-        )
+    except (configparser.NoOptionError, ValueError, KeyError, NameError) as e:
+        _handle_config_error(e, config)

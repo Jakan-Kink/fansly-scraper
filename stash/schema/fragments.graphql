@@ -1,0 +1,276 @@
+fragment SceneFields on Scene {
+  id
+  title
+  code
+  details
+  director
+  urls
+  date
+  rating100
+  organized
+  o_counter
+  interactive
+  interactive_speed
+  captions {
+    language_code
+    caption_type
+  }
+  created_at
+  updated_at
+  last_played_at
+  resume_time
+  play_duration
+  play_count
+  play_history
+  o_history
+  files {
+    id
+    path
+    basename
+    parent_folder_id
+    zip_file_id
+    mod_time
+    size
+    fingerprints {
+      type
+      value
+    }
+    format
+    width
+    height
+    duration
+    video_codec
+    audio_codec
+    frame_rate
+    bit_rate
+    created_at
+    updated_at
+  }
+  paths {
+    screenshot
+    preview
+    stream
+    webp
+    vtt
+    sprite
+    funscript
+    interactive_heatmap
+    caption
+  }
+  studio {
+    id
+    name
+    url
+    image_path
+    rating100
+    favorite
+    details
+    created_at
+    updated_at
+  }
+  performers {
+    id
+    name
+    gender
+    url
+    urls
+    birthdate
+    ethnicity
+    country
+    eye_color
+    height_cm
+    measurements
+    fake_tits
+    career_length
+    tattoos
+    piercings
+    alias_list
+    favorite
+    image_path
+    rating100
+    details
+    death_date
+    hair_color
+    weight
+    created_at
+    updated_at
+  }
+  tags {
+    id
+    name
+    description
+    aliases
+    created_at
+    updated_at
+    image_path
+  }
+  stash_ids {
+    endpoint
+    stash_id
+  }
+  sceneStreams {
+    url
+    mime_type
+    label
+  }
+}
+
+fragment PerformerFields on Performer {
+  id
+  name
+  disambiguation
+  urls
+  gender
+  birthdate
+  ethnicity
+  country
+  eye_color
+  height_cm
+  measurements
+  fake_tits
+  penis_length
+  circumcised
+  career_length
+  tattoos
+  piercings
+  alias_list
+  favorite
+  ignore_auto_tag
+  image_path
+  scene_count
+  image_count
+  gallery_count
+  group_count
+  performer_count
+  o_counter
+  rating100
+  details
+  death_date
+  hair_color
+  weight
+  created_at
+  updated_at
+  stash_ids {
+    endpoint
+    stash_id
+  }
+  tags {
+    id
+    name
+    description
+    aliases
+    created_at
+    updated_at
+    image_path
+  }
+  custom_fields
+}
+
+fragment StudioFields on Studio {
+  id
+  name
+  url
+  image_path
+  aliases
+  ignore_auto_tag
+  scene_count
+  image_count
+  gallery_count
+  performer_count
+  group_count
+  rating100
+  favorite
+  details
+  created_at
+  updated_at
+  stash_ids {
+    endpoint
+    stash_id
+  }
+  tags {
+    id
+    name
+    description
+    aliases
+    created_at
+    updated_at
+    image_path
+  }
+  parent_studio {
+    id
+    name
+    url
+    image_path
+  }
+}
+
+fragment TagFields on Tag {
+  id
+  name
+  description
+  aliases
+  ignore_auto_tag
+  created_at
+  updated_at
+  favorite
+  image_path
+  scene_count
+  scene_marker_count
+  image_count
+  gallery_count
+  performer_count
+  studio_count
+  group_count
+  parent_count
+  child_count
+  parents {
+    id
+    name
+    description
+    aliases
+  }
+  children {
+    id
+    name
+    description
+    aliases
+  }
+}
+
+fragment FileFields on BaseFile {
+  id
+  path
+  basename
+  parent_folder_id
+  zip_file_id
+  mod_time
+  size
+  fingerprints {
+    type
+    value
+  }
+  created_at
+  updated_at
+}
+
+fragment VideoFileFields on VideoFile {
+  ...FileFields
+  format
+  width
+  height
+  duration
+  video_codec
+  audio_codec
+  frame_rate
+  bit_rate
+}
+
+fragment ImageFileFields on ImageFile {
+  ...FileFields
+  width
+  height
+}
+
+fragment GalleryFileFields on GalleryFile {
+  ...FileFields
+}

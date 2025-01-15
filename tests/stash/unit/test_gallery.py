@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from typing import cast
 
 import pytest
-from stashapi.stashapp import StashInterface
 
+from stash import StashInterface
 from stash.gallery import Gallery, GalleryChapter
 
 

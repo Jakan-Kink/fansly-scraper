@@ -142,10 +142,15 @@ def process_media_metadata(metadata: dict) -> None:
 
 @require_database_config
 def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
+    """Process media info and store in the database.
+
+    Args:
+        config: FanslyConfig instance for database access
+        media_infos: Dictionary containing media info data
+    """
     from .account import AccountMedia
 
     media_infos = copy.deepcopy(media_infos)
-
     json_output(1, "meta/media - p_m_i", media_infos)
 
     # Known attributes that are handled separately
@@ -171,32 +176,25 @@ def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
     json_output(1, "meta/media - p_m_i - filtered", filtered_account_media)
 
     with config._database.sync_session() as session:
-        # Query first approach
-        account_media = session.execute(
-            select(AccountMedia).where(
-                AccountMedia.id == filtered_account_media["id"],
-                AccountMedia.accountId == filtered_account_media["accountId"],
-                AccountMedia.mediaId == filtered_account_media["mediaId"],
-            )
-        ).scalar_one_or_none()
+        # Get or create account media
+        account_media, created = AccountMedia.get_or_create(
+            session,
+            {
+                "id": filtered_account_media["id"],
+                "accountId": filtered_account_media["accountId"],
+                "mediaId": filtered_account_media["mediaId"],
+            },
+            filtered_account_media,
+        )
 
-        # Create if doesn't exist with minimum required fields
-        if account_media is None:
-            account_media = AccountMedia(**filtered_account_media)
-            session.add(account_media)
-
-        # Update fields that have changed
-        for key, value in filtered_account_media.items():
-            if getattr(account_media, key) != value:
-                setattr(account_media, key, value)
-
+        # Update fields
+        Base.update_fields(account_media, filtered_account_media)
         session.flush()
 
         # Process related media items
-        if "media" in media_infos:
-            process_media_item_dict(config, media_infos["media"], session)
-        if "preview" in media_infos:
-            process_media_item_dict(config, media_infos["preview"], session)
+        for field in ["media", "preview"]:
+            if field in media_infos:
+                process_media_item_dict(config, media_infos[field], session)
 
         session.commit()
 
@@ -211,6 +209,110 @@ def process_media_item_dict(
             _process_media_item_dict_inner(config, media_item, session)
     else:
         _process_media_item_dict_inner(config, media_item, session)
+
+
+def _process_media_metadata(
+    media_item: dict[str, any],
+    filtered_media: dict[str, any],
+) -> None:
+    """Process media metadata and update filtered_media.
+
+    Args:
+        media_item: Raw media item dictionary
+        filtered_media: Dictionary of filtered media data to update
+    """
+    if "metadata" not in media_item:
+        return
+
+    filtered_media["meta_info"] = media_item["metadata"]
+    if not media_item.get("mimetype", "").startswith("video/"):
+        return
+
+    try:
+        metadata = json.loads(media_item["metadata"])
+        # Extract original dimensions and duration if available
+        if "original" in metadata:
+            filtered_media["width"] = metadata["original"].get("width")
+            filtered_media["height"] = metadata["original"].get("height")
+        if "duration" in metadata:
+            filtered_media["duration"] = float(metadata.get("duration"))
+    except (json.JSONDecodeError, ValueError, AttributeError, KeyError) as e:
+        json_output(1, "meta/media - p_m_i_d - metadata error", str(e))
+
+
+def _process_media_locations(
+    session: Session,
+    media: Media,
+    locations: list[dict[str, any]],
+) -> None:
+    """Process media locations.
+
+    Args:
+        session: SQLAlchemy session
+        media: Media instance
+        locations: List of location data dictionaries
+    """
+    # Get existing locations
+    existing_locations = {
+        loc.locationId: loc
+        for loc in session.execute(
+            select(MediaLocation).where(MediaLocation.mediaId == media.id)
+        )
+        .scalars()
+        .all()
+    }
+
+    # Process each location
+    for location_data in locations:
+        location_id = location_data["locationId"]
+        if location_id in existing_locations:
+            # Update if location changed
+            if existing_locations[location_id].location != location_data["location"]:
+                existing_locations[location_id].location = location_data["location"]
+            # Remove from existing_locations to track what needs to be deleted
+            del existing_locations[location_id]
+        else:
+            # Add new location
+            location = MediaLocation(
+                mediaId=media.id,
+                locationId=location_id,
+                location=location_data["location"],
+            )
+            session.add(location)
+
+    # Delete locations that no longer exist
+    for location in existing_locations.values():
+        session.delete(location)
+
+
+def _process_media_variants(
+    session: Session,
+    config: FanslyConfig,
+    media: Media,
+    variants: list[dict[str, any]],
+    account_id: int,
+) -> None:
+    """Process media variants.
+
+    Args:
+        session: SQLAlchemy session
+        config: FanslyConfig instance
+        media: Media instance
+        variants: List of variant data dictionaries
+        account_id: ID of the account that owns the media
+    """
+    for variant in variants:
+        _process_media_item_dict_inner(
+            config,
+            variant,
+            session,
+            account_id=account_id,
+        )
+        session.execute(
+            media_variants.insert()
+            .values(mediaId=media.id, variantId=variant["id"])
+            .prefix_with("OR IGNORE")
+        )
 
 
 def _process_media_item_dict_inner(
@@ -259,20 +361,8 @@ def _process_media_item_dict_inner(
     )
     filtered_media["accountId"] = filtered_media.get("accountId", account_id)
 
-    # Handle metadata field
-    if "metadata" in media_item:
-        filtered_media["meta_info"] = media_item["metadata"]
-        if media_item.get("mimetype", "").startswith("video/"):
-            try:
-                metadata = json.loads(media_item["metadata"])
-                # Extract original dimensions and duration if available
-                if "original" in metadata:
-                    filtered_media["width"] = metadata["original"].get("width")
-                    filtered_media["height"] = metadata["original"].get("height")
-                if "duration" in metadata:
-                    filtered_media["duration"] = float(metadata.get("duration"))
-            except (json.JSONDecodeError, ValueError, AttributeError, KeyError) as e:
-                json_output(1, "meta/media - p_m_i_d - metadata error", str(e))
+    # Process metadata
+    _process_media_metadata(media_item, filtered_media)
 
     # Ensure required fields are present before proceeding
     if "accountId" not in filtered_media:
@@ -282,74 +372,50 @@ def _process_media_item_dict_inner(
             {"mediaId": filtered_media.get("id"), "missing_field": "accountId"},
         )
         return  # Skip this media if accountId is missing
-    # Query first approach
-    media = session.execute(
-        select(Media).where(Media.id == filtered_media["id"])
-    ).scalar_one_or_none()
 
-    if media is None:
-        media = Media(**filtered_media)
-        session.add(media)
+    # Get or create media
+    media, created = Media.get_or_create(
+        session,
+        {"id": filtered_media["id"]},
+        filtered_media,
+    )
 
-    # Update fields that have changed
-    for key, value in filtered_media.items():
-        if getattr(media, key) != value:
-            setattr(media, key, value)
-
+    # Update fields
+    Base.update_fields(media, filtered_media)
     session.flush()
 
-    # Process locations
+    # Process locations if present
     if "locations" in media_item:
-        # Get existing locations
-        existing_locations = {
-            loc.locationId: loc
-            for loc in session.execute(
-                select(MediaLocation).where(MediaLocation.mediaId == media.id)
-            )
-            .scalars()
-            .all()
-        }
+        _process_media_locations(session, media, media_item["locations"])
 
-        # Process each location
-        for location_data in media_item["locations"]:
-            location_id = location_data["locationId"]
-            if location_id in existing_locations:
-                # Update if location changed
-                if (
-                    existing_locations[location_id].location
-                    != location_data["location"]
-                ):
-                    existing_locations[location_id].location = location_data["location"]
-                # Remove from existing_locations to track what needs to be deleted
-                del existing_locations[location_id]
-            else:
-                # Add new location
-                location = MediaLocation(
-                    mediaId=media.id,
-                    locationId=location_id,
-                    location=location_data["location"],
-                )
-                session.add(location)
-
-        # Delete locations that no longer exist
-        for location in existing_locations.values():
-            session.delete(location)
-
-    # Process variants
+    # Process variants if present
     if "variants" in media_item:
-        for variant in media_item["variants"]:
-            _process_media_item_dict_inner(
-                config,
-                variant,
-                session,
-                account_id=filtered_media["accountId"],
-            )
-            session.execute(
-                media_variants.insert()
-                .values(mediaId=media.id, variantId=variant["id"])
-                .prefix_with("OR IGNORE")
-            )
+        _process_media_variants(
+            session,
+            config,
+            media,
+            media_item["variants"],
+            filtered_media["accountId"],
+        )
+
     session.commit()
+
+
+def _should_skip_media(media_obj: Media) -> bool:
+    """Check if media should be skipped.
+
+    Args:
+        media_obj: Media instance to check
+
+    Returns:
+        True if media should be skipped, False otherwise
+    """
+    return bool(
+        media_obj
+        and media_obj.is_downloaded
+        and media_obj.content_hash
+        and media_obj.local_filename
+    )
 
 
 @require_database_config
@@ -365,6 +431,9 @@ def process_media_download(
 
     Returns:
         Media record if found or created, None if media should be skipped
+
+    Raises:
+        ValueError: If creator_id is not available in state
     """
     media = copy.deepcopy(media)
     json_output(1, "meta/media - p_m_d", media)
@@ -376,47 +445,47 @@ def process_media_download(
         ).scalar_one_or_none()
 
         # If found and already downloaded with hash, skip it
-        if (
-            existing_media
-            and existing_media.is_downloaded
-            and existing_media.content_hash
-            and existing_media.local_filename
-        ):
+        if _should_skip_media(existing_media):
             return None
 
-        # If not found or missing required fields, create/update record
-        if not existing_media:
-            if not state.creator_id:
-                raise ValueError(
-                    "Cannot create Media record: creator_id is required but not available in state"
-                )
+        # Ensure creator_id is available
+        if not state.creator_id:
+            raise ValueError(
+                "Cannot create Media record: creator_id is required but not available in state"
+            )
 
-            # Create base record if doesn't exist
-            if not existing_media:
-                existing_media = Media(
-                    id=media.media_id,
-                    accountId=int(state.creator_id),
-                    mimetype=media.mimetype,
-                    createdAt=(
+        # Get or create media record
+        media_obj, created = Media.get_or_create(
+            session,
+            {"id": media.media_id},
+            {
+                "accountId": int(state.creator_id),
+                "mimetype": media.mimetype,
+                "createdAt": (
+                    datetime.fromtimestamp(media.created_at, tz=timezone.utc)
+                    if media.created_at
+                    else None
+                ),
+            },
+        )
+
+        # Update fields if not created
+        if not created:
+            Base.update_fields(
+                media_obj,
+                {
+                    "accountId": int(state.creator_id),
+                    "mimetype": media.mimetype,
+                    "createdAt": (
                         datetime.fromtimestamp(media.created_at, tz=timezone.utc)
                         if media.created_at
                         else None
                     ),
-                )
-                session.add(existing_media)
-            else:
-                # Update existing record with new info
-                existing_media.accountId = int(state.creator_id)
-                if media.mimetype:
-                    existing_media.mimetype = media.mimetype
-                if media.created_at:
-                    existing_media.createdAt = datetime.fromtimestamp(
-                        media.created_at, tz=timezone.utc
-                    )
+                },
+            )
 
-            session.commit()
-
-        return existing_media
+        session.commit()
+        return media_obj
 
 
 def process_media_download_accessible(

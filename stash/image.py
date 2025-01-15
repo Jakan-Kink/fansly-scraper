@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
-
-from stashapi.stashapp import StashInterface
 
 from .image_paths import ImagePathsType
 from .stash_context import StashQL
+from .stash_interface import StashInterface
 from .types import (
     StashGalleryProtocol,
     StashImageProtocol,
@@ -39,6 +37,22 @@ class Image(StashImageProtocol):
     performers: list[StashPerformerProtocol] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+
+    # Define input field configurations
+    _input_fields = {
+        # Field name: (attribute name, default value, transform function, required)
+        "title": ("title", None, None, False),
+        "code": ("code", None, None, False),
+        "rating100": ("rating100", None, None, False),
+        "date": ("date", None, lambda x: x.date().isoformat() if x else None, False),
+        "details": ("details", None, None, False),
+        "photographer": ("photographer", None, None, False),
+        "organized": ("organized", False, None, False),
+        "gallery_ids": ("galleries", [], lambda x: [g.id for g in x], False),
+        "studio_id": ("studio", None, lambda x: x.id if x else None, False),
+        "tag_ids": ("tags", [], lambda x: [t.id for t in x], False),
+        "performer_ids": ("performers", [], lambda x: [p.id for p in x], False),
+    }
 
     @staticmethod
     def find(id: str, interface: StashInterface) -> Image | None:
@@ -77,7 +91,7 @@ class Image(StashImageProtocol):
         Args:
             interface: StashInterface instance to use for updating
         """
-        interface.update_image(self.to_dict())
+        interface.update_image(self.to_update_input_dict())
 
     @staticmethod
     def create_batch(interface: StashInterface, images: list[Image]) -> list[dict]:
@@ -130,20 +144,38 @@ class Image(StashImageProtocol):
         }
 
     def to_create_input_dict(self) -> dict:
-        """Converts the Image object into a dictionary matching the ImageCreateInput GraphQL definition."""
-        return {
-            "title": self.title,
-            "code": self.code,
-            "rating100": self.rating100,
-            "date": self.date.isoformat() if self.date else None,
-            "details": self.details,
-            "photographer": self.photographer,
-            "organized": self.organized,
-            "gallery_ids": [g.id for g in self.galleries],
-            "studio_id": self.studio.id if self.studio else None,
-            "tag_ids": [t.id for t in self.tags],
-            "performer_ids": [p.id for p in self.performers],
-        }
+        """Converts the Image object into a dictionary matching the ImageCreateInput GraphQL definition.
+
+        Only includes fields that have non-default values to prevent unintended overwrites.
+        Uses _input_fields configuration to determine what to include.
+        """
+        result = {}
+
+        for field_name, (
+            attr_name,
+            default_value,
+            transform_func,
+            required,
+        ) in self._input_fields.items():
+            value = getattr(self, attr_name)
+
+            # Skip None values for non-required fields
+            if value is None and not required:
+                continue
+
+            # Skip if value equals default (but still include required fields)
+            if not required and value == default_value:
+                continue
+
+            # For empty lists (but still include required fields)
+            if not required and isinstance(default_value, list) and not value:
+                continue
+
+            # Special handling for numeric fields that could be 0
+            if isinstance(value, (int, float)) or value is not None:
+                result[field_name] = transform_func(value) if transform_func else value
+
+        return result
 
     def to_update_input_dict(self) -> dict:
         """Converts the Image object into a dictionary matching the ImageUpdateInput GraphQL definition."""
@@ -161,7 +193,7 @@ class Image(StashImageProtocol):
         return interface.create_image(self.to_create_input_dict())
 
     @classmethod
-    def from_dict(cls, data: dict) -> Image:
+    def from_dict(cls, data: dict, interface: StashInterface | None = None) -> Image:
         """Create an Image instance from a dictionary.
 
         Args:
@@ -183,7 +215,7 @@ class Image(StashImageProtocol):
         if image_data.get("studio"):
             from .studio import Studio
 
-            studio = Studio.from_dict(image_data["studio"])
+            studio = Studio.from_dict(image_data["studio"], interface=interface)
 
         tags = []
         if "tags" in image_data:

@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
-from sqlalchemy import DateTime, event
+from sqlalchemy import DateTime, event, select
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import DeclarativeBase, Mapper
@@ -106,6 +106,137 @@ class Base(AsyncAttrs, DeclarativeBase):
                 if isinstance(timestamp, (int, float)) and timestamp > 1e10:
                     timestamp = timestamp / 1000
                 data[date_field] = datetime.fromtimestamp(timestamp, timezone.utc)
+
+    @classmethod
+    def get_or_create(
+        cls: type[T],
+        session: Any,
+        filters: dict[str, Any],
+        defaults: dict[str, Any] | None = None,
+    ) -> tuple[T, bool]:
+        """Get an existing instance or create a new one.
+
+        Implements the query-first pattern:
+        1. Query for existing object using filters
+        2. Create with minimum required fields if doesn't exist
+        3. Return tuple of (instance, created) where created is True if new instance
+
+        Args:
+            session: SQLAlchemy session
+            filters: Dictionary of filters to find existing instance
+            defaults: Optional dictionary of default values for new instance
+
+        Returns:
+            Tuple of (instance, created) where created is True if new instance
+
+        Example:
+            >>> instance, created = Model.get_or_create(
+            ...     session,
+            ...     {"id": 123},
+            ...     {"name": "default"}
+            ... )
+        """
+        instance = session.execute(
+            select(cls).filter_by(**filters)
+        ).scalar_one_or_none()
+
+        if instance is None:
+            data = {**filters}
+            if defaults:
+                data.update(defaults)
+            instance = cls(**data)
+            session.add(instance)
+            return instance, True
+
+        return instance, False
+
+    @staticmethod
+    def update_fields(
+        instance: Any, data: dict[str, Any], exclude: set[str] | None = None
+    ) -> bool:
+        """Update instance fields only if values have changed.
+
+        Args:
+            instance: Model instance to update
+            data: Dictionary of field values to update
+            exclude: Optional set of field names to exclude from updates
+
+        Returns:
+            True if any fields were updated, False otherwise
+
+        Example:
+            >>> updated = Base.update_fields(
+            ...     instance,
+            ...     {"name": "new name", "age": 25},
+            ...     exclude={"created_at"}
+            ... )
+        """
+        exclude = exclude or set()
+        updated = False
+        mapper = inspect(instance.__class__)
+
+        for key, value in data.items():
+            if key in exclude:
+                continue
+
+            # Check if field is a datetime column
+            if (
+                key in mapper.columns
+                and isinstance(mapper.columns[key].type, DateTime)
+                and value
+            ):
+                # Convert timestamp if needed
+                Base.convert_timestamps({key: value}, [key])
+                value = data[key]  # Get converted value
+
+            current_value = getattr(instance, key)
+            if current_value != value:
+                setattr(instance, key, value)
+                updated = True
+
+        return updated
+
+    @staticmethod
+    def validate_relationships(
+        data: dict[str, Any],
+        required_relations: set[str],
+        optional_relations: set[str],
+        log_prefix: str,
+    ) -> tuple[set[str], set[str]]:
+        """Validate presence of required and optional relationships.
+
+        Args:
+            data: Dictionary containing relationship data
+            required_relations: Set of relationship names that must be present
+            optional_relations: Set of relationship names that may be present
+            log_prefix: Prefix for log messages
+
+        Returns:
+            Tuple of (missing_required, missing_optional) relationship sets
+
+        Example:
+            >>> required = {"author", "category"}
+            >>> optional = {"tags", "comments"}
+            >>> missing_req, missing_opt = Base.validate_relationships(
+            ...     data,
+            ...     required,
+            ...     optional,
+            ...     "meta/post"
+            ... )
+        """
+        missing_required = {rel for rel in required_relations if rel not in data}
+        missing_optional = {rel for rel in optional_relations if rel not in data}
+
+        if missing_required:
+            json_output(
+                2, f"{log_prefix} - missing_required_relations", list(missing_required)
+            )
+        if missing_optional:
+            json_output(
+                1, f"{log_prefix} - missing_optional_relations", list(missing_optional)
+            )
+
+        return missing_required, missing_optional
 
     @classmethod
     def process_data(

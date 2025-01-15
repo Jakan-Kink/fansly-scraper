@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from stashapi.stashapp import StashInterface
-
+from .stash_interface import StashInterface
 from .types import StashTagProtocol
 
 
@@ -22,6 +21,19 @@ class Tag(StashTagProtocol):
     children: list[Tag] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+
+    # Define input field configurations
+    _input_fields = {
+        # Field name: (attribute name, default value, transform function, required)
+        "name": ("name", None, None, True),  # Required field
+        "description": ("description", None, None, False),
+        "aliases": ("aliases", [], None, False),
+        "ignore_auto_tag": ("ignore_auto_tag", False, None, False),
+        "image_path": ("image_path", None, None, False),
+        "favorite": ("favorite", False, None, False),
+        "parent_ids": ("parents", [], lambda x: [p.id for p in x], False),
+        "child_ids": ("children", [], lambda x: [c.id for c in x], False),
+    }
 
     @staticmethod
     def find(id: str, interface: StashInterface) -> Tag | None:
@@ -60,7 +72,7 @@ class Tag(StashTagProtocol):
         Args:
             interface: StashInterface instance to use for updating
         """
-        interface.update_tag(self.to_dict())
+        interface.update_tag(self.to_update_input_dict())
 
     @staticmethod
     def create_batch(interface: StashInterface, tags: list[Tag]) -> list[dict]:
@@ -107,17 +119,37 @@ class Tag(StashTagProtocol):
         }
 
     def to_create_input_dict(self) -> dict:
-        """Converts the Tag object into a dictionary matching the TagCreateInput GraphQL definition."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "aliases": self.aliases,
-            "ignore_auto_tag": self.ignore_auto_tag,
-            "image_path": self.image_path,
-            "favorite": self.favorite,
-            "parent_ids": [p.id for p in self.parents],
-            "child_ids": [c.id for c in self.children],
-        }
+        """Converts the Tag object into a dictionary matching the TagCreateInput GraphQL definition.
+
+        Only includes fields that have non-default values to prevent unintended overwrites.
+        Required fields (marked with _required=True in _input_fields) are always included.
+        """
+        result = {}
+
+        for field_name, (
+            attr_name,
+            default_value,
+            transform_func,
+            required,
+        ) in self._input_fields.items():
+            value = getattr(self, attr_name)
+
+            # Skip None values for non-required fields
+            if value is None and not required:
+                continue
+
+            # Skip if value equals default (but still include required fields)
+            if not required and value == default_value:
+                continue
+
+            # For empty lists (but still include required fields)
+            if not required and isinstance(default_value, list) and not value:
+                continue
+
+            # Apply transform if exists, otherwise use value as is
+            result[field_name] = transform_func(value) if transform_func else value
+
+        return result
 
     def to_update_input_dict(self) -> dict:
         """Converts the Tag object into a dictionary matching the TagUpdateInput GraphQL definition."""

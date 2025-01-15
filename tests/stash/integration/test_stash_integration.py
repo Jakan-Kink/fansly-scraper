@@ -5,12 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from stashapi.stashapp import StashInterface
 
 from config import FanslyConfig
 from download.core import DownloadState
 from metadata.database import Database
-from stash import Gallery, Group, Image, Performer, Scene, Studio, Tag
+from stash import Gallery, Group, Image, Performer, Scene, StashInterface, Studio, Tag
 from stash.processing import StashProcessing
 
 
@@ -80,17 +79,29 @@ async def test_full_workflow(stash_interface, config, state, database):
     scene_data = scene.stash_create(stash_interface)
     scene.id = scene_data["id"]
 
-    # Verify performer exists
+    # Verify performer exists with default fragment
     found_performer = Performer.find(performer.id, stash_interface)
     assert found_performer is not None
     assert found_performer.name == "Test Performer"
 
-    # Verify scene exists and has performer
+    # Verify performer exists with custom fragment
+    found_performer_custom = stash_interface.find_performer(
+        performer.id, fragment="{ id name }"
+    )
+    assert found_performer_custom is not None
+    assert found_performer_custom["name"] == "Test Performer"
+
+    # Verify scene exists and has performer with default fragment
     found_scene = Scene.find(scene.id, stash_interface)
     assert found_scene is not None
     assert found_scene.title == "Test Scene"
     assert len(found_scene.performers) == 1
     assert found_scene.performers[0].id == performer.id
+
+    # Verify scene exists with custom fragment
+    found_scene_custom = stash_interface.find_scene(scene.id, fragment="{ id title }")
+    assert found_scene_custom is not None
+    assert found_scene_custom["title"] == "Test Scene"
 
     # Update performer
     performer.name = "Updated Test Performer"

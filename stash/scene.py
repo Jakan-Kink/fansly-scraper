@@ -4,9 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from stashapi.stashapp import StashInterface
-
 from .stash_context import StashQL
+from .stash_interface import StashInterface
 from .types import (
     StashPerformerProtocol,
     StashSceneProtocol,
@@ -87,6 +86,26 @@ class Scene(StashSceneProtocol):
     stash_ids: list[str] = field(default_factory=list)
     sceneStreams: list[SceneStreamEndpoint] = field(default_factory=list)
 
+    # Define input field configurations
+    _input_fields = {
+        # Field name: (attribute name, default value, transform function, required)
+        "title": ("title", None, None, False),
+        "code": ("code", None, None, False),
+        "details": ("details", None, None, False),
+        "director": ("director", None, None, False),
+        "urls": ("urls", [], None, False),
+        "date": ("date", None, lambda x: x.date().isoformat() if x else None, False),
+        "rating100": ("rating100", None, None, False),
+        "organized": ("organized", False, None, False),
+        "studio_id": ("studio", None, lambda x: x.id if x else None, False),
+        "gallery_ids": ("galleries", [], None, False),
+        "performer_ids": ("performers", [], lambda x: [p.id for p in x], False),
+        "tag_ids": ("tags", [], lambda x: [t.id for t in x], False),
+        "stash_ids": ("stash_ids", [], None, False),
+        "interactive": ("interactive", False, None, False),
+        "interactive_speed": ("interactive_speed", None, None, False),
+    }
+
     @staticmethod
     def find(id: str, interface: StashInterface) -> Scene | None:
         """Find a scene by ID.
@@ -124,7 +143,7 @@ class Scene(StashSceneProtocol):
         Args:
             interface: StashInterface instance to use for updating
         """
-        interface.update_scene(self.to_dict())
+        interface.update_scene(self.to_update_input_dict())
 
     @staticmethod
     def create_batch(interface: StashInterface, scenes: list[Scene]) -> list[dict]:
@@ -191,22 +210,38 @@ class Scene(StashSceneProtocol):
         }
 
     def to_create_input_dict(self) -> dict:
-        """Converts the Scene object into a dictionary matching the SceneCreateInput GraphQL definition."""
-        return {
-            "title": self.title,
-            "code": self.code,
-            "details": self.details,
-            "director": self.director,
-            "urls": self.urls,
-            "date": self.date.isoformat() if self.date else None,
-            "rating100": self.rating100,
-            "organized": self.organized,
-            "studio_id": self.studio.id if self.studio else None,
-            "gallery_ids": self.galleries,
-            "performer_ids": [p.id for p in self.performers],
-            "tag_ids": [t.id for t in self.tags],
-            "stash_ids": self.stash_ids,
-        }
+        """Converts the Scene object into a dictionary matching the SceneCreateInput GraphQL definition.
+
+        Only includes fields that have non-default values to prevent unintended overwrites.
+        Uses _input_fields configuration to determine what to include.
+        """
+        result = {}
+
+        for field_name, (
+            attr_name,
+            default_value,
+            transform_func,
+            required,
+        ) in self._input_fields.items():
+            value = getattr(self, attr_name)
+
+            # Skip None values for non-required fields
+            if value is None and not required:
+                continue
+
+            # Skip if value equals default (but still include required fields)
+            if not required and value == default_value:
+                continue
+
+            # For empty lists (but still include required fields)
+            if not required and isinstance(default_value, list) and not value:
+                continue
+
+            # Special handling for numeric fields that could be 0
+            if isinstance(value, (int, float)) or value is not None:
+                result[field_name] = transform_func(value) if transform_func else value
+
+        return result
 
     def to_update_input_dict(self) -> dict:
         """Converts the Scene object into a dictionary matching the SceneUpdateInput GraphQL definition."""

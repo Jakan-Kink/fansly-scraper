@@ -15,13 +15,11 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-# from sqlalchemy.exc import IntegrityError
-# from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from textio import json_output
 
+from .account import process_media_bundles_data
 from .attachment import Attachment, ContentType
 from .base import Base
 from .database import require_database_config
@@ -39,7 +37,9 @@ class Post(Base):
     __tablename__ = "posts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    accountId = mapped_column(Integer, ForeignKey("accounts.id"), nullable=False)
+    accountId: Mapped[int] = mapped_column(
+        Integer, ForeignKey("accounts.id"), nullable=False
+    )
     content: Mapped[str] = mapped_column(String, nullable=True, default="")
     fypFlag: Mapped[int] = mapped_column(Integer, nullable=True, default=0)
     inReplyTo: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
@@ -173,11 +173,12 @@ def process_pinned_posts(
             new_session.commit()
 
 
+@require_database_config
 def process_timeline_posts(
     config: FanslyConfig, state: DownloadState, posts: list[dict[str, any]]
 ) -> None:
     """Process timeline posts."""
-    from .account import process_account_data, process_media_bundles
+    from .account import process_account_data
     from .media import process_media_info
 
     posts = copy.deepcopy(posts)
@@ -200,21 +201,121 @@ def process_timeline_posts(
         process_media_info(config, media)
 
     # Process media bundles if present
-    if "accountMediaBundles" in posts:
-        # Get the account ID from the first post or media if available
-        account_id = None
-        if tl_posts:
-            account_id = tl_posts[0].get("accountId")
-        elif accountMedia:
-            account_id = accountMedia[0].get("accountId")
-
-        if account_id:
-            process_media_bundles(config, account_id, posts["accountMediaBundles"])
+    with config._database.sync_session() as session:
+        process_media_bundles_data(session, posts, config, ["accountId"])
+        session.commit()
 
     # Process accounts
     accounts = posts["accounts"]
     for account in accounts:
         process_account_data(config, data=account)
+
+
+def _process_post_mentions(
+    session: Session,
+    post_obj: Post,
+    mentions: list[dict[str, any]],
+) -> None:
+    """Process account mentions for a post.
+
+    Args:
+        session: SQLAlchemy session
+        post_obj: Post instance
+        mentions: List of mention data dictionaries
+    """
+    for mention in mentions:
+        handle = mention.get("handle", "").strip()
+        account_id = mention.get("accountId", None)
+
+        # Skip if we have neither a handle nor an accountId
+        if not handle and account_id is None:
+            json_output(
+                2,
+                "meta/post - _p_t_p - skipping mention with no handle or accountId",
+                {"postId": post_obj.id, "mention": mention},
+            )
+            continue
+
+        mention_data = {
+            "postId": post_obj.id,
+            "accountId": account_id,
+            "handle": handle,
+        }
+
+        # Log if we're storing a mention without an accountId
+        if account_id is None:
+            json_output(
+                2,
+                "meta/post - _p_t_p - storing mention with handle only",
+                {"postId": post_obj.id, "handle": handle},
+            )
+
+        # Try to insert/update the mention
+        insert_stmt = sqlite_insert(post_mentions).values(mention_data)
+
+        # If there's a conflict, update the handle if we have an accountId,
+        # or update the accountId if we have one now
+        update_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=(
+                ["postId", "handle"] if account_id is None else ["postId", "accountId"]
+            ),
+            set_=(
+                {"handle": handle}
+                if account_id is None
+                else {"accountId": account_id, "handle": handle}
+            ),
+            where=(
+                # Only update if we have new information
+                # Only update if we have a new accountId and the existing one is NULL
+                post_mentions.c.accountId.is_(None)
+                if account_id is not None
+                else None
+            ),
+        )
+        session.execute(update_stmt)
+
+
+def _process_post_attachments(
+    session: Session,
+    post_obj: Post,
+    attachments: list[dict[str, any]],
+    config: FanslyConfig,
+) -> None:
+    """Process attachments for a post.
+
+    Args:
+        session: SQLAlchemy session
+        post_obj: Post instance
+        attachments: List of attachment data dictionaries
+        config: FanslyConfig instance
+    """
+    # Known attributes for attachments that are handled separately
+    attachment_known_relations = {
+        "post",
+        "media",
+        "preview",
+        "variants",
+        "message",
+        "attachmentFlags",
+        "attachmentStatus",
+        "attachmentType",
+        "permissions",
+    }
+
+    json_output(1, "meta/post - _p_t_p - attachments", attachments)
+    for attachment_data in attachments:
+        # Skip tipGoals attachments
+        if attachment_data.get("contentType") == 7100:
+            continue
+
+        Attachment.process_attachment(
+            session,
+            attachment_data,
+            post_obj,
+            attachment_known_relations,
+            "postId",
+            "post",
+        )
 
 
 @require_database_config
@@ -249,9 +350,6 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
     json_output(1, "meta/post - _p_t_p - filtered", filtered_post)
 
     with config._database.sync_session() as session:
-        # Query first approach
-        post_obj = session.get(Post, filtered_post["id"])
-
         # Ensure required fields are present before proceeding
         if "accountId" not in filtered_post:
             json_output(
@@ -261,71 +359,20 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
             )
             return  # Skip this post if accountId is missing
 
-        if not post_obj:
-            post_obj = Post(**filtered_post)
-            session.add(post_obj)
+        # Get or create post
+        post_obj, created = Post.get_or_create(
+            session,
+            {"id": filtered_post["id"]},
+            filtered_post,
+        )
 
-        # Update fields that have changed
-        for key, value in filtered_post.items():
-            if getattr(post_obj, key) != value:
-                setattr(post_obj, key, value)
-
+        # Update fields
+        Base.update_fields(post_obj, filtered_post)
         session.flush()
 
         # Process account mentions if present
         if "accountMentions" in post:
-            for mention in post["accountMentions"]:
-                handle = mention.get("handle", "").strip()
-                account_id = mention.get("accountId", None)
-
-                # Skip if we have neither a handle nor an accountId
-                if not handle and account_id is None:
-                    json_output(
-                        2,
-                        "meta/post - _p_t_p - skipping mention with no handle or accountId",
-                        {"postId": post_obj.id, "mention": mention},
-                    )
-                    continue
-
-                mention_data = {
-                    "postId": post_obj.id,
-                    "accountId": account_id,
-                    "handle": handle,
-                }
-
-                # Log if we're storing a mention without an accountId
-                if account_id is None:
-                    json_output(
-                        2,
-                        "meta/post - _p_t_p - storing mention with handle only",
-                        {"postId": post_obj.id, "handle": handle},
-                    )
-
-                # Try to insert/update the mention
-                insert_stmt = sqlite_insert(post_mentions).values(mention_data)
-
-                # If there's a conflict, update the handle if we have an accountId,
-                # or update the accountId if we have one now
-                update_stmt = insert_stmt.on_conflict_do_update(
-                    index_elements=(
-                        ["postId", "handle"]
-                        if account_id is None
-                        else ["postId", "accountId"]
-                    ),
-                    set_=(
-                        {"handle": handle}
-                        if account_id is None
-                        else {"accountId": account_id, "handle": handle}
-                    ),
-                    where=(
-                        # Only update if we have new information
-                        # Only update if we have a new accountId and the existing one is NULL
-                        post_mentions.c.accountId.is_(None)
-                        if account_id is not None
-                        else None
-                    ),
-                )
-                session.execute(update_stmt)
+            _process_post_mentions(session, post_obj, post["accountMentions"])
 
         # Process hashtags from content
         if post_obj.content:
@@ -334,64 +381,6 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
 
         # Process attachments if present
         if "attachments" in post:
-            # Known attributes for attachments that are handled separately
-            attachment_known_relations = {
-                "post",
-                "media",
-                "preview",
-                "variants",
-                "message",
-                "attachmentFlags",
-                "attachmentStatus",
-                "attachmentType",
-                "permissions",
-            }
-
-            json_output(1, "meta/post - _p_t_p - attachments", post["attachments"])
-            for attachment_data in post["attachments"]:
-                # Skip tipGoals attachments
-                if attachment_data.get("contentType") == 7100:
-                    continue
-
-                attachment_data["postId"] = post_obj.id
-
-                # Convert contentType to enum
-                try:
-                    attachment_data["contentType"] = ContentType(
-                        attachment_data["contentType"]
-                    )
-                except ValueError:
-                    old_content_type = attachment_data["contentType"]
-                    attachment_data["contentType"] = None
-                    json_output(
-                        2,
-                        f"meta/post - _p_t_p - invalid_content_type: {old_content_type}",
-                        attachment_data,
-                    )
-
-                # Process attachment data
-                filtered_attachment, _ = Attachment.process_data(
-                    attachment_data,
-                    attachment_known_relations,
-                    "meta/post - _p_t_p-attach",
-                )
-
-                # Query existing attachment
-                attachment = session.execute(
-                    select(Attachment).where(
-                        Attachment.postId == post_obj.id,
-                        Attachment.contentId == filtered_attachment["contentId"],
-                    )
-                ).scalar_one_or_none()
-
-                if attachment is None:
-                    attachment = Attachment(**filtered_attachment)
-                    session.add(attachment)
-                # Update fields that have changed
-                for key, value in filtered_attachment.items():
-                    if getattr(attachment, key) != value:
-                        setattr(attachment, key, value)
-
-                session.flush()
+            _process_post_attachments(session, post_obj, post["attachments"], config)
 
         session.commit()

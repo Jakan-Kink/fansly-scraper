@@ -3,8 +3,6 @@
 This module provides a high-level interface to the Stash GraphQL API using dataclasses.
 """
 
-from stashapi.stashapp import StashInterface
-
 # Protocol definitions
 # Core functionality
 from .base_protocols import (
@@ -41,6 +39,7 @@ from .scene import (
     VideoCaption,
 )
 from .stash_context import StashContext, StashQL  # Core classes for Stash interaction
+from .stash_interface import StashInterface
 from .studio import Studio
 from .tag import Tag
 

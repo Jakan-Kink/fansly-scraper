@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    func,
     select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -151,16 +152,16 @@ def process_post_hashtags(session: Session, post_obj: Post, content: str) -> Non
         return
 
     for value in hashtag_values:
-        # Query first approach - check if hashtag exists
+        # First try to get existing hashtag
         hashtag = session.execute(
-            select(Hashtag).where(Hashtag.value == value)
-        ).scalar_one_or_none()
+            select(Hashtag).where(func.lower(Hashtag.value) == func.lower(value))
+        ).scalar()
 
         if not hashtag:
-            # Create new hashtag if it doesn't exist
+            # If hashtag doesn't exist, create it
             hashtag = Hashtag(value=value)
             session.add(hashtag)
-            session.flush()  # Get the ID for the new hashtag
+            session.flush()  # Ensure the hashtag has an ID
 
         # Add association using the association table
         insert_stmt = sqlite_insert(post_hashtags).values(

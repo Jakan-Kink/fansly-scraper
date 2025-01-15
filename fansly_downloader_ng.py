@@ -16,6 +16,7 @@ import traceback
 
 # from memory_profiler import profile
 from datetime import datetime
+from time import sleep
 
 from alembic.config import Config as AlembicConfig
 from config import FanslyConfig, load_config, validate_adjust_config
@@ -231,8 +232,14 @@ def main(config: FanslyConfig) -> int:
 
                     get_creator_account_info(config, state)
 
+                    print_info(f"Download mode is: {config.download_mode_str()}")
+                    print()
+
                     # Special treatment for deviating folder names later
-                    if not config.download_mode == DownloadMode.SINGLE:
+                    if config.download_mode not in (
+                        DownloadMode.SINGLE,
+                        DownloadMode.STASH_ONLY,
+                    ):
                         dedupe_init(config, state)
                         dedupe_init(config, state)
 
@@ -243,9 +250,7 @@ def main(config: FanslyConfig) -> int:
                     # Wall: Scrapes only the creator's wall content.
                     # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
                     # Collection: Download all content listed within the "Purchased Media Collection"
-
-                    print_info(f"Download mode is: {config.download_mode_str()}")
-                    print()
+                    # STASH_ONLY: Only process Stash metadata, skip downloading media.
 
                     if config.download_mode == DownloadMode.SINGLE:
                         download_single_post(config, state)
@@ -253,7 +258,7 @@ def main(config: FanslyConfig) -> int:
                     elif config.download_mode == DownloadMode.COLLECTION:
                         download_collections(config, state)
 
-                    else:
+                    elif config.download_mode != DownloadMode.STASH_ONLY:
                         if any(
                             [
                                 config.download_mode == DownloadMode.MESSAGES,
@@ -309,6 +314,10 @@ def main(config: FanslyConfig) -> int:
                         loop.run_until_complete(
                             stash_processor.start_creator_processing()
                         )
+                        # Insert a 10 second sleep that won't block asyncio tasks
+                        loop.run_until_complete(asyncio.sleep(10))
+                    else:
+                        sleep(10)
 
                 finally:
                     # Clean up creator database if used
@@ -342,6 +351,8 @@ def main(config: FanslyConfig) -> int:
             loop.run_until_complete(
                 asyncio.gather(*config.get_background_tasks(), return_exceptions=True)
             )
+            loop.run_until_complete(stash_processor.cleanup())
+
         except Exception as e:
             print_error(f"Error in background tasks: {e}")
         print_info("All background tasks completed.")

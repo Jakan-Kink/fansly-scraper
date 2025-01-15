@@ -7,12 +7,12 @@ from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from stashapi.stashapp import StashInterface
 
 from config import FanslyConfig
 from download.core import DownloadState
 from metadata import Account
 from metadata.database import Database
+from stash import StashInterface
 from stash.performer import Performer
 from stash.processing import StashProcessing
 
