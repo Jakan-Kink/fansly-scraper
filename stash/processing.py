@@ -671,6 +671,7 @@ class StashProcessing:
             )
             return studio
 
+    @with_session()
     async def _process_items_with_gallery(
         self,
         account: Account,
@@ -679,16 +680,18 @@ class StashProcessing:
         item_type: str,
         get_items_stmt: str,
         url_pattern_func: callable,
+        session: Session | None = None,
     ) -> None:
         """Process items (posts or messages) with gallery.
 
         Args:
             account: The Account object
             performer: The Performer object
-            studio: The Studio object
-            item_type: Type of item ("post" or "message")
+            studio: Optional Studio object
+            item_type: Type of item being processed ("post" or "message")
             get_items_stmt: SQLAlchemy statement to get items
-            url_pattern_func: Function to generate URL pattern for item
+            url_pattern_func: Function to generate URLs for items
+            session: Optional database session to use
         """
         debug_print(
             {
@@ -696,51 +699,47 @@ class StashProcessing:
                 "state": "entry",
             }
         )
-        async with self.database.get_async_session() as session:
-            try:
-                items = await session.execute(get_items_stmt)
-                items = items.scalars().all()
+        try:
+            items = await session.execute(get_items_stmt)
+            items = items.scalars().all()
 
-                for item in items:
-                    # Process the item directly
-                    items_to_process = [item]
+            for item in items:
+                # Process the item directly
+                items_to_process = [item]
 
-                    for sub_item in items_to_process:
-                        try:
-                            await self._process_item_gallery(
-                                item=sub_item,
-                                account=account,
-                                performer=performer,
-                                studio=studio,
-                                item_type=item_type,
-                                session=session,
-                                url_pattern=url_pattern_func(account, item, sub_item),
-                            )
-                        except Exception as e:
-                            print_error(
-                                f"Failed to process {item_type} {sub_item.id}: {e}"
-                            )
-                            debug_print(
-                                {
-                                    "method": f"StashProcessing - process_creator_{item_type}s",
-                                    "status": f"{item_type}_processing_failed",
-                                    f"{item_type}_id": sub_item.id,
-                                    "error": str(e),
-                                    "traceback": traceback.format_exc(),
-                                }
-                            )
-                            continue
+                for sub_item in items_to_process:
+                    try:
+                        await self._process_item_gallery(
+                            item=sub_item,
+                            account=account,
+                            performer=performer,
+                            studio=studio,
+                            item_type=item_type,
+                            url_pattern=url_pattern_func(account, item, sub_item),
+                        )
+                    except Exception as e:
+                        print_error(f"Failed to process {item_type} {sub_item.id}: {e}")
+                        debug_print(
+                            {
+                                "method": f"StashProcessing - process_creator_{item_type}s",
+                                "status": f"{item_type}_processing_failed",
+                                f"{item_type}_id": sub_item.id,
+                                "error": str(e),
+                                "traceback": traceback.format_exc(),
+                            }
+                        )
+                        continue
 
-            except Exception as e:
-                logger.error(f"Failed to process {item_type}s: {e}")
-                debug_print(
-                    {
-                        "method": f"StashProcessing - process_creator_{item_type}s",
-                        "status": f"{item_type}s_processing_failed",
-                        "error": str(e),
-                        "traceback": traceback.format_exc(),
-                    }
-                )
+        except Exception as e:
+            logger.error(f"Failed to process {item_type}s: {e}")
+            debug_print(
+                {
+                    "method": f"StashProcessing - process_creator_{item_type}s",
+                    "status": f"{item_type}s_processing_failed",
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
 
     async def process_creator_posts(
         self,
