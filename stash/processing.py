@@ -1324,7 +1324,10 @@ class StashProcessing:
             if preview_tag not in file.tags:
                 file.tags.append(preview_tag)
 
-    async def _get_message_username(self, message: Message) -> str:
+    @with_session()
+    async def _get_message_username(
+        self, message: Message, session: Session | None = None
+    ) -> str:
         """Get username from message.
 
         Args:
@@ -1363,7 +1366,7 @@ class StashProcessing:
             account = await session.get(Account, content.accountId)
             return account.username if account else "Unknown User"
         else:  # Message
-            return await self._get_message_username(message=content, session=session)
+            return await self._get_message_username(message=content)
 
     @with_session()
     async def _update_content_metadata(

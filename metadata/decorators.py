@@ -32,20 +32,37 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
     def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
         @functools.wraps(func)
         async def wrapper(self, *args: Any, **kwargs: Any) -> RT:
-            # Get the session parameter name from the function signature
+            # Get the session parameter info from the function signature
             sig = inspect.signature(func)
             session_param = next(
                 (
-                    name
+                    (name, param)
                     for name, param in sig.parameters.items()
                     if param.annotation == "Session | None"
                     or param.annotation == "sqlalchemy.orm.Session | None"
                 ),
-                "session",
+                ("session", sig.parameters.get("session")),
             )
+            session_name, param_info = session_param
 
-            # Check if session is already provided
-            if session_param in kwargs and kwargs[session_param] is not None:
+            # Find any existing session value
+            session_value = None
+            if session_name in kwargs:
+                session_value = kwargs[session_name]
+            elif param_info and param_info.kind == param_info.POSITIONAL_OR_KEYWORD:
+                # Check if we have a positional arg for the session
+                arg_index = (
+                    list(sig.parameters.keys()).index(session_name) - 1
+                )  # -1 for self
+                if arg_index < len(args):
+                    session_value = args[arg_index]
+                    args = (
+                        args[:arg_index] + args[arg_index + 1 :]
+                    )  # Remove session from args
+
+            # If we have a valid session, use it
+            if session_value is not None:
+                kwargs[session_name] = session_value
                 return await func(self, *args, **kwargs)
 
             # Create new session using self.database
@@ -53,7 +70,7 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
                 session = await stack.enter_async_context(
                     self.database.get_async_session()
                 )
-                kwargs[session_param] = session
+                kwargs[session_name] = session
                 return await func(self, *args, **kwargs)
 
         return wrapper
