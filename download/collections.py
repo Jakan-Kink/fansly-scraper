@@ -2,6 +2,7 @@
 
 from config import FanslyConfig
 from helpers.common import batch_list
+from metadata import process_timeline_posts
 from textio import input_enter_continue, json_output, print_error, print_info
 
 from .common import process_download_accessible_media
@@ -23,6 +24,8 @@ def download_collections(config: FanslyConfig, state: DownloadState):
     if collections_response.status_code == 200:
         collections = collections_response.json()
         json_output(1, "Download Collections", collections)
+        process_timeline_posts(config, state, collections["response"])
+
         account_media_orders = collections["response"]["accountMediaOrders"]
         account_media_ids = [order["accountMediaId"] for order in account_media_orders]
 

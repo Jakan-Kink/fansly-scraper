@@ -99,7 +99,7 @@ class StashInterface(BaseStashInterface):
                   }
                 }
                 """,
-                {"id": result["id"]},
+                {"id": result.get("id", result.get("findScene", {}).get("id", None))},
                 "SceneFields",
             )
         return result
@@ -135,7 +135,11 @@ class StashInterface(BaseStashInterface):
                   }
                 }
                 """,
-                {"id": result["id"]},
+                {
+                    "id": result.get(
+                        "id", result.get("findPerformer", {}).get("id", None)
+                    )
+                },
                 "PerformerFields",
             )
         return result

@@ -77,6 +77,7 @@ flake8 = "^7.1.1"
 flake8-pyproject = "^1.2.3"
 pyupgrade = "^3.19.1"
 bandit = {extras = ["toml"], version = "^1.8.0"}
+mypy = "^1.11.0"
 
 [tool.poetry.group.test.dependencies]
 pytest = ">=7.4.4"
@@ -135,17 +136,17 @@ profile = "black"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = """
-    --strict-markers
-    --strict-config
-    --tb=short
-    --cov=.
-    --cov-report=term-missing
-    --cov-report=html
-    --cov-context=test
-    --randomly-seed=1234
-    --timeout=300
-"""
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+    "--cov=.",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-context=test",
+    "--randomly-seed=1234",
+    "--timeout=300",
+]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -217,3 +218,38 @@ show_contexts = true
 [tool.coverage.xml]
 output = "coverage.xml"
 package_depth = 2
+
+[tool.mypy]
+python_version = "3.12"
+exclude = [
+    "tests/",
+    "venv_test/",]
+strict = true
+# Start off with these
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# Getting these passing should be easy
+strict_equality = true
+strict_concatenate = true
+
+# Strongly recommend enabling this one as soon as you can
+check_untyped_defs = true
+
+# These shouldn't be too much additional work, but may be tricky to
+# get passing if you use a lot of untyped libraries
+disallow_subclassing_any = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+
+# These next few are various gradations of forcing use of type annotations
+disallow_untyped_calls = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+
+# This one isn't too hard to get passing, but return on investment is lower
+no_implicit_reexport = true
+
+# This one can be tricky to get passing if you use a lot of untyped libraries
+warn_return_any = true

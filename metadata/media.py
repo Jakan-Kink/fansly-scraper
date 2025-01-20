@@ -121,7 +121,7 @@ class Media(Base):
         "Media",
         collection_class=set,
         secondary="media_variants",
-        lazy="select",
+        lazy="selectin",
         primaryjoin=id == media_variants.c.mediaId,
         secondaryjoin=id == media_variants.c.variantId,
     )
@@ -129,7 +129,7 @@ class Media(Base):
         "MediaLocation",
         collection_class=attribute_mapped_collection("locationId"),
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="selectin",
         back_populates="media",
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -252,15 +252,18 @@ def _process_media_locations(
         media: Media instance
         locations: List of location data dictionaries
     """
-    # Get existing locations
-    existing_locations = {
-        loc.locationId: loc
-        for loc in session.execute(
-            select(MediaLocation).where(MediaLocation.mediaId == media.id)
-        )
-        .scalars()
-        .all()
-    }
+    # Get existing locations using get() to avoid identity map issues
+    existing_locations = {}
+    for location_data in locations:
+        location_id = location_data["locationId"]
+        result = session.execute(
+            select(MediaLocation).where(
+                MediaLocation.mediaId == media.id,
+                MediaLocation.locationId == location_id,
+            )
+        ).scalar_one_or_none()
+        if result:
+            existing_locations[location_id] = result
 
     # Process each location
     for location_data in locations:
@@ -281,8 +284,13 @@ def _process_media_locations(
             session.add(location)
 
     # Delete locations that no longer exist
-    for location in existing_locations.values():
-        session.delete(location)
+    if existing_locations:
+        session.execute(
+            MediaLocation.__table__.delete().where(
+                MediaLocation.mediaId == media.id,
+                MediaLocation.locationId.in_(existing_locations.keys()),
+            )
+        )
 
 
 def _process_media_variants(
@@ -301,13 +309,31 @@ def _process_media_variants(
         variants: List of variant data dictionaries
         account_id: ID of the account that owns the media
     """
+    # Get existing variants to avoid duplicates
+    existing_variants = {
+        row[0]
+        for row in session.execute(
+            select(media_variants.c.variantId).where(
+                media_variants.c.mediaId == media.id
+            )
+        ).fetchall()
+    }
+
+    # Process each variant
     for variant in variants:
+        # Skip if variant already exists
+        if variant["id"] in existing_variants:
+            continue
+
+        # Process variant media
         _process_media_item_dict_inner(
             config,
             variant,
             session,
             account_id=account_id,
         )
+
+        # Add variant relationship using direct SQL to avoid identity map issues
         session.execute(
             media_variants.insert()
             .values(mediaId=media.id, variantId=variant["id"])
@@ -380,9 +406,8 @@ def _process_media_item_dict_inner(
         filtered_media,
     )
 
-    # Update fields
+    # Update fields and process all related data in a single transaction
     Base.update_fields(media, filtered_media)
-    session.flush()
 
     # Process locations if present
     if "locations" in media_item:
@@ -398,6 +423,7 @@ def _process_media_item_dict_inner(
             filtered_media["accountId"],
         )
 
+    # Commit all changes (which will automatically flush)
     session.commit()
 
 

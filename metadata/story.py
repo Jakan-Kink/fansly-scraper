@@ -41,7 +41,7 @@ class Story(Base):
     author: Mapped[Account] = relationship(
         "Account",
         back_populates="stories",
-        lazy="select",
+        lazy="selectin",
         cascade="all, delete, save-update",
     )
     title: Mapped[str | None] = mapped_column(String, nullable=True)

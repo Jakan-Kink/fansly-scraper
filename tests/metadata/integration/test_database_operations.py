@@ -15,189 +15,228 @@ This module demonstrates:
 
 from __future__ import annotations
 
-import concurrent.futures
+import asyncio
 import sqlite3
-import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import pytest
-from sqlalchemy import exc, text
+from sqlalchemy import exc, select, text
 from sqlalchemy.orm import Session
 
-from metadata import Account, AccountMedia, Media, Message, Post
-
-if TYPE_CHECKING:
-    from metadata.database import Database
+from metadata import Account, AccountMedia, Base, Media, Message, Post
+from metadata.database import Database
 
 
-def test_complex_relationships(
+@pytest.fixture(autouse=True)
+async def setup_database(database: Database):
+    """Create database tables before each test."""
+    async with database.get_async_session() as session:
+        # Create all tables
+        async with session.begin():
+            await session.run_sync(Base.metadata.create_all, session.get_bind())
+    yield
+    # Clean up after each test
+    async with database.get_async_session() as session:
+        # Drop all tables
+        async with session.begin():
+            await session.run_sync(Base.metadata.drop_all, session.get_bind())
+
+
+@pytest.mark.asyncio
+async def test_complex_relationships(
     database: Database, session: Session, test_account: Account
 ):
     """Test complex relationships between multiple models."""
-    # Create media
-    media = Media(
-        id=1,
-        accountId=test_account.id,
-        mimetype="video/mp4",
-        width=1920,
-        height=1080,
-        duration=30.5,
-    )
-    session.add(media)
-    session.flush()
+    async with database.get_async_session() as session:
+        # Create media
+        media = Media(
+            id=1,
+            accountId=test_account.id,
+            mimetype="video/mp4",
+            width=1920,
+            height=1080,
+            duration=30.5,
+        )
+        session.add(media)
+        await session.flush()
 
-    # Create account media
-    account_media = AccountMedia(
-        id=1,
-        accountId=test_account.id,
-        mediaId=media.id,
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(account_media)
+        # Create account media
+        account_media = AccountMedia(
+            id=1,
+            accountId=test_account.id,
+            mediaId=media.id,
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(account_media)
 
-    # Create post with media
-    post = Post(
-        id=1,
-        accountId=test_account.id,
-        content="Test post",
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(post)
+        # Create post with media
+        post = Post(
+            id=1,
+            accountId=test_account.id,
+            content="Test post",
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(post)
 
-    # Create message referencing the account
-    message = Message(
-        id=1,
-        senderId=test_account.id,
-        content="Test message",
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(message)
-    session.commit()
+        # Create message referencing the account
+        message = Message(
+            id=1,
+            senderId=test_account.id,
+            content="Test message",
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(message)
+        await session.commit()
 
-    # Verify relationships
-    saved_account = session.query(Account).first()
-    assert saved_account.username == test_account.username
-    assert len(saved_account.accountMedia) == 1
+        # Verify relationships
+        result = await session.execute(select(Account))
+        saved_account = result.scalar_one()
+        assert saved_account.username == test_account.username
+        assert len(await saved_account.awaitable_attrs.accountMedia) == 1
 
-    saved_media = session.query(Media).first()
-    assert saved_media.width == 1920
-    assert saved_media.height == 1080
-    assert saved_media.duration == 30.5
+        result = await session.execute(select(Media))
+        saved_media = result.scalar_one()
+        assert saved_media.width == 1920
+        assert saved_media.height == 1080
+        assert saved_media.duration == 30.5
 
 
-def test_cascade_operations(
+@pytest.mark.asyncio
+async def test_cascade_operations(
     database: Database, session: Session, test_account: Account
 ):
     """Test cascade operations across relationships."""
-    # Create media and account media
-    media = Media(id=1, accountId=test_account.id)
-    session.add(media)
-    session.flush()
+    async with database.get_async_session() as session:
+        # Create media and account media
+        media = Media(id=1, accountId=test_account.id)
+        session.add(media)
+        await session.flush()
 
-    account_media = AccountMedia(
-        id=1,
-        accountId=test_account.id,
-        mediaId=media.id,
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(account_media)
-    session.commit()
+        account_media = AccountMedia(
+            id=1,
+            accountId=test_account.id,
+            mediaId=media.id,
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(account_media)
+        await session.commit()
 
-    # Delete account and verify cascades
-    session.delete(test_account)
-    session.commit()
+        # Delete account and verify cascades
+        result = await session.execute(select(Account).filter_by(id=test_account.id))
+        account = result.scalar_one()
+        session.delete(account)
+        await session.commit()
 
-    # Verify everything was deleted
-    assert not session.query(Account).first()
-    assert not session.query(AccountMedia).first()
-    # Media should still exist as it might be referenced by other accounts
-    assert session.query(Media).first() is not None
+        # Verify everything was deleted
+        result = await session.execute(select(Account).filter_by(id=test_account.id))
+        assert result.scalar_one_or_none() is None
+
+        result = await session.execute(
+            select(AccountMedia).filter_by(accountId=test_account.id)
+        )
+        assert result.scalar_one_or_none() is None
+
+        # Media should still exist as it might be referenced by other accounts
+        result = await session.execute(select(Media).filter_by(id=1))
+        assert result.scalar_one_or_none() is not None
 
 
-def test_database_constraints(
+@pytest.mark.asyncio
+async def test_database_constraints(
     database: Database, session: Session, test_account: Account
 ):
     """Test database constraints and integrity."""
-    # Create a Media object
-    media = Media(
-        id=100,
-        accountId=test_account.id,
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(media)
-    session.flush()
+    async with database.get_async_session() as session:
+        # Create a Media object
+        media = Media(
+            id=100,
+            accountId=test_account.id,
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(media)
+        await session.flush()
 
-    # Test 1: Create account media with non-existent account
-    # Since foreign keys are disabled, this should succeed but validate at app level
-    account_media = AccountMedia(
-        id=100,
-        accountId=999,  # Non-existent account
-        mediaId=media.id,
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(account_media)
-    session.commit()
+        # Test 1: Create account media with non-existent account
+        # Since foreign keys are disabled, this should succeed but validate at app level
+        account_media = AccountMedia(
+            id=100,
+            accountId=999,  # Non-existent account
+            mediaId=media.id,
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(account_media)
+        await session.commit()
 
-    # Verify the record exists but has an invalid foreign key
-    invalid_account_media = session.query(AccountMedia).filter_by(id=100).first()
-    assert invalid_account_media is not None
-    # Verify the referenced account doesn't exist
-    referenced_account = session.query(Account).filter_by(id=999).first()
-    assert referenced_account is None
+        # Verify the record exists but has an invalid foreign key
+        result = await session.execute(select(AccountMedia).filter_by(id=100))
+        invalid_account_media = result.scalar_one_or_none()
+        assert invalid_account_media is not None
 
-    # Test 2: Create account media with non-existent media
-    account_media = AccountMedia(
-        id=101,
-        accountId=test_account.id,
-        mediaId=999,  # Non-existent media
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(account_media)
-    session.commit()
+        # Verify the referenced account doesn't exist
+        result = await session.execute(select(Account).filter_by(id=999))
+        referenced_account = result.scalar_one_or_none()
+        assert referenced_account is None
 
-    # Verify the record exists but has an invalid foreign key
-    invalid_media_ref = session.query(AccountMedia).filter_by(id=101).first()
-    assert invalid_media_ref is not None
-    # Verify the referenced media doesn't exist
-    referenced_media = session.query(Media).filter_by(id=999).first()
-    assert referenced_media is None
+        # Test 2: Create account media with non-existent media
+        account_media = AccountMedia(
+            id=101,
+            accountId=test_account.id,
+            mediaId=999,  # Non-existent media
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(account_media)
+        await session.commit()
 
-    # Test 3: Create message without sender
-    # This should fail at the database level due to NOT NULL constraint
-    message = Message(
-        id=1,
-        content="Test",
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(message)
-    with pytest.raises((exc.IntegrityError, exc.StatementError)):
-        session.flush()
-    session.rollback()
+        # Verify the record exists but has an invalid foreign key
+        result = await session.execute(select(AccountMedia).filter_by(id=101))
+        invalid_media_ref = result.scalar_one_or_none()
+        assert invalid_media_ref is not None
 
-    # Test 4: Create message with non-existent sender
-    # Since foreign keys are disabled, this should succeed
-    message = Message(
-        id=1,
-        senderId=999,  # Non-existent account
-        content="Test",
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(message)
-    session.commit()
+        # Verify the referenced media doesn't exist
+        result = await session.execute(select(Media).filter_by(id=999))
+        referenced_media = result.scalar_one_or_none()
+        assert referenced_media is None
 
-    # Verify the message exists but has an invalid sender
-    invalid_message = session.query(Message).filter_by(id=1).first()
-    assert invalid_message is not None
-    # Verify the referenced sender doesn't exist
-    referenced_sender = session.query(Account).filter_by(id=999).first()
-    assert referenced_sender is None
+        # Test 3: Create message without sender
+        # This should fail at the database level due to NOT NULL constraint
+        message = Message(
+            id=1,
+            content="Test",
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(message)
+        with pytest.raises((exc.IntegrityError, exc.StatementError)):
+            await session.flush()
+        await session.rollback()
+
+        # Test 4: Create message with non-existent sender
+        # Since foreign keys are disabled, this should succeed
+        message = Message(
+            id=1,
+            senderId=999,  # Non-existent account
+            content="Test",
+            createdAt=datetime.now(timezone.utc),
+        )
+        session.add(message)
+        await session.commit()
+
+        # Verify the message exists but has an invalid sender
+        result = await session.execute(select(Message).filter_by(id=1))
+        invalid_message = result.scalar_one_or_none()
+        assert invalid_message is not None
+
+        # Verify the referenced sender doesn't exist
+        result = await session.execute(select(Account).filter_by(id=999))
+        referenced_sender = result.scalar_one_or_none()
+        assert referenced_sender is None
 
 
-def test_transaction_isolation(database: Database, session_factory: Session):
+@pytest.mark.asyncio
+async def test_transaction_isolation(database: Database):
     """Test transaction isolation levels."""
     # Create test data in first session
-    with database.get_sync_session() as session1:
+    async with database.get_async_session() as session1:
         account1 = Account(
             id=1,
             username="test_user_1",
@@ -206,9 +245,10 @@ def test_transaction_isolation(database: Database, session_factory: Session):
         session1.add(account1)
 
         # Start second transaction before committing first
-        with database.get_sync_session() as session2:
+        async with database.get_async_session() as session2:
             # Should not see uncommitted data from first session
-            assert not session2.query(Account).filter_by(id=1).first()
+            result = await session2.execute(select(Account).filter_by(id=1))
+            assert result.scalar_one_or_none() is None
 
             # Add different account in second session
             account2 = Account(
@@ -217,163 +257,177 @@ def test_transaction_isolation(database: Database, session_factory: Session):
                 createdAt=datetime.now(timezone.utc),
             )
             session2.add(account2)
-            session2.commit()
+            await session2.commit()
 
         # First transaction should still succeed
-        session1.commit()
+        await session1.commit()
 
     # Verify final state
-    with database.transaction(readonly=True) as session:
-        accounts = session.query(Account).order_by(Account.id).all()
+    async with database.get_async_session() as session:
+        result = await session.execute(select(Account).order_by(Account.id))
+        accounts = result.scalars().all()
         assert len(accounts) == 2
         assert accounts[0].id == 1
         assert accounts[1].id == 2
 
 
-def test_concurrent_access(database: Database, test_account: Account):
+@pytest.mark.asyncio
+async def test_concurrent_access(database: Database, test_account: Account):
     """Test concurrent database access patterns."""
-    num_threads = 5
+    num_tasks = 5
     num_messages = 10
-    thread_lock = threading.Lock()
 
-    def add_messages(account_id: int, start_id: int) -> list[int]:
-        """Add messages in separate thread."""
+    async def add_messages(account_id: int, start_id: int) -> list[int]:
+        """Add messages in separate task."""
         message_ids = []
-        # Use lock to prevent SQLite database lock errors
-        with thread_lock:
-            with database.get_sync_session() as session:
-                # Disable foreign key checks
-                session.execute(text("PRAGMA foreign_keys = OFF"))
-                for i in range(num_messages):
-                    msg = Message(
-                        id=start_id + i,
-                        senderId=account_id,
-                        content=f"Message {i} from thread {threading.get_ident()}",
-                        createdAt=datetime.now(timezone.utc),
-                    )
-                    session.add(msg)
-                    message_ids.append(msg.id)
-                session.commit()
+        async with database.get_async_session() as session:
+            # Disable foreign key checks
+            await session.execute(text("PRAGMA foreign_keys = OFF"))
+            for i in range(num_messages):
+                msg = Message(
+                    id=start_id + i,
+                    senderId=account_id,
+                    content=f"Message {i} from task {id(asyncio.current_task())}",
+                    createdAt=datetime.now(timezone.utc),
+                )
+                session.add(msg)
+                message_ids.append(msg.id)
+            await session.commit()
         return message_ids
 
     # Create messages concurrently
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-        futures = []
-        for i in range(num_threads):
-            future = executor.submit(
-                add_messages,
-                test_account.id,
-                i * num_messages + 1,
-            )
-            futures.append(future)
+    tasks = []
+    for i in range(num_tasks):
+        task = asyncio.create_task(add_messages(test_account.id, i * num_messages + 1))
+        tasks.append(task)
 
-        # Wait for all threads and collect results
-        message_ids = []
-        for future in concurrent.futures.as_completed(futures):
-            message_ids.extend(future.result())
+    # Wait for all tasks and collect results
+    message_ids = []
+    for task in tasks:
+        message_ids.extend(await task)
 
     # Verify results
-    with database.get_sync_session() as session:
-        messages = (
-            session.query(Message)
-            .filter(Message.id.in_(message_ids))
-            .order_by(Message.id)
-            .all()
+    async with database.get_async_session() as session:
+        result = await session.execute(
+            select(Message).filter(Message.id.in_(message_ids)).order_by(Message.id)
         )
+        messages = result.scalars().all()
 
-        assert len(messages) == num_threads * num_messages
+        assert len(messages) == num_tasks * num_messages
         assert all(msg.senderId == test_account.id for msg in messages)
 
 
-def test_query_performance(database: Database, session: Session, test_account: Account):
+@pytest.mark.asyncio
+async def test_query_performance(
+    database: Database, session: Session, test_account: Account
+):
     """Test query performance with indexes."""
-    # Create multiple media items
-    for i in range(100):
-        media = Media(id=i + 1, accountId=test_account.id)
-        session.add(media)
-        account_media = AccountMedia(
-            id=i + 1,
-            accountId=test_account.id,
-            mediaId=media.id,
-            createdAt=datetime.now(timezone.utc),
+    async with database.get_async_session() as session:
+        # Create multiple media items
+        for i in range(100):
+            media = Media(id=i + 1, accountId=test_account.id)
+            session.add(media)
+            account_media = AccountMedia(
+                id=i + 1,
+                accountId=test_account.id,
+                mediaId=media.id,
+                createdAt=datetime.now(timezone.utc),
+            )
+            session.add(account_media)
+        await session.commit()
+
+        # Create index on accountId
+        await session.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_account_media_accountid ON account_media (accountId)"
+            )
         )
-        session.add(account_media)
-    session.commit()
+        await session.commit()
 
-    # Create index on accountId
-    session.execute(
-        text(
-            "CREATE INDEX IF NOT EXISTS idx_account_media_accountid ON account_media (accountId)"
+        # This should use the index on accountId
+        result = await session.execute(
+            text("EXPLAIN QUERY PLAN SELECT * FROM account_media WHERE accountId = 1")
         )
-    )
-    session.commit()
-
-    # This should use the index on accountId
-    result = session.execute(
-        text("EXPLAIN QUERY PLAN SELECT * FROM account_media WHERE accountId = 1")
-    )
-    plan = result.fetchall()
-    # Verify index usage (plan should mention USING INDEX)
-    assert any(
-        "USING INDEX" in str(row) for row in plan
-    ), "Query not using index for account_media.accountId"
+        plan = result.fetchall()
+        # Verify index usage (plan should mention USING INDEX)
+        assert any(
+            "USING INDEX" in str(row) for row in plan
+        ), "Query not using index for account_media.accountId"
 
 
-def test_bulk_operations(database: Database):
+@pytest.mark.asyncio
+async def test_bulk_operations(database: Database):
     """Test bulk database operations with transaction management."""
-    # Ensure we're not in a transaction
-    with database.session_scope() as session:
-        session.rollback()  # Clear any existing transaction
+    async with database.get_async_session() as session:
+        await session.rollback()  # Clear any existing transaction
 
         try:
-            # Your test logic here
-            with session.begin_nested():
-                # Do bulk operations
-                pass
+            # Start a nested transaction
+            async with session.begin_nested():
+                # Create multiple records
+                for i in range(10):
+                    account = Account(
+                        id=i + 1,
+                        username=f"bulk_user_{i}",
+                        createdAt=datetime.now(timezone.utc),
+                    )
+                    session.add(account)
+                await session.commit()
+
+            # Verify records were created
+            result = await session.execute(select(Account))
+            accounts = result.scalars().all()
+            assert len(accounts) == 10
+
         except Exception:
-            session.rollback()
+            await session.rollback()
             raise
 
 
-def test_write_through_cache_integration(
+@pytest.mark.asyncio
+async def test_write_through_cache_integration(
     database: Database, test_config, test_account: Account
 ):
     """Test write-through caching in a multi-table scenario."""
     # Create initial data with unique username
     unique_username = f"cache_test_{test_account.username}"
-    with database.get_sync_session() as session:
+    async with database.get_async_session() as session:
         account = Account(id=1, username=unique_username)
         session.add(account)
-        session.commit()
+        await session.commit()
 
     # Create a second database connection
     db2 = Database(test_config)
     try:
         # Verify data is immediately visible
-        with db2.get_sync_session() as session:
-            saved_account = session.query(Account).first()
+        async with db2.get_async_session() as session:
+            result = await session.execute(select(Account))
+            saved_account = result.scalar_one()
             assert saved_account.username == unique_username
 
             # Add more data through second connection
             media = Media(id=1, accountId=saved_account.id)
             session.add(media)
-            session.commit()
+            await session.commit()
 
             # Verify data is visible in same session
-            saved_media = session.query(Media).first()
+            result = await session.execute(select(Media))
+            saved_media = result.scalar_one()
             assert saved_media is not None
             assert saved_media.accountId == 1
     finally:
-        db2.close()
+        await db2.close_async()
 
     # Verify new data is visible in original connection
-    with database.get_sync_session() as session:
-        saved_media = session.query(Media).first()
+    async with database.get_async_session() as session:
+        result = await session.execute(select(Media))
+        saved_media = result.scalar_one()
         assert saved_media is not None
         assert saved_media.accountId == 1
 
 
-def test_database_cleanup_integration(
+@pytest.mark.asyncio
+async def test_database_cleanup_integration(
     database: Database, session: Session, test_account: Account
 ):
     """Test database cleanup in integration scenario."""
@@ -385,7 +439,7 @@ def test_database_cleanup_integration(
         test_session.commit()
 
     # Close the database and ensure proper cleanup
-    database.close()
+    await database.close_async()
 
     # Verify we can't use the database after closing
     with pytest.raises((Exception, sqlite3.OperationalError)):
@@ -400,11 +454,4 @@ def test_database_cleanup_integration(
             assert saved_account.username == unique_username
     finally:
         # Ensure proper cleanup of second connection
-        db2.close()
-        # Clean up any remaining WAL files
-        wal_path = database.db_file.with_suffix(".sqlite3-wal")
-        shm_path = database.db_file.with_suffix(".sqlite3-shm")
-        if wal_path.exists():
-            wal_path.unlink()
-        if shm_path.exists():
-            shm_path.unlink()
+        await db2.close_async()

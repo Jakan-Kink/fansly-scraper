@@ -43,7 +43,7 @@ class Hashtag(Base):
         "Post",
         secondary="post_hashtags",
         back_populates="hashtags",
-        lazy="select",
+        lazy="selectin",
     )
 
 

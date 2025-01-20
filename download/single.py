@@ -3,6 +3,7 @@
 from config import FanslyConfig
 from fileio.dedupe import dedupe_init
 from helpers.common import get_post_id_from_request, is_valid_post_id
+from metadata import process_timeline_posts
 from textio import input_enter_continue, print_error, print_info, print_warning
 
 from .common import get_unique_media_ids, process_download_accessible_media
@@ -62,6 +63,7 @@ def download_single_post(config: FanslyConfig, state: DownloadState):
 
         # post object contains: posts, aggregatedPosts, accountMediaBundles, accountMedia, accounts, tips, tipGoals, stories, polls
         post_object = post_response.json()["response"]
+        process_timeline_posts(config, state, post_object)
 
         # if access to post content / post contains content
         if post_object["accountMediaBundles"] or post_object["accountMedia"]:

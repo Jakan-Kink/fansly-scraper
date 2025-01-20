@@ -122,6 +122,9 @@ class Message(Base):
     )
     sender: Mapped[Account] = relationship("Account", foreign_keys=[senderId])
     recipient: Mapped[Account] = relationship("Account", foreign_keys=[recipientId])
+    group: Mapped[Group] = relationship(
+        "Group", foreign_keys=[groupId], lazy="selectin", overlaps="messages"
+    )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 

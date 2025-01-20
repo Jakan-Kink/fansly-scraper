@@ -1,9 +1,9 @@
 """Module for processing metadata and synchronizing with Stash."""
 
 import asyncio
+import contextlib
 import logging
 import sys
-import threading
 import traceback
 from copy import deepcopy
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ from pprint import pformat
 from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy.orm.session import Session
-from sqlalchemy.sql.expression import func, select
+from sqlalchemy.sql.expression import func, select, text
 
 from config import FanslyConfig
 from download.core import DownloadState
@@ -30,11 +30,12 @@ from metadata import (
     account_media_bundle_media,
 )
 from metadata.database import Database
+from metadata.decorators import with_session
 from pathio import set_create_directory_for_download
 from textio import print_error, print_info
 from textio.logging import SizeAndTimeRotatingFileHandler
 
-from .file import FileType, VisualFile
+from .file import VisualFile
 from .gallery import Gallery
 from .image import Image
 from .performer import Performer
@@ -51,11 +52,11 @@ class HasMetadata(Protocol):
     content: str | None
     createdAt: datetime
     attachments: list[Attachment]
-    accountMentions: list[Account]
+    # Messages don't have accountMentions, only Posts do
+    accountMentions: list[Account] | None = None
 
 
-# Thread-safe logging setup
-_logging_lock = threading.Lock()
+# Logging setup
 logs_dir = Path.cwd() / "logs"
 logs_dir.mkdir(exist_ok=True)
 log_file = logs_dir / "stash_processing.log"
@@ -65,7 +66,7 @@ logger.handlers.clear()
 logger.setLevel(logging.DEBUG)
 logger.propagate = False
 
-# File handler with rotation and thread safety
+# File handler with rotation
 file_handler = SizeAndTimeRotatingFileHandler(
     filename=str(log_file),
     maxBytes=10 * 1024 * 1024,  # 10MB
@@ -85,20 +86,19 @@ logger.addHandler(file_handler)
 
 # Console handler
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.DEBUG)  # Show debug messages in console
 console_formatter = logging.Formatter("%(levelname)s: %(message)s")
 console_handler.setFormatter(console_formatter)
 logger.addHandler(console_handler)
 
 
 def debug_print(obj):
-    """Thread-safe debug printing."""
+    """Debug printing with proper formatting."""
     try:
-        with _logging_lock:
-            formatted = pformat(obj, indent=2)
-            logger.debug(formatted)
-            for handler in logger.handlers:
-                handler.flush()
+        formatted = pformat(obj, indent=2)
+        logger.debug(formatted)
+        for handler in logger.handlers:
+            handler.flush()
     except Exception as e:
         print(f"Failed to log debug message: {e}", file=sys.stderr)
 
@@ -107,11 +107,14 @@ def debug_print(obj):
 class StashProcessing:
     """Class for handling Stash metadata processing."""
 
+    # Required instance attributes (non-default)
     config: FanslyConfig
     state: DownloadState
     stash_interface: StashInterface
     database: Database
     db_path: Path
+
+    # Optional instance attributes (with defaults)
     _owns_db_connection: bool = False
     _background_task: asyncio.Task | None = None
     _cleanup_event: asyncio.Event | None = None
@@ -215,10 +218,10 @@ class StashProcessing:
         if self._owns_db_connection:
             self.database.close()
 
-        with _logging_lock:
-            for handler in logger.handlers[:]:
-                handler.close()
-                logger.removeHandler(handler)
+        # Close and remove all log handlers
+        for handler in logger.handlers[:]:
+            handler.close()
+            logger.removeHandler(handler)
 
     async def scan_creator_folder(self) -> None:
         """Scan the creator's folder for media files.
@@ -261,6 +264,7 @@ class StashProcessing:
             finished_job = False
             while not finished_job:
                 try:
+                    # waiting for job to finish to make sure stash knows all of the recently downloaded files
                     finished_job = self.stash_interface.wait_for_job(job_id)
                 except Exception:
                     finished_job = False
@@ -268,11 +272,12 @@ class StashProcessing:
         except RuntimeError as e:
             raise RuntimeError(f"Failed to process metadata: {e}") from e
 
-    async def _find_account(self, session: Session) -> Account | None:
+    @with_session()
+    async def _find_account(self, session: Session | None = None) -> Account | None:
         """Find account in database.
 
         Args:
-            session: Database session to use
+            session: Optional database session to use
 
         Returns:
             Account if found, None otherwise
@@ -283,11 +288,10 @@ class StashProcessing:
             stmt = select(Account).where(
                 func.lower(Account.username) == func.lower(self.state.creator_name)
             )
-        account = await session.execute(stmt)
-        account = account.scalar_one_or_none()
+        result = await session.execute(stmt)
+        account = result.scalar_one_or_none()
         if not account:
             print_info(f"No account found for username: {self.state.creator_name}")
-            return None
         return account
 
     def _find_existing_performer(self, account: Account) -> dict | None:
@@ -446,59 +450,75 @@ class StashProcessing:
         print_info(f"Found performer: {performer.name} with ID: {performer.id}")
         return performer
 
-    async def process_creator(self) -> tuple[Account | None, Performer | None]:
-        """Process creator metadata and create/update Stash performer.
+    @with_session()
+    async def process_creator(
+        self, session: Session | None = None
+    ) -> tuple[Account | None, Performer | None]:
+        """Process initial creator metadata and create/update Stash performer.
+
+        This method handles the initial setup of account and performer data.
+        Further processing (studio, posts, messages) is handled asynchronously
+        by continue_stash_processing.
 
         This method:
         1. Retrieves account information from the database
         2. Finds or creates a corresponding performer in Stash
-        3. Updates performer information if needed
+        3. Updates performer information and avatar if needed
+
+        Args:
+            session: Optional database session to use
 
         Returns:
-            A tuple containing the Account and Performer objects, or (None, None) if processing fails
+            A tuple containing the Account and Performer objects, or (None, None) if processing fails.
+            On success, these objects are passed to continue_stash_processing for background processing.
         """
-        async with self.database.get_async_session() as session:
-            try:
-                # Find account
-                account = await self._find_account(session)
-                debug_print(
-                    {
-                        "method": "StashProcessing - process_creator",
-                        "account": account,
-                    }
-                )
-                if not account:
-                    return (None, None)
-
-                # Find or create performer
-                performer_data = self._find_existing_performer(account)
-                debug_print(
-                    {
-                        "method": "StashProcessing - process_creator",
-                        "performer_data": performer_data,
-                    }
-                )
-                performer = (
-                    self._create_performer(account)
-                    if performer_data is None
-                    else self._get_performer(performer_data)
-                )
-                debug_print(
-                    {
-                        "method": "StashProcessing - process_creator",
-                        "performer": performer,
-                    }
-                )
-
-                # Handle avatar if needed
-                await self._update_performer_avatar(account, performer)
-
-                return (account, performer)
-            except Exception as e:
-                print_error(
-                    f"Failed to process creator: {e} - {traceback.format_exc()}"
-                )
+        try:
+            # Find account
+            account = await self._find_account(session)
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator",
+                    "account": account,
+                }
+            )
+            if not account:
                 return (None, None)
+
+            # Find or create performer
+            performer_data = self._find_existing_performer(account)
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator",
+                    "performer_data": performer_data,
+                }
+            )
+            performer = (
+                self._create_performer(account)
+                if performer_data is None
+                else self._get_performer(performer_data)
+            )
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator",
+                    "performer": performer,
+                }
+            )
+
+            # Handle avatar if needed
+            await self._update_performer_avatar(account, performer)
+
+            return (account, performer)
+        except Exception as e:
+            print_error(f"Failed to process creator: {e}")
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator",
+                    "status": "creator_processing_failed",
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            return (None, None)
 
     async def continue_stash_processing(
         self, account: Account | None, performer: Performer | None
@@ -507,7 +527,8 @@ class StashProcessing:
 
         This method:
         1. Updates the account's stash_id if needed
-        2. Performs any necessary cleanup
+        2. Processes creator studio
+        3. Processes posts and messages sequentially
 
         Args:
             account: The Account object to update
@@ -515,24 +536,79 @@ class StashProcessing:
         """
         print_info("Continuing Stash GraphQL processing in the background...")
         try:
-            if account and performer and account.stash_id != performer.id:
-                async with self.database.get_async_session() as session:
-                    account.stash_id = performer.id
-                    await session.commit()
             if not account or not performer:
                 raise ValueError("Missing account or performer data")
+
+            # Update account's stash ID if needed
+            if account.stash_id != performer.id:
+                await self._update_account_stash_id(
+                    account=account,
+                    performer=performer,
+                )
+
+            # Process creator studio
             print_info("Processing creator Studio...")
-            studio = await self.process_creator_studio(account, performer)
+            studio = await self.process_creator_studio(
+                account=account,
+                performer=performer,
+            )
+
+            # Process creator content
             print_info("Processing creator posts...")
-            await self.process_creator_posts(account, performer, studio)
+            await self.process_creator_posts(
+                account=account,
+                performer=performer,
+                studio=studio,
+            )
+
             print_info("Processing creator messages...")
-            await self.process_creator_messages(account, performer, studio)
+            await self.process_creator_messages(
+                account=account,
+                performer=performer,
+                studio=studio,
+            )
+        except Exception as e:
+            print_error(f"Error in Stash processing: {e}")
+            debug_print(
+                {
+                    "method": "StashProcessing - continue_stash_processing",
+                    "status": "processing_failed",
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            raise
         finally:
             if self._owns_db_connection:
                 self.database.close()
 
+    @with_session()
+    async def _update_account_stash_id(
+        self,
+        account: Account,
+        performer: Performer,
+        session: Session | None = None,
+    ) -> None:
+        """Update account's stash ID.
+
+        Args:
+            account: Account to update
+            performer: Performer containing the stash ID
+            session: Optional database session to use
+        """
+        async with self.database.get_async_session() as local_session:
+            # Use provided session or local session
+            session = session or local_session
+            account.stash_id = performer.id
+            session.add(account)
+            await session.commit()
+
+    @with_session()
     async def process_creator_studio(
-        self, account: Account, performer: Performer
+        self,
+        account: Account,
+        performer: Performer,
+        session: Session | None = None,
     ) -> Studio | None:
         """Process creator studio metadata.
 
@@ -543,6 +619,7 @@ class StashProcessing:
         Args:
             account: The Account object
             performer: The Performer object
+            session: Optional database session to use
         """
         fansly_studio_dict = self.stash_interface.find_studio("Fansly (network)")
         debug_print(
@@ -561,304 +638,93 @@ class StashProcessing:
                     "fansly_studio": fansly_studio,
                 }
             )
-        # Find or create studio
-        studio_data = self.stash_interface.find_studio(
-            f"{account.username} (Fansly)", create=True
-        )
-        debug_print(
-            {
-                "method": "StashProcessing - process_creator_studio",
-                "studio_data": studio_data,
-            }
-        )
-        if studio_data is None:
-            raise ValueError("Failed to find or create studio")
-        studio = Studio.from_dict(studio_data.get("findStudio", studio_data))
-        debug_print(
-            {
-                "method": "StashProcessing - process_creator_studio",
-                "studio": studio,
-            }
-        )
-        if not studio.id:
-            raise ValueError("Failed to set studio ID")
-        if not studio.parent_studio:
-            studio.parent_studio = fansly_studio
-            studio.save(self.stash_interface)
-        return studio
 
-    async def process_creator_posts(
-        self, account: Account, performer: Performer, studio: Studio | None
+            # Find or create creator's studio
+            creator_studio_name = f"{account.username} (Fansly)"
+            studio_data = self.stash_interface.find_studio(creator_studio_name)
+
+            if studio_data is None:
+                # Create new studio
+                studio = Studio(
+                    id="new",
+                    name=creator_studio_name,
+                    parent_studio=fansly_studio,
+                    url=f"https://fansly.com/{account.username}",
+                )
+                created_data = studio.stash_create(self.stash_interface)
+                if not created_data:
+                    print_error(f"Failed to create studio for {account.username}")
+                    return None
+                studio = Studio.from_dict(created_data)
+            else:
+                # Use existing studio
+                studio = Studio.from_dict(studio_data.get("findStudio", studio_data))
+                if not studio.parent_studio:
+                    studio.parent_studio = fansly_studio
+                    studio.save(self.stash_interface)
+
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator_studio",
+                    "studio": studio,
+                }
+            )
+            return studio
+
+    async def _process_items_with_gallery(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+        item_type: str,
+        get_items_stmt: str,
+        url_pattern_func: callable,
     ) -> None:
-        """Process creator post metadata.
-
-        This method:
-        1. Retrieves post information from the database
-        2. Creates galleries for posts with media
-        3. Links media files to galleries
-        4. Associates galleries with performer and studio
+        """Process items (posts or messages) with gallery.
 
         Args:
             account: The Account object
             performer: The Performer object
             studio: The Studio object
+            item_type: Type of item ("post" or "message")
+            get_items_stmt: SQLAlchemy statement to get items
+            url_pattern_func: Function to generate URL pattern for item
         """
         debug_print(
-            {"method": "StashProcessing - process_creator_posts", "state": "entry"}
+            {
+                "method": f"StashProcessing - process_creator_{item_type}s",
+                "state": "entry",
+            }
         )
         async with self.database.get_async_session() as session:
             try:
-                # Get all posts with attachments
-                stmt = (
-                    select(Post)
-                    .join(Post.attachments)
-                    .where(Post.accountId == account.id)
-                )
-                posts = await session.execute(stmt)
-                posts = posts.scalars().all()
+                items = await session.execute(get_items_stmt)
+                items = items.scalars().all()
 
-                for post in posts:
-                    try:
-                        # Get post attachments
-                        attachments: list[Attachment] = (
-                            await post.awaitable_attrs.attachments or []
-                        )
-                        if not attachments:
-                            continue
-                        gallery = None
-                        if post.stash_id:
-                            print_info(f"Post {post.id} already processed")
-                            gallery_data = self.stash_interface.find_gallery(
-                                post.stash_id
-                            )
-                            if gallery_data:
-                                gallery = Gallery.from_dict(
-                                    gallery_data.get("findGallery", gallery_data)
-                                )
-                                if not gallery:
-                                    print_error(
-                                        f"Failed to load gallery for post {post.id}"
-                                    )
-                        if not gallery:
-                            # Create gallery for this post
-                            gallery = Gallery(
-                                id="new",  # Will be replaced after creation
-                                title=f"Post from {account.username} - {post.id}",
-                                details=post.content if post.content else None,
-                                date=post.createdAt,
-                                urls=[
-                                    f"https://fansly.com/{account.username}/posts/{post.id}"
-                                ],
-                                studio=studio,
-                                performers=[performer],  # Link to creator
-                            )
+                for item in items:
+                    # Process the item directly
+                    items_to_process = [item]
 
-                        # Process attachments and add files to gallery
-                        files = []
-                        attachment: Attachment
-                        for attachment in attachments:
-                            attachment_files = await self.process_creator_attachment(
-                                session=session,
-                                attachment=attachment,
-                                post=post,
-                                account=account,
-                            )
-                            files.extend(attachment_files)
-
-                        if not files:
-                            continue
-
-                        # Add files to gallery
-                        gallery.files = files
-                        if gallery.id == "new":
-                            # Create gallery in Stash
-                            created_data = gallery.stash_create(self.stash_interface)
-                            if not created_data:
-                                print_error(
-                                    f"Failed to create gallery for post {post.id}"
-                                )
-                                continue
-                            gallery.id = created_data
-
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - process_creator_posts",
-                                    "status": "gallery_created",
-                                    "post_id": post.id,
-                                    "gallery_data": created_data,
-                                }
-                            )
-                        else:
-                            # Update existing gallery
-                            gallery.save(self.stash_interface)
-                        self.stash_interface.add_gallery_images(
-                            gallery_id=gallery.id,
-                            image_ids=[f.id for f in files if isinstance(f, Image)],
-                        )
-                        for f in files:
-                            if isinstance(f, Scene):
-                                f.galleries.append(gallery)
-                                f.save(self.stash_interface)
-
-                        post.stash_id = gallery.id
-                        session.add(post)
-                        await session.commit()
-
-                    except Exception as e:
-                        print_error(f"Failed to process post {post.id}: {e}")
-                        debug_print(
-                            {
-                                "method": "StashProcessing - process_creator_posts",
-                                "status": "post_processing_failed",
-                                "post_id": post.id,
-                                "error": str(e),
-                                "traceback": traceback.format_exc(),
-                            }
-                        )
-                        continue
-
-            except Exception as e:
-                logger.error(f"Failed to process posts: {e}")
-                debug_print(
-                    {
-                        "method": "StashProcessing - process_creator_posts",
-                        "status": "posts_processing_failed",
-                        "error": str(e),
-                        "traceback": traceback.format_exc(),
-                    }
-                )
-
-    async def process_creator_messages(
-        self, account: Account, performer: Performer, studio: Studio | None
-    ) -> None:
-        """Process creator message metadata.
-
-        This method:
-        1. Retrieves message information from the database
-        2. Creates galleries for messages with media
-        3. Links media files to galleries
-        4. Associates galleries with performer and studio
-
-        Args:
-            account: The Account object
-            performer: The Performer object
-            studio: The Studio object
-        """
-        debug_print(
-            {"method": "StashProcessing - process_creator_messages", "state": "entry"}
-        )
-        async with self.database.get_async_session() as session:
-            try:
-                # Get all groups with messages that have attachments
-                stmt = (
-                    select(Group)
-                    .join(Group.users)
-                    .join(Group.messages)
-                    .join(Message.attachments)
-                    .where(Group.users.any(Account.id == account.id))
-                )
-                groups = await session.execute(stmt)
-                groups = groups.scalars().all()
-
-                for group in groups:
-                    messages = await group.awaitable_attrs.messages
-                    message: Message
-                    for message in messages:
+                    for sub_item in items_to_process:
                         try:
-                            attachments: list[Attachment] = (
-                                await message.awaitable_attrs.attachments or []
+                            await self._process_item_gallery(
+                                item=sub_item,
+                                account=account,
+                                performer=performer,
+                                studio=studio,
+                                item_type=item_type,
+                                session=session,
+                                url_pattern=url_pattern_func(account, item, sub_item),
                             )
-                            if not attachments:
-                                continue
-
-                            if message.stash_id:
-                                print_info(f"Message {message.id} already processed")
-                                gallery_data = self.stash_interface.find_gallery(
-                                    message.stash_id
-                                )
-                                if gallery_data:
-                                    gallery = Gallery.from_dict(
-                                        gallery_data.get("findGallery", gallery_data)
-                                    )
-                                    if not gallery:
-                                        print_error(
-                                            f"Failed to load gallery for message {message.id}"
-                                        )
-                            if not gallery:
-                                # Create gallery for this message
-                                gallery = Gallery(
-                                    id="new",  # Will be replaced after creation
-                                    title=f"Message from {account.username} - {message.id}",
-                                    details=(
-                                        message.content if message.content else None
-                                    ),
-                                    date=message.createdAt,
-                                    urls=[f"https://fansly.com/messages/{group.id}"],
-                                    studio=studio,
-                                    performers=[performer],  # Link to creator
-                                )
-
-                            # Process attachments and add files to gallery
-                            files = []
-                            attachment: Attachment
-                            for attachment in attachments:
-                                attachment_files = (
-                                    await self.process_creator_attachment(
-                                        session=session,
-                                        attachment=attachment,
-                                        post=message,
-                                        account=account,
-                                    )
-                                )
-                                files.extend(attachment_files)
-
-                            if not files:
-                                continue
-
-                            # Add files to gallery
-                            gallery.files = files
-                            if gallery.id == "new":
-                                # Create gallery in Stash
-                                created_data = gallery.stash_create(
-                                    self.stash_interface
-                                )
-                                if not created_data:
-                                    print_error(
-                                        f"Failed to create gallery for message {message.id}"
-                                    )
-                                    continue
-                                gallery.id = created_data
-
-                                debug_print(
-                                    {
-                                        "method": "StashProcessing - process_creator_messages",
-                                        "status": "gallery_created",
-                                        "message_id": message.id,
-                                        "gallery_data": created_data,
-                                    }
-                                )
-                            else:
-                                # Update existing gallery
-                                gallery.save(self.stash_interface)
-                            self.stash_interface.add_gallery_images(
-                                gallery_id=gallery.id,
-                                image_ids=[f.id for f in files if isinstance(f, Image)],
-                            )
-                            for f in files:
-                                if isinstance(f, Scene):
-                                    f.galleries.append(gallery)
-                                    f.save(self.stash_interface)
-
-                            message.stash_id = gallery.id
-                            session.add(message)
-                            await session.commit()
                         except Exception as e:
-                            print_error(f"Failed to process message {message.id}: {e}")
+                            print_error(
+                                f"Failed to process {item_type} {sub_item.id}: {e}"
+                            )
                             debug_print(
                                 {
-                                    "method": "StashProcessing - process_creator_messages",
-                                    "status": "message_processing_failed",
-                                    "message_id": message.id,
+                                    "method": f"StashProcessing - process_creator_{item_type}s",
+                                    "status": f"{item_type}_processing_failed",
+                                    f"{item_type}_id": sub_item.id,
                                     "error": str(e),
                                     "traceback": traceback.format_exc(),
                                 }
@@ -866,15 +732,203 @@ class StashProcessing:
                             continue
 
             except Exception as e:
-                logger.error(f"Failed to process messages: {e}")
+                logger.error(f"Failed to process {item_type}s: {e}")
                 debug_print(
                     {
-                        "method": "StashProcessing - process_creator_messages",
-                        "status": "messages_processing_failed",
+                        "method": f"StashProcessing - process_creator_{item_type}s",
+                        "status": f"{item_type}s_processing_failed",
                         "error": str(e),
                         "traceback": traceback.format_exc(),
                     }
                 )
+
+    async def process_creator_posts(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None = None,
+    ) -> None:
+        """Process creator post metadata.
+
+        This method:
+        1. Retrieves post information from the database
+        2. Creates galleries for posts with media in parallel
+        3. Links media files to galleries
+        4. Associates galleries with performer and studio
+
+        Args:
+            account: The Account object
+            performer: The Performer object
+            studio: Optional Studio object
+        """
+        stmt = select(Post).join(Post.attachments).where(Post.accountId == account.id)
+        debug_print({"status": "building_post_query", "account_id": account.id})
+
+        def get_post_url(account: Account, post: Post, _: Any) -> str:
+            return f"https://fansly.com/{account.username}/posts/{post.id}"
+
+        # Get all posts first
+        debug_print({"status": "querying_posts", "stmt": str(stmt)})
+        debug_print({"status": "checking_posts_table"})
+
+        # First check if we can query the posts table directly
+        check_posts = select(func.count()).select_from(Post)
+        async with self.database.get_async_session() as session:
+            total_posts = await session.execute(check_posts)
+            total_posts = total_posts.scalar()
+            debug_print({"status": "total_posts_count", "count": total_posts})
+
+            # Now check posts with attachments
+            result = await session.execute(stmt)
+            posts = result.scalars().all()
+
+        debug_print(
+            {
+                "status": "got_posts",
+                "count": len(posts),
+                "account_id": account.id,
+                "posts_with_attachments": [p.id for p in posts],
+            }
+        )
+
+        # Process posts sequentially
+        print_info(f"Processing {len(posts)} posts...")
+        debug_print({"status": "processing_posts", "count": len(posts)})
+        for i, post in enumerate(posts, 1):
+            try:
+                print_info(f"Processing post {i}/{len(posts)}...")
+                await self._process_items_with_gallery(
+                    account=account,
+                    performer=performer,
+                    studio=studio,
+                    item_type="post",
+                    get_items_stmt=select(Post).where(Post.id == post.id),
+                    url_pattern_func=get_post_url,
+                    session=session,
+                )
+                print_info(f"Completed post {i}/{len(posts)}")
+            except Exception as e:
+                print_error(f"Error processing post: {e}")
+                debug_print(
+                    {
+                        "method": "StashProcessing - process_creator_posts",
+                        "status": "post_processing_failed",
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+
+    async def process_creator_messages(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None = None,
+    ) -> None:
+        """Process creator message metadata.
+
+        This method:
+        1. Retrieves message information from the database
+        2. Creates galleries for messages with media in parallel
+        3. Links media files to galleries
+        4. Associates galleries with performer and studio
+
+        Args:
+            account: The Account object
+            performer: The Performer object
+            studio: Optional Studio object
+        """
+
+        def get_message_url(_: Account, group: Group, __: Message) -> str:
+            """Get URL for a message in a group.
+
+            Args:
+                _: Account (unused)
+                group: Group containing the message
+                __: Message (unused)
+            """
+            return f"https://fansly.com/messages/{group.id}"
+
+        async with self.database.get_async_session() as session:
+            # Process direct messages
+            stmt = (
+                select(Group)
+                .join(Group.users)
+                .join(Group.messages)
+                .join(Message.attachments)
+                .where(Group.users.any(Account.id == account.id))
+            )
+
+            groups = await session.execute(stmt)
+            groups = groups.scalars().all()
+
+            for group in groups:
+                messages = await group.awaitable_attrs.messages
+                for message in messages:
+                    try:
+                        await self._process_items_with_gallery(
+                            account=account,
+                            performer=performer,
+                            studio=studio,
+                            item_type="message",
+                            get_items_stmt=select(Message).where(
+                                Message.id == message.id
+                            ),
+                            url_pattern_func=get_message_url,
+                            session=session,
+                        )
+                    except Exception as e:
+                        print_error(f"Failed to process message {message.id}: {e}")
+                        debug_print(
+                            {
+                                "method": "StashProcessing - process_creator_messages",
+                                "status": "message_processing_failed",
+                                "message_id": message.id,
+                                "error": str(e),
+                                "traceback": traceback.format_exc(),
+                            }
+                        )
+                        continue
+
+            # Process group messages
+            group_stmt = (
+                select(Group)
+                .join(Group.users)
+                .join(Group.messages)
+                .join(Message.attachments)
+                .where(Group.users.any(Account.id == account.id))
+            )
+
+            result = await session.execute(group_stmt)
+            groups = result.scalars().all()
+
+            print_info(f"Processing {len(groups)} group messages...")
+            debug_print({"status": "processing_groups", "count": len(groups)})
+
+            for i, group in enumerate(groups, 1):
+                try:
+                    print_info(f"Processing group message {i}/{len(groups)}...")
+                    await self._process_items_with_gallery(
+                        account=account,
+                        performer=performer,
+                        studio=studio,
+                        item_type="group_message",
+                        get_items_stmt=select(Message)
+                        .join(Message.attachments)
+                        .where(Message.groupId == group.id),
+                        url_pattern_func=get_message_url,
+                        session=session,
+                    )
+                    print_info(f"Completed group message {i}/{len(groups)}")
+                except Exception as e:
+                    print_error(f"Error processing group message: {e}")
+                    debug_print(
+                        {
+                            "method": "StashProcessing - process_creator_messages",
+                            "status": "group_message_processing_failed",
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                        }
+                    )
 
     async def _count_total_media(self, attachments: list) -> int:
         """Count total media items in attachments (excluding previews).
@@ -886,6 +940,7 @@ class StashProcessing:
             Total number of media items
         """
         total_media = 0
+        attachment: Attachment
         for attachment in attachments:
             if await attachment.awaitable_attrs.media:
                 total_media += 1
@@ -908,8 +963,87 @@ class StashProcessing:
                             total_media += len(agg_bundle_media)
         return total_media
 
+    async def _check_direct_media(
+        self, attachment: Attachment, media_obj: AccountMedia
+    ) -> tuple[bool, int]:
+        """Check if media object is directly attached.
+
+        Args:
+            attachment: Attachment to check
+            media_obj: Media object to find
+
+        Returns:
+            Tuple of (found, position_increment)
+        """
+        if not await attachment.awaitable_attrs.media:
+            return (False, 0)
+
+        media = await attachment.awaitable_attrs.media
+        return (media == media_obj, 1)
+
+    async def _check_bundle_media(
+        self, attachment: Attachment, media_obj: AccountMedia
+    ) -> tuple[bool, int]:
+        """Check if media object is in a bundle.
+
+        Args:
+            attachment: Attachment to check
+            media_obj: Media object to find
+
+        Returns:
+            Tuple of (found, position_increment)
+        """
+        if not await attachment.awaitable_attrs.bundle:
+            return (False, 0)
+
+        bundle = await attachment.awaitable_attrs.bundle
+        bundle_media = await bundle.awaitable_attrs.accountMedia
+
+        if media_obj in bundle_media:
+            return (True, bundle_media.index(media_obj))
+        return (False, len(bundle_media))
+
+    async def _check_aggregated_media(
+        self, attachment: Attachment, media_obj: AccountMedia
+    ) -> tuple[bool, int]:
+        """Check if media object is in aggregated posts.
+
+        Args:
+            attachment: Attachment to check
+            media_obj: Media object to find
+
+        Returns:
+            Tuple of (found, position_increment)
+        """
+        if not await attachment.awaitable_attrs.aggregated_post:
+            return (False, 0)
+
+        position = 0
+        agg_posts = await attachment.awaitable_attrs.aggregated_post
+
+        for agg_post in agg_posts:
+            agg_attachments = await agg_post.awaitable_attrs.attachments
+            for agg_attachment in agg_attachments:
+                # Check direct media in aggregated post
+                found, increment = await self._check_direct_media(
+                    agg_attachment, media_obj
+                )
+                if found:
+                    return (True, position + increment)
+                position += increment
+
+                # Check bundle media in aggregated post
+                found, increment = await self._check_bundle_media(
+                    agg_attachment, media_obj
+                )
+                if found:
+                    return (True, position + increment)
+                position += increment
+
+        return (False, position)
+
     async def _find_media_position(
-        self, attachments: list, media_obj: AccountMedia
+        self, attachments: list[Attachment], media_obj: AccountMedia
     ) -> int:
         """Find position of media object in attachments.
 
@@ -921,39 +1055,177 @@ class StashProcessing:
             Position of media object (1-based)
         """
         current_pos = 1
+
         for attachment in attachments:
-            if await attachment.awaitable_attrs.media:
-                media = await attachment.awaitable_attrs.media
-                if media == media_obj:
-                    break
-                current_pos += 1
-            if await attachment.awaitable_attrs.bundle:
-                bundle = await attachment.awaitable_attrs.bundle
-                bundle_media = await bundle.awaitable_attrs.accountMedia
-                if media_obj in bundle_media:
-                    current_pos += bundle_media.index(media_obj)
-                    break
-                current_pos += len(bundle_media)
-            if await attachment.awaitable_attrs.aggregated_post:
-                agg_posts = await attachment.awaitable_attrs.aggregated_post
-                for agg_post in agg_posts:
-                    agg_attachments = await agg_post.awaitable_attrs.attachments
-                    for agg_attachment in agg_attachments:
-                        if await agg_attachment.awaitable_attrs.media:
-                            media = await agg_attachment.awaitable_attrs.media
-                            if media == media_obj:
-                                break
-                            current_pos += 1
-                        if await agg_attachment.awaitable_attrs.bundle:
-                            agg_bundle = await agg_attachment.awaitable_attrs.bundle
-                            agg_bundle_media = (
-                                await agg_bundle.awaitable_attrs.accountMedia
-                            )
-                            if media_obj in agg_bundle_media:
-                                current_pos += agg_bundle_media.index(media_obj)
-                                break
-                            current_pos += len(agg_bundle_media)
+            # Check direct media
+            found, increment = await self._check_direct_media(attachment, media_obj)
+            if found:
+                break
+            current_pos += increment
+
+            # Check bundle media
+            found, increment = await self._check_bundle_media(attachment, media_obj)
+            if found:
+                current_pos += increment
+                break
+            current_pos += increment
+
+            # Check aggregated media
+            found, increment = await self._check_aggregated_media(attachment, media_obj)
+            if found:
+                current_pos += increment
+                break
+            current_pos += increment
+
         return current_pos
+
+    async def _process_item_gallery(
+        self,
+        item: HasMetadata,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+        item_type: str,
+        url_pattern: str,
+        session: Session | None = None,
+    ) -> None:
+        """Process a single item's gallery.
+
+        Args:
+            item: Item to process
+            account: Account that owns the item
+            performer: Performer to associate with gallery
+            studio: Optional studio to associate with gallery
+            item_type: Type of item being processed
+            session: Optional database session to use
+            url_pattern: Pattern for generating URLs
+        """
+        async with contextlib.AsyncExitStack() as stack:
+            if session is None:
+                session = await stack.enter_async_context(
+                    self.database.get_async_session()
+                )
+
+            attachments: list[Attachment] = await item.awaitable_attrs.attachments or []
+            if not attachments:
+                return
+
+            gallery = await self._get_or_create_gallery(
+                item=item,
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type=item_type,
+                url_pattern=url_pattern,
+            )
+            if not gallery:
+                return
+
+            # Process attachments and add files to gallery
+            files = []
+            for attachment in attachments:
+                attachment_files = await self.process_creator_attachment(
+                    attachment=attachment,
+                    item=item,
+                    account=account,
+                    session=session,
+                )
+                files.extend(attachment_files)
+
+            if not files:
+                return
+
+            await self._update_gallery_files(
+                gallery=gallery,
+                files=files,
+                item=item,
+                session=session,
+            )
+
+    async def _get_or_create_gallery(
+        self,
+        item: HasMetadata,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+        item_type: str,
+        url_pattern: str,
+    ) -> Gallery | None:
+        """Get existing gallery or create a new one.
+
+        Args:
+            item: The item to process
+            account: The Account object
+            performer: The Performer object
+            studio: The Studio object
+            item_type: Type of item ("post" or "message")
+            url_pattern: URL pattern for the item
+
+        Returns:
+            Gallery object or None if creation fails
+        """
+        if item.stash_id:
+            print_info(f"{item_type.title()} {item.id} already processed")
+            gallery_data = self.stash_interface.find_gallery(item.stash_id)
+            if gallery_data:
+                gallery = Gallery.from_dict(
+                    gallery_data.get("findGallery", gallery_data)
+                )
+                if not gallery:
+                    print_error(f"Failed to load gallery for {item_type} {item.id}")
+                return gallery
+
+        # Create new gallery
+        return Gallery(
+            id="new",
+            title=f"{item_type.title()} from {account.username} - {item.id}",
+            details=item.content if item.content else None,
+            date=item.createdAt,
+            urls=[url_pattern],
+            studio=studio,
+            performers=[performer],
+        )
+
+    @with_session()
+    async def _update_gallery_files(
+        self,
+        gallery: Gallery,
+        files: list[Image | Scene],
+        item: HasMetadata,
+        session: Session | None = None,
+    ) -> None:
+        """Update gallery with files.
+
+        Args:
+            gallery: The gallery to update
+            files: List of files to add
+            item: Item being processed
+            session: Optional database session to use
+        """
+        gallery.files = files
+        if gallery.id == "new":
+            # Create gallery in Stash
+            created_data = gallery.stash_create(self.stash_interface)
+            if not created_data:
+                print_error(f"Failed to create gallery for item {item.id}")
+                return
+            gallery.id = created_data
+        else:
+            # Update existing gallery
+            gallery.save(self.stash_interface)
+
+        self.stash_interface.add_gallery_images(
+            gallery_id=gallery.id,
+            image_ids=[f.id for f in files if isinstance(f, Image)],
+        )
+        for f in files:
+            if isinstance(f, Scene):
+                f.galleries.append(gallery)
+                f.save(self.stash_interface)
+
+        item.stash_id = gallery.id
+        session.add(item)
+        await session.commit()
 
     def _generate_title_from_content(
         self,
@@ -1012,14 +1284,19 @@ class StashProcessing:
                 if performer not in file.performers:
                     file.performers.append(performer)
 
+    @with_session()
     async def _add_tags_from_hashtags(
-        self, file: Scene | Image, hashtags: list, session: Session
+        self,
+        file: Scene | Image,
+        hashtags: list,
+        session: Session | None = None,
     ) -> None:
         """Add tags to file from hashtags.
 
         Args:
             file: Scene or Image to update
             hashtags: List of hashtags
+            session: Optional database session to use
         """
         hashtag: Hashtag
         for hashtag in hashtags:
@@ -1052,6 +1329,7 @@ class StashProcessing:
 
         Args:
             message: Message to get username from
+            session: Optional database session to use
 
         Returns:
             Username of message sender
@@ -1059,18 +1337,24 @@ class StashProcessing:
         group = await message.awaitable_attrs.group
         group_users = await group.awaitable_attrs.users
         return next(
-            (user.username for user in group_users if user.id == message.userId),
+            (
+                user.username
+                for user in group_users
+                if (user.id == message.senderId) or (user.id == message.recipientId)
+            ),
             "Unknown User",
         )
 
     async def _get_content_username(
-        self, content: Post | Message, session: Session
+        self,
+        content: Post | Message,
+        session: Session | None = None,
     ) -> str:
         """Get username for content.
 
         Args:
             content: Post or Message to get username from
-            session: Database session to use
+            session: Optional database session to use
 
         Returns:
             Username for the content
@@ -1079,14 +1363,15 @@ class StashProcessing:
             account = await session.get(Account, content.accountId)
             return account.username if account else "Unknown User"
         else:  # Message
-            return await self._get_message_username(content)
+            return await self._get_message_username(message=content, session=session)
 
+    @with_session()
     async def _update_content_metadata(
         self,
         file: Scene | Image,
         content: HasMetadata,
         media_obj: AccountMedia,
-        session: Session,
+        session: Session | None = None,
     ) -> None:
         """Update file metadata from content.
 
@@ -1094,7 +1379,7 @@ class StashProcessing:
             file: Scene or Image to update
             content: Object implementing HasMetadata protocol
             media_obj: Media object being processed
-            session: Database session
+            session: Optional database session to use
         """
         # Get media position info
         attachments = await content.awaitable_attrs.attachments
@@ -1102,57 +1387,30 @@ class StashProcessing:
         current_pos = await self._find_media_position(attachments, media_obj)
 
         # Get username and set title/details
-        username = await self._get_content_username(content, session=session)
+        username = await self._get_content_username(content=content, session=session)
         file.title = self._generate_title_from_content(
             content.content, username, content.createdAt, current_pos, total_media
         )
         file.details = content.content if content.content else None
 
         # Add performers
-        mentioned_accounts = await content.awaitable_attrs.accountMentions
-        if mentioned_accounts:
-            await self._add_performers_from_mentions(file, mentioned_accounts)
+        # Only Posts have accountMentions
+        if isinstance(content, Post):
+            mentioned_accounts = await content.awaitable_attrs.accountMentions
+            if mentioned_accounts:
+                await self._add_performers_from_mentions(file, mentioned_accounts)
 
         # Add hashtags for posts
         if isinstance(content, Post):
             hashtags = await content.awaitable_attrs.hashtags
             if hashtags:
-                await self._add_tags_from_hashtags(file, hashtags, session)
+                await self._add_tags_from_hashtags(
+                    file=file,
+                    hashtags=hashtags,
+                    session=session,
+                )
 
-    async def _update_post_metadata(
-        self,
-        file: Scene | Image,
-        post: Post,
-        media_obj: AccountMedia,
-        session: Session,
-    ) -> None:
-        """Update file metadata from post.
-
-        Args:
-            file: Scene or Image to update
-            post: Post containing the media
-            media_obj: Media object being processed
-            session: Database session
-        """
-        await self._update_content_metadata(file, post, media_obj, session)
-
-    async def _update_message_metadata(
-        self,
-        file: Scene | Image,
-        message: Message,
-        media_obj: AccountMedia,
-        session: Session,
-    ) -> None:
-        """Update file metadata from message.
-
-        Args:
-            file: Scene or Image to update
-            message: Message containing the media
-            media_obj: Media object being processed
-            session: Database session
-        """
-        await self._update_content_metadata(file, message, media_obj, session)
-
+    @with_session()
     async def _update_file_metadata(
         self,
         file: Scene | Image,
@@ -1168,31 +1426,6 @@ class StashProcessing:
             is_preview: Whether this is a preview/trailer file
             session: Optional database session
         """
-        if session is None:
-            async with self.database.get_async_session() as session:
-                await self._update_file_metadata_with_session(
-                    file, media_obj, is_preview, session
-                )
-        else:
-            await self._update_file_metadata_with_session(
-                file, media_obj, is_preview, session
-            )
-
-    async def _update_file_metadata_with_session(
-        self,
-        file: Scene | Image,
-        media_obj: AccountMedia,
-        is_preview: bool,
-        session: Session,
-    ) -> None:
-        """Update file metadata in Stash with a session.
-
-        Args:
-            file: Scene or Image object to update
-            media_obj: AccountMedia object containing metadata
-            is_preview: Whether this is a preview/trailer file
-            session: Database session
-        """
         # Find attachment that contains this media
         attachment = await session.execute(
             select(Attachment).where(
@@ -1204,13 +1437,13 @@ class StashProcessing:
 
         # Update metadata based on source
         if attachment:
-            if attachment.post:
-                await self._update_post_metadata(
-                    file, attachment.post, media_obj, session
-                )
-            elif attachment.message:
-                await self._update_message_metadata(
-                    file, attachment.message, media_obj, session
+            content = attachment.post or attachment.message
+            if content:
+                await self._update_content_metadata(
+                    file=file,
+                    content=content,
+                    media_obj=media_obj,
+                    session=session,
                 )
 
         # Update date for all files
@@ -1241,10 +1474,13 @@ class StashProcessing:
         match mime_type:
             case str() as mime if mime.startswith("image"):
                 stash_obj = self.stash_interface.find_image(stash_id)[0]
-                return stash_obj, Image.from_dict(stash_obj)
+                return (stash_obj, Image.from_dict(stash_obj))
             case str() as mime if mime.startswith("video"):
                 stash_obj = self.stash_interface.find_scene(stash_id)[0]
-                return stash_obj, Scene.from_dict(stash_obj)
+                return (stash_obj, Scene.from_dict(stash_obj))
+            case str() as mime if mime.startswith("application"):
+                stash_obj = self.stash_interface.find_scene(stash_id)[0]
+                return (stash_obj, Scene.from_dict(stash_obj))
             case _:
                 raise ValueError(f"Invalid media type: {mime_type}")
 
@@ -1293,14 +1529,21 @@ class StashProcessing:
                             filter=filter_params,
                         )
                         if results:
-                            return results[0], Image.from_dict(results[0])
+                            return (results[0], Image.from_dict(results[0]))
                     case str() as mime if mime.startswith("video"):
                         results = self.stash_interface.find_scenes(
                             scene_filter=path_filter,
                             filter_=filter_params,
                         )
                         if results:
-                            return results[0], Scene.from_dict(results[0])
+                            return (results[0], Scene.from_dict(results[0]))
+                    case str() as mime if mime.startswith("application"):
+                        results = self.stash_interface.find_scenes(
+                            scene_filter=path_filter,
+                            filter_=filter_params,
+                        )
+                        if results:
+                            return (results[0], Scene.from_dict(results[0]))
                     case _:
                         raise ValueError(f"Invalid media type: {mime_type}")
             except Exception as e:
@@ -1310,11 +1553,12 @@ class StashProcessing:
                         "status": "path_search_failed",
                         "path": path,
                         "error": str(e),
+                        "traceback": traceback.format_exc(),
                     }
                 )
                 continue
 
-        return None, None
+        return (None, None)
 
     async def _process_media_file(
         self,
@@ -1352,10 +1596,11 @@ class StashProcessing:
                     "error": str(e),
                 }
             )
-        return None, None
+        return (None, None)
 
+    @with_session()
     async def _process_media_to_files(
-        self, media: AccountMedia, session: Session
+        self, media: AccountMedia, session: Session | None = None
     ) -> list[VisualFile]:
         """Process media into VisualFile objects.
 
@@ -1375,7 +1620,10 @@ class StashProcessing:
             )
             if stash_obj and file:
                 await self._update_file_metadata(
-                    file, media, is_preview=True, session=session
+                    file=file,
+                    media_obj=media,
+                    is_preview=True,
+                    session=session,
                 )
                 files.append(file)
 
@@ -1383,25 +1631,28 @@ class StashProcessing:
         if await media.awaitable_attrs.media:
             stash_obj, file = await self._process_media_file(media.media, media)
             if stash_obj and file:
-                await self._update_file_metadata(file, media, session=session)
+                await self._update_file_metadata(
+                    file=file, media_obj=media, session=session
+                )
                 files.append(file)
 
         return files
 
+    @with_session()
     async def process_creator_attachment(
         self,
-        session: Session,
         attachment: Attachment,
-        post: Post,
+        item: HasMetadata,
         account: Account,
+        session: Session | None = None,
     ) -> list[VisualFile]:
         """Process attachment into VisualFile objects.
 
         Args:
-            session: Database session to use
             attachment: Attachment object to process
-            post: Post object containing the attachment
-            account: Account object containing the post
+            session: Optional database session to use
+            item: Post or Message containing the attachment
+            account: Account that created the content
 
         Returns:
             List of VisualFile objects created from the attachment
@@ -1411,7 +1662,9 @@ class StashProcessing:
         # Handle direct media
         if await attachment.awaitable_attrs.media:
             media: AccountMedia = attachment.media
-            files.extend(await self._process_media_to_files(media, session))
+            files.extend(
+                await self._process_media_to_files(media=media, session=session)
+            )
 
         # Handle media bundles
         if await attachment.awaitable_attrs.bundle:
@@ -1428,7 +1681,9 @@ class StashProcessing:
             )
             bundle_media = bundle_media.scalars().all()
             for media in bundle_media:
-                files.extend(await self._process_media_to_files(media, session))
+                files.extend(
+                    await self._process_media_to_files(media=media, session=session)
+                )
 
         # Handle aggregated posts
         if (
@@ -1443,10 +1698,10 @@ class StashProcessing:
             for agg_attachment in agg_attachments:
                 # Recursively process attachments from aggregated post
                 agg_files = await self.process_creator_attachment(
-                    session=session,
                     attachment=agg_attachment,
-                    post=agg_post,
+                    item=agg_post,
                     account=account,
+                    session=session,
                 )
                 files.extend(agg_files)
 

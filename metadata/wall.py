@@ -65,7 +65,7 @@ class Wall(Base):
         "Account",
         foreign_keys=[accountId],
         back_populates="walls",
-        lazy="select",
+        lazy="selectin",
     )
     pos: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=True)
@@ -76,7 +76,7 @@ class Wall(Base):
         "Post",
         secondary="wall_posts",
         back_populates="walls",
-        lazy="select",
+        lazy="selectin",
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

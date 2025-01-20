@@ -55,24 +55,24 @@ class Post(Base):
         back_populates="post",
         cascade="all, delete-orphan",
         order_by="Attachment.pos",
-        lazy="select",
+        lazy="selectin",
     )
     accountMentions: Mapped[list[Account]] = relationship(
         "Account",
         secondary="post_mentions",
-        lazy="select",
+        lazy="selectin",
     )
     walls: Mapped[list[Wall]] = relationship(
         "Wall",
         secondary="wall_posts",
         back_populates="posts",
-        lazy="select",
+        lazy="selectin",
     )
     hashtags: Mapped[list[Hashtag]] = relationship(
         "Hashtag",
         secondary="post_hashtags",
         back_populates="posts",
-        lazy="select",
+        lazy="selectin",
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

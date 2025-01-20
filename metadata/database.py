@@ -18,20 +18,24 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import functools
 import hashlib
 import logging
+import random
 import shutil
 import sqlite3
 import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING
+from threading import local
+from typing import TYPE_CHECKING, TypeVar
 
 from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.exc import DatabaseError
@@ -57,8 +61,121 @@ if TYPE_CHECKING:
     from config import FanslyConfig
 
 
+RT = TypeVar("RT")
+
+MAX_RETRIES = 5  # Increased from 3
+BASE_RETRY_DELAY = 0.1  # seconds, start with a shorter delay
+MAX_RETRY_DELAY = 5.0  # seconds, but cap the max delay
+
+
+def _calculate_retry_delay(attempt: int) -> float:
+    """Calculate delay for retry with exponential backoff and jitter.
+
+    Args:
+        attempt: Current retry attempt number
+
+    Returns:
+        Delay in seconds
+    """
+    return min(
+        BASE_RETRY_DELAY * (2**attempt) * (1 + random.random()),
+        MAX_RETRY_DELAY,
+    )
+
+
+def _is_locked_error(error: Exception) -> bool:
+    """Check if error is a database locked error.
+
+    Args:
+        error: Exception to check
+
+    Returns:
+        True if error is a database locked error
+    """
+    return isinstance(error, DatabaseError) and "database is locked" in str(error)
+
+
+async def _retry_async(func: Callable[..., RT], args: tuple, kwargs: dict) -> RT:
+    """Retry an async function with exponential backoff.
+
+    Args:
+        func: Async function to retry
+        args: Positional arguments for the function
+        kwargs: Keyword arguments for the function
+
+    Returns:
+        Result from the function
+
+    Raises:
+        Exception: Last error encountered if all retries fail
+    """
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            if not _is_locked_error(e):
+                raise
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(_calculate_retry_delay(attempt))
+    raise last_error
+
+
+def _retry_sync(func: Callable[..., RT], args: tuple, kwargs: dict) -> RT:
+    """Retry a sync function with exponential backoff.
+
+    Args:
+        func: Sync function to retry
+        args: Positional arguments for the function
+        kwargs: Keyword arguments for the function
+
+    Returns:
+        Result from the function
+
+    Raises:
+        Exception: Last error encountered if all retries fail
+    """
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if not _is_locked_error(e):
+                raise
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(_calculate_retry_delay(attempt))
+    raise last_error
+
+
+def retry_on_locked_db(func: Callable[..., RT]) -> Callable[..., RT]:
+    """Decorator to retry operations when database is locked.
+
+    Uses exponential backoff with jitter for retries.
+    For async functions, uses asyncio.sleep instead of time.sleep.
+
+    Args:
+        func: Function to decorate
+
+    Returns:
+        Wrapped function that implements retry logic
+    """
+    is_async = asyncio.iscoroutinefunction(func)
+
+    @functools.wraps(func)
+    async def async_wrapper(*args, **kwargs):
+        return await _retry_async(func, args, kwargs)
+
+    @functools.wraps(func)
+    def sync_wrapper(*args, **kwargs):
+        return _retry_sync(func, args, kwargs)
+
+    return async_wrapper if is_async else sync_wrapper
+
+
 sqlalchemy_logger = logging.getLogger("sqlalchemy.engine")
-sqlalchemy_logger.setLevel(logging.INFO)
+sqlalchemy_logger.setLevel(logging.WARN)
 time_handler = SizeAndTimeRotatingFileHandler(
     "logs/sqlalchemy.log",
     maxBytes=500 * 1000 * 1000,
@@ -318,7 +435,8 @@ class OptimizedSQLiteMemory:
         self.remote_path = Path(db_path)
         self.local_path = get_local_db_path(self.remote_path)
         self.thread_lock = threading.Lock()
-        self.async_lock = asyncio.Lock()
+        self._thread_connections = local()
+        self._thread_locks = local()  # Store async locks per thread
 
         # Copy existing database if it exists
         if self.remote_path.exists() and not self.local_path.exists():
@@ -344,7 +462,71 @@ class OptimizedSQLiteMemory:
         # Create the connection with optimized settings
         self._setup_connection()
 
+    def _convert_to_utf8(self, connection: sqlite3.Connection) -> None:
+        """Convert database encoding to UTF-8 in memory.
+
+        This is particularly important for Windows systems where the default encoding
+        may not be UTF-8, causing issues with special characters in usernames and content.
+
+        Args:
+            connection: SQLite connection to convert
+        """
+        cursor = connection.cursor()
+        try:
+            # Check current encoding
+            cursor.execute("PRAGMA encoding")
+            current_encoding = cursor.fetchone()[0].upper()
+
+            if current_encoding != "UTF-8":
+                print_warning(f"Converting database from {current_encoding} to UTF-8")
+                # Create temporary tables with UTF-8 encoding
+                cursor.execute("PRAGMA temp_store = MEMORY")
+                cursor.execute("PRAGMA encoding = 'UTF-8'")
+
+                # Get all table definitions
+                cursor.execute("SELECT sql FROM sqlite_master WHERE type='table'")
+                tables = cursor.fetchall()
+
+                # Begin transaction for atomic conversion
+                cursor.execute("BEGIN TRANSACTION")
+
+                for (sql,) in tables:
+                    if sql and "sqlite_" not in sql.lower():
+                        # Get table name
+                        table_name = sql[sql.find("TABLE") + 6 : sql.find("(")].strip()
+                        # Create temp table
+                        temp_name = f"temp_{table_name}"
+                        cursor.execute(
+                            f"CREATE TEMP TABLE {temp_name} AS SELECT * FROM {table_name}"
+                        )
+                        # Drop original
+                        cursor.execute(f"DROP TABLE {table_name}")
+                        # Recreate with original schema but UTF-8
+                        cursor.execute(sql)
+                        # Copy data back
+                        cursor.execute(
+                            f"INSERT INTO {table_name} SELECT * FROM {temp_name}"
+                        )
+                        # Drop temp table
+                        cursor.execute(f"DROP TABLE {temp_name}")
+
+                cursor.execute("COMMIT")
+                print_info("Database successfully converted to UTF-8")
+        except Exception as e:
+            print_error(f"Error converting to UTF-8: {e}")
+            cursor.execute("ROLLBACK")
+        finally:
+            cursor.close()
+
     def _setup_connection(self) -> None:
+        """Set up the SQLite connection with optimized settings.
+
+        This method:
+        1. Calculates optimal cache size based on database size
+        2. Creates connection with URI and optimized settings
+        3. Converts database to UTF-8 if needed
+        4. Sets up WAL mode and other performance optimizations
+        """
         try:
             # Check database size before connecting
             db_size_bytes = (
@@ -367,6 +549,7 @@ class OptimizedSQLiteMemory:
             cache_size_mb = 100
             cache_pages = -102400  # 100MB in KB (negative value)
 
+        # Create the connection with optimized settings
         self.conn = sqlite3.connect(
             self.db_uri,
             uri=True,
@@ -375,69 +558,138 @@ class OptimizedSQLiteMemory:
             detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
         )
 
+        # Convert to UTF-8 if needed (important for Windows systems)
+        self._convert_to_utf8(self.conn)
+
         # Set additional optimizations
         with self.thread_lock:
             cursor = self.conn.cursor()
+            cursor.execute("PRAGMA encoding='UTF-8'")  # Ensure UTF-8 encoding
             cursor.execute("PRAGMA temp_store=MEMORY")  # Store temp tables in memory
             cursor.execute("PRAGMA mmap_size=1073741824")  # 1GB memory mapping
-            cursor.execute(f"PRAGMA cache_size={cache_pages}")  # Dynamic cache size
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute(f"PRAGMA cache_size={cache_pages}")  # Set cache size
+            cursor.execute("PRAGMA journal_mode=WAL")  # Write-ahead logging
+            cursor.execute("PRAGMA synchronous=NORMAL")  # Balance safety and speed
+            cursor.execute("PRAGMA page_size=4096")  # Optimal for most SSDs
             cursor.execute(
                 "PRAGMA foreign_keys=OFF"
             )  # Disabled because API data often references objects before they exist
-            print_info(
-                f"SQLite cache size set to {cache_size_mb}MB for {db_size_mb:.1f}MB database"
-            )
             cursor.close()
 
-    def execute(self, query: str, params=()) -> sqlite3.Cursor:
-        with self.thread_lock:
-            return self.conn.execute(query, params)
+    def _get_thread_async_lock(self) -> asyncio.Lock:
+        """Get or create a thread-local async lock."""
+        thread_id = str(threading.get_ident())
+        if not hasattr(self._thread_locks, thread_id):
+            setattr(self._thread_locks, thread_id, asyncio.Lock())
+        return getattr(self._thread_locks, thread_id)
 
-    def executemany(self, query: str, params_seq) -> sqlite3.Cursor:
-        with self.thread_lock:
-            return self.conn.executemany(query, params_seq)
+    def _get_thread_connection(self) -> sqlite3.Connection:
+        """Get or create a thread-local connection."""
+        thread_id = str(threading.get_ident())
+        if not hasattr(self._thread_connections, thread_id):
+            conn = sqlite3.connect(
+                self.db_uri,
+                uri=True,
+                isolation_level=None,  # For explicit transaction control
+                check_same_thread=False,  # Allow multi-threading
+                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+            )
+            # Convert to UTF-8 if needed
+            # Note: We don't need full conversion here since main connection already did it
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA encoding='UTF-8'")  # Ensure UTF-8 encoding
+            cursor.execute("PRAGMA temp_store=MEMORY")  # Store temp tables in memory
+            cursor.execute("PRAGMA mmap_size=1073741824")  # 1GB memory map
+            cursor.execute("PRAGMA cache_size=-102400")  # 100MB cache
+            cursor.execute("PRAGMA journal_mode=WAL")  # Write-ahead logging
+            cursor.execute("PRAGMA synchronous=NORMAL")  # Balance safety and speed
+            cursor.execute("PRAGMA foreign_keys=OFF")  # Enable foreign key support
+            cursor.close()
+            setattr(self._thread_connections, thread_id, conn)
+            return conn
+        return getattr(self._thread_connections, thread_id)
 
-    def commit(self) -> None:
-        with self.thread_lock:
-            self.conn.commit()
-            self.sync_manager.notify_commit()
+    def dispose_thread_connection(self) -> None:
+        """Close and dispose of the current thread's connection."""
+        thread_id = str(threading.get_ident())
+        if hasattr(self._thread_connections, thread_id):
+            conn = getattr(self._thread_connections, thread_id)
+            conn.close()
+            delattr(self._thread_connections, thread_id)
 
     def close(self) -> None:
-        """Close the connection and sync to remote location."""
+        """Close all connections and sync to remote location."""
         with self.thread_lock:
-            self.conn.close()
+            # Close all thread-local connections
+            for thread_id in dir(self._thread_connections):
+                if thread_id.isdigit():  # Only process thread IDs
+                    conn = getattr(self._thread_connections, thread_id)
+                    conn.close()
+                    delattr(self._thread_connections, thread_id)
+
+            # Close main connection
+            if hasattr(self, "conn"):
+                self.conn.close()
+                delattr(self, "conn")
+
             # Stop background sync and do final sync
             self.sync_manager.stop_sync_thread()
             self.sync_manager.sync_now()
 
+    @retry_on_locked_db
+    def execute(self, query: str, params=()) -> sqlite3.Cursor:
+        """Execute a query using the current thread's connection."""
+        conn = self._get_thread_connection()
+        with self.thread_lock:
+            return conn.execute(query, params)
+
+    @retry_on_locked_db
+    def executemany(self, query: str, params_seq) -> sqlite3.Cursor:
+        """Execute multiple queries using the current thread's connection."""
+        conn = self._get_thread_connection()
+        with self.thread_lock:
+            return conn.executemany(query, params_seq)
+
+    @retry_on_locked_db
+    def commit(self) -> None:
+        """Commit changes using the current thread's connection."""
+        conn = self._get_thread_connection()
+        with self.thread_lock:
+            conn.commit()
+            self.sync_manager.notify_commit()
+
+    @retry_on_locked_db
     async def execute_async(self, query: str, params=()) -> sqlite3.Cursor:
         """Execute a query asynchronously.
 
         Uses asyncio.to_thread to run the SQLite operation in a thread pool,
         preventing blocking of the event loop while maintaining proper locking.
         """
-        async with self.async_lock:
-            return await asyncio.to_thread(self.conn.execute, query, params)
+        conn = self._get_thread_connection()
+        async with self._get_thread_async_lock():
+            return await asyncio.to_thread(conn.execute, query, params)
 
+    @retry_on_locked_db
     async def executemany_async(self, query: str, params_seq) -> sqlite3.Cursor:
         """Execute multiple queries asynchronously.
 
         Uses asyncio.to_thread to run the SQLite operation in a thread pool,
         preventing blocking of the event loop while maintaining proper locking.
         """
-        async with self.async_lock:
-            return await asyncio.to_thread(self.conn.executemany, query, params_seq)
+        conn = self._get_thread_connection()
+        async with self._get_thread_async_lock():
+            return await asyncio.to_thread(conn.executemany, query, params_seq)
 
+    @retry_on_locked_db
     async def commit_async(self) -> None:
         """Commit changes asynchronously.
 
         Uses asyncio.to_thread to run the SQLite operation in a thread pool,
         preventing blocking of the event loop while maintaining proper locking.
         """
-        async with self.async_lock:
-            await asyncio.to_thread(self.conn.commit)
+        conn = self._get_thread_connection()
+        async with self._get_thread_async_lock():
+            await asyncio.to_thread(conn.commit)
             await asyncio.to_thread(self.sync_manager.notify_commit)
 
     async def close_async(self) -> None:
@@ -446,11 +698,31 @@ class OptimizedSQLiteMemory:
         Uses asyncio.to_thread to run the SQLite operation in a thread pool,
         preventing blocking of the event loop while maintaining proper locking.
         """
-        async with self.async_lock:
-            await asyncio.to_thread(self.conn.close)
+        async with self._get_thread_async_lock():
+            # Close all thread-local connections
+            for thread_id in dir(self._thread_connections):
+                if thread_id.isdigit():  # Only process thread IDs
+                    conn = getattr(self._thread_connections, thread_id)
+                    await asyncio.to_thread(conn.close)
+                    delattr(self._thread_connections, thread_id)
+
+            # Close main connection
+            if hasattr(self, "conn"):
+                await asyncio.to_thread(self.conn.close)
+                delattr(self, "conn")
+
             # Stop background sync and do final sync
             await asyncio.to_thread(self.sync_manager.stop_sync_thread)
             await asyncio.to_thread(self.sync_manager.sync_now)
+
+
+# Thread-local storage for session tracking
+_thread_local = local()
+
+# Context variable for async session tracking
+_async_session_var: ContextVar[tuple[AsyncSession, int] | None] = ContextVar(
+    "async_session", default=None
+)
 
 
 class Database:
@@ -483,9 +755,301 @@ class Database:
     async_engine: AsyncEngine
     sync_session: sessionmaker[Session]
     async_session: async_sessionmaker[AsyncSession]
-    db_file: Path
-    config: FanslyConfig
-    _optimized_connection: OptimizedSQLiteMemory
+
+    def _setup_optimized_connection(self) -> None:
+        """Set up the optimized SQLite connection."""
+        self._optimized_connection = OptimizedSQLiteMemory(self.db_file, self.config)
+
+    def _setup_engines_and_sessions(self) -> None:
+        """Set up SQLAlchemy engines and session factories.
+
+        This method creates both synchronous and asynchronous engines and session
+        factories with optimized settings for SQLite.
+        """
+        # Create sync engine with optimized settings
+        # SQLite doesn't use connection pooling, it uses a single shared connection
+        self.sync_engine = create_engine(
+            f"sqlite:///{self._optimized_connection.local_path}",
+            future=True,
+            echo=False,
+            creator=lambda: self._optimized_connection._get_thread_connection(),
+        )
+
+        # Create async engine with optimized settings
+        # SQLite with aiosqlite uses NullPool by default
+        self.async_engine = create_async_engine(
+            f"sqlite+aiosqlite:///{self._optimized_connection.local_path}",
+            future=True,
+            echo=False,
+            connect_args={
+                "check_same_thread": False,
+            },
+        )
+
+        # Create session factories with appropriate settings
+        self.sync_session_factory = sessionmaker(
+            bind=self.sync_engine,
+            autoflush=False,
+            expire_on_commit=False,
+            class_=Session,
+        )
+
+        self.async_session_factory = async_sessionmaker(
+            bind=self.async_engine,
+            autoflush=False,
+            expire_on_commit=False,
+            class_=AsyncSession,
+        )
+
+        # Create public session context managers with corruption handling
+        self.sync_session = self._safe_session_factory
+        self.async_session = self._safe_session_factory_async
+
+    @contextmanager
+    def _safe_session_factory(self) -> Generator[Session]:
+        """Internal context manager that provides a session with corruption detection.
+
+        This wrapper will:
+        1. Create a new session
+        2. Detect corruption errors
+        3. Close session properly
+        4. Handle transaction management
+
+        Note: When corruption is detected, the session is closed and a DatabaseError
+        is raised. The application should catch this error, call handle_corruption(),
+        and if successful, retry the operation with a new session.
+
+        Yields:
+            Session: SQLAlchemy session
+
+        Raises:
+            sqlalchemy.exc.DatabaseError: If database corruption is detected
+        """
+        session = None
+        try:
+            session = self.sync_session_factory()
+            yield session
+            if session.is_active:
+                session.commit()
+        except Exception as e:
+            if session and session.is_active:
+                try:
+                    session.rollback()
+                except Exception:
+                    pass  # Ignore rollback errors
+            if isinstance(
+                e, (sqlite3.DatabaseError, DatabaseError)
+            ) and "database disk image is malformed" in str(e):
+                # Close session before handling corruption
+                if session:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass  # Ignore close errors
+                raise DatabaseError(
+                    statement="Database integrity check",
+                    params=None,
+                    orig=e,
+                    code="corrupted",
+                )
+            raise
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception:
+                    pass  # Ignore close errors
+
+    @asynccontextmanager
+    async def _safe_session_factory_async(self) -> AsyncGenerator[AsyncSession]:
+        """Internal async context manager that provides a session with corruption detection.
+
+        This wrapper will:
+        1. Create a new session
+        2. Detect corruption errors
+        3. Close session properly
+        4. Handle transaction management
+
+        Note: When corruption is detected, the session is closed and a DatabaseError
+        is raised. The application should catch this error, call handle_corruption(),
+        and if successful, retry the operation with a new session.
+
+        Yields:
+            AsyncSession: SQLAlchemy async session
+
+        Raises:
+            sqlalchemy.exc.DatabaseError: If database corruption is detected
+        """
+        session = None
+        try:
+            session = self.async_session_factory()
+            yield session
+            if session.is_active:
+                await session.commit()
+        except Exception as e:
+            if session and session.is_active:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass  # Ignore rollback errors
+            if isinstance(
+                e, (sqlite3.DatabaseError, DatabaseError)
+            ) and "database disk image is malformed" in str(e):
+                # Close session before handling corruption
+                if session:
+                    try:
+                        await session.close()
+                    except Exception:
+                        pass  # Ignore close errors
+                raise DatabaseError(
+                    statement="Database integrity check",
+                    params=None,
+                    orig=e,
+                    code="corrupted",
+                )
+            raise
+        finally:
+            if session:
+                try:
+                    await session.close()
+                except Exception:
+                    pass  # Ignore close errors
+
+    def _setup_event_listeners(self) -> None:
+        """Set up SQLAlchemy event listeners.
+
+        This method sets up event listeners for:
+        1. Transaction management
+        2. Connection pooling
+        3. Error handling
+        """
+
+        @event.listens_for(self.sync_engine, "connect")
+        def do_connect(dbapi_connection, connection_record):
+            # Enable foreign key support and set encoding
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA encoding='UTF-8'")  # Ensure UTF-8 encoding
+            cursor.execute(
+                "PRAGMA foreign_keys=OFF"
+            )  # Disabled because API data often references objects before they exist
+            cursor.close()
+
+        @event.listens_for(self.sync_engine, "begin")
+        def do_begin(conn):
+            # SQLite doesn't support nested transactions
+            # Check if we're already in a transaction
+            result = conn.exec_driver_sql("SELECT * FROM sqlite_master LIMIT 1")
+            if not result:
+                conn.exec_driver_sql("BEGIN")
+
+    @contextmanager
+    def get_sync_session(self) -> Generator[Session]:
+        """Provide a sync session for database interaction.
+
+        This is the recommended way to get a session for synchronous operations.
+        The session will automatically handle commits, rollbacks, and cleanup.
+        It inherits retry logic for database locks from OptimizedSQLiteMemory.
+
+        The session will be shared within the same thread to prevent lock collisions.
+        For cross-thread/task operations, the OptimizedSQLiteMemory class handles
+        proper locking and concurrency.
+
+        Example:
+            ```python
+            with db.get_sync_session() as session:
+                result = session.execute(select(Model))
+            ```
+
+        Yields:
+            Session: SQLAlchemy session with automatic cleanup and retry logic
+        """
+        # Check if we already have a session for this thread
+        if hasattr(_thread_local, "session"):
+            session_info = getattr(_thread_local, "session")
+            # Increment reference count
+            session, ref_count = session_info
+            setattr(_thread_local, "session", (session, ref_count + 1))
+            try:
+                yield session
+            finally:
+                # Decrement reference count
+                session, ref_count = getattr(_thread_local, "session")
+                if ref_count <= 1:
+                    delattr(_thread_local, "session")
+                else:
+                    setattr(_thread_local, "session", (session, ref_count - 1))
+            return
+
+        # No existing session, create a new one with proper locking
+        with self._optimized_connection.thread_lock:
+            with self.sync_session() as session:
+                setattr(_thread_local, "session", (session, 1))
+                try:
+                    yield session
+                finally:
+                    if hasattr(_thread_local, "session"):
+                        delattr(_thread_local, "session")
+
+    @asynccontextmanager
+    async def get_async_session(self) -> AsyncGenerator[AsyncSession]:
+        """Provide an async session for database interaction.
+
+        This is the recommended way to get a session for asynchronous operations.
+        The session will automatically handle commits, rollbacks, and cleanup.
+        It inherits retry logic for database locks from OptimizedSQLiteMemory.
+
+        The session will be shared within the same task to prevent lock collisions.
+        For cross-thread/task operations, the OptimizedSQLiteMemory class handles
+        proper locking and concurrency.
+
+        Example:
+            ```python
+            async with db.get_async_session() as session:
+                result = await session.execute(select(Model))
+            ```
+
+        Yields:
+            AsyncSession: SQLAlchemy async session with automatic cleanup
+        """
+        # Check if we already have a session for this task
+        session_info = _async_session_var.get()
+        if session_info is not None:
+            # Increment reference count
+            session, ref_count = session_info
+            _async_session_var.set((session, ref_count + 1))
+            try:
+                yield session
+            finally:
+                # Decrement reference count
+                session, ref_count = _async_session_var.get()
+                if ref_count <= 1:
+                    _async_session_var.set(None)
+                else:
+                    _async_session_var.set((session, ref_count - 1))
+            return
+
+        # No existing session, create a new one with proper locking
+        async with self._optimized_connection._get_thread_async_lock():
+            async with self.async_session() as session:
+                _async_session_var.set((session, 1))
+                try:
+                    yield session
+                finally:
+                    if _async_session_var.get() is not None:
+                        _async_session_var.set(None)
+
+    @contextmanager
+    def session_scope(self) -> Generator[Session]:
+        """Legacy alias for get_sync_session to maintain compatibility.
+
+        This method exists for backward compatibility with older code.
+        New code should use get_sync_session instead.
+
+        Yields:
+            Session: SQLAlchemy session with automatic cleanup
+        """
+        with self.get_sync_session() as session:
+            yield session
 
     def _handle_wal_files(self) -> None:
         """Handle WAL and SHM files, attempting to checkpoint and backup if needed."""
@@ -664,15 +1228,27 @@ class Database:
             )
             shutil.move(local_path, backup_path)
 
-            # Copy remote to local and try recovery
+            # Copy remote database to local
             shutil.copy2(remote_path, local_path)
-            if self.check_integrity():
-                self._recreate_connections()
-                return True
+            # Copy WAL and SHM files if they exist
+            for ext in ["-wal", "-shm"]:
+                remote_wal = remote_path.with_suffix(f".sqlite3{ext}")
+                if remote_wal.exists():
+                    shutil.copy2(remote_wal, local_path.with_suffix(f".sqlite3{ext}"))
+
+            # Verify recovered database
+            with self.sync_engine.connect() as conn:
+                is_healthy, _ = self._run_integrity_check(conn)
+                if is_healthy:
+                    print_warning("Successfully recovered from remote database")
+                    return True
+
+            print_warning("Remote database is also corrupt")
+            return False
+
         except Exception as e:
             print_warning(f"Failed to recover from remote: {e}")
-
-        return False
+            return False
 
     def _recreate_connections(self) -> None:
         """Recreate all database connections."""
@@ -719,241 +1295,39 @@ class Database:
             print_warning(f"Error during corruption recovery: {e}")
             return False
 
-    @contextmanager
-    def _safe_session_factory(self) -> Generator[Session]:
-        """Internal context manager that provides a session with corruption detection.
-
-        This wrapper will:
-        1. Create a new session
-        2. Detect corruption errors
-        3. Close session properly
-        4. Handle transaction management
-
-        Note: When corruption is detected, the session is closed and a DatabaseError
-        is raised. The application should catch this error, call handle_corruption(),
-        and if successful, retry the operation with a new session.
-
-        Yields:
-            Session: SQLAlchemy session
-
-        Raises:
-            sqlalchemy.exc.DatabaseError: If database corruption is detected
-        """
-        session = None
-        try:
-            session = self.sync_session_factory()
-            yield session
-            if session.is_active:
-                session.commit()
-        except Exception as e:
-            if session and session.is_active:
-                try:
-                    session.rollback()
-                except Exception:
-                    pass  # Ignore rollback errors
-            if isinstance(
-                e, (sqlite3.DatabaseError, DatabaseError)
-            ) and "database disk image is malformed" in str(e):
-                # Close session before handling corruption
-                if session:
-                    try:
-                        session.close()
-                    except Exception:
-                        pass  # Ignore close errors
-                raise DatabaseError(
-                    statement="Database integrity check",
-                    params=None,
-                    orig=e,
-                    code="corrupted",
-                )
-            raise
-        finally:
-            if session:
-                try:
-                    session.close()
-                except Exception:
-                    pass  # Ignore close errors
-
-    @asynccontextmanager
-    async def _safe_session_factory_async(self) -> AsyncGenerator[AsyncSession]:
-        """Internal async context manager that provides a session with corruption detection.
-
-        This wrapper will:
-        1. Create a new session
-        2. Detect corruption errors
-        3. Close session properly
-        4. Handle transaction management
-
-        Note: When corruption is detected, the session is closed and a DatabaseError
-        is raised. The application should catch this error, call handle_corruption(),
-        and if successful, retry the operation with a new session.
-
-        Yields:
-            AsyncSession: SQLAlchemy async session
-
-        Raises:
-            sqlalchemy.exc.DatabaseError: If database corruption is detected
-        """
-        session = None
-        try:
-            session = self.async_session_factory()
-            yield session
-            if session.is_active:
-                await session.commit()
-        except Exception as e:
-            if session and session.is_active:
-                try:
-                    await session.rollback()
-                except Exception:
-                    pass  # Ignore rollback errors
-            if isinstance(
-                e, (sqlite3.DatabaseError, DatabaseError)
-            ) and "database disk image is malformed" in str(e):
-                # Close session before handling corruption
-                if session:
-                    try:
-                        await session.close()
-                    except Exception:
-                        pass  # Ignore close errors
-                raise DatabaseError(
-                    statement="Database integrity check",
-                    params=None,
-                    orig=e,
-                    code="corrupted",
-                )
-            raise
-        finally:
-            if session:
-                try:
-                    await session.close()
-                except Exception:
-                    pass  # Ignore close errors
-
-    def _setup_engines_and_sessions(self) -> None:
-        """Set up SQLAlchemy engines and session factories.
-
-        This method configures:
-        1. Sync and async engines with proper connection handling
-        2. Session factories with appropriate settings
-        3. Session context managers with corruption detection
-
-        The setup ensures:
-        - Thread safety for concurrent access
-        - Proper connection cleanup
-        - Memory optimization
-        - Corruption detection and recovery
-        """
-        # Create the sync engine with optimized SQLite settings
-        self.sync_engine = create_engine(
-            f"sqlite:///{self._optimized_connection.local_path}",
-            creator=lambda: self._optimized_connection.conn,
-            future=True,  # Use SQLAlchemy 2.0 style
-        )
-
-        # Create the async engine with optimized SQLite settings
-        self.async_engine = create_async_engine(
-            f"sqlite+aiosqlite:///{self._optimized_connection.local_path}",
-            future=True,
-        )
-
-        # Create session factories with appropriate settings
-        self.sync_session_factory = sessionmaker(
-            bind=self.sync_engine,
-            expire_on_commit=False,
-            autoflush=False,  # Manual control for better performance
-            future=True,  # Use SQLAlchemy 2.0 style
-        )
-        self.async_session_factory = async_sessionmaker(
-            bind=self.async_engine,
-            expire_on_commit=False,
-            autoflush=False,
-            future=True,
-        )
-
-        # Create public session context managers with corruption handling
-        self.sync_session = self._safe_session_factory
-        self.async_session = self._safe_session_factory_async
-
-    def _setup_optimized_connection(self) -> None:
-        self._optimized_connection = OptimizedSQLiteMemory(self.db_file, self.config)
-
-    def _setup_event_listeners(self) -> None:
-        # Add event listeners for sync engine
-        @event.listens_for(self.sync_engine, "connect")
-        def do_connect(dbapi_connection, connection_record):
-            # Connection settings are handled by OptimizedSQLiteMemory
-            pass
-
-        @event.listens_for(self.sync_engine, "begin")
-        def do_begin(conn):
-            # SQLite doesn't support nested transactions
-            # Check if we're already in a transaction
-            result = conn.exec_driver_sql("SELECT * FROM sqlite_master LIMIT 1")
-            if not result:
-                conn.exec_driver_sql("BEGIN")
-
-    @contextmanager
-    def get_sync_session(self) -> Generator[Session]:
-        """Provide a sync session for database interaction.
-
-        This is the recommended way to get a session for synchronous operations.
-        The session will automatically handle commits, rollbacks, and cleanup.
-
-        Example:
-            with db.get_sync_session() as session:
-                result = session.execute(select(Model))
-
-        Yields:
-            Session: SQLAlchemy session with automatic cleanup
-        """
-        with self.sync_session() as session:
-            yield session
-
-    @asynccontextmanager
-    async def get_async_session(self) -> AsyncGenerator[AsyncSession]:
-        """Provide an async session for database interaction.
-
-        This is the recommended way to get a session for asynchronous operations.
-        The session will automatically handle commits, rollbacks, and cleanup.
-
-        Example:
-            async with db.get_async_session() as session:
-                result = await session.execute(select(Model))
-
-        Yields:
-            AsyncSession: SQLAlchemy async session with automatic cleanup
-        """
-        async with self.async_session() as session:
-            yield session
-
-    @contextmanager
-    def session_scope(self) -> Generator[Session]:
-        """Legacy alias for get_sync_session to maintain compatibility.
-
-        This method exists for backward compatibility with older code.
-        New code should use get_sync_session instead.
-
-        Yields:
-            Session: SQLAlchemy session with automatic cleanup
-        """
-        with self.get_sync_session() as session:
-            yield session
+    def dispose_thread_connection(self) -> None:
+        """Dispose of the current thread's database connection."""
+        self._optimized_connection.dispose_thread_connection()
 
     def close(self) -> None:
-        """Close all database connections and cleanup temp files."""
+        """Close all database connections and cleanup temp files.
+
+        Note: For async applications, use close_async() instead to avoid event loop issues.
+        """
         self.sync_engine.dispose()
-        asyncio.run(self.async_engine.dispose())
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.async_engine.dispose())
+        except RuntimeError:
+            # No event loop running, create one
+            asyncio.run(self.async_engine.dispose())
         self._optimized_connection.close()
         # Cleanup is handled by atexit registered in get_local_db_path
 
     async def close_async(self) -> None:
         """Close all database connections asynchronously and cleanup temp files."""
+        self.sync_engine.dispose()
         await self.async_engine.dispose()
         await self._optimized_connection.close_async()
-        # Cleanup is handled by atexit registered in get_local_db_path
 
 
 def require_database_config(func):
+    """Decorator to ensure database configuration is available.
+
+    This decorator checks that the function has access to a database configuration,
+    either through a config parameter or through an object with a _database attribute.
+    """
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         config = kwargs.get("config")

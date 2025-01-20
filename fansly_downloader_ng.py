@@ -182,6 +182,7 @@ def main(config: FanslyConfig) -> int:
         f"\n{' ' * 16} Affected files will automatically be renamed in the background."
     )
     print()
+    from metadata.account import process_account_data
 
     for creator_name in sorted(config.user_names):
         with Timer(creator_name):
@@ -207,7 +208,6 @@ def main(config: FanslyConfig) -> int:
                     run_migrations_if_needed(creator_database, alembic_cfg)
 
                 try:
-                    from metadata.account import process_account_data
 
                     # Load client account into the database
                     creator_dict = (

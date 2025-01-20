@@ -31,6 +31,7 @@ Usage:
 """
 
 from .base import Base  # isort:skip
+from .decorators import with_session  # isort:skip
 from .account import (
     Account,
     AccountMedia,
@@ -96,6 +97,7 @@ __all__ = [
     "Attachment",
     "Base",
     "Database",
+    "Group",
     "Media",
     "Message",
     "Post",
@@ -114,4 +116,5 @@ __all__ = [
     "Story",
     "ContentType",
     "HasAttachments",
+    "with_session",
 ]

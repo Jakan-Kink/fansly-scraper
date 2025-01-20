@@ -7,7 +7,6 @@ media bundles, timeline stats, and story states.
 from __future__ import annotations
 
 import copy
-import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -39,26 +38,6 @@ if TYPE_CHECKING:
     from .post import Post
     from .story import Story
     from .wall import Wall
-
-
-MAX_RETRIES = 3
-RETRY_DELAY = 1  # seconds
-
-
-def retry_on_locked_db(func):
-    """Decorator to retry operations when database is locked."""
-
-    def wrapper(*args, **kwargs):
-        for attempt in range(MAX_RETRIES):
-            try:
-                return func(*args, **kwargs)
-            except exc.OperationalError as e:
-                if "database is locked" in str(e) and attempt < MAX_RETRIES - 1:
-                    time.sleep(RETRY_DELAY * (attempt + 1))
-                    continue
-                raise
-
-    return wrapper
 
 
 def process_media_bundles_data(
@@ -170,18 +149,18 @@ class Account(Base):
     avatar: Mapped[Media | None] = relationship(
         "Media",
         secondary="account_avatar",
-        lazy="select",
+        lazy="selectin",
     )
     banner: Mapped[Media | None] = relationship(
         "Media",
         secondary="account_banner",
-        lazy="select",
+        lazy="selectin",
     )
     profileAccess: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     accountMedia: Mapped[set[AccountMedia]] = relationship(
         "AccountMedia",
         back_populates="account",
-        lazy="select",
+        lazy="selectin",
         collection_class=set,
         cascade="all, delete",  # Use delete to ensure child objects are deleted
         passive_deletes=True,  # Allow database-level cascade
@@ -199,7 +178,7 @@ class Account(Base):
     stories: Mapped[set[Story]] = relationship(
         "Story",
         back_populates="author",
-        lazy="select",
+        lazy="selectin",
         collection_class=set,
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -374,7 +353,7 @@ class AccountMedia(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
-        lazy="select",
+        lazy="selectin",
     )
     previewId: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("media.id"), nullable=True
@@ -385,7 +364,7 @@ class AccountMedia(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
-        lazy="select",
+        lazy="selectin",
     )
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deletedAt: Mapped[datetime | None] = mapped_column(
@@ -443,18 +422,37 @@ class AccountMediaBundle(Base):
         DateTime(timezone=True), nullable=True
     )
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    accountMediaIds: Mapped[set[int]] = relationship(
+    accountMedia: Mapped[set[AccountMedia]] = relationship(
         "AccountMedia",
         secondary=account_media_bundle_media,
         primaryjoin="AccountMediaBundle.id == account_media_bundle_media.c.bundle_id",
         secondaryjoin="AccountMedia.id == account_media_bundle_media.c.media_id",
         collection_class=set,
-        lazy="select",
+        lazy="selectin",  # Use selectin loading for better performance
         order_by=account_media_bundle_media.c.pos,
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
+        overlaps="media,preview",  # Avoid overlapping relationships
     )
+
+    @property
+    def accountMediaIds(self) -> list[int]:
+        """Get the list of media IDs in this bundle, ordered by position.
+
+        Returns:
+            List of media IDs in order
+        """
+        # Get the position-ordered list of media IDs from the join table
+        stmt = (
+            account_media_bundle_media.select()
+            .where(account_media_bundle_media.c.bundle_id == self.id)
+            .order_by(account_media_bundle_media.c.pos)
+        )
+
+        # Return the ordered list of media IDs
+        return [row.media_id for row in stmt.execute()]
+
     access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     purchased: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     whitelisted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -640,7 +638,6 @@ def process_media_bundles(
             new_session.commit()
 
 
-@retry_on_locked_db
 def process_avatar(
     config: FanslyConfig, account: Account, avatar_data: dict, session: Session
 ) -> None:
@@ -667,7 +664,6 @@ def process_avatar(
     session.flush()
 
 
-@retry_on_locked_db
 def process_banner(
     config: FanslyConfig, account: Account, banner_data: dict, session: Session
 ) -> None:
@@ -694,7 +690,6 @@ def process_banner(
     session.flush()
 
 
-@retry_on_locked_db
 def process_account_data(
     config: FanslyConfig,
     data: dict[str, any],
