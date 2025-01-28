@@ -57,7 +57,7 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
             if config and id_part:
                 # Try to get createdAt from database if we have an ID
                 media_id = int(id_match.group(2))  # Extract just the numeric ID
-                with config._database.sync_session() as session:
+                with config._database.session_scope() as session:
                     media = session.execute(
                         select(Media).where(Media.id == media_id)
                     ).scalar_one_or_none()

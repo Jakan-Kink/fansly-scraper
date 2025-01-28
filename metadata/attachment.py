@@ -9,6 +9,7 @@ from sqlalchemy import ForeignKey, Integer, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
+from config.decorators import with_database_session
 from textio import json_output
 
 from .base import Base
@@ -133,29 +134,13 @@ class Attachment(Base):
         ),
     )
 
-    def resolve_content(self, session: Session):
-        """
-        Resolves the content based on contentType and contentId.
+    async def resolve_content(
+        self,
+    ) -> AccountMedia | AccountMediaBundle | Post | Story | None:
+        """Resolve the content based on contentType and contentId.
 
-        :param session: SQLAlchemy session for querying the database
-        :return: The related AccountMedia, AccountMediaBundle, Post, or Story object, or None
-        """
-        if self.contentType == ContentType.ACCOUNT_MEDIA:
-            return self.media
-        elif self.contentType == ContentType.ACCOUNT_MEDIA_BUNDLE:
-            return self.bundle
-        elif self.contentType == ContentType.AGGREGATED_POSTS:
-            return self.aggregated_post
-        elif self.contentType == ContentType.STORY:
-            return self.story
-        return None
-
-    async def async_resolve_content(self, session: AsyncSession):
-        """
-        Async version of resolve_content.
-
-        :param session: AsyncSession for querying the database
-        :return: The related AccountMedia, AccountMediaBundle, Post, or Story object, or None
+        Returns:
+            The related AccountMedia, AccountMediaBundle, Post, or Story object, or None
         """
         # Since we're using viewonly relationships, we can use them directly
         # even in async context as they don't trigger lazy loads
@@ -189,70 +174,11 @@ class Attachment(Base):
         """Return True if the contentType indicates a story."""
         return self.contentType == ContentType.STORY
 
-    def process_story(self, session: Session, story_data: dict) -> Story:
-        """Process a story attachment from API data.
-
-        This method creates or updates a Story object based on the provided API data.
-        It handles all the necessary database operations to ensure the story exists
-        and is up to date.
-
-        Args:
-            session: SQLAlchemy session for database operations
-            story_data: Dictionary containing story data from the API with fields:
-                - id: Story ID
-                - authorId: ID of the account that authored this story
-                - title: Story title (optional)
-                - description: Story description (optional)
-                - content: Main story content
-                - createdAt: Creation timestamp
-                - updatedAt: Last update timestamp (optional)
-
-        Returns:
-            Story: The created or updated Story object
-
-        Note:
-            The story_data dictionary should contain at least id, authorId, content,
-            and createdAt fields. Other fields are optional.
-
-        Raises:
-            ValueError: If this attachment is not a story type
-            KeyError: If required fields are missing from story_data
-        """
-        if not self.is_story:
-            raise ValueError("Cannot process story for non-story attachment")
-
-        # Ensure required fields are present
-        required_fields = {"id", "authorId", "content", "createdAt"}
-        missing_fields = required_fields - story_data.keys()
-        if missing_fields:
-            raise KeyError(f"Missing required fields for story: {missing_fields}")
-
-        # Query for existing story
-        story = session.execute(
-            select(Story).where(Story.id == story_data["id"])
-        ).scalar_one_or_none()
-
-        # Create new story if it doesn't exist
-        if story is None:
-            story = Story(
-                id=story_data["id"],
-                authorId=story_data["authorId"],
-                content=story_data["content"],
-                createdAt=Attachment.convert_timestamps(story_data["createdAt"]),
-            )
-            session.add(story)
-
-        # Update optional fields if they exist in the data
-        for field in ["title", "description", "updatedAt"]:
-            if field in story_data:
-                setattr(story, field, story_data[field])
-
-        return story
-
-    async def async_process_story(
-        self, session: AsyncSession, story_data: dict
+    @with_database_session(async_session=True)
+    async def process_story(
+        self, story_data: dict, session: AsyncSession | None = None
     ) -> Story:
-        """Async version of process_story.
+        """Process a story attachment from API data.
 
         This method creates or updates a Story object based on the provided API data.
         It handles all the necessary database operations to ensure the story exists
@@ -313,19 +239,20 @@ class Attachment(Base):
         return story
 
     @classmethod
-    def process_attachment(
+    @with_database_session(async_session=True)
+    async def process_attachment(
         cls,
-        session: Session,
         attachment_data: dict[str, any],
         parent: T,
         known_relations: set[str],
         parent_field: str,
+        session: AsyncSession | None = None,
         context: str = "attachment",
     ) -> None:
         """Process a single attachment for a parent model.
 
         Args:
-            session: SQLAlchemy session
+            session: SQLAlchemy async session
             attachment_data: Dictionary containing attachment data
             parent: Parent model instance (Message or Post)
             known_relations: Set of known relationship fields
@@ -367,7 +294,7 @@ class Attachment(Base):
         filtered_attachment[parent_field] = parent.id
 
         # Get or create attachment
-        attachment, created = cls.get_or_create(
+        attachment, created = await cls.async_get_or_create(
             session,
             {
                 parent_field: parent.id,
@@ -377,13 +304,14 @@ class Attachment(Base):
 
         # Set position if not provided for new attachments
         if created and "pos" not in filtered_attachment:
-            max_pos = session.execute(
+            result = await session.execute(
                 select(func.count())  # pylint: disable=not-callable
                 .select_from(cls)
                 .where(getattr(cls, parent_field) == parent.id)
-            ).scalar_one()
+            )
+            max_pos = result.scalar_one()
             filtered_attachment["pos"] = max_pos + 1
 
         # Update fields
         Base.update_fields(attachment, filtered_attachment)
-        session.flush()
+        await session.flush()

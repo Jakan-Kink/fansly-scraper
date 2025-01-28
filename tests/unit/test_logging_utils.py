@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from loguru import logger
 
-from logging_utils import get_json_log_path, json_output
+from textio.logging import get_json_log_path, json_output
 
 
 def test_get_json_log_path_default():
@@ -26,7 +26,7 @@ def test_get_json_log_path_custom():
 @pytest.fixture
 def mock_logger():
     """Fixture to mock logger for testing."""
-    with patch("logging_utils.logger") as mock_log:
+    with patch("textio.logging.logger") as mock_log:
         mock_log.level = MagicMock()
         mock_log.remove = MagicMock()
         mock_log.add = MagicMock()
@@ -38,7 +38,7 @@ def mock_logger():
 @pytest.fixture
 def mock_handler():
     """Fixture to mock SizeTimeRotatingHandler."""
-    with patch("logging_utils.SizeTimeRotatingHandler") as mock_handler_cls:
+    with patch("textio.logging.SizeTimeRotatingHandler") as mock_handler_cls:
         mock_handler_instance = MagicMock()
         mock_handler_cls.return_value = mock_handler_instance
         yield mock_handler_cls

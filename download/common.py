@@ -1,5 +1,6 @@
 """Common Download Functions"""
 
+import asyncio
 import traceback
 from typing import Any
 
@@ -93,7 +94,7 @@ def print_download_info(config: FanslyConfig) -> None:
         print()
 
 
-def process_download_accessible_media(
+async def process_download_accessible_media(
     config: FanslyConfig,
     state: DownloadState,
     media_infos: list[dict],
@@ -101,16 +102,14 @@ def process_download_accessible_media(
 ) -> bool:
     """Filters all media found in posts, messages, ... and downloads them.
 
-    :param FanslyConfig config: The downloader configuration.
-    :param DownloadState state: The state and statistics of what is
-        currently being downloaded.
-    :param list[dict] media_infos: A list of media informations from posts,
-        timelines, messages, collections and so on.
-    :param str|None post_id: The post ID required for "Single" download mode.
+    Args:
+        config: The downloader configuration.
+        state: The state and statistics of what is currently being downloaded.
+        media_infos: A list of media informations from posts, timelines, messages, collections and so on.
+        post_id: The post ID required for "Single" download mode.
 
-    :return: "False" as a break indicator for "Timeline" downloads,
-        "True" otherwise.
-    :rtype: bool
+    Returns:
+        False as a break indicator for "Timeline" downloads, True otherwise.
     """
     media_items: list[MediaItem] = []
 
@@ -159,7 +158,7 @@ def process_download_accessible_media(
 
     try:
         # download it
-        download_media(config, state, accessible_media)
+        await download_media(config, state, accessible_media)
 
     except DuplicateCountError:
         print_warning(

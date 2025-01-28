@@ -1,12 +1,18 @@
 """Decorators for metadata operations."""
 
+import asyncio
 import contextlib
 import functools
 import inspect
+import random
+import sqlite3
+import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
+
+from textio import print_error, print_info, print_warning
 
 RT = TypeVar("RT")
 
@@ -68,11 +74,124 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
             # Create new session using self.database
             async with contextlib.AsyncExitStack() as stack:
                 session = await stack.enter_async_context(
-                    self.database.get_async_session()
+                    self.database.async_session_scope()
                 )
                 kwargs[session_name] = session
                 return await func(self, *args, **kwargs)
 
         return wrapper
+
+    return decorator
+
+
+def retry_on_locked_db(
+    retries: int | None = None,
+    delay: float | None = None,
+    max_delay: float | None = None,
+    jitter: bool = True,
+) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
+    """Decorator to retry operations when database is locked.
+
+    Args:
+        retries: Number of retries (default: 3 for normal ops, 10 for sync)
+        delay: Base delay between retries in seconds
+            (default: 0.1 for normal ops, 1.0 for sync)
+        max_delay: Maximum delay between retries in seconds
+            (default: 5.0 for normal ops, 30.0 for sync)
+        jitter: Whether to add random jitter to delay (default: True)
+            Helps prevent thundering herd problems
+
+    The actual delay is calculated as:
+        min(max_delay, base_delay * (2 ** attempt))
+
+    If jitter is True, a random factor between 0.5 and 1.5 is applied.
+    """
+
+    # Default settings depend on operation type
+    def get_settings(func_name: str) -> tuple[int, float, float]:
+        if any(x in func_name for x in ["sync", "cleanup", "close"]):
+            return 10, 1.0, 30.0  # More retries and longer delays for sync operations
+        return 3, 0.1, 5.0  # Normal settings for regular operations
+
+    def calculate_delay(attempt: int, base_delay: float, max_delay: float) -> float:
+        """Calculate delay with exponential backoff and optional jitter."""
+        delay = min(max_delay, base_delay * (2**attempt))
+        if jitter:
+            # Add random jitter between 0.5x and 1.5x
+            delay *= random.uniform(0.5, 1.5)
+        return delay
+
+    def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
+        if asyncio.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> RT:
+                retry_count, retry_delay, max_wait = get_settings(func.__name__)
+                if retries is not None:
+                    retry_count = retries
+                if delay is not None:
+                    retry_delay = delay
+                if max_delay is not None:
+                    max_wait = max_delay
+
+                for attempt in range(retry_count):
+                    try:
+                        return await func(*args, **kwargs)
+                    except (sqlite3.OperationalError, OperationalError) as e:
+                        if "database is locked" not in str(e):
+                            raise
+                        if attempt == retry_count - 1:
+                            print_error(
+                                f"Max retries ({retry_count}) reached for {func.__name__}"
+                            )
+                            raise
+                        base_wait = retry_delay * (2**attempt)
+                        wait_time = calculate_delay(attempt, retry_delay, max_wait)
+                        print_info(
+                            f"Database locked on {func.__name__}, attempt {attempt + 1}/{retry_count}\n"
+                            f"  Base delay: {retry_delay:.3f}s\n"
+                            f"  This attempt: {base_wait:.1f}s\n"
+                            f"  With jitter: {wait_time:.1f}s\n"
+                            f"  Max delay: {max_wait:.1f}s"
+                        )
+                        await asyncio.sleep(wait_time)
+                return None  # type: ignore # Typing hint - never reached
+
+            return async_wrapper
+
+        @functools.wraps(func)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> RT:
+            retry_count, retry_delay, max_wait = get_settings(func.__name__)
+            if retries is not None:
+                retry_count = retries
+            if delay is not None:
+                retry_delay = delay
+            if max_delay is not None:
+                max_wait = max_delay
+
+            for attempt in range(retry_count):
+                try:
+                    return func(*args, **kwargs)
+                except (sqlite3.OperationalError, OperationalError) as e:
+                    if "database is locked" not in str(e):
+                        raise
+                    if attempt == retry_count - 1:
+                        print_error(
+                            f"Max retries ({retry_count}) reached for {func.__name__}"
+                        )
+                        raise
+                    base_wait = retry_delay * (2**attempt)
+                    wait_time = calculate_delay(attempt, retry_delay, max_wait)
+                    print_info(
+                        f"Database locked on {func.__name__}, attempt {attempt + 1}/{retry_count}\n"
+                        f"  Base delay: {retry_delay:.3f}s\n"
+                        f"  This attempt: {base_wait:.1f}s\n"
+                        f"  With jitter: {wait_time:.1f}s\n"
+                        f"  Max delay: {max_wait:.1f}s"
+                    )
+                    time.sleep(wait_time)
+            return None  # type: ignore # Typing hint - never reached
+
+        return sync_wrapper
 
     return decorator

@@ -17,7 +17,9 @@ from .media import download_media_infos
 from .types import DownloadType
 
 
-def download_wall(config: FanslyConfig, state: DownloadState, wall_id: str) -> None:
+async def download_wall(
+    config: FanslyConfig, state: DownloadState, wall_id: str
+) -> None:
     """Download all posts from a specific wall.
 
     Args:
@@ -96,7 +98,9 @@ def download_wall(config: FanslyConfig, state: DownloadState, wall_id: str) -> N
                     config=config, state=state, media_ids=all_media_ids
                 )
 
-                if not process_download_accessible_media(config, state, media_infos):
+                if not await process_download_accessible_media(
+                    config, state, media_infos
+                ):
                     # Break on deduplication error - already downloaded
                     break
 

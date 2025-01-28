@@ -26,21 +26,31 @@ from sqlalchemy.orm import Session
 
 from metadata import Account, AccountMedia, Base, Media, Message, Post
 from metadata.database import Database
+from textio import print_error, print_info, print_warning
 
 
 @pytest.fixture(autouse=True)
 async def setup_database(database: Database):
     """Create database tables before each test."""
-    async with database.get_async_session() as session:
-        # Create all tables
-        async with session.begin():
-            await session.run_sync(Base.metadata.create_all, session.get_bind())
-    yield
-    # Clean up after each test
-    async with database.get_async_session() as session:
-        # Drop all tables
-        async with session.begin():
-            await session.run_sync(Base.metadata.drop_all, session.get_bind())
+    try:
+        async with database.get_async_session() as session:
+            # Create all tables
+            async with session.begin():
+                await session.run_sync(Base.metadata.create_all, session.get_bind())
+        yield
+    finally:
+        # Clean up after each test
+        try:
+            async with database.get_async_session() as session:
+                # Drop all tables
+                async with session.begin():
+                    await session.run_sync(Base.metadata.drop_all, session.get_bind())
+        except Exception as e:
+            print_error(f"Error during cleanup: {e}")
+            raise
+        finally:
+            # Ensure all connections are closed
+            await database.close_async()
 
 
 @pytest.mark.asyncio
@@ -280,41 +290,57 @@ async def test_concurrent_access(database: Database, test_account: Account):
     async def add_messages(account_id: int, start_id: int) -> list[int]:
         """Add messages in separate task."""
         message_ids = []
-        async with database.get_async_session() as session:
-            # Disable foreign key checks
-            await session.execute(text("PRAGMA foreign_keys = OFF"))
-            for i in range(num_messages):
-                msg = Message(
-                    id=start_id + i,
-                    senderId=account_id,
-                    content=f"Message {i} from task {id(asyncio.current_task())}",
-                    createdAt=datetime.now(timezone.utc),
-                )
-                session.add(msg)
-                message_ids.append(msg.id)
-            await session.commit()
-        return message_ids
+        try:
+            async with database.get_async_session() as session:
+                # Disable foreign key checks
+                await session.execute(text("PRAGMA foreign_keys = OFF"))
+                for i in range(num_messages):
+                    msg = Message(
+                        id=start_id + i,
+                        senderId=account_id,
+                        content=f"Message {i} from task {id(asyncio.current_task())}",
+                        createdAt=datetime.now(timezone.utc),
+                    )
+                    session.add(msg)
+                    message_ids.append(msg.id)
+                await session.commit()
+            return message_ids
+        except Exception as e:
+            print_error(f"Error in add_messages task: {e}")
+            raise
 
     # Create messages concurrently
     tasks = []
-    for i in range(num_tasks):
-        task = asyncio.create_task(add_messages(test_account.id, i * num_messages + 1))
-        tasks.append(task)
+    try:
+        for i in range(num_tasks):
+            task = asyncio.create_task(
+                add_messages(test_account.id, i * num_messages + 1)
+            )
+            tasks.append(task)
 
-    # Wait for all tasks and collect results
-    message_ids = []
-    for task in tasks:
-        message_ids.extend(await task)
+        # Wait for all tasks and collect results
+        message_ids = []
+        for task in tasks:
+            message_ids.extend(await task)
 
-    # Verify results
-    async with database.get_async_session() as session:
-        result = await session.execute(
-            select(Message).filter(Message.id.in_(message_ids)).order_by(Message.id)
-        )
-        messages = result.scalars().all()
+        # Verify results
+        async with database.get_async_session() as session:
+            result = await session.execute(
+                select(Message).filter(Message.id.in_(message_ids)).order_by(Message.id)
+            )
+            messages = result.scalars().all()
 
-        assert len(messages) == num_tasks * num_messages
-        assert all(msg.senderId == test_account.id for msg in messages)
+            assert len(messages) == num_tasks * num_messages
+            assert all(msg.senderId == test_account.id for msg in messages)
+    finally:
+        # Cancel any remaining tasks
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
 
 @pytest.mark.asyncio
@@ -363,7 +389,7 @@ async def test_bulk_operations(database: Database):
 
         try:
             # Start a nested transaction
-            async with session.begin_nested():
+            async with session.begin():
                 # Create multiple records
                 for i in range(10):
                     account = Account(
@@ -397,8 +423,9 @@ async def test_write_through_cache_integration(
         await session.commit()
 
     # Create a second database connection
-    db2 = Database(test_config)
+    db2: Database | None = None
     try:
+        db2 = Database(test_config)
         # Verify data is immediately visible
         async with db2.get_async_session() as session:
             result = await session.execute(select(Account))
@@ -416,7 +443,16 @@ async def test_write_through_cache_integration(
             assert saved_media is not None
             assert saved_media.accountId == 1
     finally:
-        await db2.close_async()
+        if db2 is not None:
+            try:
+                async with asyncio.timeout(5):
+                    await db2.close_async()
+            except TimeoutError:
+                print_error("Timeout while closing second database")
+                raise
+            except Exception as e:
+                print_error(f"Error closing second database: {e}")
+                raise
 
     # Verify new data is visible in original connection
     async with database.get_async_session() as session:
@@ -427,31 +463,68 @@ async def test_write_through_cache_integration(
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)  # Add timeout to prevent hanging
 async def test_database_cleanup_integration(
     database: Database, session: Session, test_account: Account
 ):
     """Test database cleanup in integration scenario."""
+    print_info("Starting database cleanup integration test")
+
     # Create some data with a unique username
     unique_username = f"cleanup_test_{test_account.username}"
-    with database.get_sync_session() as test_session:
+    print_info("Creating test account")
+
+    # Use async session for consistency
+    async with database.get_async_session() as test_session:
         account = Account(id=1, username=unique_username)
         test_session.add(account)
-        test_session.commit()
+        await test_session.commit()
+        print_info("Test account created successfully")
 
-    # Close the database and ensure proper cleanup
-    await database.close_async()
-
-    # Verify we can't use the database after closing
-    with pytest.raises((Exception, sqlite3.OperationalError)):
-        with database.get_sync_session() as test_session:
-            test_session.query(Account).first()
-
-    # Create a new connection to verify data persists
-    db2: Database = Database(database.config)
+    print_info("Closing database")
+    # Close the database with timeout
     try:
-        with db2.get_sync_session() as test_session:
-            saved_account = test_session.query(Account).first()
+        async with asyncio.timeout(5):
+            await database.close_async()
+            print_info("Database closed successfully")
+    except TimeoutError:
+        print_error("Timeout while closing database")
+        raise
+    except Exception as e:
+        print_error(f"Error closing database: {e}")
+        raise
+
+    print_info("Verifying database is closed")
+    # Verify database is properly closed
+    assert not hasattr(database, "async_engine"), "Async engine should be disposed"
+    assert not hasattr(database, "sync_engine"), "Sync engine should be disposed"
+    print_info("Database verified as closed")
+
+    print_info("Creating new database connection")
+    # Create a new connection to verify data persists
+    db2: Database | None = None
+    try:
+        db2 = Database(database.config)
+        print_info("Verifying data persistence")
+        # Use async session for consistency
+        async with db2.get_async_session() as test_session:
+            result = await test_session.execute(
+                select(Account).filter_by(username=unique_username)
+            )
+            saved_account = result.scalar_one()
             assert saved_account.username == unique_username
+            print_info("Data persistence verified")
     finally:
-        # Ensure proper cleanup of second connection
-        await db2.close_async()
+        print_info("Cleaning up second database connection")
+        # Close second database with timeout
+        if db2 is not None:
+            try:
+                async with asyncio.timeout(5):
+                    await db2.close_async()
+                    print_info("Second database closed successfully")
+            except TimeoutError:
+                print_error("Timeout while closing second database")
+                raise
+            except Exception as e:
+                print_error(f"Error closing second database: {e}")
+                raise

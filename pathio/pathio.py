@@ -62,14 +62,8 @@ def set_create_directory_for_download(config: PathConfig, state: DownloadState) 
 
     else:
 
-        suffix = ""
-
-        if config.use_folder_suffix:
-            suffix = "_fansly"
-
-        user_base_path = config.download_directory / f"{state.creator_name}{suffix}"
-
-        user_base_path.mkdir(exist_ok=True)
+        # Get base path with case-insensitive matching
+        user_base_path = get_creator_base_path(config, state.creator_name)
 
         # Default directory if download types don't match in check below
         download_directory = user_base_path
@@ -102,6 +96,9 @@ def set_create_directory_for_download(config: PathConfig, state: DownloadState) 
 def get_creator_base_path(config: PathConfig, creator_name: str) -> Path:
     """Get the base path for a creator's content.
 
+    This function checks for existing case-insensitive matches to avoid
+    creating duplicate directories on case-sensitive filesystems.
+
     Args:
         config: The program configuration
         creator_name: Name of the creator
@@ -110,7 +107,17 @@ def get_creator_base_path(config: PathConfig, creator_name: str) -> Path:
         Base directory path for the creator's content
     """
     suffix = "_fansly" if config.use_folder_suffix else ""
-    return config.download_directory / f"{creator_name}{suffix}"
+    target_name = f"{creator_name}{suffix}"
+    target_path = config.download_directory / target_name
+
+    # Check for existing case-insensitive match
+    if not target_path.exists():
+        lower_target = target_name.lower()
+        for entry in config.download_directory.iterdir():
+            if entry.is_dir() and entry.name.lower() == lower_target:
+                return entry
+
+    return target_path
 
 
 def get_creator_metadata_path(config: PathConfig, creator_name: str) -> Path:

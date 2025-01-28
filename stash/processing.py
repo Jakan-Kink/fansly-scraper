@@ -12,6 +12,7 @@ from pathlib import Path
 from pprint import pformat
 from typing import Any, Protocol, runtime_checkable
 
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.session import Session
 from sqlalchemy.sql.expression import func, select, text
 
@@ -703,7 +704,13 @@ class StashProcessing:
             items = await session.execute(get_items_stmt)
             items = items.scalars().all()
 
+            # Merge items into current session
+            merged_items = []
             for item in items:
+                merged_item = await session.merge(item)
+                merged_items.append(merged_item)
+
+            for item in merged_items:
                 # Process the item directly
                 items_to_process = [item]
 
@@ -1222,8 +1229,12 @@ class StashProcessing:
                 f.galleries.append(gallery)
                 f.save(self.stash_interface)
 
-        item.stash_id = gallery.id
-        session.add(item)
+        # Merge item into current session if it's attached to a different one
+        if item in session:
+            item.stash_id = gallery.id
+        else:
+            merged_item = await session.merge(item)
+            merged_item.stash_id = gallery.id
         await session.commit()
 
     def _generate_title_from_content(
@@ -1430,7 +1441,12 @@ class StashProcessing:
         """
         # Find attachment that contains this media
         attachment = await session.execute(
-            select(Attachment).where(
+            select(Attachment)
+            .options(
+                selectinload(Attachment.post),
+                selectinload(Attachment.message),
+            )
+            .where(
                 (Attachment.contentType == ContentType.ACCOUNT_MEDIA)
                 & (Attachment.contentId == media_obj.id)
             )
@@ -1532,6 +1548,14 @@ class StashProcessing:
                         )
                         if results:
                             return (results[0], Image.from_dict(results[0]))
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_file_by_path",
+                                "status": "no_image_found",
+                                "path": path,
+                                "filter": path_filter,
+                            }
+                        )
                     case str() as mime if mime.startswith("video"):
                         results = self.stash_interface.find_scenes(
                             scene_filter=path_filter,
@@ -1539,6 +1563,14 @@ class StashProcessing:
                         )
                         if results:
                             return (results[0], Scene.from_dict(results[0]))
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_file_by_path",
+                                "status": "no_video_found",
+                                "path": path,
+                                "filter": path_filter,
+                            }
+                        )
                     case str() as mime if mime.startswith("application"):
                         results = self.stash_interface.find_scenes(
                             scene_filter=path_filter,
@@ -1546,6 +1578,14 @@ class StashProcessing:
                         )
                         if results:
                             return (results[0], Scene.from_dict(results[0]))
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_file_by_path",
+                                "status": "no_application_found",
+                                "path": path,
+                                "filter": path_filter,
+                            }
+                        )
                     case _:
                         raise ValueError(f"Invalid media type: {mime_type}")
             except Exception as e:
@@ -1712,10 +1752,6 @@ class StashProcessing:
     def __del__(self):
         """Ensure cleanup runs."""
         if self._cleanup_event and not self._cleanup_event.is_set():
-            # Create a new event loop if necessary
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.cleanup())
+            from .processing_fix import run_coroutine_threadsafe
+
+            run_coroutine_threadsafe(self.cleanup())

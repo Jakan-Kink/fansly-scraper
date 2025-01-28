@@ -15,7 +15,7 @@ from .media import download_media_infos
 from .types import DownloadType
 
 
-def download_messages(config: FanslyConfig, state: DownloadState):
+async def download_messages(config: FanslyConfig, state: DownloadState):
     # This is important for directory creation later on.
     state.download_type = DownloadType.MESSAGES
 
@@ -67,7 +67,7 @@ def download_messages(config: FanslyConfig, state: DownloadState):
                     all_media_ids = get_unique_media_ids(messages)
                     media_infos = download_media_infos(config, state, all_media_ids)
 
-                    process_download_accessible_media(config, state, media_infos)
+                    await process_download_accessible_media(config, state, media_infos)
 
                     # Print info on skipped downloads if `show_skipped_downloads` is enabled
                     skipped_downloads = state.duplicate_count - starting_duplicates

@@ -37,7 +37,7 @@ class TestMediaProcessing(TestCase):
         self.config.metadata_db_file = ":memory:"
         self.config._database = Database(self.config)
         self.config._database.sync_engine = self.engine
-        self.config._database.sync_session = self.Session
+        self.config._database.session_scope = self.Session
 
         # Create tables
         Base.metadata.create_all(self.engine)
@@ -77,7 +77,7 @@ class TestMediaProcessing(TestCase):
             process_media_info(self.config, media_data)
 
             # Verify the results
-            with self.config._database.sync_session() as session:
+            with self.config._database.session_scope() as session:
                 # Test 1: Basic media record creation
                 media = session.query(Media).filter_by(id=media_data["mediaId"]).first()
                 self.assertIsNotNone(media, f"Media {media_data['mediaId']} not found")
@@ -141,7 +141,7 @@ class TestMediaProcessing(TestCase):
 
         finally:
             # Cleanup
-            with self.config._database.sync_session() as session:
+            with self.config._database.session_scope() as session:
                 session.query(Media).delete()
                 session.commit()
 
@@ -168,7 +168,7 @@ class TestMediaProcessing(TestCase):
         process_media_bundles(self.config, 1, [bundle_data])
 
         # Verify the results
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             bundle = (
                 session.query(AccountMediaBundle)
                 .filter_by(id=bundle_data["id"])

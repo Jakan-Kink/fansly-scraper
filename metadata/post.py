@@ -12,11 +12,14 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    and_,
     select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
+from config.decorators import with_database_session
 from textio import json_output
 
 from .account import process_media_bundles_data
@@ -100,15 +103,27 @@ post_mentions = Table(
 )
 
 
-def process_posts_metadata(metadata: dict[str, any]) -> None:
-    """Process posts metadata."""
+async def process_posts_metadata(
+    config: FanslyConfig,
+    metadata: dict[str, any],
+) -> None:
+    """Process posts metadata.
+
+    Args:
+        config: FanslyConfig instance
+        metadata: Dictionary containing posts metadata
+    """
     json_output(1, "meta/post - p_p_metadata - metadata", metadata)
-    pass
+    # TODO: Implement posts metadata processing
 
 
 @require_database_config
-def process_pinned_posts(
-    config: FanslyConfig, account: Account, posts: list[dict[str, any]], session=None
+@with_database_session(async_session=True)
+async def process_pinned_posts(
+    config: FanslyConfig,
+    account: Account,
+    posts: list[dict[str, any]],
+    session: AsyncSession | None = None,
 ) -> None:
     """Process pinned posts.
 
@@ -116,68 +131,59 @@ def process_pinned_posts(
         config: FanslyConfig instance
         account: Account instance
         posts: List of post data dictionaries
-        session: Optional SQLAlchemy session. If not provided, a new session will be created.
+        session: Optional AsyncSession for database operations
     """
     posts = copy.deepcopy(posts)
     json_output(1, "meta/post - p_p_p - posts", posts)
 
-    def _process_posts(session):
-        for post in posts:
-            # Check if the post exists in the database
-            post_exists = (
-                session.execute(
-                    select(Post).where(Post.id == post["postId"])
-                ).scalar_one_or_none()
-                is not None
+    for post in posts:
+        # Check if the post exists in the database
+        result = await session.execute(select(Post).where(Post.id == post["postId"]))
+        post_exists = result.scalar_one_or_none() is not None
+        if not post_exists:
+            json_output(
+                1,
+                "meta/post - p_p_p - skipping_missing_post",
+                {
+                    "postId": post["postId"],
+                    "accountId": account.id,
+                    "reason": "Post does not exist in database",
+                },
             )
-            if not post_exists:
-                json_output(
-                    1,
-                    "meta/post - p_p_p - skipping_missing_post",
-                    {
-                        "postId": post["postId"],
-                        "accountId": account.id,
-                        "reason": "Post does not exist in database",
-                    },
-                )
-                continue
+            continue
 
-            # Convert timestamp once to avoid repeated conversions
-            created_at = datetime.fromtimestamp(
-                (post["createdAt"] / 1000), timezone.utc
-            )
+        # Convert timestamp once to avoid repeated conversions
+        created_at = datetime.fromtimestamp((post["createdAt"] / 1000), timezone.utc)
 
-            insert_stmt = sqlite_insert(pinned_posts).values(
-                postId=post["postId"],
-                accountId=account.id,
+        insert_stmt = sqlite_insert(pinned_posts).values(
+            postId=post["postId"],
+            accountId=account.id,
+            pos=post["pos"],
+            createdAt=created_at,
+        )
+        update_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["postId", "accountId"],
+            set_=dict(
                 pos=post["pos"],
                 createdAt=created_at,
-            )
-            update_stmt = insert_stmt.on_conflict_do_update(
-                index_elements=["postId", "accountId"],
-                set_=dict(
-                    pos=post["pos"],
-                    createdAt=created_at,
-                ),
-            )
-            session.execute(update_stmt)
-            session.flush()
-
-    if session is not None:
-        # Use existing session
-        _process_posts(session)
-    else:
-        # Create new session if none provided
-        with config._database.sync_session() as new_session:
-            _process_posts(new_session)
-            new_session.commit()
+            ),
+        )
+        await session.execute(update_stmt)
+        await session.flush()
 
 
-@require_database_config
-def process_timeline_posts(
-    config: FanslyConfig, state: DownloadState, posts: list[dict[str, any]]
+async def process_timeline_posts(
+    config: FanslyConfig,
+    state: DownloadState,
+    posts: list[dict[str, any]],
 ) -> None:
-    """Process timeline posts."""
+    """Process timeline posts.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        posts: List of post data dictionaries
+    """
     from .account import process_account_data
     from .media import process_media_info
 
@@ -188,38 +194,36 @@ def process_timeline_posts(
     # Process main timeline posts
     tl_posts = posts["posts"]
     for post in tl_posts:
-        _process_timeline_post(config, post)
+        await _process_timeline_post(config, post)
 
     # Process aggregated posts if present
     if "aggregatedPosts" in posts:
         for post in posts["aggregatedPosts"]:
-            _process_timeline_post(config, post)
+            await _process_timeline_post(config, post)
 
     # Process media
     accountMedia = posts["accountMedia"]
     for media in accountMedia:
-        process_media_info(config, media)
+        await process_media_info(config, media)
 
     # Process media bundles if present
-    with config._database.sync_session() as session:
-        process_media_bundles_data(session, posts, config, ["accountId"])
-        session.commit()
+    await process_media_bundles_data(config, posts, id_fields=["accountId"])
 
     # Process accounts
     accounts = posts["accounts"]
     for account in accounts:
-        process_account_data(config, data=account)
+        await process_account_data(config, data=account)
 
 
-def _process_post_mentions(
-    session: Session,
+async def _process_post_mentions(
+    session: AsyncSession,
     post_obj: Post,
     mentions: list[dict[str, any]],
 ) -> None:
-    """Process account mentions for a post.
+    """Process mentions for a post.
 
     Args:
-        session: SQLAlchemy session
+        session: SQLAlchemy async session
         post_obj: Post instance
         mentions: List of mention data dictionaries
     """
@@ -272,11 +276,11 @@ def _process_post_mentions(
                 else None
             ),
         )
-        session.execute(update_stmt)
+        await session.execute(update_stmt)
 
 
-def _process_post_attachments(
-    session: Session,
+async def _process_post_attachments(
+    session: AsyncSession,
     post_obj: Post,
     attachments: list[dict[str, any]],
     config: FanslyConfig,
@@ -284,7 +288,7 @@ def _process_post_attachments(
     """Process attachments for a post.
 
     Args:
-        session: SQLAlchemy session
+        session: SQLAlchemy async session
         post_obj: Post instance
         attachments: List of attachment data dictionaries
         config: FanslyConfig instance
@@ -308,19 +312,30 @@ def _process_post_attachments(
         if attachment_data.get("contentType") == 7100:
             continue
 
-        Attachment.process_attachment(
-            session,
+        await Attachment.process_attachment(
             attachment_data,
             post_obj,
             attachment_known_relations,
             "postId",
-            "post",
+            session=session,
+            context="post",
         )
 
 
 @require_database_config
-def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
-    """Process a single timeline post."""
+@with_database_session(async_session=True)
+async def _process_timeline_post(
+    config: FanslyConfig,
+    post: dict[str, any],
+    session: AsyncSession | None = None,
+) -> None:
+    """Process a single timeline post.
+
+    Args:
+        config: FanslyConfig instance
+        post: Post data dictionary
+        session: Optional AsyncSession for database operations
+    """
     # Known attributes that are handled separately
     known_relations = {
         # Handled relationships
@@ -349,7 +364,7 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
     )
     json_output(1, "meta/post - _p_t_p - filtered", filtered_post)
 
-    with config._database.sync_session() as session:
+    async with session.begin():
         # Ensure required fields are present before proceeding
         if "accountId" not in filtered_post:
             json_output(
@@ -360,7 +375,7 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
             return  # Skip this post if accountId is missing
 
         # Get or create post
-        post_obj, created = Post.get_or_create(
+        post_obj, created = await Post.async_get_or_create(
             session,
             {"id": filtered_post["id"]},
             filtered_post,
@@ -368,19 +383,21 @@ def _process_timeline_post(config: FanslyConfig, post: dict[str, any]) -> None:
 
         # Update fields
         Base.update_fields(post_obj, filtered_post)
-        session.flush()
+        await session.flush()
 
         # Process account mentions if present
         if "accountMentions" in post:
-            _process_post_mentions(session, post_obj, post["accountMentions"])
+            await _process_post_mentions(session, post_obj, post["accountMentions"])
 
         # Process hashtags from content
         if post_obj.content:
-            process_post_hashtags(session, post_obj, post_obj.content)
-            session.flush()
+            await process_post_hashtags(
+                config, post_obj, post_obj.content, session=session
+            )
+            await session.flush()
 
         # Process attachments if present
         if "attachments" in post:
-            _process_post_attachments(session, post_obj, post["attachments"], config)
-
-        session.commit()
+            await _process_post_attachments(
+                session, post_obj, post["attachments"], config
+            )

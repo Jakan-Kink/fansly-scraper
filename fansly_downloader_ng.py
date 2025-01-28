@@ -12,11 +12,16 @@ __version__ = "0.10.0"
 import asyncio
 import atexit
 import base64
+import random
+import signal
+import sys
 import traceback
 
 # from memory_profiler import profile
 from datetime import datetime
 from time import sleep
+
+from sqlalchemy.sql import text
 
 from alembic.config import Config as AlembicConfig
 from config import FanslyConfig, load_config, validate_adjust_config
@@ -31,6 +36,7 @@ from download.core import (
     download_timeline,
     download_wall,
     get_creator_account_info,
+    get_following_accounts,
     print_download_info,
 )
 from download.statistics import (
@@ -55,7 +61,7 @@ from errors import (
 from fileio.dedupe import dedupe_init
 from helpers.common import open_location
 from helpers.timer import Timer
-from logging_utils import json_output
+from metadata.account import process_account_data
 from pathio import delete_temporary_pyinstaller_files
 from textio import (
     input_enter_close,
@@ -65,6 +71,7 @@ from textio import (
     print_warning,
     set_window_title,
 )
+from textio.logging import json_output
 from updater import self_update
 
 # tell PIL to be tolerant of files that are truncated
@@ -74,7 +81,7 @@ from updater import self_update
 # Image.MAX_IMAGE_PIXELS = None
 
 
-def cleanup_database(config: FanslyConfig) -> None:
+async def cleanup_database(config: FanslyConfig) -> None:
     """Clean up database connections when the program exits.
 
     Args:
@@ -82,7 +89,22 @@ def cleanup_database(config: FanslyConfig) -> None:
     """
     if hasattr(config, "_database") and config._database is not None:
         try:
-            config._database.close()
+            await config._database.cleanup()
+            print_info("Database connections closed successfully.")
+        except Exception as e:
+            print_error(f"Error closing database connections: {e}")
+
+
+def cleanup_database_sync(config: FanslyConfig) -> None:
+    """Synchronous version of cleanup_database for atexit handler.
+
+    Args:
+        config: The program configuration that may contain a database instance.
+    """
+    if hasattr(config, "_database") and config._database is not None:
+        try:
+            # Use sync close for atexit
+            config._database.close_sync()
             print_info("Database connections closed successfully.")
         except Exception as e:
             print_error(f"Error closing database connections: {e}")
@@ -99,8 +121,14 @@ def print_logo() -> None:
     print(f"{(100 - len(__version__) - 1) // 2 * ' '}v{__version__}\n")
 
 
+def _handle_interrupt(signum, frame):
+    """Handle interrupt signal (Ctrl+C)."""
+    print_error("\nInterrupted by user")
+    sys.exit(130)  # 128 + SIGINT(2)
+
+
 # @profile(precision=2, stream=open('memory_use.log', 'w', encoding='utf-8'))
-def main(config: FanslyConfig) -> int:
+async def main(config: FanslyConfig) -> int:
     """The main logic of the downloader program.
 
     :param config: The program configuration.
@@ -142,48 +170,72 @@ def main(config: FanslyConfig) -> int:
     print()
 
     # Initialize database first since we need it for deduplication
-    from metadata.database import (
-        Database,
-        get_creator_database_path,
-        run_migrations_if_needed,
-    )
+    from metadata.database import Database, get_creator_database_path
 
-    alembic_cfg = AlembicConfig("alembic.ini")
-
+    # Initialize database first
     if config.separate_metadata:
         print_info("Using separate metadata databases per creator")
     else:
         print_info(f"Using global metadata database: {config.metadata_db_file}")
         config._database = Database(config)
         # Register cleanup function to ensure database is closed on exit
-        atexit.register(cleanup_database, config)
-        run_migrations_if_needed(config._database, alembic_cfg)
+        atexit.register(cleanup_database_sync, config)
     print()
 
-    # Print API information
+    # Set up and print API information
+    await config.setup_api()
+    api = config.get_api()
+
     print_info(f"Token: {config.token}")
     print_info(f"Check Key: {config.check_key}")
     print_info(
-        f"Device ID: {config.get_api().device_id} "
-        f"({datetime.fromtimestamp(config.get_api().device_id_timestamp / 1000)})"
+        f"Device ID: {api.device_id} "
+        f"({datetime.fromtimestamp(api.device_id_timestamp / 1000)})"
     )
-    print_info(f"Session ID: {config.get_api().session_id}")
-    client_user_name = config.get_api().get_client_user_name()
+    print_info(f"Session ID: {api.session_id}")
+    client_user_name = api.get_client_user_name()
     print_info(f"User ID: {client_user_name}")
 
     global_download_state = GlobalState()
 
-    # M3U8 fixing interim
     print()
-    print_info(
-        "Due to important memory usage and video format bugfixes, "
-        "existing media items "
-        f"\n{' ' * 16} need to be re-hashed (`_hash_`/`_hash1_` to `_hash2_`)."
-        f"\n{' ' * 16} Affected files will automatically be renamed in the background."
-    )
-    print()
-    from metadata.account import process_account_data
 
+    # If no usernames specified or --use-following flag is set, get client account info and following list
+    if not config.user_names or config.use_following:
+        with Timer("following_list"):
+            try:
+                # Get client account info first
+                state = DownloadState()
+
+                # Skip account data processing if using separate metadata
+                if not config.separate_metadata:
+                    await get_creator_account_info(config, state)
+                    print_info("Creator account info retrieved...")
+                await asyncio.sleep(random.uniform(0.4, 0.75))
+
+                print_info("Getting following list... (from main)")
+                # Then get and process following list
+                try:
+                    async with config._database.async_session_scope() as session:
+                        usernames = await get_following_accounts(
+                            config, state, session=session
+                        )
+                except Exception as e:
+                    print_error(f"Error in session scope: {e}")
+                    raise
+                await asyncio.sleep(random.uniform(0.4, 0.75))
+
+                if usernames:
+                    print_info(f"Following list: {', '.join(usernames)}")
+                    config.user_names = usernames
+                else:
+                    print_error("No usernames found in following list")
+                    return 1
+            except Exception as e:
+                print_error(f"Failed to process following list: {e}")
+                return 1
+
+    # Process each creator
     for creator_name in sorted(config.user_names):
         with Timer(creator_name):
             try:
@@ -205,11 +257,12 @@ def main(config: FanslyConfig) -> int:
                     config.metadata_db_file = db_path
                     creator_database = Database(config)
                     config._database = creator_database
-                    run_migrations_if_needed(creator_database, alembic_cfg)
 
                 try:
 
                     # Load client account into the database
+                    await asyncio.sleep(random.uniform(0.4, 0.75))
+
                     creator_dict = (
                         config.get_api()
                         .get_creator_account_info(creator_name=client_user_name)
@@ -222,7 +275,7 @@ def main(config: FanslyConfig) -> int:
                         (creator_dict),
                     )
 
-                    process_account_data(
+                    await process_account_data(
                         config=config,
                         state=state,
                         data=creator_dict,
@@ -230,7 +283,7 @@ def main(config: FanslyConfig) -> int:
 
                     print_download_info(config)
 
-                    get_creator_account_info(config, state)
+                    await get_creator_account_info(config, state)
 
                     print_info(f"Download mode is: {config.download_mode_str()}")
                     print()
@@ -240,8 +293,8 @@ def main(config: FanslyConfig) -> int:
                         DownloadMode.SINGLE,
                         DownloadMode.STASH_ONLY,
                     ):
-                        dedupe_init(config, state)
-                        dedupe_init(config, state)
+                        await dedupe_init(config, state)
+                        await dedupe_init(config, state)
 
                     # Download mode:
                     # Normal: Downloads Timeline + Messages one after another.
@@ -265,7 +318,7 @@ def main(config: FanslyConfig) -> int:
                                 config.download_mode == DownloadMode.NORMAL,
                             ]
                         ):
-                            download_messages(config, state)
+                            await download_messages(config, state)
 
                         if any(
                             [
@@ -273,7 +326,7 @@ def main(config: FanslyConfig) -> int:
                                 config.download_mode == DownloadMode.NORMAL,
                             ]
                         ):
-                            download_timeline(config, state)
+                            await download_timeline(config, state)
 
                         if any(
                             [
@@ -282,7 +335,7 @@ def main(config: FanslyConfig) -> int:
                             ]
                         ):
                             for wall_id in state.walls:
-                                download_wall(config, state, wall_id)
+                                await download_wall(config, state, wall_id)
 
                     update_global_statistics(
                         global_download_state, download_state=state
@@ -303,26 +356,17 @@ def main(config: FanslyConfig) -> int:
                         # Create processor using factory method
                         stash_processor = StashProcessing.from_config(config, state)
 
-                        # Get or create event loop
-                        try:
-                            loop = asyncio.get_event_loop()
-                        except RuntimeError:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-
                         # Run initial processing and let background tasks continue
-                        loop.run_until_complete(
-                            stash_processor.start_creator_processing()
-                        )
+                        await stash_processor.start_creator_processing()
                         # Insert a 10 second sleep that won't block asyncio tasks
-                        loop.run_until_complete(asyncio.sleep(10))
+                        await asyncio.sleep(10)
                     else:
                         sleep(10)
 
                 finally:
                     # Clean up creator database if used
                     if config.separate_metadata and creator_database:
-                        creator_database.close()
+                        await creator_database.cleanup()
                         # Restore original config values if they were changed
                         if orig_db_file is not None:
                             config.metadata_db_file = orig_db_file
@@ -360,12 +404,19 @@ def main(config: FanslyConfig) -> int:
     return exit_code
 
 
-if __name__ == "__main__":
-    config = FanslyConfig(program_version=__version__)
+async def _async_main(config: FanslyConfig) -> int:
+    """Async wrapper for main function that handles cleanup.
+
+    Args:
+        config: The program configuration
+
+    Returns:
+        Exit code indicating success/failure
+    """
     exit_code = EXIT_SUCCESS
 
     try:
-        exit_code = main(config)
+        exit_code = await main(config)
 
     except KeyboardInterrupt:
         print()
@@ -390,6 +441,7 @@ if __name__ == "__main__":
         print()
         print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
+
     finally:
         try:
             # Try to gracefully complete or cancel background tasks
@@ -398,33 +450,59 @@ if __name__ == "__main__":
                     "Program stopping. Attempting to complete background tasks..."
                 )
                 try:
-                    loop = asyncio.get_event_loop()
                     # Give tasks a chance to complete with a timeout
-                    loop.run_until_complete(
-                        asyncio.wait_for(
-                            asyncio.gather(
-                                *config.get_background_tasks(), return_exceptions=True
-                            ),
-                            timeout=60.0,
-                        )
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            *config.get_background_tasks(), return_exceptions=True
+                        ),
+                        timeout=60.0,
                     )
                 except (TimeoutError, Exception) as e:
                     print_warning(f"Could not complete background tasks: {e}")
                     config.cancel_background_tasks()
 
             # Ensure database is closed before final input prompt
-            cleanup_database(config)
+            print_info("Starting final cleanup...")
+            await cleanup_database(config)
+            print_info("Final cleanup complete")
 
-            # Clean up the event loop
-            try:
-                loop = asyncio.get_event_loop()
-                if not loop.is_closed():
-                    loop.stop()
-                    loop.close()
-            except Exception:
-                pass
         except Exception as e:
             print_error(f"Error during cleanup: {e}")
 
+    return exit_code
+
+
+if __name__ == "__main__":
+    # Create config at top level so it's available for cleanup
+    config = FanslyConfig(program_version=__version__)
+
+    # Set up signal handling
+    signal.signal(signal.SIGINT, _handle_interrupt)
+
+    try:
+        # Get event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Run async main
+        exit_code = loop.run_until_complete(_async_main(config))
+
+        # Final cleanup
         input_enter_close(config.prompt_on_exit)
-        exit(exit_code)
+
+        # Exit with code
+        sys.exit(exit_code)
+
+    except Exception as e:
+        print_error(f"An unexpected error occurred: {e}")
+        print_error(traceback.format_exc())
+        sys.exit(UNEXPECTED_ERROR)
+
+    finally:
+        # Clean up event loop
+        try:
+            if not loop.is_closed():
+                loop.stop()
+                loop.close()
+        except Exception:
+            pass

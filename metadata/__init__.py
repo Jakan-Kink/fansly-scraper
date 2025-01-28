@@ -44,12 +44,7 @@ from .account import (
     process_media_bundles,
 )
 from .attachment import Attachment, ContentType, HasAttachments
-from .database import (
-    Database,
-    get_creator_database_path,
-    require_database_config,
-    run_migrations_if_needed,
-)
+from .database import Database, get_creator_database_path, require_database_config
 from .hashtag import Hashtag, extract_hashtags, post_hashtags, process_post_hashtags
 from .media import (
     Media,
@@ -89,7 +84,6 @@ __all__ = [
     "process_timeline_posts",
     "process_wall_posts",
     "require_database_config",
-    "run_migrations_if_needed",
     "get_creator_database_path",
     "Account",
     "AccountMedia",

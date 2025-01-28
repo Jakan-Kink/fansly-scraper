@@ -1,9 +1,11 @@
 """Console Output"""
 
+# Re-export json_output from logging module
 from .logging import (
     InterceptHandler,
     SizeAndTimeRotatingFileHandler,
     SizeTimeRotatingHandler,
+    json_output,
 )
 
 # Re-exports
@@ -22,9 +24,6 @@ from .textio import (
     set_debug_enabled,
     set_window_title,
 )
-
-# Re-export json_output from logging_utils
-from logging_utils import json_output  # isort:skip
 
 # from textio import *
 __all__ = [

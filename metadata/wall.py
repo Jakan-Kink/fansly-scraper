@@ -18,8 +18,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
+from config.decorators import with_database_session
 from textio import json_output
 
 from .base import Base
@@ -90,11 +92,12 @@ wall_posts = Table(
 
 
 @require_database_config
-def process_account_walls(
+@with_database_session(async_session=True)
+async def process_account_walls(
     config: FanslyConfig,
     account: Account,
     walls_data: list[dict[str, any]],
-    session=None,
+    session: AsyncSession | None = None,
 ) -> None:
     """Process walls data for an account.
 
@@ -105,7 +108,7 @@ def process_account_walls(
         config: FanslyConfig instance for database access
         account: Account object that owns the walls
         walls_data: List of wall data dictionaries from the API
-        session: Optional SQLAlchemy session. If not provided, a new session will be created.
+        session: Optional AsyncSession for database operations
 
     Note:
         - Existing walls not in walls_data will be removed
@@ -125,70 +128,62 @@ def process_account_walls(
         "permissions",
     }
 
-    def _process_walls(session: Session) -> None:
-        # Process each wall
-        for wall_data in walls_data:
-            # Process wall data
-            filtered_wall, _ = Wall.process_data(
-                wall_data, known_relations, "meta/wall - p_a_w-_p_w"
-            )
+    # Process each wall
+    for wall_data in walls_data:
+        # Process wall data
+        filtered_wall, _ = Wall.process_data(
+            wall_data, known_relations, "meta/wall - p_a_w-_p_w"
+        )
 
-            # Query first approach
-            wall = session.get(Wall, wall_data["id"])
+        # Query first approach
+        wall = await session.get(Wall, wall_data["id"])
 
-            # Ensure required fields are present before proceeding
-            if "id" not in filtered_wall:
-                json_output(
-                    1,
-                    "meta/wall - missing_required_field",
-                    {"missing_field": "id"},
-                )
-                continue  # Skip this wall if id is missing
-
-            # Create if doesn't exist with minimum required fields
-            if wall is None:
-                filtered_wall["accountId"] = account.id  # Ensure accountId is set
-                wall = Wall(**filtered_wall)
-                session.add(wall)
-            # Update fields that have changed
-            for key, value in filtered_wall.items():
-                if getattr(wall, key) != value:
-                    setattr(wall, key, value)
-
-            session.flush()
-
-        # Only delete walls if this is a full account data update
-        # This function is called from process_account_data which gets all walls for an account
-        if len(walls_data) > 0:  # Only if we have any walls data
-            current_wall_ids = {wall_data["id"] for wall_data in walls_data}
-            existing_walls = (
-                session.execute(select(Wall).where(Wall.accountId == account.id))
-                .scalars()
-                .all()
-            )
+        # Ensure required fields are present before proceeding
+        if "id" not in filtered_wall:
             json_output(
-                1, "meta/wall - existing_walls", [wall.id for wall in existing_walls]
+                1,
+                "meta/wall - missing_required_field",
+                {"missing_field": "id"},
             )
-            json_output(1, "meta/wall - current_wall_ids", list(current_wall_ids))
-            for wall in existing_walls:
-                if wall.accountId != account.id:
-                    continue
-                # if wall.id not in current_wall_ids:
-                #     session.delete(wall)
+            continue  # Skip this wall if id is missing
 
-    if session is not None:
-        # Use existing session
-        _process_walls(session)
-    else:
-        # Create new session if none provided
-        with config._database.sync_session() as new_session:
-            _process_walls(new_session)
-            new_session.commit()
+        # Create if doesn't exist with minimum required fields
+        if wall is None:
+            filtered_wall["accountId"] = account.id  # Ensure accountId is set
+            wall = Wall(**filtered_wall)
+            session.add(wall)
+        # Update fields that have changed
+        for key, value in filtered_wall.items():
+            if getattr(wall, key) != value:
+                setattr(wall, key, value)
+
+        session.flush()
+
+    # Only delete walls if this is a full account data update
+    # This function is called from process_account_data which gets all walls for an account
+    if len(walls_data) > 0:  # Only if we have any walls data
+        current_wall_ids = {wall_data["id"] for wall_data in walls_data}
+        result = await session.execute(select(Wall).where(Wall.accountId == account.id))
+        existing_walls = result.scalars().all()
+        json_output(
+            1, "meta/wall - existing_walls", [wall.id for wall in existing_walls]
+        )
+        json_output(1, "meta/wall - current_wall_ids", list(current_wall_ids))
+        for wall in existing_walls:
+            if wall.accountId != account.id:
+                continue
+            # if wall.id not in current_wall_ids:
+            #     session.delete(wall)
 
 
 @require_database_config
-def process_wall_posts(
-    config: FanslyConfig, state: DownloadState, wall_id: str, posts_data: dict
+@with_database_session(async_session=True)
+async def process_wall_posts(
+    config: FanslyConfig,
+    state: DownloadState,
+    wall_id: str,
+    posts_data: dict,
+    session: AsyncSession | None = None,
 ) -> None:
     """Process posts from a specific wall.
 
@@ -199,28 +194,25 @@ def process_wall_posts(
         state: Current download state
         wall_id: ID of the wall these posts belong to
         posts_data: Timeline-style posts data from the API
+        session: Optional AsyncSession for database operations
     """
     posts_data = copy.deepcopy(posts_data)
     json_output(1, "meta/wall - p_w_p - posts_data", posts_data)
 
     # First process posts normally
-    process_timeline_posts(config, state, posts_data)
+    await process_timeline_posts(config, state, posts_data)
 
-    # Then add wall association for each post
-    session: Session
-    with config._database.sync_session() as session:
-        wall = session.get(Wall, wall_id)
-        if wall is None:
-            wall = Wall(id=wall_id, accountId=state.creator_id)
-            session.add(wall)
-            session.flush()
+    wall = await session.get(Wall, wall_id)
+    if wall is None:
+        wall = Wall(id=wall_id, accountId=state.creator_id)
+        session.add(wall)
+        await session.flush()
 
-        for post_data in posts_data["posts"]:
-            post_id = post_data["id"]
-            # Add wall-post association using upsert to avoid conflicts
-            session.execute(
-                wall_posts.insert()
-                .values(wallId=wall_id, postId=post_id)
-                .prefix_with("OR IGNORE")
-            )
-        session.commit()
+    for post_data in posts_data["posts"]:
+        post_id = post_data["id"]
+        # Add wall-post association using upsert to avoid conflicts
+        await session.execute(
+            wall_posts.insert()
+            .values(wallId=wall_id, postId=post_id)
+            .prefix_with("OR IGNORE")
+        )

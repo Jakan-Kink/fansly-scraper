@@ -99,7 +99,7 @@ class TestAccount(TestCase):
 
         mock_config = MagicMock()
         mock_config._database = MagicMock()
-        mock_config._database.sync_session = lambda: self.session
+        mock_config._database.session_scope = lambda: self.session
         process_account_data(mock_config, data)
 
         # Update with different values
@@ -159,7 +159,7 @@ class TestAccount(TestCase):
         """Test processing media bundles from API response."""
         mock_config = MagicMock()
         mock_config._database = MagicMock()
-        mock_config._database.sync_session = self.Session
+        mock_config._database.session_scope = self.Session
         bundles_data = [
             {
                 "id": 1,

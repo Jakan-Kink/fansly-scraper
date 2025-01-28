@@ -45,7 +45,7 @@ class TestAccountProcessing(TestCase):
         self.config.metadata_db_file = ":memory:"
         self.config._database = Database(self.config)
         self.config._database.sync_engine = self.engine
-        self.config._database.sync_session = self.Session
+        self.config._database.session_scope = self.Session
 
     def tearDown(self):
         """Clean up after each test."""
@@ -69,7 +69,7 @@ class TestAccountProcessing(TestCase):
         process_account_data(self.config, account_data)
 
         # Verify account was created
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             account = session.query(Account).filter_by(id=account_data["id"]).first()
             self.assertIsNotNone(account)
             self.assertEqual(account.username, account_data["username"])
@@ -125,7 +125,7 @@ class TestAccountProcessing(TestCase):
         process_account_data(self.config, account_data)
 
         # Get initial update time of the account and stats
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             account = session.query(Account).get(account_data["id"])
             stats = session.query(TimelineStats).get(account_data["id"])
             initial_account_updated = getattr(account, "_sa_instance_state").modified
@@ -135,7 +135,7 @@ class TestAccountProcessing(TestCase):
         process_account_data(self.config, account_data)
 
         # Check that nothing was updated
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             account = session.query(Account).get(account_data["id"])
             stats = session.query(TimelineStats).get(account_data["id"])
             self.assertEqual(
@@ -155,7 +155,7 @@ class TestAccountProcessing(TestCase):
         process_account_data(self.config, account_data)
 
         # Check that only changed values were updated
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             account = session.query(Account).get(account_data["id"])
             stats = session.query(TimelineStats).get(account_data["id"])
             self.assertEqual(account.displayName, "Updated Name")
@@ -175,7 +175,7 @@ class TestAccountProcessing(TestCase):
         process_account_data(self.config, account_data)
 
         # Process each bundle's media
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             for bundle in bundles_data:
                 # Create necessary AccountMedia records
                 for content in bundle.get("bundleContent", []):
@@ -193,7 +193,7 @@ class TestAccountProcessing(TestCase):
         process_media_bundles(self.config, account_data["id"], bundles_data)
 
         # Verify bundles were created with correct ordering
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             for bundle_data in bundles_data:
                 bundle = (
                     session.query(AccountMediaBundle)

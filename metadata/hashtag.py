@@ -15,11 +15,17 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
+from config.decorators import with_database_session
+
 from .base import Base
+from .database import require_database_config
 
 if TYPE_CHECKING:
+    from config import FanslyConfig
+
     from .post import Post
 
 
@@ -136,13 +142,21 @@ def extract_hashtags(content: str) -> list[str]:
     return [tag for tag in hashtags if not (tag in seen or seen.add(tag))]
 
 
-def process_post_hashtags(session: Session, post_obj: Post, content: str) -> None:
+@require_database_config
+@with_database_session(async_session=True)
+async def process_post_hashtags(
+    config: FanslyConfig,
+    post_obj: Post,
+    content: str,
+    session: AsyncSession | None = None,
+) -> None:
     """Process hashtags for a post.
 
     Args:
-        session: SQLAlchemy session
+        config: FanslyConfig instance
         post_obj: Post instance
         content: Post content string
+        session: Optional AsyncSession for database operations
     """
     if not content:
         return
@@ -153,15 +167,16 @@ def process_post_hashtags(session: Session, post_obj: Post, content: str) -> Non
 
     for value in hashtag_values:
         # First try to get existing hashtag
-        hashtag = session.execute(
+        result = await session.execute(
             select(Hashtag).where(func.lower(Hashtag.value) == func.lower(value))
-        ).scalar()
+        )
+        hashtag = result.scalar()
 
         if not hashtag:
             # If hashtag doesn't exist, create it
             hashtag = Hashtag(value=value)
             session.add(hashtag)
-            session.flush()  # Ensure the hashtag has an ID
+            await session.flush()  # Ensure the hashtag has an ID
 
         # Add association using the association table
         insert_stmt = sqlite_insert(post_hashtags).values(
@@ -169,4 +184,4 @@ def process_post_hashtags(session: Session, post_obj: Post, content: str) -> Non
             hashtagId=hashtag.id,
         )
         update_stmt = insert_stmt.on_conflict_do_nothing()
-        session.execute(update_stmt)
+        await session.execute(update_stmt)

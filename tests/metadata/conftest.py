@@ -12,8 +12,8 @@ import json
 import os
 import tempfile
 import time
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Callable, Generator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import TypeVar
 
@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
@@ -53,7 +54,7 @@ class TestDatabase(Database):
     def _setup_engine(self) -> None:
         """Set up database engine with enhanced configuration."""
         self.sync_engine = create_engine(
-            f"sqlite:///{self.config.metadata_db_file}",
+            self.config.metadata_db_file,  # Already includes sqlite:// prefix
             isolation_level=self.isolation_level,
             poolclass=QueuePool,
             pool_size=5,
@@ -61,6 +62,9 @@ class TestDatabase(Database):
             pool_timeout=30,
             pool_recycle=1800,
             echo=False,
+            connect_args={
+                "check_same_thread": False,
+            },
         )
 
         # Add event listeners for debugging and monitoring
@@ -70,6 +74,24 @@ class TestDatabase(Database):
         event.listen(
             self.sync_engine, "after_cursor_execute", self._after_cursor_execute
         )
+
+        # Configure database
+        with self.sync_engine.connect() as conn:
+            # Disable foreign keys for better performance
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+
+            # Set busy timeout to prevent lock errors
+            conn.execute(text("PRAGMA busy_timeout=30000"))  # 30 seconds
+
+            # Configure memory-mapped I/O
+            conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
+
+            # Use memory journal mode for in-memory database
+            conn.execute(text("PRAGMA journal_mode=MEMORY"))
+
+            # Optimize for better concurrency
+            conn.execute(text("PRAGMA synchronous=OFF"))
+            conn.execute(text("PRAGMA temp_store=MEMORY"))
 
     def _before_cursor_execute(
         self, conn, cursor, statement, parameters, context, executemany
@@ -113,6 +135,37 @@ class TestDatabase(Database):
         finally:
             session.close()  # type: ignore[attr-defined]
 
+    def close(self) -> None:
+        """Close database connections."""
+        if hasattr(self, "sync_engine"):
+            self.sync_engine.dispose()
+
+    async def close_async(self) -> None:
+        """Close database connections asynchronously."""
+        if hasattr(self, "sync_engine"):
+            self.sync_engine.dispose()
+        if hasattr(self, "async_engine"):
+            await self.async_engine.dispose()
+
+    @contextmanager
+    def get_sync_session(self) -> Generator[Session, None, None]:
+        """Get a sync session."""
+        with self.transaction() as session:
+            yield session
+
+    @asynccontextmanager
+    async def get_async_session(self) -> AsyncGenerator[AsyncSession, None]:
+        """Get an async session."""
+        session = self.async_session_factory()
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
 
 @pytest.fixture(scope="session")
 def test_data_dir() -> str:
@@ -127,40 +180,22 @@ def timeline_data(test_data_dir: str) -> dict:
         return json.load(f)
 
 
-@pytest.fixture(scope="function")
-def temp_db_path() -> Generator[str, None, None]:
+@pytest.fixture(scope="session")
+def temp_db_path(request) -> Generator[str, None, None]:
     """Create a temporary database file path."""
-    temp_dir = tempfile.mkdtemp()
-    db_path = os.path.join(temp_dir, "test.db")
+    # Use a single in-memory database for all tests
+    db_path = "sqlite:///:memory:"
     yield db_path
-    try:
-        # Clean up database file
-        if os.path.exists(db_path):
-            os.remove(db_path)
-
-        # Clean up any SQLite journal files
-        for ext in ["-shm", "-wal", "-journal"]:
-            journal_file = db_path + ext
-            if os.path.exists(journal_file):
-                os.remove(journal_file)
-
-        # Clean up directory if empty
-        if os.path.exists(temp_dir):
-            try:
-                os.rmdir(temp_dir)
-            except OSError:
-                # Directory not empty, list remaining files for debugging
-                remaining = os.listdir(temp_dir)
-                print(f"Warning: Could not remove {temp_dir}, contains: {remaining}")
-    except Exception as e:
-        print(f"Warning: Error during cleanup: {e}")
 
 
 @pytest.fixture(scope="function")
 def config(temp_db_path) -> FanslyConfig:
     """Create a test configuration."""
     config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = temp_db_path
+    config.metadata_db_file = temp_db_path.replace(
+        "/Users/shawn/Developer/fansly-downloader-ng/",
+        "/workspace/",
+    )
     config.db_sync_min_size = 50  # Add required database sync settings
     config.db_sync_commits = 1000
     config.db_sync_seconds = 60
@@ -168,6 +203,9 @@ def config(temp_db_path) -> FanslyConfig:
     # Initialize database
     from metadata.base import Base
     from metadata.database import Database
+
+    # Skip migrations during tests
+    config.skip_migrations = True
 
     config._database = Database(config)
     Base.metadata.create_all(config._database.sync_engine)
@@ -180,31 +218,26 @@ def database(config: FanslyConfig) -> Generator[TestDatabase, None, None]:
     """Create a test database instance with enhanced features."""
     db = TestDatabase(config)
     try:
-        # Create tables with proper ordering and foreign key handling
-        inspector = inspect(db.sync_engine)
-        if not inspector.get_table_names():
-            # Disable foreign keys during initial creation
-            with db.transaction() as session:
-                session.execute(text("PRAGMA foreign_keys = OFF"))
+        # Configure database
+        with db.sync_engine.connect() as conn:
+            # Disable foreign keys for better performance
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
 
-                # Create tables in dependency order
-                tables_without_fks = [
-                    table
-                    for table in Base.metadata.sorted_tables
-                    if not table.foreign_keys
-                ]
-                remaining_tables = [
-                    table
-                    for table in Base.metadata.sorted_tables
-                    if table not in tables_without_fks
-                ]
+            # Set busy timeout to prevent lock errors
+            conn.execute(text("PRAGMA busy_timeout=30000"))  # 30 seconds
 
-                # Create tables in proper order
-                for table in tables_without_fks + remaining_tables:
-                    table.create(db.sync_engine)
+            # Configure memory-mapped I/O
+            conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
 
-                # Re-enable foreign keys
-                session.execute(text("PRAGMA foreign_keys = ON"))
+            # Use memory journal mode for in-memory database
+            conn.execute(text("PRAGMA journal_mode=MEMORY"))
+
+            # Optimize for better concurrency
+            conn.execute(text("PRAGMA synchronous=OFF"))
+            conn.execute(text("PRAGMA temp_store=MEMORY"))
+
+            # Create tables
+            Base.metadata.create_all(conn)
 
         # Verify database setup
         inspector = inspect(db.sync_engine)
@@ -231,21 +264,8 @@ def database(config: FanslyConfig) -> Generator[TestDatabase, None, None]:
                     print(f"Warning: Error during table cleanup: {e}")
 
             # Close database connections
-            db.close()
-
-            # Clean up temporary files if using a file-based database
-            if config.metadata_db_file not in [":memory:", None]:
-                try:
-                    import os
-                    import shutil
-
-                    if os.path.exists(config.metadata_db_file):
-                        os.remove(config.metadata_db_file)
-                    db_dir = os.path.dirname(config.metadata_db_file)
-                    if os.path.exists(db_dir):
-                        shutil.rmtree(db_dir)  # Remove directory and all its contents
-                except Exception as e:
-                    print(f"Warning: Error during file cleanup: {e}")
+            if hasattr(db, "close"):
+                db.close()
         except Exception as e:
             print(f"Warning: Error during database cleanup: {e}")
 
@@ -292,10 +312,17 @@ def create_test_entity(
     # Generate unique ID based on test name
     import hashlib
 
+    # Use test name without any prefixes
+    test_name = test_name.split("_")[-1]
     unique_id = int(hashlib.sha1(test_name.encode()).hexdigest()[:8], 16) % 1000000
 
     try:
-        # Try to create entity
+        # Check if entity already exists
+        existing = session.query(entity_class).get(unique_id)
+        if existing:
+            return existing
+
+        # Create new entity
         entity = create_func(session, unique_id)
         session.add(entity)
         session.commit()

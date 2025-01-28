@@ -64,12 +64,13 @@ def validate_creator_names(config: FanslyConfig) -> bool:
     if list_changed:
         save_config_or_raise(config)
 
-    # No users left after validation -> error
+    # Empty username is allowed (will use following list)
+    # But if there are usernames, they must be valid
     if len(config.user_names) == 0:
-        return False
-
-    else:
+        print_info("No usernames specified - will process following list")
         return True
+
+    return True
 
 
 def validate_adjust_creator_name(name: str, interactive: bool = False) -> str | None:

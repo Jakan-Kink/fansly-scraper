@@ -64,7 +64,7 @@ def output(level: int, log_type: str, color: str, message: str) -> None:
 
 
 def json_output(level: int, log_type: str, message: str) -> None:
-    from logging_utils import json_output as json_output_impl
+    from .logging import json_output as json_output_impl
 
     json_output_impl(level, log_type, message)
 

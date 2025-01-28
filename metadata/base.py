@@ -11,11 +11,11 @@ from datetime import datetime, timezone
 from typing import Any, TypeVar
 
 from sqlalchemy import DateTime, event, select
-from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import DeclarativeBase, Mapper
+from sqlalchemy.orm import DeclarativeBase, Mapper, Session
 
-from logging_utils import json_output
+from textio.logging import json_output
 
 T = TypeVar("T", bound="Base")
 
@@ -110,34 +110,35 @@ class Base(AsyncAttrs, DeclarativeBase):
     @classmethod
     def get_or_create(
         cls: type[T],
-        session: Any,
+        session: Session,
         filters: dict[str, Any],
         defaults: dict[str, Any] | None = None,
     ) -> tuple[T, bool]:
-        """Get an existing instance or create a new one.
-
-        Implements the query-first pattern:
-        1. Query for existing object using filters
-        2. Create with minimum required fields if doesn't exist
-        3. Return tuple of (instance, created) where created is True if new instance
-
-        Args:
-            session: SQLAlchemy session
-            filters: Dictionary of filters to find existing instance
-            defaults: Optional dictionary of default values for new instance
-
-        Returns:
-            Tuple of (instance, created) where created is True if new instance
-
-        Example:
-            >>> instance, created = Model.get_or_create(
-            ...     session,
-            ...     {"id": 123},
-            ...     {"name": "default"}
-            ... )
-        """
+        """Sync version of get_or_create."""
         instance = session.execute(
             select(cls).filter_by(**filters)
+        ).scalar_one_or_none()
+
+        if instance is None:
+            data = {**filters}
+            if defaults:
+                data.update(defaults)
+            instance = cls(**data)
+            session.add(instance)
+            return instance, True
+
+        return instance, False
+
+    @classmethod
+    async def async_get_or_create(
+        cls: type[T],
+        session: AsyncSession,
+        filters: dict[str, Any],
+        defaults: dict[str, Any] | None = None,
+    ) -> tuple[T, bool]:
+        """Async version of get_or_create."""
+        instance = (
+            await session.execute(select(cls).filter_by(**filters))
         ).scalar_one_or_none()
 
         if instance is None:

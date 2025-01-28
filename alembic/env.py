@@ -6,17 +6,23 @@ from metadata import Base, Database
 
 config = context.config
 if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", "sqlite:///metadata.db")
+    config.set_main_option("sqlalchemy.url", "sqlite:///:memory:")
 
 target_metadata = Base.metadata
 
 
 def get_sync_engine() -> Engine:
-    config = FanslyConfig(program_version="0.10.0")
-    load_config(config)
-    database = Database(config)
-    engine = database.sync_engine
-    engine.echo = True
+    """Get the sync engine for migrations.
+
+    This should only be used when we don't have a connection passed in
+    via alembic_cfg.attributes["connection"].
+    """
+    from sqlalchemy import create_engine
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        echo=True,
+    )
     return engine
 
 

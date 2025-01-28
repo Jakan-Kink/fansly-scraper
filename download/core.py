@@ -4,7 +4,7 @@ This sub-module exists to deal with circular module references
 and still be convenient to use and not clutter the module namespace.
 """
 
-from .account import get_creator_account_info
+from .account import get_creator_account_info, get_following_accounts
 from .collections import download_collections
 from .common import print_download_info
 from .downloadstate import DownloadState
@@ -18,6 +18,7 @@ __all__ = [
     "download_collections",
     "print_download_info",
     "download_messages",
+    "get_following_accounts",
     "download_single_post",
     "download_timeline",
     "download_wall",

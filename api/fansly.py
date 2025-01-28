@@ -55,8 +55,8 @@ class FanslyApi:
             self.device_id_timestamp = int(datetime(1990, 1, 1, 0, 0).timestamp())
             self.update_device_id()
 
-        if self.session_id == "null":
-            self.setup_session()
+        # Session setup is now async and must be done separately
+        self.session_id = "null"
 
     # region HTTP Header Management
 
@@ -201,9 +201,38 @@ class FanslyApi:
             alternate_token=alternate_token,
         )
 
-    def get_creator_account_info(self, creator_name: str) -> Response:
+    def get_creator_account_info(self, creator_name: str | list[str]) -> Response:
+        """Get account info by username(s).
+
+        Args:
+            creator_name: Single username or list of usernames
+
+        Returns:
+            Response containing account info
+        """
+        if isinstance(creator_name, list):
+            creator_name = ",".join(creator_name)
         return self.get_with_ngsw(
             url=f"https://apiv3.fansly.com/api/v1/account?usernames={creator_name}",
+        )
+
+    def get_account_info_by_id(
+        self, account_ids: str | int | list[str | int]
+    ) -> Response:
+        """Get account info by ID(s).
+
+        Args:
+            account_ids: Single account ID or list of IDs
+
+        Returns:
+            Response containing account info
+        """
+        if isinstance(account_ids, list):
+            account_ids = ",".join(str(id) for id in account_ids)
+        else:
+            account_ids = str(account_ids)
+        return self.get_with_ngsw(
+            url=f"https://apiv3.fansly.com/api/v1/account?ids={account_ids}",
         )
 
     def get_media_collections(self) -> Response:
@@ -215,6 +244,38 @@ class FanslyApi:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/account/media/orders/",
             params=custom_params,
+        )
+
+    def get_following_list(
+        self,
+        user_id: str | int,
+        limit: int = 425,
+        offset: int = 0,
+        before: int = 0,
+        after: int = 0,
+    ) -> Response:
+        """Get a page of accounts the user is following.
+
+        Args:
+            user_id: ID of the user to get following list for
+            limit: Maximum number of results to return (default: 425)
+            offset: Number of results to skip (default: 0)
+            before: Get results before this timestamp (default: 0)
+            after: Get results after this timestamp (default: 0)
+
+        Returns:
+            Response containing list of followed accounts
+        """
+        params = {
+            "before": str(before),
+            "after": str(after),
+            "limit": str(limit),
+            "offset": str(offset),
+        }
+
+        return self.get_with_ngsw(
+            url=f"https://apiv3.fansly.com/api/v1/account/{user_id}/following",
+            params=params,
         )
 
     def get_account_media(self, media_ids: str) -> Response:
@@ -346,19 +407,21 @@ class FanslyApi:
 
             return response_data["session"]["id"]
 
-    def get_active_session(self) -> str:
-        return asyncio.run(self.get_active_session_async())
+    async def get_active_session(self) -> str:
+        """Get active session ID asynchronously."""
+        return await self.get_active_session_async()
 
     # region
 
     # region Utility Methods
 
-    def setup_session(self) -> bool:
+    async def setup_session(self) -> bool:
+        """Set up session asynchronously."""
         try:
             # Preflight auth - necessary for WebSocket request to succeed
             _ = self.get_json_response_contents(self.get_client_account_info())
 
-            session_id = self.get_active_session()
+            session_id = await self.get_active_session()
 
             self.session_id = session_id
 

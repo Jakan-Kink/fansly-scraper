@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import random
 import shutil
 import tempfile
@@ -65,7 +66,7 @@ def download_media_infos(
             # Process each media item through metadata system
             for info in media_info["response"]:
                 # Process through metadata system
-                with config._database.sync_session() as session:
+                with config._database.session_scope() as session:
                     process_media_bundles(
                         config=config,
                         account_id=state.creator_id,
@@ -168,7 +169,7 @@ def _verify_temp_download(
         # Compare hashes
         if temp_hash == media_record.content_hash:
             # Update database with verified hash
-            with config._database.sync_session() as session:
+            with config._database.session_scope() as session:
                 session.add(media_record)
                 media_record.content_hash = temp_hash
                 media_record.local_filename = str(check_path)
@@ -288,7 +289,7 @@ def _download_m3u8_file(
         new_hash = get_hash_for_other_content(temp_path)
 
         # Check if this hash exists in database
-        with config._database.sync_session() as session:
+        with config._database.session_scope() as session:
 
             session.add(media_record)
             existing_by_hash = session.execute(
@@ -327,7 +328,7 @@ def _download_m3u8_file(
 
 
 @require_database_config
-def download_media(
+async def download_media(
     config: FanslyConfig, state: DownloadState, accessible_media: list[MediaItem]
 ):
     """Downloads all media items to their respective target folders."""
@@ -353,7 +354,7 @@ def download_media(
         _validate_media_item(media_item)
 
         # Process media in database and get Media record
-        media_record = process_media_download(config, state, media_item)
+        media_record = await process_media_download(config, state, media_item)
         if media_record is None:
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
@@ -435,4 +436,4 @@ def download_media(
             print_warning(f"Skipping invalid item: {ex}")
 
         # Slow down a bit to be sure
-        sleep(random.uniform(0.4, 0.75))
+        await asyncio.sleep(random.uniform(0.4, 0.75))

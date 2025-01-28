@@ -86,6 +86,7 @@ pytest-asyncio = ">=0.23.0"
 pytest-timeout = ">=2.3.1"
 pytest-randomly = ">=3.16.0"
 pytest-mock = ">=3.14.0"
+pytest-xdist = ">=3.6.1"
 coverage = {extras = ["toml"], version = ">=7.4.3"}
 psutil = "^6.1.1"
 gql = "^3.5.0"
@@ -144,6 +145,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-context=test",
+    "--cov-config=pyproject.toml",
     "--randomly-seed=1234",
     "--timeout=300",
 ]
@@ -169,6 +171,7 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.coverage.run]
 branch = true
 source = ["."]
+data_file = ".coverage"
 omit = [
     "*/venv/*",
     "*/venv_test/*",
@@ -182,7 +185,7 @@ omit = [
     "*/htmlcov/*"
 ]
 command_line = "-m pytest discover -s tests/"
-parallel = true
+parallel = false
 
 [tool.coverage.report]
 exclude_also = [

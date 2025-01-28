@@ -40,7 +40,7 @@ class TestWallOperations(TestCase):
         self.config.metadata_db_file = ":memory:"
         self.config._database = Database(self.config)
         self.config._database.sync_engine = self.engine
-        self.config._database.sync_session = self.Session
+        self.config._database.session_scope = self.Session
 
         # Generate unique ID based on test name
         test_name = self._testMethodName

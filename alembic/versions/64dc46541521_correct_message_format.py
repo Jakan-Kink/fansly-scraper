@@ -20,11 +20,6 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Drop any existing indexes on recipientId
-    try:
-        op.drop_index("ix_messages_recipientId", table_name="messages")
-    except Exception:
-        pass  # Index might not exist
 
     with op.batch_alter_table("messages", schema=None) as batch_op:
         # Add the new column

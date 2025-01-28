@@ -25,6 +25,14 @@ def parse_args() -> argparse.Namespace:
     # region Essential Options
 
     parser.add_argument(
+        "-uf",
+        "--use-following",
+        action="store_true",
+        help="Process following list instead of targeted creators",
+        required=False,
+    )
+
+    parser.add_argument(
         "-u",
         "--user",
         required=False,
@@ -458,6 +466,14 @@ def _handle_debug_settings(args: argparse.Namespace, config: FanslyConfig) -> No
 
 def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
     """Handle user settings and return if config was overridden."""
+    # Check for conflicting arguments
+    if args.use_following and args.users is not None:
+        raise ConfigError(
+            "Cannot use both --use-following and --user options at the same time. "
+            "Please use either --use-following to process your following list, "
+            "or --user to specify target creators."
+        )
+
     if args.users is None:
         return False
 
@@ -579,6 +595,7 @@ def _handle_boolean_settings(args: argparse.Namespace, config: FanslyConfig) -> 
 
     # Handle positive boolean flags
     positive_bools = [
+        "use_following",
         "separate_previews",
         "use_duplicate_threshold",
         "separate_metadata",

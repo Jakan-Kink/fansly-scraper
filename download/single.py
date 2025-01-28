@@ -12,7 +12,7 @@ from .media import download_media_infos
 from .types import DownloadType
 
 
-def download_single_post(config: FanslyConfig, state: DownloadState):
+async def download_single_post(config: FanslyConfig, state: DownloadState):
     """Downloads a single post."""
 
     # This is important for directory creation later on.
@@ -107,7 +107,7 @@ def download_single_post(config: FanslyConfig, state: DownloadState):
                 config=config, state=state, media_ids=all_media_ids
             )
 
-            process_download_accessible_media(config, state, media_infos, post_id)
+            await process_download_accessible_media(config, state, media_infos, post_id)
 
             if (
                 state.duplicate_count > 0

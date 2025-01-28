@@ -15,8 +15,10 @@ from sqlalchemy import (
     and_,
     select,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
+from config.decorators import with_database_session
 from textio import json_output
 
 from .account import Account, process_media_bundles_data
@@ -128,15 +130,15 @@ class Message(Base):
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
-def _process_single_message(
-    session: Session,
+async def _process_single_message(
+    session: AsyncSession,
     message_data: dict[str, any],
     known_relations: set[str],
 ) -> Message | None:
     """Process a single message's data and return the message instance.
 
     Args:
-        session: SQLAlchemy session
+        session: SQLAlchemy async session
         message_data: Dictionary containing message data
         known_relations: Set of known relationship fields
 
@@ -166,7 +168,7 @@ def _process_single_message(
         return None
 
     # Get or create message
-    message, created = Message.get_or_create(
+    message, created = await Message.async_get_or_create(
         session,
         {
             "senderId": filtered_message["senderId"],
@@ -181,14 +183,18 @@ def _process_single_message(
 
     # Update fields
     Base.update_fields(message, filtered_message)
-    session.flush()
+    await session.flush()
 
     return message
 
 
 @require_database_config
-def process_messages_metadata(
-    config: FanslyConfig, state: DownloadState, messages: list[dict[str, any]]
+@with_database_session(async_session=True)
+async def process_messages_metadata(
+    config: FanslyConfig,
+    state: DownloadState,
+    messages: list[dict[str, any]],
+    session: AsyncSession | None = None,
 ) -> None:
     """Process message metadata and store in the database.
 
@@ -199,6 +205,7 @@ def process_messages_metadata(
         config: FanslyConfig instance for database access
         state: Current download state
         messages: List of message data dictionaries
+        session: Optional AsyncSession for database operations
     """
     # Create a deep copy of messages to avoid modifying the original
     messages = copy.deepcopy(messages)
@@ -243,34 +250,31 @@ def process_messages_metadata(
         "permissions",
     }
 
-    with config._database.sync_session() as session:
-        # Process any media bundles if present
-        process_media_bundles_data(session, messages, config)
-        from .attachment import Attachment
+    # Process any media bundles if present
+    await process_media_bundles_data(config, messages, session=session)
+    from .attachment import Attachment
 
-        # Process messages
-        for message_data in messages:
-            message = _process_single_message(session, message_data, known_relations)
-            if not message:
-                continue
+    # Process messages
+    for message_data in messages:
+        message = await _process_single_message(session, message_data, known_relations)
+        if not message:
+            continue
 
-            # Process attachments if present
-            if "attachments" in message_data:
-                for attachment_data in message_data["attachments"]:
-                    Attachment.process_attachment(
-                        session,
-                        attachment_data,
-                        message,
-                        attachment_known_relations,
-                        "messageId",
-                        "mess",
-                    )
-
-        session.commit()
+        # Process attachments if present
+        if "attachments" in message_data:
+            for attachment_data in message_data["attachments"]:
+                await Attachment.process_attachment(
+                    attachment_data,
+                    message,
+                    attachment_known_relations,
+                    "messageId",
+                    session=session,
+                    context="mess",
+                )
 
 
-def _process_single_group(
-    session: Session,
+async def _process_single_group(
+    session: AsyncSession,
     group_data: dict[str, any],
     known_relations: set[str],
     source: str,
@@ -278,7 +282,7 @@ def _process_single_group(
     """Process a single group's data and return the group instance.
 
     Args:
-        session: SQLAlchemy session
+        session: SQLAlchemy async session
         group_data: Dictionary containing group data
         known_relations: Set of known relationship fields
         source: Source identifier for logging (e.g., "data_groups")
@@ -338,7 +342,7 @@ def _process_single_group(
             del filtered_group["lastMessageId"]
 
     # Get or create group
-    group, created = Group.get_or_create(
+    group, created = await Group.async_get_or_create(
         session,
         {"id": filtered_group["id"]},
         {"createdBy": filtered_group["createdBy"]},
@@ -346,18 +350,18 @@ def _process_single_group(
 
     # Update fields
     Base.update_fields(group, filtered_group)
-    session.flush()
+    await session.flush()
 
     return group
 
 
-def _process_group_users(
-    session: Session, group: Group, users: list[dict[str, any]]
+async def _process_group_users(
+    session: AsyncSession, group: Group, users: list[dict[str, any]]
 ) -> None:
     """Process users for a group, updating group_users table.
 
     Args:
-        session: SQLAlchemy session
+        session: SQLAlchemy async session
         group: Group instance
         users: List of user data dictionaries
     """
@@ -379,18 +383,23 @@ def _process_group_users(
 
         # Add user to group_users table
         group_user = {"groupId": group.id, "accountId": user_id}
-        existing = session.execute(
+        result = await session.execute(
             select(group_users).where(
                 and_(*[getattr(group_users.c, k) == v for k, v in group_user.items()])
             )
-        ).scalar_one_or_none()
+        )
+        existing = result.scalar_one_or_none()
         if not existing:
-            session.execute(group_users.insert().values(group_user))
+            await session.execute(group_users.insert().values(group_user))
 
 
 @require_database_config
-def process_groups_response(
-    config: FanslyConfig, state: DownloadState, response: dict[str, any]
+@with_database_session(async_session=True)
+async def process_groups_response(
+    config: FanslyConfig,
+    state: DownloadState,
+    response: dict[str, any],
+    session: AsyncSession | None = None,
 ) -> None:
     """Process group messaging response data.
 
@@ -401,6 +410,7 @@ def process_groups_response(
         config: FanslyConfig instance for database access
         state: Current download state
         response: Response data containing groups and aggregated data
+        session: Optional AsyncSession for database operations
     """
     from .account import process_account_data
     from .relationship_logger import print_missing_relationships_summary
@@ -446,31 +456,29 @@ def process_groups_response(
     accounts: list = aggregation_data.get("accounts", {})
     for account in accounts:
         json_output(1, "meta/mess - p_g_resp - account", account)
-        process_account_data(config, data=account, state=state)
+        await process_account_data(config, data=account, state=state)
 
     # Process groups
     data: list[dict] = response.get("data", {})
     json_output(1, "meta/mess - p_g_resp - data", data)
     groups: list = aggregation_data.get("groups", {})
 
-    with config._database.sync_session() as session:
-        # Process groups from data
-        for data_group in data:
-            group = _process_single_group(
-                session, data_group, known_relations, "data_groups"
-            )
-            if group:
-                session.flush()
+    # Process groups from data
+    for data_group in data:
+        group = await _process_single_group(
+            session, data_group, known_relations, "data_groups"
+        )
+        if group:
+            await session.flush()
 
-        # Process groups from aggregation data
-        for group_data in groups:
-            json_output(1, "meta/mess - p_g_resp - group", group_data)
-            group = _process_single_group(
-                session, group_data, known_relations, "aggregation_groups"
-            )
-            if group and "users" in group_data:
-                _process_group_users(session, group, group_data["users"])
-                session.flush()
+    # Process groups from aggregation data
+    for group_data in groups:
+        json_output(1, "meta/mess - p_g_resp - group", group_data)
+        group = await _process_single_group(
+            session, group_data, known_relations, "aggregation_groups"
+        )
+        if group and "users" in group_data:
+            await _process_group_users(session, group, group_data["users"])
+            await session.flush()
 
-        session.commit()
         print_missing_relationships_summary()

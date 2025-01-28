@@ -10,7 +10,7 @@ from .downloadstate import DownloadState
 from .types import DownloadType
 
 
-def download_collections(config: FanslyConfig, state: DownloadState):
+async def download_collections(config: FanslyConfig, state: DownloadState):
     """Downloads Fansly purchased item collections."""
 
     print_info("Starting Collections sequence. Buckle up and enjoy the ride!")
@@ -41,7 +41,7 @@ def download_collections(config: FanslyConfig, state: DownloadState):
 
                 json_output(1, "Collection Media Info", media_info)
 
-                process_download_accessible_media(config, state, media_info)
+                await process_download_accessible_media(config, state, media_info)
 
             else:
                 print_error(

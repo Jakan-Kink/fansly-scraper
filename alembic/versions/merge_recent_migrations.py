@@ -27,11 +27,6 @@ def upgrade() -> None:
     not match the foreign key constraints. The application handles data
     integrity at the business logic level.
     """
-    # Drop any existing index before creating it
-    try:
-        op.drop_index("ix_account_media_accountId", table_name="account_media")
-    except Exception:
-        pass  # Index might not exist
 
     # Create new index on account_media.accountId
     op.create_index(

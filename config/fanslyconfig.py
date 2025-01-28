@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
-from metadata import Base, Database
+
+if TYPE_CHECKING:
+    from metadata import Base, Database
 from pathio import PathConfig
 
 if TYPE_CHECKING:
@@ -27,6 +29,9 @@ class FanslyConfig(PathConfig):
     # Mandatory property
     # This should be set to __version__ in the main script.
     program_version: str
+
+    # Command line flags
+    use_following: bool = False
 
     # Define base threshold (used for when modules don't provide vars)
     DUPLICATE_THRESHOLD: int = 50
@@ -121,6 +126,7 @@ class FanslyConfig(PathConfig):
     # region Methods
 
     def get_api(self) -> FanslyApi:
+        """Get the API instance without session setup."""
         if self._api is None:
             token = self.get_unscrambled_token()
             user_agent = self.user_agent
@@ -130,19 +136,24 @@ class FanslyConfig(PathConfig):
                     token=token,
                     user_agent=user_agent,
                     check_key=self.check_key,
-                    # session_id=self.session_id,
                     device_id=self.cached_device_id,
                     device_id_timestamp=self.cached_device_id_timestamp,
                     on_device_updated=self._save_config,
                 )
 
-                # Explicit save - on init of FanslyApi() self._api was None
-                self._save_config()
+        return self._api
 
-            else:
-                raise RuntimeError(
-                    "Token or user agent error creating Fansly API object."
-                )
+    async def setup_api(self) -> None:
+        """Set up the API instance including async session setup."""
+        api = self.get_api()
+        if api.session_id == "null":
+            await api.setup_session()
+
+            # Explicit save - on init of FanslyApi() self._api was None
+            self._save_config()
+
+        if self._api is None:
+            raise RuntimeError("Token or user agent error creating Fansly API object.")
 
         return self._api
 

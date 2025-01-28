@@ -19,7 +19,7 @@ from .media import download_media_infos
 from .types import DownloadType
 
 
-def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
+async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
 
     print_info("Executing Timeline functionality. Anticipate remarkable outcomes!")
     print()
@@ -92,7 +92,9 @@ def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
                     config=config, state=state, media_ids=all_media_ids
                 )
 
-                if not process_download_accessible_media(config, state, media_infos):
+                if not await process_download_accessible_media(
+                    config, state, media_infos
+                ):
                     # Break on deduplication error - already downloaded
                     break
 

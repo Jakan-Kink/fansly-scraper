@@ -52,7 +52,7 @@ class TestMessageProcessing(TestCase):
         self.config.metadata_db_file = ":memory:"
         self.config._database = Database(self.config)
         self.config._database.sync_engine = self.engine
-        self.config._database.sync_session = self.Session
+        self.config._database.session_scope = self.Session
 
         # Generate unique IDs based on test name
         test_name = self._testMethodName
@@ -99,7 +99,7 @@ class TestMessageProcessing(TestCase):
         process_messages_metadata(self.config, None, messages_data)
 
         # Verify messages were created
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             messages = session.query(Message).all()
             self.assertGreater(len(messages), 0)
 
@@ -144,7 +144,7 @@ class TestMessageProcessing(TestCase):
         process_groups_response(self.config, None, self.group_data["response"])
 
         # Verify groups were created
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             groups = session.query(Group).all()
             self.assertGreater(len(groups), 0)
 
@@ -179,7 +179,7 @@ class TestMessageProcessing(TestCase):
         process_messages_metadata(self.config, None, messages_with_attachments)
 
         # Verify attachments were created
-        with self.config._database.sync_session() as session:
+        with self.config._database.session_scope() as session:
             for msg_data in messages_with_attachments:
                 message = session.query(Message).get(msg_data["id"])
                 self.assertIsNotNone(message)
