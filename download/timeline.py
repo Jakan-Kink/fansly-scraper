@@ -4,7 +4,7 @@ import random
 import traceback
 
 # from pprint import pprint
-from time import sleep
+from asyncio import sleep
 
 from requests import Response
 
@@ -63,7 +63,7 @@ async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
             if timeline_response.status_code == 200:
 
                 timeline = timeline_response.json()["response"]
-                process_timeline_posts(config, state, timeline)
+                await process_timeline_posts(config, state, timeline)
 
                 if config.debug:
                     print_debug(f"Timeline object: {timeline}")
@@ -77,7 +77,7 @@ async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
                         print_info(
                             f"Slowing down for {config.timeline_delay_seconds} s ..."
                         )
-                        sleep(config.timeline_delay_seconds)
+                        await sleep(config.timeline_delay_seconds)
                     # Try again
                     attempts += 1
                     continue
@@ -88,7 +88,7 @@ async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
 
                 # Reset batch duplicate counter for new batch
                 state.start_batch()
-                media_infos = download_media_infos(
+                media_infos = await download_media_infos(
                     config=config, state=state, media_ids=all_media_ids
                 )
 
@@ -113,7 +113,7 @@ async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
                 # get next timeline_cursor
                 try:
                     # Slow down to avoid the Fansly rate-limit which was introduced in late August 2023
-                    sleep(random.uniform(2, 4))
+                    await sleep(random.uniform(2, 4))
 
                     timeline_cursor = timeline["posts"][-1]["id"]
 

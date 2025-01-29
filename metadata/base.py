@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
-from sqlalchemy import DateTime, event, select
+from sqlalchemy import DateTime, event, select, text
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import DeclarativeBase, Mapper, Session
@@ -130,6 +130,29 @@ class Base(AsyncAttrs, DeclarativeBase):
         return instance, False
 
     @classmethod
+    async def _handle_identity_map(
+        cls: type[T],
+        session: AsyncSession,
+        instance: T,
+    ) -> T:
+        """Handle identity map conflicts by expunging and merging.
+
+        Args:
+            session: SQLAlchemy async session
+            instance: Instance to handle
+
+        Returns:
+            The same instance or a merged version
+        """
+        try:
+            # Try to expunge and merge to handle identity map conflicts
+            session.expunge(instance)
+            return await session.merge(instance)
+        except Exception:
+            # If that fails, return original instance
+            return instance
+
+    @classmethod
     async def async_get_or_create(
         cls: type[T],
         session: AsyncSession,
@@ -137,19 +160,28 @@ class Base(AsyncAttrs, DeclarativeBase):
         defaults: dict[str, Any] | None = None,
     ) -> tuple[T, bool]:
         """Async version of get_or_create."""
-        instance = (
-            await session.execute(select(cls).filter_by(**filters))
-        ).scalar_one_or_none()
+        # Try to get existing instance
+        stmt = select(cls).filter_by(**filters)
+        result = await session.scalars(stmt)
+        instance = result.first()
 
-        if instance is None:
-            data = {**filters}
+        if instance is not None:
+            # Handle potential identity map issues
+            instance = await cls._handle_identity_map(session, instance)
+            # Update with defaults if provided
             if defaults:
-                data.update(defaults)
-            instance = cls(**data)
-            session.add(instance)
-            return instance, True
+                for key, value in defaults.items():
+                    if getattr(instance, key) != value:
+                        setattr(instance, key, value)
+            return instance, False
 
-        return instance, False
+        # Create new instance
+        data = {**filters}
+        if defaults:
+            data.update(defaults)
+        instance = cls(**data)
+        session.add(instance)
+        return instance, True
 
     @staticmethod
     def update_fields(

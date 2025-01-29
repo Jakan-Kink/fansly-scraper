@@ -60,7 +60,7 @@ class TestMedia(TestCase):
             ),
         }
 
-        _process_media_item_dict_inner(config_mock, media_item, self.session)
+        _process_media_item_dict_inner(config_mock, media_item, session=self.session)
 
         saved_media = self.session.execute(select(Media)).scalar_one_or_none()
         self.assertEqual(saved_media.width, 1920)
@@ -93,7 +93,7 @@ class TestMedia(TestCase):
             "metadata": "invalid json",
         }
 
-        _process_media_item_dict_inner(config_mock, media_item, self.session)
+        _process_media_item_dict_inner(config_mock, media_item, session=self.session)
 
         saved_media = self.session.execute(select(Media)).scalar_one_or_none()
         self.assertEqual(saved_media.meta_info, "invalid json")

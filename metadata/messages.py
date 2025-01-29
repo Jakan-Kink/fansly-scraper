@@ -320,7 +320,7 @@ async def _process_single_group(
         return None
 
     # Track relationships
-    log_missing_relationship(
+    await log_missing_relationship(
         session=session,
         table_name="groups",
         field_name="createdBy",
@@ -330,7 +330,7 @@ async def _process_single_group(
     )
 
     if "lastMessageId" in filtered_group:
-        message_exists = log_missing_relationship(
+        message_exists = await log_missing_relationship(
             session=session,
             table_name="groups",
             field_name="lastMessageId",
@@ -372,7 +372,7 @@ async def _process_group_users(
             continue
 
         # Track missing user accounts
-        log_missing_relationship(
+        await log_missing_relationship(
             session=session,
             table_name="group_users",
             field_name="accountId",

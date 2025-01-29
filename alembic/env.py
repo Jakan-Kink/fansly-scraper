@@ -11,17 +11,33 @@ if not config.get_main_option("sqlalchemy.url"):
 target_metadata = Base.metadata
 
 
-def get_sync_engine() -> Engine:
+def get_sync_engine(creator_name: str | None = None) -> Engine:
     """Get the sync engine for migrations.
 
     This should only be used when we don't have a connection passed in
     via alembic_cfg.attributes["connection"].
+
+    Args:
+        creator_name: Optional creator name for separate memory spaces
+
+    Returns:
+        SQLAlchemy engine configured for the appropriate memory space
     """
     from sqlalchemy import create_engine
 
+    # Use appropriate shared memory URI
+    if creator_name:
+        # Use creator-specific shared memory
+        safe_name = "".join(c if c.isalnum() else "_" for c in creator_name)
+        uri = f"sqlite:///file:creator_{safe_name}?mode=memory&cache=shared"
+    else:
+        # Use global shared memory
+        uri = "sqlite:///file:global_db?mode=memory&cache=shared"
+
     engine = create_engine(
-        "sqlite:///:memory:",
+        uri,
         echo=True,
+        connect_args={"uri": True},  # Required for shared memory URIs
     )
     return engine
 

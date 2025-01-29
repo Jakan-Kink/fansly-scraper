@@ -63,7 +63,7 @@ async def download_single_post(config: FanslyConfig, state: DownloadState):
 
         # post object contains: posts, aggregatedPosts, accountMediaBundles, accountMedia, accounts, tips, tipGoals, stories, polls
         post_object = post_response.json()["response"]
-        process_timeline_posts(config, state, post_object)
+        await process_timeline_posts(config, state, post_object)
 
         # if access to post content / post contains content
         if post_object["accountMediaBundles"] or post_object["accountMedia"]:
@@ -100,10 +100,10 @@ async def download_single_post(config: FanslyConfig, state: DownloadState):
 
             # Deferred deduplication init because directory may have changed
             # depending on post creator (!= configured creator)
-            dedupe_init(config, state)
+            await dedupe_init(config, state)
 
             all_media_ids = get_unique_media_ids(post_object)
-            media_infos = download_media_infos(
+            media_infos = await download_media_infos(
                 config=config, state=state, media_ids=all_media_ids
             )
 

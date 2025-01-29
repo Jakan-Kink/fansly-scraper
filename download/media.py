@@ -6,8 +6,8 @@ import asyncio
 import random
 import shutil
 import tempfile
+from asyncio import sleep as async_sleep
 from pathlib import Path
-from time import sleep
 
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Column
@@ -30,7 +30,7 @@ from .types import DownloadType
 
 
 @require_database_config
-def download_media_infos(
+async def download_media_infos(
     config: FanslyConfig, state: DownloadState, media_ids: list[str]
 ) -> list[dict]:
     """Download media info from API and process it through metadata system.
@@ -66,13 +66,11 @@ def download_media_infos(
             # Process each media item through metadata system
             for info in media_info["response"]:
                 # Process through metadata system
-                with config._database.session_scope() as session:
-                    process_media_bundles(
-                        config=config,
-                        account_id=state.creator_id,
-                        media_bundles=[info],  # Send a copy instead of original
-                        session=session,
-                    )
+                await process_media_bundles(
+                    config=config,
+                    account_id=state.creator_id,
+                    media_bundles=[info],  # Send a copy instead of original
+                )
                 media_infos.append(info)
 
         else:
@@ -83,7 +81,7 @@ def download_media_infos(
             )
 
         # Slow down a bit to be sure
-        sleep(random.uniform(0.4, 0.75))
+        await async_sleep(random.uniform(0.4, 0.75))
 
     return media_infos
 
@@ -353,14 +351,18 @@ async def download_media(
         # Validate media item
         _validate_media_item(media_item)
 
-        # Process media in database and get Media record
-        media_record = await process_media_download(config, state, media_item)
-        if media_record is None:
-            if config.show_downloads and config.show_skipped_downloads:
-                print_info(
-                    f"Deduplication [Database]: {media_item.mimetype.split('/')[-2]} '{media_item.get_file_name()}' → skipped (already downloaded)"
-                )
-            state.add_duplicate()
+        try:
+            # Process media in database and get Media record
+            media_record = await process_media_download(config, state, media_item)
+            if media_record is None:
+                if config.show_downloads and config.show_skipped_downloads:
+                    print_info(
+                        f"Deduplication [Database]: {media_item.mimetype.split('/')[-2]} '{media_item.get_file_name()}' → skipped (already downloaded)"
+                    )
+                state.add_duplicate()
+                continue
+        except Exception as e:
+            print_warning(f"Skipping download: {e}")
             continue
 
         # Update media type statistics
@@ -410,7 +412,11 @@ async def download_media(
             if media_item.file_extension == "m3u8":
                 # For m3u8, we download to a temp file first, then move to final location
                 is_dupe = _download_m3u8_file(
-                    config, state, media_item, file_save_path, media_record
+                    config=config,
+                    state=state,
+                    media_item=media_item,
+                    check_path=file_save_path,
+                    media_record=media_record,
                 )
                 if is_dupe:
                     continue
@@ -436,4 +442,4 @@ async def download_media(
             print_warning(f"Skipping invalid item: {ex}")
 
         # Slow down a bit to be sure
-        await asyncio.sleep(random.uniform(0.4, 0.75))
+        await async_sleep(random.uniform(0.4, 0.75))

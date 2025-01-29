@@ -21,8 +21,6 @@ import traceback
 from datetime import datetime
 from time import sleep
 
-from sqlalchemy.sql import text
-
 from alembic.config import Config as AlembicConfig
 from config import FanslyConfig, load_config, validate_adjust_config
 from config.args import map_args_to_config, parse_args
@@ -62,7 +60,7 @@ from fileio.dedupe import dedupe_init
 from helpers.common import open_location
 from helpers.timer import Timer
 from metadata.account import process_account_data
-from pathio import delete_temporary_pyinstaller_files
+from pathio import delete_temporary_pyinstaller_files, get_creator_database_path
 from textio import (
     input_enter_close,
     input_enter_continue,
@@ -170,14 +168,14 @@ async def main(config: FanslyConfig) -> int:
     print()
 
     # Initialize database first since we need it for deduplication
-    from metadata.database import Database, get_creator_database_path
+    from metadata.database import Database
 
     # Initialize database first
     if config.separate_metadata:
         print_info("Using separate metadata databases per creator")
     else:
         print_info(f"Using global metadata database: {config.metadata_db_file}")
-        config._database = Database(config)
+        config._database = Database(config, creator_name=None)
         # Register cleanup function to ensure database is closed on exit
         atexit.register(cleanup_database_sync, config)
     print()
@@ -216,10 +214,7 @@ async def main(config: FanslyConfig) -> int:
                 print_info("Getting following list... (from main)")
                 # Then get and process following list
                 try:
-                    async with config._database.async_session_scope() as session:
-                        usernames = await get_following_accounts(
-                            config, state, session=session
-                        )
+                    usernames = await get_following_accounts(config, state)
                 except Exception as e:
                     print_error(f"Error in session scope: {e}")
                     raise
@@ -255,7 +250,7 @@ async def main(config: FanslyConfig) -> int:
                     orig_database = config._database
                     # Set up creator database
                     config.metadata_db_file = db_path
-                    creator_database = Database(config)
+                    creator_database = Database(config, creator_name=creator_name)
                     config._database = creator_database
 
                 try:
@@ -364,10 +359,9 @@ async def main(config: FanslyConfig) -> int:
                         sleep(10)
 
                 finally:
-                    # Clean up creator database if used
-                    if config.separate_metadata and creator_database:
-                        await creator_database.cleanup()
-                        # Restore original config values if they were changed
+                    # Only restore the file path - don't cleanup the database
+                    # since stash might still be using the shared memory
+                    if config.separate_metadata:
                         if orig_db_file is not None:
                             config.metadata_db_file = orig_db_file
                         if orig_database is not None:

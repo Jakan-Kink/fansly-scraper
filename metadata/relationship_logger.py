@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from textio import json_output
@@ -13,8 +14,8 @@ from textio import json_output
 missing_relationships: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
 
 
-def log_missing_relationship(
-    session: Session,
+async def log_missing_relationship(
+    session: Session | AsyncSession,
     table_name: str,
     field_name: str,
     missing_id: Any,
@@ -24,7 +25,7 @@ def log_missing_relationship(
     """Log a missing relationship and check if it exists.
 
     Args:
-        session: SQLAlchemy session
+        session: SQLAlchemy session (sync or async)
         table_name: Name of the table containing the foreign key
         field_name: Name of the foreign key field
         missing_id: ID that's missing from the referenced table
@@ -38,12 +39,17 @@ def log_missing_relationship(
     str_id = str(missing_id)
 
     # Check if the ID exists in the referenced table
-    exists = (
-        session.execute(
+    result = (
+        await session.execute(
             text(f"SELECT 1 FROM {referenced_table} WHERE id = :id"), {"id": missing_id}
-        ).first()
-        is not None
+        )
+        if isinstance(session, AsyncSession)
+        else session.execute(
+            text(f"SELECT 1 FROM {referenced_table} WHERE id = :id"), {"id": missing_id}
+        )
     )
+
+    exists = (result.first()) is not None
 
     if not exists:
         # Add to missing relationships tracking

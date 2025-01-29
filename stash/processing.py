@@ -32,7 +32,7 @@ from metadata import (
 )
 from metadata.database import Database
 from metadata.decorators import with_session
-from pathio import set_create_directory_for_download
+from pathio import get_creator_database_path, set_create_directory_for_download
 from textio import print_error, print_info
 from textio.logging import SizeAndTimeRotatingFileHandler
 
@@ -112,13 +112,12 @@ class StashProcessing:
     config: FanslyConfig
     state: DownloadState
     stash_interface: StashInterface
-    database: Database
-    db_path: Path
+    database: Database  # Database instance (either creator-specific or global)
 
     # Optional instance attributes (with defaults)
-    _owns_db_connection: bool = False
     _background_task: asyncio.Task | None = None
     _cleanup_event: asyncio.Event | None = None
+    _owns_db: bool = False  # True if we take ownership in separate_metadata mode
 
     @classmethod
     def from_config(
@@ -138,29 +137,21 @@ class StashProcessing:
         state_copy = deepcopy(state)
         stash_interface = config.get_stash_api()
 
-        # Handle database connection based on metadata mode
-        if config.separate_metadata:
-            # For separate metadata, create a new connection
-            db_path = config.get_creator_database_path(state.creator_name)
-            config_copy = deepcopy(config)
-            config_copy.metadata_db_file = db_path
-            database = Database(config_copy)
-            owns_db = True
-        else:
-            # For global metadata, reuse the existing connection
-            db_path = config.metadata_db_file
-            database = config._database
-            owns_db = False
+        # Create our own database instance that will connect to the same shared memory
+        # as main's database (when using the same creator_name)
+        database = Database(config, creator_name=state.creator_name)
+
+        # We always own our database instance
+        owns_db = True
 
         instance = cls(
             config=config,
             state=state_copy,
             stash_interface=stash_interface,
             database=database,
-            db_path=db_path,
-            _owns_db_connection=owns_db,
             _background_task=None,
             _cleanup_event=asyncio.Event(),
+            _owns_db=owns_db,
         )
         return instance
 
@@ -210,19 +201,40 @@ class StashProcessing:
                 self._cleanup_event.set()
 
     async def cleanup(self) -> None:
-        """Safely cleanup resources."""
-        if self._background_task and not self._background_task.done():
-            self._background_task.cancel()
-            if self._cleanup_event:
-                await self._cleanup_event.wait()
+        """Safely cleanup resources.
 
-        if self._owns_db_connection:
-            self.database.close()
+        This method:
+        1. Cancels any background processing
+        2. Waits for cleanup event
+        3. Syncs and closes database if we own it
+        4. Cleans up logging
 
-        # Close and remove all log handlers
-        for handler in logger.handlers[:]:
-            handler.close()
-            logger.removeHandler(handler)
+        Note: Does not close global database when separate_metadata=False
+        """
+        try:
+            # Cancel and wait for background task
+            if self._background_task and not self._background_task.done():
+                self._background_task.cancel()
+                if self._cleanup_event:
+                    await self._cleanup_event.wait()
+
+            # Only cleanup database if we own it (separate_metadata=True)
+            if self._owns_db and self.database is not None:
+                # Ensure all processing is done before cleanup
+                if hasattr(self.database, "optimized_storage"):
+                    # Commit any pending transactions
+                    with self.database.get_sync_session() as session:
+                        session.commit()
+                    # Final sync before cleanup
+                    self.database.optimized_storage.sync_manager.sync_now()
+                # Now close the database
+                await self.database.cleanup()
+
+        finally:
+            # Always cleanup logging
+            for handler in logger.handlers[:]:
+                handler.close()
+                logger.removeHandler(handler)
 
     async def scan_creator_folder(self) -> None:
         """Scan the creator's folder for media files.
@@ -347,16 +359,32 @@ class StashProcessing:
             country=account.location,
         )
 
-        created_data = performer.stash_create(self.stash_interface)
-        if not created_data or "id" not in created_data:
-            raise ValueError("Invalid response from Stash API - missing ID")
+        try:
+            created_data = performer.stash_create(self.stash_interface)
+            if not created_data or "id" not in created_data:
+                raise ValueError("Invalid response from Stash API - missing ID")
 
-        performer = Performer.from_dict(created_data)
-        if not performer.id:
-            raise ValueError("Failed to set performer ID")
+            performer = Performer.from_dict(created_data)
+            if not performer.id:
+                raise ValueError("Failed to set performer ID")
 
-        print_info(f"Created performer: {performer.name} with ID: {performer.id}")
-        return performer
+            print_info(f"Created performer: {performer.name} with ID: {performer.id}")
+            return performer
+        except Exception as e:
+            # Check if error is due to performer already existing
+            error_str = str(e).lower()
+            if "already exists" in error_str:
+                # Try to find the existing performer again
+                performer_data = self.stash_interface.find_performer(account.username)
+                if performer_data and "findPerformer" in performer_data:
+                    performer = Performer.from_dict(performer_data["findPerformer"])
+                    if performer.id:
+                        print_info(
+                            f"Using existing performer: {performer.name} with ID: {performer.id}"
+                        )
+                        return performer
+            # If not a duplicate error or couldn't find existing performer, re-raise
+            raise
 
     async def _update_performer_avatar(
         self, account: Account, performer: Performer
@@ -504,6 +532,8 @@ class StashProcessing:
                     "performer": performer,
                 }
             )
+            session.add(performer)
+            session.commit()
 
             # Handle avatar if needed
             await self._update_performer_avatar(account, performer)

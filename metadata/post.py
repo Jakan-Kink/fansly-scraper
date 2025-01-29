@@ -364,40 +364,35 @@ async def _process_timeline_post(
     )
     json_output(1, "meta/post - _p_t_p - filtered", filtered_post)
 
-    async with session.begin():
-        # Ensure required fields are present before proceeding
-        if "accountId" not in filtered_post:
-            json_output(
-                1,
-                "meta/post - missing_required_field",
-                {"postId": filtered_post.get("id"), "missing_field": "accountId"},
-            )
-            return  # Skip this post if accountId is missing
-
-        # Get or create post
-        post_obj, created = await Post.async_get_or_create(
-            session,
-            {"id": filtered_post["id"]},
-            filtered_post,
+    # Ensure required fields are present before proceeding
+    if "accountId" not in filtered_post:
+        json_output(
+            1,
+            "meta/post - missing_required_field",
+            {"postId": filtered_post.get("id"), "missing_field": "accountId"},
         )
+        return  # Skip this post if accountId is missing
 
-        # Update fields
-        Base.update_fields(post_obj, filtered_post)
+    # Get or create post
+    post_obj, created = await Post.async_get_or_create(
+        session,
+        {"id": filtered_post["id"]},
+        filtered_post,
+    )
+
+    # Update fields
+    Base.update_fields(post_obj, filtered_post)
+    await session.flush()
+
+    # Process account mentions if present
+    if "accountMentions" in post:
+        await _process_post_mentions(session, post_obj, post["accountMentions"])
+
+    # Process hashtags from content
+    if post_obj.content:
+        await process_post_hashtags(config, post_obj, post_obj.content, session=session)
         await session.flush()
 
-        # Process account mentions if present
-        if "accountMentions" in post:
-            await _process_post_mentions(session, post_obj, post["accountMentions"])
-
-        # Process hashtags from content
-        if post_obj.content:
-            await process_post_hashtags(
-                config, post_obj, post_obj.content, session=session
-            )
-            await session.flush()
-
-        # Process attachments if present
-        if "attachments" in post:
-            await _process_post_attachments(
-                session, post_obj, post["attachments"], config
-            )
+    # Process attachments if present
+    if "attachments" in post:
+        await _process_post_attachments(session, post_obj, post["attachments"], config)

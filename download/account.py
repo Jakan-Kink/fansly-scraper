@@ -280,7 +280,7 @@ async def _get_following_page(
         limit=page_size,
         offset=total_fetched,
     )
-    await asyncio.sleep(random.uniform(0.4, 0.75))
+    await asyncio.sleep(random.uniform(2, 4))
 
     data = response.json()
     json_output(1, f"following_list_page_{page}", data)
@@ -305,16 +305,14 @@ async def _get_following_page(
     )
     account_data = account_response.json()
     json_output(1, f"account_details_page_{page}", account_data)
-    await asyncio.sleep(random.uniform(0.4, 0.75))
+    await asyncio.sleep(random.uniform(2, 4))
 
     return account_data.get("response", []), len(account_ids)
 
 
-@with_database_session(async_session=True)
 async def get_following_accounts(
     config: FanslyConfig,
     state: DownloadState,
-    session: AsyncSession | None = None,
 ) -> set[str]:
     """Get and process list of accounts the user is following.
 
@@ -398,10 +396,8 @@ async def get_following_accounts(
                         config=config,
                         state=state,
                         data=account,
-                        session=session,
                     )
                     # Flush to ensure data is written
-                    await session.flush()
                 except Exception as e:
                     print_error(f"Error processing account {username}: {e}")
                     # Don't fail completely if one account fails

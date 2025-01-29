@@ -3,7 +3,7 @@
 import random
 
 # from pprint import pprint
-from time import sleep
+from asyncio import sleep
 
 from config import FanslyConfig
 from metadata import process_groups_response, process_messages_metadata
@@ -25,7 +25,7 @@ async def download_messages(config: FanslyConfig, state: DownloadState):
     groups_response = config.get_api().get_group()
 
     if groups_response.status_code == 200:
-        process_groups_response(config, state, groups_response.json()["response"])
+        await process_groups_response(config, state, groups_response.json()["response"])
         groups_response = groups_response.json()["response"]["aggregationData"][
             "groups"
         ]
@@ -62,10 +62,12 @@ async def download_messages(config: FanslyConfig, state: DownloadState):
                     # Object contains: messages, accountMedia, accountMediaBundles, tips, tipGoals, stories
                     messages = messages_response.json()["response"]
 
-                    process_messages_metadata(config, state, messages["messages"])
+                    await process_messages_metadata(config, state, messages["messages"])
 
                     all_media_ids = get_unique_media_ids(messages)
-                    media_infos = download_media_infos(config, state, all_media_ids)
+                    media_infos = await download_media_infos(
+                        config, state, all_media_ids
+                    )
 
                     await process_download_accessible_media(config, state, media_infos)
 
@@ -86,7 +88,7 @@ async def download_messages(config: FanslyConfig, state: DownloadState):
                     try:
                         # Fansly rate-limiting fix
                         # (don't know if messages were affected at all)
-                        sleep(random.uniform(2, 4))
+                        await sleep(random.uniform(2, 4))
                         msg_cursor = messages["messages"][-1]["id"]
 
                     except IndexError:

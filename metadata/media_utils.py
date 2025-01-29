@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from textio import json_output
@@ -114,7 +115,7 @@ def validate_media_id(
     return None  # For dict case, handled separately
 
 
-def process_preview(
+async def process_preview(
     session: Session,
     config: FanslyConfig,
     parent: HasPreview,
@@ -152,11 +153,11 @@ def process_preview(
         return
 
     if isinstance(preview_data, dict):
-        _process_media_item_dict_inner(config, preview_data, session)
+        await _process_media_item_dict_inner(config, preview_data, session=session)
 
 
-def link_media_to_bundle(
-    session: Session,
+async def link_media_to_bundle(
+    session: AsyncSession,
     bundle_id: int,
     media_id: int,
     pos: int,
@@ -177,7 +178,7 @@ def link_media_to_bundle(
     bundle_media_table = Base.metadata.tables[table]
 
     # Link media to bundle
-    session.execute(
+    await session.execute(
         bundle_media_table.insert()
         .prefix_with("OR IGNORE")
         .values(
@@ -186,4 +187,4 @@ def link_media_to_bundle(
             pos=pos,
         )
     )
-    session.flush()
+    await session.flush()

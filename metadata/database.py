@@ -67,19 +67,7 @@ from .resource_management import ConnectionManager
 RT = TypeVar("RT")
 
 
-def get_creator_database_path(config: FanslyConfig, creator_name: str) -> Path:
-    """Get database path for a specific creator.
-
-    Args:
-        config: FanslyConfig instance
-        creator_name: Creator username
-
-    Returns:
-        Path to creator's database file
-    """
-    metadata_dir = Path(config.base_directory) / "metadata"
-    metadata_dir.mkdir(parents=True, exist_ok=True)
-    return metadata_dir / f"{creator_name}.db"
+# Database path functions moved to pathio module
 
 
 def require_database_config(func: Callable[..., RT]) -> Callable[..., RT]:
@@ -147,9 +135,18 @@ def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> 
         - Creates alembic_version table if it doesn't exist
         - Runs all migrations if database is not initialized
         - Updates to latest version if database already has migrations
+        - Uses appropriate shared memory space based on creator name
     """
+    # Set the correct shared memory URI in Alembic config
+    if database.creator_name:
+        safe_name = "".join(c if c.isalnum() else "_" for c in database.creator_name)
+        uri = f"sqlite:///file:creator_{safe_name}?mode=memory&cache=shared"
+    else:
+        uri = "sqlite:///file:global_db?mode=memory&cache=shared"
+    alembic_cfg.set_main_option("sqlalchemy.url", uri)
+
     # Always run migrations on the in-memory database
-    print_info("Running migrations on shared memory database")
+    print_info(f"Running migrations on shared memory database: {uri}")
     with database.sync_engine.connect() as connection:
         # Check if the alembic_version table exists
         result = connection.execute(
@@ -289,14 +286,17 @@ class Database:
         # Try to get existing connection from pool
         conn = self.connection_manager.thread_connections.get_connection(thread_id)
         if conn is None:
-            # Create new connection with shared cache
-            conn = self.connection_manager.thread_connections._create_shared_connection(
-                str(self.local_path)
+            # Create new connection with shared cache using the same URI
+            conn = (
+                self.connection_manager.thread_connections._create_shared_connection()
             )
             self.connection_manager.thread_connections.set_connection(thread_id, conn)
 
-        # Create session with connection
-        session = self.sync_session_factory(bind=conn)
+        # Create session with engine using this connection
+        session = self.sync_session_factory(
+            bind=self.sync_engine.execution_options(connection=conn)
+        )
+
         try:
             # Verify connection is healthy
             session.execute(text("SELECT 1"))
@@ -321,7 +321,10 @@ class Database:
             # Return healthy connection to pool or clean up
             try:
                 conn.execute("SELECT 1")
-                self.connection_manager.thread_connections._connection_pool.append(conn)
+                with self.connection_manager.thread_connections._pool_lock:
+                    self.connection_manager.thread_connections._connection_pool.append(
+                        conn
+                    )
             except Exception:
                 try:
                     conn.close()
@@ -339,17 +342,6 @@ class Database:
         Yields:
             Session: SQLAlchemy session with automatic cleanup
         """
-        # Get thread ID for connection management
-        thread_id = str(threading.get_ident())
-
-        # Try to get existing session first
-        session = self.connection_manager.thread_connections.get_connection(thread_id)
-        if session is not None:
-            # Use existing session
-            yield session
-            return
-
-        # Create new session if none exists
         with self.get_sync_session() as session:
             yield session
 
@@ -396,15 +388,22 @@ class Database:
                     print_error(f"Error closing session: {close_error}")
             raise
 
-    def __init__(self, config: FanslyConfig, skip_migrations: bool = False) -> None:
+    def __init__(
+        self,
+        config: FanslyConfig,
+        skip_migrations: bool = False,
+        creator_name: str | None = None,
+    ) -> None:
         """Initialize database with configuration.
 
         Args:
             config: FanslyConfig instance with database settings
             skip_migrations: Whether to skip running migrations (default: False)
+            creator_name: Optional creator name for separate memory spaces
         """
         self.config = config
         self.db_file = Path(config.metadata_db_file)
+        self.creator_name = creator_name
         self._migrations_complete = False  # Track migration status
 
         # 1. Set up optimized in-memory database and sync manager
@@ -442,8 +441,14 @@ class Database:
         Both sync and async connections are initialized upfront to ensure
         they share the same in-memory database and engines.
         """
-        # Create shared memory database
-        shared_uri = "file::memory:?cache=shared"
+        # Create shared memory database with appropriate name
+        if self.config.separate_metadata and self.creator_name:
+            # Use creator-specific shared memory for separate metadata
+            safe_name = "".join(c if c.isalnum() else "_" for c in self.creator_name)
+            shared_uri = f"file:creator_{safe_name}?mode=memory&cache=shared"
+        else:
+            # Use global shared memory for global database
+            shared_uri = "file:global_db?mode=memory&cache=shared"
         print_info(f"Creating shared memory database with URI: {shared_uri}")
 
         # Create in-memory database
@@ -472,12 +477,13 @@ class Database:
         that points to the same memory location.
         """
         # Use the same shared memory URI as OptimizedSQLiteMemory
-        shared_uri = "file::memory:?cache=shared"
+        shared_uri = self.optimized_storage.shared_uri
         print_info(f"Creating engines with shared URI: {shared_uri}")
 
         # Create sync engine with shared memory URI
         self.sync_engine = create_engine(
-            "sqlite://",  # In-memory database
+            f"sqlite:///{shared_uri}",  # Use the same shared memory URI
+            connect_args={"uri": True},  # Required for shared memory URIs
             future=True,
             echo=False,
             creator=lambda: sqlite3.connect(
@@ -489,7 +495,8 @@ class Database:
 
         # Create async engine with same shared memory URI
         self.async_engine = create_async_engine(
-            "sqlite+aiosqlite://",  # In-memory database
+            f"sqlite+aiosqlite:///{shared_uri}",  # Use the same shared memory URI
+            connect_args={"uri": True},  # Required for shared memory URIs
             future=True,
             echo=False,
             creator=lambda: sqlite3.connect(
@@ -512,10 +519,6 @@ class Database:
             autoflush=False,
             expire_on_commit=False,
         )
-
-        # Attach sync manager to session factory if available
-        if self.sync_manager:
-            self.async_session_factory.sync_manager = self.sync_manager
 
         # Create public session context managers with corruption handling
         self.sync_session = self.get_sync_session  # Uses ConnectionManager
@@ -1190,16 +1193,21 @@ class OptimizedSQLiteMemory:
         connection_manager: Manager for database connections
     """
 
+    _shared_uri: str
+    remote_path: Path | None
+    connection_manager: ConnectionManager
+
     def __init__(self, db_path: str | Path | None, shared_uri: str):
         """Initialize the in-memory database.
 
         Args:
             db_path: Path to the database file to load initially, or None for empty
-            shared_uri: URI for shared memory database
+            shared_uri: URI for shared memory database (e.g., 'file:global_db?mode=memory&cache=shared')
 
         Raises:
             sqlite3.DatabaseError: If database cannot be loaded
         """
+        self._shared_uri = shared_uri  # Store the URI for later use
         self.remote_path = Path(db_path) if db_path else None
         self.connection_manager = ConnectionManager(optimized_storage=self)
 
@@ -1266,7 +1274,7 @@ class OptimizedSQLiteMemory:
         # Create a new shared connection if none exists
         try:
             conn = sqlite3.connect(
-                "file::memory:?cache=shared",
+                self.shared_uri,  # Use the creator-specific URI
                 uri=True,
                 isolation_level=None,  # For explicit transaction control
                 check_same_thread=False,  # Allow multi-threading
@@ -1366,6 +1374,11 @@ class OptimizedSQLiteMemory:
             self.connection_manager.cleanup_sync()
         except Exception as e:
             print_error(f"Error cleaning up connections: {e}")
+
+    @property
+    def shared_uri(self) -> str:
+        """Get the shared memory URI being used by this database."""
+        return self._shared_uri
 
 
 class DatabaseSyncManager:

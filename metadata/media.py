@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import datetime, timezone
+import traceback
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -25,6 +26,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 
+from config.decorators import with_database_session
 from media import MediaItem
 from textio import json_output
 
@@ -142,7 +144,10 @@ def process_media_metadata(metadata: dict) -> None:
 
 
 @require_database_config
-async def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
+@with_database_session(async_session=True)
+async def process_media_info(
+    config: FanslyConfig, media_infos: dict, session: AsyncSession | None = None
+) -> None:
     """Process media info and store in the database.
 
     Args:
@@ -176,30 +181,29 @@ async def process_media_info(config: FanslyConfig, media_infos: dict) -> None:
     )
     json_output(1, "meta/media - p_m_i - filtered", filtered_account_media)
 
-    async with config._database.async_session_scope() as session:
-        async with session.begin():
-            # Get or create account media
-            account_media, created = await AccountMedia.async_get_or_create(
-                session,
-                {
-                    "id": filtered_account_media["id"],
-                    "accountId": filtered_account_media["accountId"],
-                    "mediaId": filtered_account_media["mediaId"],
-                },
-                filtered_account_media,
-            )
+    # Get or create account media
+    account_media, created = await AccountMedia.async_get_or_create(
+        session,
+        {
+            "id": filtered_account_media["id"],
+            "accountId": filtered_account_media["accountId"],
+            "mediaId": filtered_account_media["mediaId"],
+        },
+        filtered_account_media,
+    )
 
-            # Update fields
-            Base.update_fields(account_media, filtered_account_media)
-            await session.flush()
+    # Update fields
+    Base.update_fields(account_media, filtered_account_media)
+    await session.flush()
 
-            # Process related media items
-            for field in ["media", "preview"]:
-                if field in media_infos:
-                    await process_media_item_dict(config, media_infos[field], session)
+    # Process related media items
+    for field in ["media", "preview"]:
+        if field in media_infos:
+            await process_media_item_dict(config, media_infos[field], session=session)
 
 
 @require_database_config
+@with_database_session(async_session=True)
 async def process_media_item_dict(
     config: FanslyConfig, media_item: dict, session: AsyncSession | None = None
 ) -> None:
@@ -213,9 +217,9 @@ async def process_media_item_dict(
     json_output(1, "meta/media - p_m_i_h - media_item[dict]", media_item)
     if session is None:
         async with config._database.async_session_scope() as session:
-            await _process_media_item_dict_inner(config, media_item, session)
+            await _process_media_item_dict_inner(config, media_item, session=session)
     else:
-        await _process_media_item_dict_inner(config, media_item, session)
+        await _process_media_item_dict_inner(config, media_item, session=session)
 
 
 def _process_media_metadata(
@@ -285,12 +289,27 @@ async def _process_media_locations(
             del existing_locations[location_id]
         else:
             # Add new location
-            location = MediaLocation(
-                mediaId=media.id,
-                locationId=location_id,
-                location=location_data["location"],
-            )
-            session.add(location)
+            # Try to get existing location first
+            existing_location = (
+                await session.execute(
+                    select(MediaLocation).filter_by(
+                        mediaId=media.id,
+                        locationId=location_id,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if existing_location:
+                # Update existing location
+                existing_location.location = location_data["location"]
+            else:
+                # Create new location
+                location = MediaLocation(
+                    mediaId=media.id,
+                    locationId=location_id,
+                    location=location_data["location"],
+                )
+                session.add(location)
 
     # Delete locations that no longer exist
     if existing_locations:
@@ -334,7 +353,7 @@ async def _process_media_variants(
         await _process_media_item_dict_inner(
             config,
             variant,
-            session,
+            session=session,
             account_id=account_id,
         )
 
@@ -346,11 +365,12 @@ async def _process_media_variants(
         )
 
 
+@with_database_session(async_session=True)
 async def _process_media_item_dict_inner(
     config: FanslyConfig,
     media_item: dict[str, any],
-    session: AsyncSession,
     account_id: int | None = None,
+    session: AsyncSession | None = None,
 ) -> None:
     """Process a media item dictionary and store it in the database.
 
@@ -404,6 +424,10 @@ async def _process_media_item_dict_inner(
         )
         return  # Skip this media if accountId is missing
 
+    if not isinstance(session, AsyncSession):
+        json_output(1, "meta/media - _p_m_i_d_i - no_session", type(session))
+        raise TypeError("No session provided for database operations")
+
     # Begin a nested transaction
     async with session.begin_nested():
         # Get or create media
@@ -454,8 +478,12 @@ def _should_skip_media(media_obj: Media) -> bool:
 
 
 @require_database_config
+@with_database_session(async_session=True)
 async def process_media_download(
-    config: FanslyConfig, state: DownloadState, media: MediaItem
+    config: FanslyConfig,
+    state: DownloadState,
+    media: MediaItem | dict[str, any],
+    session: AsyncSession | None = None,
 ) -> Media | None:
     """Process a media item for download and return its Media record.
 
@@ -463,6 +491,7 @@ async def process_media_download(
         config: FanslyConfig instance
         state: Current download state
         media: MediaItem to process
+        session: Optional session to use, will create one if not provided
 
     Returns:
         Media record if found or created, None if media should be skipped
@@ -472,88 +501,98 @@ async def process_media_download(
     """
     media = copy.deepcopy(media)
     json_output(1, "meta/media - p_m_d", media)
+    if isinstance(media, MediaItem):
+        # Query first approach
+        existing_media = (
+            await session.execute(select(Media).where(Media.id == media.media_id))
+        ).scalar_one_or_none()
+    else:
+        existing_media = (
+            await session.execute(select(Media).where(Media.id == media.get("id", -1)))
+        ).scalar_one_or_none()
+    media_obj: Media | None = None if not existing_media else existing_media
 
-    async with config._database.async_session() as session:
-        async with session.begin():
-            # Query first approach
-            existing_media = (
-                await session.execute(select(Media).where(Media.id == media.media_id))
-            ).scalar_one_or_none()
+    if not isinstance(media, MediaItem):
+        # Get or create media record
+        media_obj, created = await Media.async_get_or_create(
+            session,
+            {"id": media["id"]},
+            {
+                "accountId": int(state.creator_id),
+                "mimetype": media["mimetype"],
+                "createdAt": (
+                    datetime.fromtimestamp(media["createdAt"], tz=timezone.utc)
+                    if media["createdAt"]
+                    else None
+                ),
+                "updatedAt": (
+                    datetime.fromtimestamp(media["updatedAt"], tz=timezone.utc)
+                    if media["updatedAt"]
+                    else None
+                ),
+                "type": media["type"],
+                "status": media["status"],
+                "flags": media["flags"],
+                "meta_info": media["metadata"],
+                "location": media["location"],
+                "height": media["height"],
+                "width": media["width"],
+                "duration": float(media["duration"] if media.get("duration") else 0),
+            },
+        )
 
-            # If found and already downloaded with hash, skip it
-            if _should_skip_media(existing_media):
-                return None
-
-            # Ensure creator_id is available
-            if not state.creator_id:
-                raise ValueError(
-                    "Cannot create Media record: creator_id is required but not available in state"
-                )
-
-            # Get or create media record
-            media_obj, created = await Media.async_get_or_create(
-                session,
-                {"id": media.media_id},
+        # Update fields if media already exists
+        if not created:
+            Base.update_fields(
+                media_obj,
                 {
-                    "accountId": int(state.creator_id),
-                    "mimetype": media.mimetype,
-                    "createdAt": (
-                        datetime.fromtimestamp(media.created_at, tz=timezone.utc)
-                        if media.created_at
-                        else None
+                    "mimetype": media["mimetype"],
+                    "type": media["type"],
+                    "status": media["status"],
+                    "flags": media["flags"],
+                    "meta_info": media["metadata"],
+                    "location": media["location"],
+                    "height": media["height"],
+                    "width": media["width"],
+                    "duration": float(
+                        media["duration"] if media.get("duration") else 0
                     ),
-                    "updatedAt": (
-                        datetime.fromtimestamp(media.updated_at, tz=timezone.utc)
-                        if media.updated_at
-                        else None
-                    ),
-                    "type": media.type,
-                    "status": media.status,
-                    "flags": media.flags,
-                    "meta_info": media.metadata,
-                    "location": media.location,
-                    "height": media.height,
-                    "width": media.width,
-                    "duration": media.duration,
                 },
             )
+    # If found and already downloaded with hash, skip it
+    if _should_skip_media(existing_media):
+        return None
 
-            # Update fields if media already exists
-            if not created:
-                Base.update_fields(
-                    media_obj,
-                    {
-                        "mimetype": media.mimetype,
-                        "type": media.type,
-                        "status": media.status,
-                        "flags": media.flags,
-                        "meta_info": media.metadata,
-                        "location": media.location,
-                        "height": media.height,
-                        "width": media.width,
-                        "duration": media.duration,
-                    },
-                )
+    # Ensure creator_id is available
+    if not state.creator_id:
+        raise ValueError(
+            "Cannot create Media record: creator_id is required but not available in state"
+        )
 
-            return media_obj
+    return media_obj
 
 
 async def process_media_download_accessible(
-    config: FanslyConfig, state: DownloadState, media_infos: list[MediaItem]
-) -> bool:
+    config: FanslyConfig, state: DownloadState, media_infos: list[dict]
+) -> None:
     """Process a list of media items to check accessibility.
 
     Args:
         config: FanslyConfig instance
         state: Current download state
-        media_infos: List of MediaItem objects to process
+        media_infos: List of dict objects to process
 
     Returns:
         True if all media items are accessible, False otherwise
     """
-    json_output(1, "meta/media - p_m_d_a", media_infos)
-    # TODO: Implement accessibility check
-    return True
+    try:
+        json_output(1, "meta/media - p_m_d_a", media_infos)
+        for media_info in media_infos:
+            await process_media_download(config, state, media_info["media"])
+    except Exception as e:
+        json_output(1, "meta/media - p_m_d_a - error", str(e))
+        json_output(1, "meta/media - p_m_d_a - error", traceback.format_exc())
+        return False
 
 
 async def process_media_download_handler(

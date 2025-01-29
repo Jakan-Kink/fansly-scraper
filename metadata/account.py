@@ -70,10 +70,8 @@ async def process_media_bundles_data(
                 break
 
     if account_id:
-        await process_media_bundles(
-            config, account_id, data["accountMediaBundles"], session=session
-        )
-        session.commit()
+        await process_media_bundles(config, account_id, data["accountMediaBundles"])
+        await session.commit()
 
 
 class Account(Base):
@@ -490,7 +488,7 @@ async def _process_bundle_content(
             if media_id is None:
                 continue
 
-            link_media_to_bundle(
+            await link_media_to_bundle(
                 session,
                 bundle["id"],
                 media_id,
@@ -511,9 +509,11 @@ async def _process_bundle_content(
     bundle.pop("bundleContent", None)  # Remove bundleContent from bundle data
 
 
+@with_database_session(async_session=True)
 async def _process_bundle_media_items(
     bundle: dict,
     config: FanslyConfig,
+    session: AsyncSession | None = None,
 ) -> None:
     """Process media items in a bundle.
 
@@ -536,16 +536,16 @@ async def _process_bundle_media_items(
             await _process_media_item_dict_inner(config, media_item)
             media_id = media_item["id"]
 
-        await link_media_to_bundle(bundle["id"], media_id, pos)
+        await link_media_to_bundle(session, bundle["id"], media_id, pos)
 
 
 @require_database_config
 @with_database_session(async_session=True)
 async def _process_single_bundle(
-    session: AsyncSession,
     bundle: dict,
     account_id: int,
     config: FanslyConfig,
+    session: AsyncSession | None = None,
 ) -> None:
     """Process a single media bundle.
 
@@ -611,12 +611,10 @@ async def _process_single_bundle(
 
 
 @require_database_config
-@with_database_session(async_session=True)
 async def process_media_bundles(
     config: FanslyConfig,
     account_id: int,
     media_bundles: list[dict],
-    session: AsyncSession | None = None,
 ) -> None:
     """Process media bundles for an account.
 
@@ -632,18 +630,10 @@ async def process_media_bundles(
     # Create deep copy of input data
     media_bundles = copy.deepcopy(media_bundles)
 
-    async def _process_bundles(session: AsyncSession) -> None:
-        for bundle in media_bundles:
-            await _process_single_bundle(session, bundle, account_id, config)
-
-    if session is not None:
-        # Use existing session
-        await _process_bundles(session)
-    else:
-        # Create new session if none provided
-        async with config._database.async_session() as new_session:
-            async with new_session.begin():
-                await _process_bundles(new_session)
+    for bundle in media_bundles:
+        await _process_single_bundle(
+            bundle=bundle, account_id=account_id, config=config
+        )
 
 
 @require_database_config
@@ -666,7 +656,7 @@ async def process_avatar(
     from .media import _process_media_item_dict_inner
 
     # Process avatar media
-    await _process_media_item_dict_inner(config, avatar_data, session)
+    await _process_media_item_dict_inner(config, avatar_data, session=session)
 
     # Link avatar to account
     await session.execute(
@@ -697,7 +687,7 @@ async def process_banner(
     from .media import _process_media_item_dict_inner
 
     # Process banner media
-    await _process_media_item_dict_inner(config, banner_data, session)
+    await _process_media_item_dict_inner(config, banner_data, session=session)
 
     # Link banner to account
     await session.execute(

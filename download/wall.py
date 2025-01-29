@@ -2,7 +2,7 @@
 
 import random
 import traceback
-from time import sleep
+from asyncio import sleep
 
 from requests import Response
 
@@ -72,7 +72,7 @@ async def download_wall(
 
             if wall_response.status_code == 200:
                 wall_data = wall_response.json()["response"]
-                process_wall_posts(config, state, wall_id, wall_data)
+                await process_wall_posts(config, state, wall_id, wall_data)
 
                 if config.debug:
                     print_debug(f"Wall data object: {wall_data}")
@@ -86,7 +86,7 @@ async def download_wall(
                         print_info(
                             f"Slowing down for {config.timeline_delay_seconds} s ..."
                         )
-                        sleep(config.timeline_delay_seconds)
+                        await sleep(config.timeline_delay_seconds)
                     # Try again
                     attempts += 1
                     continue
@@ -94,7 +94,7 @@ async def download_wall(
                     # Reset attempts eg. new page
                     attempts = 0
 
-                media_infos = download_media_infos(
+                media_infos = await download_media_infos(
                     config=config, state=state, media_ids=all_media_ids
                 )
 
@@ -120,7 +120,7 @@ async def download_wall(
                 # Get next before_cursor
                 try:
                     # Slow down to avoid the Fansly rate-limit
-                    sleep(random.uniform(2, 4))
+                    await sleep(random.uniform(2, 4))
 
                     # Get last post ID for next page
                     before_cursor = wall_data["posts"][-1]["id"]

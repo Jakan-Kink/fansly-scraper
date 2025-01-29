@@ -145,8 +145,27 @@ def get_creator_database_path(config: PathConfig, creator_name: str) -> Path:
 
     Returns:
         Path to the creator's database file
+
+    Note:
+        If separate_metadata is False:
+        1. Uses config.metadata_db_file if set
+        2. Otherwise uses <creator_base_path>/metadata/<creator_name>.db
+
+        If separate_metadata is True:
+        Uses <creator_meta_path>/metadata.sqlite3
     """
-    return get_creator_metadata_path(config, creator_name) / "metadata.sqlite3"
+    if config.separate_metadata:
+        # For separate metadata, use creator's meta directory
+        return get_creator_metadata_path(config, creator_name) / "metadata.sqlite3"
+    else:
+        # For global metadata, first check metadata_db_file
+        if config.metadata_db_file:
+            return Path(config.metadata_db_file)
+
+        # Otherwise use metadata dir in creator's base path
+        metadata_dir = config.download_directory / "metadata"
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        return metadata_dir / "shared.db"
 
 
 def get_media_save_path(

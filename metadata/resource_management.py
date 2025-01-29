@@ -18,6 +18,7 @@ from threading import local
 from typing import Any, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
 
 from textio import print_debug, print_error, print_info, print_warning
@@ -318,34 +319,38 @@ class ThreadLocalConnections(BaseConnections):
     5. Support for in-memory databases with proper sharing
     """
 
-    def __init__(self) -> None:
-        """Initialize thread-local storage and connection pool."""
-        super().__init__(use_thread_local=True)
-        self._shared_cache_uri = None
-        self._connection_pool = []
-        self._pool_lock = threading.Lock()
-        self._is_memory_db = False
-
-    def _create_shared_connection(self, db_path: str | None) -> sqlite3.Connection:
-        """Create a connection with shared cache mode.
+    def __init__(
+        self,
+        optimized_storage: Any | None = None,
+    ) -> None:
+        """Initialize thread-local storage and connection pool.
 
         Args:
-            db_path: Path to SQLite database or None for in-memory
+            optimized_storage: Optional OptimizedSQLiteMemory instance to share
+        """
+        super().__init__(use_thread_local=True)
+        self._optimized_storage = optimized_storage
+        self._shared_cache_uri = (
+            optimized_storage.shared_uri if optimized_storage else None
+        )
+        self._connection_pool = []
+        self._pool_lock = threading.Lock()
+        self._is_memory_db = True if optimized_storage else False
+
+    def _create_shared_connection(self) -> sqlite3.Connection:
+        """Create a connection with shared cache mode.
 
         Returns:
             SQLite connection with shared cache
+
+        Raises:
+            RuntimeError: If no OptimizedSQLiteMemory instance provided
         """
-        if self._shared_cache_uri is None:
-            # Use shared memory database URI or file URI
-            if db_path is None or db_path == ":memory:":
-                self._shared_cache_uri = "file::memory:?cache=shared"
-                self._is_memory_db = True
-            else:
-                self._shared_cache_uri = f"file:{db_path}?mode=rwc&cache=shared"
-                self._is_memory_db = False
+        if not self._optimized_storage:
+            raise RuntimeError("No OptimizedSQLiteMemory instance provided")
 
         conn = sqlite3.connect(
-            self._shared_cache_uri,
+            self._optimized_storage.shared_uri,
             uri=True,
             isolation_level=None,  # For explicit transaction control
             check_same_thread=False,  # Allow multi-threading
@@ -519,7 +524,10 @@ class AsyncConnections(BaseConnections):
     4. Resource cleanup across tasks
     """
 
-    def __init__(self, optimized_storage: Any) -> None:
+    def __init__(
+        self,
+        optimized_storage: Any,
+    ) -> None:
         """Initialize async connection storage and pool.
 
         Args:
@@ -542,6 +550,7 @@ class AsyncConnections(BaseConnections):
 
         # Initialize async-specific attributes
         self._optimized_storage = optimized_storage
+        self._shared_cache_uri = optimized_storage.shared_uri
         self._connection_pool = []
         self._pool_lock = asyncio.Lock()
         self._query_locks: dict[int, asyncio.Lock] = {}
@@ -613,21 +622,20 @@ class AsyncConnections(BaseConnections):
                     self._locks[id_] = asyncio.Lock()
                 return self._locks[id_]
 
-    def _create_shared_connection(self, db_path: str) -> sqlite3.Connection:
+    def _create_shared_connection(self) -> sqlite3.Connection:
         """Create a connection with shared cache mode.
-
-        Args:
-            db_path: Path to SQLite database
 
         Returns:
             SQLite connection with shared cache
+
+        Raises:
+            RuntimeError: If no OptimizedSQLiteMemory instance provided
         """
-        if self._shared_cache_uri is None:
-            # Enable shared cache mode via URI
-            self._shared_cache_uri = f"file:{db_path}?mode=rwc&cache=shared"
+        if not self._optimized_storage:
+            raise RuntimeError("No OptimizedSQLiteMemory instance provided")
 
         conn = sqlite3.connect(
-            self._shared_cache_uri,
+            self._optimized_storage.shared_uri,
             uri=True,
             isolation_level=None,  # For explicit transaction control
             check_same_thread=False,  # Allow multi-threading
@@ -649,6 +657,10 @@ class AsyncConnections(BaseConnections):
         Returns:
             Tuple of (session, ref_count) or None if not found
         """
+        if not self._optimized_storage:
+            print_error(f"[{task_id}] No database instance available")
+            return None
+
         print_debug(
             f"[{task_id}] Getting session (caller: {self.__class__.__name__}.get_session)"
         )
@@ -737,13 +749,6 @@ class AsyncConnections(BaseConnections):
             print_error(
                 f"[{task_id}] Error in {self.__class__.__name__}.get_session: {e}"
             )
-            print_error(
-                f"[{task_id}] Lock state: {lock}, type={type(lock)}, dir={dir(lock)}"
-            )
-            if lock.locked():
-                print_debug(f"[{task_id}] Releasing lock after error")
-                lock.release()
-            raise
 
     async def add_session(
         self, task_id: int, session: AsyncSession, ref_count: int = 1
@@ -1042,7 +1047,10 @@ class ConnectionManager:
         _cleanup_lock: Lock for coordinating cleanup operations
     """
 
-    def __init__(self, optimized_storage: Any = None) -> None:
+    def __init__(
+        self,
+        optimized_storage: Any = None,
+    ) -> None:
         """Initialize connection managers and cleanup lock.
 
         Args:
@@ -1050,7 +1058,9 @@ class ConnectionManager:
         """
         print_debug("Initializing ConnectionManager")
         self.optimized_storage = optimized_storage
-        self.thread_connections = ThreadLocalConnections()
+        self.thread_connections = ThreadLocalConnections(
+            optimized_storage=optimized_storage,
+        )
 
         # Initialize async connections upfront if we have optimized_storage
         if optimized_storage is not None:
@@ -1058,7 +1068,7 @@ class ConnectionManager:
                 loop = asyncio.get_event_loop()
                 print_debug(f"Using event loop: {loop}")
                 self._async_connections = AsyncConnections(
-                    optimized_storage=optimized_storage
+                    optimized_storage=optimized_storage,
                 )
                 self._cleanup_lock = asyncio.Lock()
             except Exception as e:
@@ -1077,7 +1087,9 @@ class ConnectionManager:
             try:
                 loop = asyncio.get_running_loop()
                 print_debug(f"Using event loop: {loop}")
-                self._async_connections = AsyncConnections()
+                self._async_connections = AsyncConnections(
+                    optimized_storage=self.optimized_storage
+                )
                 self._cleanup_lock = asyncio.Lock()
             except RuntimeError as e:
                 print_error(f"No running event loop: {e}")

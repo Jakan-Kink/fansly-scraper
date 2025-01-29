@@ -120,7 +120,7 @@ async def process_download_accessible_media(
         try:
             # add details into a list
             media_items += [parse_media_info(state, media_info, post_id)]
-            process_media_info(config, media_info)
+            await process_media_info(config, media_info)
 
         except Exception:
             print_error(
@@ -154,7 +154,7 @@ async def process_download_accessible_media(
 
     set_create_directory_for_download(config, state)
 
-    process_media_download_accessible(config, state, accessible_media)
+    await process_media_download_accessible(config, state, media_infos=media_infos)
 
     try:
         # download it
