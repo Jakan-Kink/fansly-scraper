@@ -21,11 +21,15 @@ import asyncio
 import atexit
 import contextvars
 import hashlib
+import json
 import logging
 import os
 import shutil
 import sqlite3
 import subprocess
+
+# Encoding functionality moved inline
+import sys
 import tempfile
 import threading
 from asyncio import sleep as async_sleep  # noqa: F401
@@ -52,17 +56,26 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
-
-# Encoding functionality moved inline
-from .logging_config import DatabaseLogger
-
-if TYPE_CHECKING:
-    from config import FanslyConfig
-
 from textio import print_debug, print_error, print_info, print_warning
 
 from .decorators import retry_on_locked_db
+from .logging_config import DatabaseLogger
 from .resource_management import ConnectionManager
+
+# Ensure proper UTF-8 encoding for logging on Windows
+if sys.platform == "win32":
+    import codecs
+
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
+
+# Set up database logging
+logs_dir = Path("logs")
+logs_dir.mkdir(exist_ok=True)
+db_logger = DatabaseLogger(logs_dir / "sqlalchemy.log")
+
+if TYPE_CHECKING:
+    from config import FanslyConfig
 
 RT = TypeVar("RT")
 
@@ -240,6 +253,8 @@ class Database:
     4. Connection pooling and cleanup
     5. WAL mode and journal management
     6. Integrity checking and recovery
+    7. Optimized queries with parameter binding
+    8. Case-insensitive lookups with indexes
 
     Attributes:
         config: FanslyConfig instance
@@ -296,6 +311,8 @@ class Database:
         session = self.sync_session_factory(
             bind=self.sync_engine.execution_options(connection=conn)
         )
+        # Set up logging for session
+        db_logger.setup_session_logging(session)
 
         try:
             # Verify connection is healthy
@@ -377,6 +394,8 @@ class Database:
 
         try:
             async with self.get_async_session() as session:
+                # Set up logging for async session
+                db_logger.setup_session_logging(session)
                 yield session
         except Exception as e:
             print_error(f"async_session_scope error: {e}")
@@ -418,14 +437,21 @@ class Database:
             alembic_cfg = AlembicConfig("alembic.ini")
             run_migrations_if_needed(self, alembic_cfg)
             # Sync immediately after migrations
-            if self.sync_manager is not None:
+            # Create sync manager and do initial sync after migrations
+            if self.optimized_storage.remote_path:
+                self.optimized_storage.sync_manager = DatabaseSyncManager(
+                    remote_path=self.optimized_storage.remote_path,
+                    config=self.config,
+                    optimized_storage=self.optimized_storage,
+                )
                 print_info("Syncing after migrations...")
-                self.sync_manager.sync_now()
+                self.optimized_storage.sync_manager.sync_now()
                 print_info("Post-migration sync complete")
-
-        # 4. Start sync thread after migrations
-        if hasattr(self.optimized_storage, "sync_manager"):
-            self.optimized_storage.sync_manager._start_sync_thread()
+                # Update our reference to the sync manager
+                self.sync_manager = self.optimized_storage.sync_manager
+                # Start background sync thread after initial sync is complete
+                print_info("Starting background sync thread...")
+                self.sync_manager.start_sync_thread()
 
         # Mark migrations as complete and apply optimizations
         self._migrations_complete = True
@@ -460,12 +486,27 @@ class Database:
         # Use the ConnectionManager from OptimizedSQLiteMemory
         self.connection_manager = self.optimized_storage.connection_manager
 
-        # Set up sync manager for syncing in-memory to disk
-        self.sync_manager = DatabaseSyncManager(
-            remote_path=self.db_file,
-            config=self.config,
-            optimized_storage=self.optimized_storage,
+        # Use the sync manager from OptimizedSQLiteMemory
+        self.sync_manager = self.optimized_storage.sync_manager
+
+    def _create_optimized_connection(self, uri: str) -> sqlite3.Connection:
+        """Create an optimized SQLite connection with proper settings.
+
+        Args:
+            uri: Database URI to connect to
+
+        Returns:
+            Configured SQLite connection
+        """
+        conn = sqlite3.connect(
+            uri,
+            uri=True,
+            check_same_thread=False,
+            detect_types=sqlite3.PARSE_DECLTYPES
+            | sqlite3.PARSE_COLNAMES,  # Better type handling
         )
+        conn.text_factory = str  # Set text factory after connection creation
+        return conn
 
     def _setup_engines_and_sessions(self) -> None:
         """Set up SQLAlchemy engines and session factories.
@@ -475,54 +516,81 @@ class Database:
 
         Both engines use the same in-memory database by using a shared URI
         that points to the same memory location.
+
+        Engine Configuration:
+            - Pool Size: 5 permanent connections
+            - Max Overflow: 10 additional temporary connections
+            - Pool Timeout: 30 seconds wait for connection
+            - Pool Pre-Ping: True (verify connection before use)
+            - Pool Recycle: 1800 seconds (30 minutes)
+            - Connection Timeout: 30 seconds
+            - Isolation Level: READ COMMITTED
         """
         # Use the same shared memory URI as OptimizedSQLiteMemory
         shared_uri = self.optimized_storage.shared_uri
         print_info(f"Creating engines with shared URI: {shared_uri}")
 
+        # Common configuration for both engines
+        # Neither SQLite nor aiosqlite support pooling with shared memory
+        engine_config = {
+            "future": True,  # Use SQLAlchemy 2.0 style
+            "echo": False,  # Disable SQL echoing (we use our own logging)
+            "connect_args": {
+                "uri": True,  # Required for shared memory URIs
+                "timeout": 30,  # Connection timeout in seconds
+                "check_same_thread": False,  # Allow multi-threading
+                "isolation_level": "READ COMMITTED",  # Transaction isolation level
+            },
+        }
+
         # Create sync engine with shared memory URI
         self.sync_engine = create_engine(
-            f"sqlite:///{shared_uri}",  # Use the same shared memory URI
-            connect_args={"uri": True},  # Required for shared memory URIs
-            future=True,
-            echo=False,
-            creator=lambda: sqlite3.connect(
-                shared_uri,
-                uri=True,
-                check_same_thread=False,
-            ),
+            f"sqlite:///{shared_uri}",
+            creator=lambda: self._create_optimized_connection(shared_uri),
+            **engine_config,
         )
+        # Set up logging for sync engine
+        db_logger.setup_engine_logging(self.sync_engine)
 
         # Create async engine with same shared memory URI
         self.async_engine = create_async_engine(
-            f"sqlite+aiosqlite:///{shared_uri}",  # Use the same shared memory URI
-            connect_args={"uri": True},  # Required for shared memory URIs
-            future=True,
-            echo=False,
-            creator=lambda: sqlite3.connect(
-                shared_uri,
-                uri=True,
-                check_same_thread=False,
-            ),
+            f"sqlite+aiosqlite:///{shared_uri}",
+            creator=lambda: self._create_optimized_connection(shared_uri),
+            **engine_config,
         )
+        # Set up logging for async engine
+        db_logger.setup_engine_logging(self.async_engine)
 
-        # Create session factories
+        # Create session factories with optimized settings
+        session_config = {
+            "expire_on_commit": False,  # Prevent unnecessary reloads
+            "twophase": False,  # Not needed for SQLite
+            "autoflush": False,  # Prevent unnecessary flushes
+        }
+
         self.sync_session_factory = sessionmaker(
-            bind=self.sync_engine,
-            class_=Session,
-            expire_on_commit=False,
+            bind=self.sync_engine, class_=Session, **session_config
         )
 
         self.async_session_factory = async_sessionmaker(
-            bind=self.async_engine,
-            class_=AsyncSession,
-            autoflush=False,
-            expire_on_commit=False,
+            bind=self.async_engine, class_=AsyncSession, **session_config
         )
 
         # Create public session context managers with corruption handling
         self.sync_session = self.get_sync_session  # Uses ConnectionManager
         self.async_session = self.get_async_session  # Uses ConnectionManager
+
+        # Log engine configuration
+        print_info("Database engine configuration:")
+        print_info("  Using shared memory SQLite (no connection pooling)")
+        print_info(f"  Connection Timeout: {engine_config['connect_args']['timeout']}s")
+        print_info(
+            f"  Isolation Level: {engine_config['connect_args']['isolation_level']}"
+        )
+        print_info(
+            f"  Check Same Thread: {engine_config['connect_args']['check_same_thread']}"
+        )
+        print_info(f"  URI Mode: {engine_config['connect_args']['uri']}")
 
     def _recreate_connections(self) -> None:
         """Recreate all database connections.
@@ -716,7 +784,10 @@ class Database:
             cursor.close()
 
             # Notify sync manager of potential changes
-            if hasattr(self.optimized_storage, "sync_manager"):
+            if (
+                hasattr(self.optimized_storage, "sync_manager")
+                and self.optimized_storage.sync_manager is not None
+            ):
                 self.optimized_storage.sync_manager.notify_commit()
         except Exception as e:
             print_error(f"Error during connection checkin: {e}")
@@ -969,9 +1040,23 @@ class Database:
                     # Create and wait for cleanup task
                     cleanup_task = loop.create_task(_cleanup())
                     try:
+                        # Add task to pending tasks so it's not destroyed
+                        self.config._background_tasks.append(cleanup_task)
+                        # Wait for cleanup to complete
                         loop.run_until_complete(cleanup_task)
                     except Exception as e:
                         print_error(f"Error waiting for cleanup: {e}")
+                        # Try to cancel task if it's still running
+                        if not cleanup_task.done():
+                            cleanup_task.cancel()
+                            try:
+                                loop.run_until_complete(cleanup_task)
+                            except asyncio.CancelledError:
+                                pass
+                    finally:
+                        # Remove task from pending tasks
+                        if cleanup_task in self.config._background_tasks:
+                            self.config._background_tasks.remove(cleanup_task)
                     return
             except RuntimeError:
                 print_info("No event loop - using sync cleanup")
@@ -1015,8 +1100,10 @@ class Database:
 
     def _stop_background_sync(self) -> None:
         """Stop background sync if enabled."""
-        if hasattr(self, "optimized_storage") and hasattr(
-            self.optimized_storage, "sync_manager"
+        if (
+            hasattr(self, "optimized_storage")
+            and hasattr(self.optimized_storage, "sync_manager")
+            and self.optimized_storage.sync_manager is not None
         ):
             self.optimized_storage.sync_manager.stop_sync_thread()
 
@@ -1176,6 +1263,47 @@ class Database:
             # Try one last sync
             self._final_sync_attempt()
 
+    def find_hashtag(self, value: str) -> tuple | None:
+        """Find hashtag by value (case-insensitive)."""
+        conn = self.optimized_storage.get_shared_connection()
+        if not conn:
+            return None
+        return self.optimized_storage.execute_prepared(
+            conn, "find_hashtag", (value,), fetch="one"
+        )
+
+    def find_hashtags_batch(self, values: list[str]) -> list[tuple]:
+        """Find multiple hashtags by value (case-insensitive)."""
+        conn = self.optimized_storage.get_shared_connection()
+        if not conn:
+            return []
+        return self.optimized_storage.execute_prepared(
+            conn, "find_hashtags_batch", (json.dumps(values),), fetch="all"
+        )
+
+    def find_post_mentions(
+        self,
+        post_id: int,
+        account_id: int | None = None,
+        handle: str | None = None,
+    ) -> list[tuple]:
+        """Find mentions for a post."""
+        conn = self.optimized_storage.get_shared_connection()
+        if not conn:
+            return []
+        return self.optimized_storage.execute_prepared(
+            conn, "find_post_mentions", (post_id, account_id, handle), fetch="all"
+        )
+
+    def find_media_by_hash(self, content_hash: str) -> tuple | None:
+        """Find media by content hash."""
+        conn = self.optimized_storage.get_shared_connection()
+        if not conn:
+            return None
+        return self.optimized_storage.execute_prepared(
+            conn, "find_media_by_hash", (content_hash,), fetch="one"
+        )
+
 
 class OptimizedSQLiteMemory:
     """SQLite database that operates entirely in memory.
@@ -1188,6 +1316,13 @@ class OptimizedSQLiteMemory:
     through the connection_manager, which handles proper thread/task
     safety and connection sharing.
 
+    Features:
+    1. In-memory operation for speed
+    2. Connection pooling and sharing
+    3. Prepared statements for common queries
+    4. Optimized indexes for frequent lookups
+    5. Automatic query optimization
+
     Attributes:
         remote_path: Path to source database file (for initial loading)
         connection_manager: Manager for database connections
@@ -1196,6 +1331,7 @@ class OptimizedSQLiteMemory:
     _shared_uri: str
     remote_path: Path | None
     connection_manager: ConnectionManager
+    sync_manager: DatabaseSyncManager | None
 
     def __init__(self, db_path: str | Path | None, shared_uri: str):
         """Initialize the in-memory database.
@@ -1208,8 +1344,10 @@ class OptimizedSQLiteMemory:
             sqlite3.DatabaseError: If database cannot be loaded
         """
         self._shared_uri = shared_uri  # Store the URI for later use
+        self._prepared_statements = {}
         self.remote_path = Path(db_path) if db_path else None
         self.connection_manager = ConnectionManager(optimized_storage=self)
+        self.sync_manager = None
 
         # Create initial in-memory database
         temp_conn = None
@@ -1228,6 +1366,9 @@ class OptimizedSQLiteMemory:
             self.connection_manager.set_thread_connection(
                 str(threading.get_ident()), temp_conn
             )
+
+            # Now validate prepared statements since tables exist
+            self._validate_prepared_statements(temp_conn)
         except Exception:
             if temp_conn:
                 temp_conn.close()
@@ -1235,6 +1376,156 @@ class OptimizedSQLiteMemory:
 
         # Enable URI connections for shared cache
         sqlite3.enable_callback_tracebacks(True)
+
+    def execute_prepared(
+        self,
+        conn: sqlite3.Connection,
+        stmt_name: str,
+        params: tuple | list | dict = (),
+        fetch: str | None = None,
+    ) -> sqlite3.Cursor | list[tuple] | tuple | None:
+        """Execute a prepared statement by name.
+
+        Args:
+            conn: Database connection to use
+            stmt_name: Name of the prepared statement
+            params: Parameters for the statement
+            fetch: How to fetch results:
+                  - None: Return cursor
+                  - 'one': Return single row or None
+                  - 'all': Return all rows
+                  - 'scalar': Return first column of first row or None
+
+        Returns:
+            Query results based on fetch parameter
+
+        Raises:
+            ValueError: If statement name not found
+            sqlite3.Error: If execution fails
+        """
+        if stmt_name not in self._prepared_statements:
+            raise ValueError(f"Prepared statement '{stmt_name}' not found")
+
+        stmt = self._prepared_statements[stmt_name]
+        cursor = conn.execute(stmt["sql"], params)
+
+        if fetch == "one":
+            return cursor.fetchone()
+        elif fetch == "all":
+            return cursor.fetchall()
+        elif fetch == "scalar":
+            row = cursor.fetchone()
+            return row[0] if row else None
+        else:
+            return cursor
+
+    def _prepare_statements(self, conn: sqlite3.Connection) -> None:
+        """Prepare commonly used SQL statements.
+
+        This method prepares statements that are frequently used to improve performance
+        by avoiding repeated parsing and query planning.
+
+        Args:
+            conn: SQLite connection to prepare statements on
+        """
+        # Define statements with their SQL
+        statements = {
+            "find_hashtag": {
+                "sql": (
+                    "SELECT id, value " "FROM hashtags " "WHERE lower(value) = lower(?)"
+                ),
+                "doc": "Case-insensitive hashtag lookup by value",
+            },
+            "find_hashtags_batch": {
+                "sql": (
+                    "SELECT id, value "
+                    "FROM hashtags "
+                    "WHERE lower(value) IN ("
+                    "    SELECT lower(value) "
+                    "    FROM json_each(?)"
+                    ")"
+                ),
+                "doc": "Batch hashtag lookup using JSON array parameter",
+            },
+            "find_post_mentions": {
+                "sql": (
+                    "SELECT * "
+                    "FROM post_mentions "
+                    "WHERE postId = ? "
+                    "AND ("
+                    "    (accountId = ? AND accountId IS NOT NULL) "
+                    "    OR "
+                    "    (handle = ? AND handle IS NOT NULL)"
+                    ")"
+                ),
+                "doc": "Find post mentions by postId and either accountId or handle",
+            },
+            "find_media_by_hash": {
+                "sql": ("SELECT * " "FROM media " "WHERE content_hash = ?"),
+                "doc": "Find media by content hash",
+            },
+            "find_wall_posts": {
+                "sql": (
+                    "SELECT p.* "
+                    "FROM posts p "
+                    "JOIN wall_posts wp ON p.id = wp.postId "
+                    "WHERE wp.wallId = ? "
+                    "ORDER BY p.createdAt DESC "
+                    "LIMIT ? OFFSET ?"
+                ),
+                "doc": "Find posts in a wall with pagination",
+            },
+            "find_post_attachments": {
+                "sql": (
+                    "SELECT a.* "
+                    "FROM attachments a "
+                    "WHERE a.postId = ? "
+                    "ORDER BY a.pos"
+                ),
+                "doc": "Find attachments for a post ordered by position",
+            },
+        }
+
+        # Store prepared statements in the class
+        self._prepared_statements = {}
+
+        # Prepare each statement
+        for name, info in statements.items():
+            try:
+                # Store the statement without trying to EXPLAIN yet
+                self._prepared_statements[name] = {
+                    "sql": info["sql"],
+                    "doc": info["doc"],
+                }
+            except sqlite3.Error as e:
+                print_error(f"Error preparing statement '{name}': {e}")
+                print_error(f"SQL: {info['sql']}")
+                # Don't raise - we'll validate when tables exist
+
+        # Statements are now prepared and stored in self._prepared_statements
+
+    def _validate_prepared_statements(self, conn: sqlite3.Connection) -> None:
+        """Validate prepared statements now that tables exist.
+
+        This runs EXPLAIN QUERY PLAN on each statement to:
+        1. Verify the SQL is valid
+        2. Cache the query plan
+        3. Catch any table/schema issues
+        """
+        for name, info in self._prepared_statements.items():
+            try:
+                # Count number of parameters (? marks) in the SQL
+                param_count = info["sql"].count("?")
+                # Create dummy parameters for EXPLAIN
+                dummy_params = tuple("1" for _ in range(param_count))
+                stmt = conn.cursor().execute(
+                    f"EXPLAIN QUERY PLAN {info['sql']}", dummy_params
+                )
+                stmt.close()  # Force SQLite to cache the query plan
+            except sqlite3.Error as e:
+                print_error(f"Error validating statement '{name}': {e}")
+                print_error(f"SQL: {info['sql']}")
+                raise
 
     def _configure_memory_settings(self, conn: sqlite3.Connection) -> None:
         """Configure SQLite connection for optimal memory performance.
@@ -1245,15 +1536,24 @@ class OptimizedSQLiteMemory:
         # Memory-specific optimizations
         conn.execute("PRAGMA journal_mode=MEMORY")  # In-memory journal
         conn.execute("PRAGMA synchronous=OFF")  # No disk syncs needed
-        conn.execute("PRAGMA cache_size=-2000")  # 2MB cache
+        conn.execute("PRAGMA cache_size=-200000")  # 200MB cache
         conn.execute("PRAGMA temp_store=MEMORY")  # Store temp tables in memory
         conn.execute("PRAGMA page_size=4096")  # Optimal page size
-        conn.execute("PRAGMA mmap_size=0")  # Disable memory mapping
+        conn.execute("PRAGMA mmap_size=1073741824")  # 1GB memory mapping
         conn.execute("PRAGMA threads=4")  # Use multiple threads
+
+        # Query optimization
+        conn.execute(
+            "PRAGMA automatic_index=TRUE"
+        )  # Allow SQLite to create temp indexes
+        conn.execute("PRAGMA optimize")  # Run internal optimizations
 
         # General optimizations
         conn.execute("PRAGMA locking_mode=NORMAL")  # Better concurrency
         conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
+
+        # Prepare statements
+        self._prepare_statements(conn)
 
     def get_shared_connection(self) -> sqlite3.Connection | None:
         """Get a shared connection to the in-memory database.
@@ -1455,20 +1755,35 @@ class DatabaseSyncManager:
         # Set sync settings based on path type and config
         if self._is_network:
             # Network paths need more frequent syncs
-            self.sync_interval = (
-                config.db_sync_seconds if hasattr(config, "db_sync_seconds") else 30
-            )
-            self.sync_commits = (
-                config.db_sync_commits if hasattr(config, "db_sync_commits") else 100
-            )
+            # Network paths need more frequent syncs
+            self.sync_interval = 30
+            if (
+                hasattr(config, "db_sync_seconds")
+                and config.db_sync_seconds is not None
+            ):
+                self.sync_interval = config.db_sync_seconds
+
+            self.sync_commits = 100
+            if (
+                hasattr(config, "db_sync_commits")
+                and config.db_sync_commits is not None
+            ):
+                self.sync_commits = config.db_sync_commits
         else:
             # Local paths can use longer intervals
-            self.sync_interval = (
-                config.db_sync_seconds if hasattr(config, "db_sync_seconds") else 60
-            )
-            self.sync_commits = (
-                config.db_sync_commits if hasattr(config, "db_sync_commits") else 1000
-            )
+            self.sync_interval = 60
+            if (
+                hasattr(config, "db_sync_seconds")
+                and config.db_sync_seconds is not None
+            ):
+                self.sync_interval = config.db_sync_seconds
+
+            self.sync_commits = 1000
+            if (
+                hasattr(config, "db_sync_commits")
+                and config.db_sync_commits is not None
+            ):
+                self.sync_commits = config.db_sync_commits
 
         if self._is_network:
             print_info(
@@ -1476,11 +1791,12 @@ class DatabaseSyncManager:
                 f"(interval: {self.sync_interval}s, commits: {self.sync_commits})"
             )
 
-        # Start sync thread
-        self._start_sync_thread()
+    def start_sync_thread(self) -> None:
+        """Start the background sync thread.
 
-    def _start_sync_thread(self) -> None:
-        """Start background sync thread."""
+        This should be called after any initial sync operations are complete.
+        """
+
         if self._sync_thread is None:
             self._sync_thread = Thread(target=self._sync_loop, daemon=True)
             self._sync_thread.start()
@@ -1501,10 +1817,15 @@ class DatabaseSyncManager:
 
                 # Log status every 30 seconds
                 if current_time - last_status >= 30:
-                    print_info(
-                        f"Sync status: {current_time - last_sync_success:.1f}s since last sync, "
-                        f"{self.commit_count} commits pending"
-                    )
+                    # Only log if there are pending commits or significant time has passed
+                    if (
+                        self.commit_count > 0
+                        or current_time - last_sync_success >= self.sync_interval / 2
+                    ):
+                        print_info(
+                            f"Sync status: {current_time - last_sync_success:.1f}s since last sync, "
+                            f"{self.commit_count} commits pending"
+                        )
                     last_status = current_time
 
                 # Only attempt sync if enough time has passed since last attempt

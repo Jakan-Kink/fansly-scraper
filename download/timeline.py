@@ -21,7 +21,7 @@ from .types import DownloadType
 
 async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
 
-    print_info("Executing Timeline functionality. Anticipate remarkable outcomes!")
+    print_info("Executing Timeline functionality...")
     print()
 
     # This is important for directory creation later on.

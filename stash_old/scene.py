@@ -22,14 +22,31 @@ class VideoCaption:
 
 @dataclass
 class SceneFileType:
-    size: str | None = None
+    # File identification
+    id: str | None = None
+    basename: str | None = None
+    path: str | None = None
+    parent_folder_id: str | None = None
+    zip_file_id: str | None = None
+
+    # File metadata
+    size: int | None = None
+    format: str | None = None
+    mod_time: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    # Media properties
     duration: float | None = None
     video_codec: str | None = None
     audio_codec: str | None = None
     width: int | None = None
     height: int | None = None
-    framerate: float | None = None
-    bitrate: int | None = None
+    frame_rate: float | None = None  # API uses frame_rate, not framerate
+    bit_rate: int | None = None  # API uses bit_rate, not bitrate
+
+    # Additional metadata
+    fingerprints: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -198,15 +215,22 @@ class Scene(StashSceneProtocol):
             "play_count": self.play_count,
             "play_history": [t.isoformat() for t in self.play_history],
             "o_history": [t.isoformat() for t in self.o_history],
-            "files": [vars(f) for f in self.files],
-            "scene_markers": self.scene_markers,
-            "galleries": self.galleries,
+            "files": [f.to_dict() for f in self.files],
+            "scene_markers": [
+                m.to_dict() if hasattr(m, "to_dict") else m for m in self.scene_markers
+            ],
+            "galleries": [g.to_dict() for g in self.galleries],
             "studio": self.studio.to_dict() if self.studio else None,
-            "groups": self.groups,
+            "groups": [
+                g.to_dict() if hasattr(g, "to_dict") else g for g in self.groups
+            ],
             "tags": [t.to_dict() for t in self.tags],
             "performers": [p.to_dict() for p in self.performers],
             "stash_ids": self.stash_ids,
-            "sceneStreams": [vars(s) for s in self.sceneStreams],
+            "sceneStreams": [
+                s.to_dict() if hasattr(s, "to_dict") else vars(s)
+                for s in self.sceneStreams
+            ],
         }
 
     def to_create_input_dict(self) -> dict:

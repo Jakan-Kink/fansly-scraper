@@ -17,7 +17,16 @@ import copy
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, select
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
@@ -37,9 +46,7 @@ if TYPE_CHECKING:
 
 
 class Wall(Base):
-    """Represents a content wall in a user's profile.
-
-    A wall is a collection of posts that can be organized and displayed separately
+    """A wall is a collection of posts that can be organized and displayed separately
     from the main timeline. Walls have their own metadata and can be ordered within
     a profile.
 
@@ -56,6 +63,11 @@ class Wall(Base):
         needed for the application's functionality:
         - metadata: Arbitrary metadata for the wall
     """
+
+    __table_args__ = (
+        # Composite index for efficient account+created_at lookups
+        Index("idx_wall_account_created", "accountId", "createdAt"),
+    )
 
     __tablename__ = "walls"
 
@@ -88,6 +100,9 @@ wall_posts = Table(
     Base.metadata,
     Column("wallId", Integer, ForeignKey("walls.id"), primary_key=True),
     Column("postId", Integer, ForeignKey("posts.id"), primary_key=True),
+    # Add indexes for efficient lookups
+    Index("idx_wall_posts_post", "postId"),
+    Index("idx_wall_posts_wall_post", "wallId", "postId"),
 )
 
 

@@ -463,7 +463,7 @@ def json_output(level: int, log_type: str, message: str) -> None:
     )
     logger.add(
         json_handler.write,
-        format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]:\n{message}",
+        format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]:\n{message}",
         level=log_type,
         filter=lambda record: record["extra"].get("json", False),
         backtrace=False,

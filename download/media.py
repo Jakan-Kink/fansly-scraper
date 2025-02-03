@@ -288,14 +288,14 @@ def _download_m3u8_file(
 
         # Check if this hash exists in database
         with config._database.session_scope() as session:
-
             session.add(media_record)
-            existing_by_hash = session.execute(
-                select(Media).where(
-                    Media.content_hash == new_hash,
-                    Media.id != media_record.id,
-                )
-            ).scalar_one_or_none()
+
+            # Use optimized hash lookup
+            existing_row = config._database.find_media_by_hash(new_hash)
+            existing_by_hash = None
+            if existing_row and existing_row[0] != media_record.id:
+                # Convert tuple to Media object
+                existing_by_hash = session.get(Media, existing_row[0])
 
             if existing_by_hash and existing_by_hash.is_downloaded:
                 # We found a duplicate

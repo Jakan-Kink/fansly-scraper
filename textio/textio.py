@@ -44,14 +44,14 @@ def output(level: int, log_type: str, color: str, message: str) -> None:
 
     logger.add(
         sys.stdout,
-        format="<level>{level}</level> | <white>{time:HH:mm}</white> <level>|</level><light-white>| {message}</light-white>",
+        format="<level>{level}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>",
         level=log_type,
         filter=lambda record: not record["extra"].get("json", False),
     )
     logger.add(
         Path.cwd() / "logs" / LOG_FILE_NAME,
         encoding="utf-8",
-        format="[{level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]: {message}",
+        format="[{level} ] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]: {message}",
         level=log_type,
         filter=lambda record: not record["extra"].get("json", False),
         rotation="100MB",

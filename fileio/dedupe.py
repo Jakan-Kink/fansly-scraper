@@ -155,17 +155,28 @@ async def get_or_create_media(
                     calculated_hash = get_hash_for_other_content(file_path)
 
                 if calculated_hash:
-                    other_media = (
-                        await session.execute(
-                            select(Media).where(Media.content_hash == calculated_hash)
-                        )
-                    ).scalar_one_or_none()
-                    if other_media and other_media.id != media.id:
-                        # Merge the records - keep the one with the correct ID
-                        media.content_hash = calculated_hash
-                        media.is_downloaded = True
-                        await session.delete(other_media)
-                        await session.flush()
+                    # Get all media with this hash using optimized lookup
+                    existing_row = config._database.find_media_by_hash(calculated_hash)
+                    other_media_list = []
+                    if existing_row and existing_row[0] != media.id:
+                        # Convert tuple to Media object
+                        other_media = await session.get(Media, existing_row[0])
+                        if other_media:
+                            other_media_list = [other_media]
+
+                    if other_media_list:
+                        # Keep the first one and delete the rest
+                        other_media = other_media_list[0]
+                        for duplicate in other_media_list[1:]:
+                            await session.delete(duplicate)
+
+                        # Now handle the first duplicate as before
+                        if other_media.id != media.id:
+                            # Merge the records - keep the one with the correct ID
+                            media.content_hash = calculated_hash
+                            media.is_downloaded = True
+                            await session.delete(other_media)
+                            await session.flush()
                     else:
                         media.content_hash = calculated_hash
                         media.is_downloaded = True
@@ -176,14 +187,14 @@ async def get_or_create_media(
                 elif trust_filename:
                     return media, hash_verified
 
-    # Try by hash if we have one
+    # Try by hash if we have one using optimized lookup
     if file_hash:
-        media = (
-            await session.execute(select(Media).where(Media.content_hash == file_hash))
-        ).scalar_one_or_none()
-        if media:
-            hash_verified = True
-            return media, hash_verified
+        existing_row = config._database.find_media_by_hash(file_hash)
+        if existing_row:
+            media = await session.get(Media, existing_row[0])
+            if media:
+                hash_verified = True
+                return media, hash_verified
     elif not trust_filename:
         # Calculate hash if needed and not provided
         calculated_hash = None
@@ -193,14 +204,12 @@ async def get_or_create_media(
             calculated_hash = get_hash_for_other_content(file_path)
 
         if calculated_hash:
-            media = (
-                await session.execute(
-                    select(Media).where(Media.content_hash == calculated_hash)
-                )
-            ).scalar_one_or_none()
-            if media:
-                hash_verified = True
-                return media, hash_verified
+            existing_row = config._database.find_media_by_hash(calculated_hash)
+            if existing_row:
+                media = await session.get(Media, existing_row[0])
+                if media:
+                    hash_verified = True
+                    return media, hash_verified
             file_hash = calculated_hash  # Use for new record if needed
 
     # Double-check for ID before creating new record
@@ -503,7 +512,7 @@ async def dedupe_init(config: FanslyConfig, state: DownloadState):
                 else:
                     media.is_downloaded = False
                     media.content_hash = None
-                session.commit()
+                await session.commit()
                 pbar.update(1)
 
     # Get updated counts

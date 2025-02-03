@@ -31,7 +31,11 @@ if TYPE_CHECKING:
 
 class Hashtag(Base):
     __tablename__ = "hashtags"
-    __table_args__ = (UniqueConstraint("value", name="uq_hashtags_value"),)
+    __table_args__ = (
+        UniqueConstraint("value", name="uq_hashtags_value"),
+        # Case-insensitive hashtag lookup
+        Index("ix_hashtags_value_lower", func.lower("value")),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -100,6 +104,12 @@ def extract_hashtags(content: str) -> list[str]:
         ['messy', 'drool']
         >>> extract_hashtags("##mistress")
         ['mistress']
+        >>> extract_hashtags("#latex #catsuit #domme")
+        ['latex', 'catsuit', 'domme']
+        >>> extract_hashtags("#strapon #latex #pegging")
+        ['strapon', 'latex', 'pegging']
+        >>> extract_hashtags("#latex #latexfetish #latexmodel")
+        ['latex', 'latexfetish', 'latexmodel']
         >>> extract_hashtags("#  ")  # Empty/whitespace hashtag
         []
         >>> extract_hashtags("# ")  # Just whitespace after #
@@ -123,7 +133,8 @@ def extract_hashtags(content: str) -> list[str]:
     # - Multiple hashtags: #tag1#tag2
     # - Multiple # symbols: ##tag
     # - No space before hashtag: word#tag
-    pattern = r"(?:^|\b)#+([a-zA-Z0-9_]+)"
+    # Match any # followed by word characters, ignoring word boundaries
+    pattern = r"#+([\w]+)"
 
     # Find all matches and extract the captured group (tag without #)
     # Convert to lowercase for case-insensitive uniqueness
@@ -165,23 +176,39 @@ async def process_post_hashtags(
     if not hashtag_values:
         return
 
-    for value in hashtag_values:
-        # First try to get existing hashtag
-        result = await session.execute(
-            select(Hashtag).where(func.lower(Hashtag.value) == func.lower(value))
-        )
-        hashtag = result.scalar()
+    # Get all existing hashtags in one query using optimized function
+    existing_rows = config._database.find_hashtags_batch(hashtag_values)
+    existing_hashtags = {
+        row[1].lower(): Hashtag(id=row[0], value=row[1]) for row in existing_rows
+    }
 
-        if not hashtag:
-            # If hashtag doesn't exist, create it
-            hashtag = Hashtag(value=value)
-            session.add(hashtag)
-            await session.flush()  # Ensure the hashtag has an ID
-
-        # Add association using the association table
-        insert_stmt = sqlite_insert(post_hashtags).values(
-            postId=post_obj.id,
-            hashtagId=hashtag.id,
+    # Create missing hashtags in one batch
+    missing_values = [v for v in hashtag_values if v.lower() not in existing_hashtags]
+    if missing_values:
+        # Batch insert missing hashtags
+        insert_stmt = sqlite_insert(Hashtag.__table__).values(
+            [{"value": v} for v in missing_values]
         )
+        update_stmt = insert_stmt.on_conflict_do_nothing()
+        await session.execute(update_stmt)
+        await session.flush()
+
+        # Get the newly created hashtags using optimized function
+        new_rows = config._database.find_hashtags_batch(missing_values)
+        new_hashtags = {
+            row[1].lower(): Hashtag(id=row[0], value=row[1]) for row in new_rows
+        }
+        existing_hashtags.update(new_hashtags)
+
+    # Create all associations in one batch
+    associations = [
+        {
+            "postId": post_obj.id,
+            "hashtagId": existing_hashtags[v.lower()].id,
+        }
+        for v in hashtag_values
+    ]
+    if associations:
+        insert_stmt = sqlite_insert(post_hashtags).values(associations)
         update_stmt = insert_stmt.on_conflict_do_nothing()
         await session.execute(update_stmt)

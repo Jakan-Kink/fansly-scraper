@@ -54,14 +54,19 @@ class StashInterface(BaseStashInterface):
                 result = f"{result}\n{self.fragments[name]}"
         return result
 
-    def callGQL(
-        self, query: str, variables: dict = None, *fragment_names: str
+    def call_GQL(
+        self,
+        query: str,
+        variables: dict = None,
+        callback: callable = None,
+        *fragment_names: str,
     ) -> dict[str, Any]:
         """Call GraphQL with automatic fragment inclusion.
 
         Args:
             query: GraphQL query string
             variables: Optional variables for the query
+            callback: Optional callback function for processing results
             *fragment_names: Names of fragments to include
 
         Returns:
@@ -69,7 +74,10 @@ class StashInterface(BaseStashInterface):
         """
         if fragment_names:
             query = self._build_query_with_fragments(query, *fragment_names)
-        return super().callGQL(query, variables or {})
+        return super().call_GQL(query, variables or {}, callback=callback)
+
+    # Alias for backward compatibility
+    callGQL = call_GQL
 
     def find_scene(
         self, scene: str | int | dict, fragment: str | None = None, create: bool = False

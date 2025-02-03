@@ -1,89 +1,49 @@
-"""Stash API client library for Python.
+"""Strawberry GraphQL integration for Stash."""
 
-This module provides a high-level interface to the Stash GraphQL API using dataclasses.
-"""
-
-# Protocol definitions
-# Core functionality
-from .base_protocols import (
-    BaseFileProtocol,
-    ImageFileProtocol,
-    StashBaseProtocol,
-    StashContentProtocol,
-    StashGalleryProtocol,
-    StashGroupDescriptionProtocol,
-    StashGroupProtocol,
-    StashImageProtocol,
-    StashPerformerProtocol,
-    StashQLProtocol,
-    StashSceneProtocol,
-    StashStudioProtocol,
-    StashTagProtocol,
-    VideoFileProtocol,
-    VisualFileProtocol,
-    VisualFileType,
-)
-
-# Dataclass implementations
-from .file import BaseFile, FileType, ImageFile, SceneFile, VisualFile
-from .gallery import Gallery, GalleryChapter
-from .group import Group, GroupDescription
-from .image import Image, ImagePathsType
-from .performer import Performer
-from .processing import StashProcessing
-from .scene import (
+from .client import StashClient
+from .context import StashContext
+from .types import (  # Core types; Support types; Enums
+    CircumisedEnum,
+    ConfigResult,
+    FilterMode,
+    FindFilterType,
+    Gallery,
+    GenderEnum,
+    Group,
+    Image,
+    Performer,
+    SavedFilter,
     Scene,
-    SceneFileType,
-    ScenePathsType,
-    SceneStreamEndpoint,
-    VideoCaption,
+    SceneMarker,
+    SceneMarkerTag,
+    SortDirectionEnum,
+    StashID,
+    Studio,
+    Tag,
 )
-from .stash_context import StashContext, StashQL  # Core classes for Stash interaction
-from .stash_interface import StashInterface
-from .studio import Studio
-from .tag import Tag
 
 __all__ = [
-    # Core functionality
+    # Client and Context
+    "StashClient",
     "StashContext",
-    "StashQL",
-    "StashInterface",
-    "StashQLProtocol",
-    "StashProcessing",
-    # Dataclass implementations
-    "BaseFile",
-    "FileType",
-    "Gallery",
-    "GalleryChapter",
-    "Group",
-    "GroupDescription",
-    "Image",
-    "ImageFile",
-    "ImagePathsType",
-    "Performer",
+    # Core types
     "Scene",
-    "SceneFile",
-    "SceneFileType",
-    "ScenePathsType",
-    "SceneStreamEndpoint",
+    "Gallery",
+    "Group",
+    "Image",
+    "Performer",
     "Studio",
     "Tag",
-    "VideoCaption",
-    "VisualFile",
-    # Protocol definitions
-    "BaseFileProtocol",
-    "ImageFileProtocol",
-    "StashBaseProtocol",
-    "StashContentProtocol",
-    "StashGalleryProtocol",
-    "StashGroupDescriptionProtocol",
-    "StashGroupProtocol",
-    "StashImageProtocol",
-    "StashPerformerProtocol",
-    "StashSceneProtocol",
-    "StashStudioProtocol",
-    "StashTagProtocol",
-    "VideoFileProtocol",
-    "VisualFileProtocol",
-    "VisualFileType",
+    # Support types
+    "ConfigResult",
+    "FindFilterType",
+    "SavedFilter",
+    "SceneMarker",
+    "SceneMarkerTag",
+    "StashID",
+    # Enums
+    "SortDirectionEnum",
+    "GenderEnum",
+    "CircumisedEnum",
+    "FilterMode",
 ]

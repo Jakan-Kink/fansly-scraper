@@ -115,12 +115,17 @@ async def process_download_accessible_media(
 
     # Timeline
 
-    # loop through the list of dictionaries and find the highest quality media URL for each one
-    for media_info in media_infos:
+    # Process media info in batches
+    batch_size = 15  # Process one timeline page worth of items at a time
+    for i in range(0, len(media_infos), batch_size):
+        batch = media_infos[i : i + batch_size]
         try:
-            # add details into a list
-            media_items += [parse_media_info(state, media_info, post_id)]
-            await process_media_info(config, media_info)
+            # Parse media info for the batch
+            for media_info in batch:
+                media_items.append(parse_media_info(state, media_info, post_id))
+
+            # Process the entire batch at once
+            await process_media_info(config, {"batch": batch})
 
         except Exception:
             print_error(
@@ -154,7 +159,7 @@ async def process_download_accessible_media(
 
     set_create_directory_for_download(config, state)
 
-    await process_media_download_accessible(config, state, media_infos=media_infos)
+    # await process_media_download_accessible(config, state, media_infos=media_infos)
 
     try:
         # download it

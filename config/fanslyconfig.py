@@ -11,13 +11,11 @@ from typing import TYPE_CHECKING, Any
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
-
-if TYPE_CHECKING:
-    from metadata import Base, Database
 from pathio import PathConfig
 
 if TYPE_CHECKING:
-    from stash import StashContext, StashInterface  # noqa: F401
+    from metadata import Base, Database
+    from stash import StashClient, StashContext  # noqa: F401
 
 
 @dataclass
@@ -373,6 +371,14 @@ class FanslyConfig(PathConfig):
         return Path.cwd() / "metadata_db.sqlite3"
 
     def get_stash_context(self) -> StashContext:
+        """Get Stash context.
+
+        Returns:
+            StashContext instance
+
+        Raises:
+            RuntimeError: If no connection data available
+        """
         if self._stash is None:
             if self.stash_context_conn is None:
                 raise RuntimeError("No StashContext connection data available.")
@@ -384,10 +390,18 @@ class FanslyConfig(PathConfig):
 
         return self._stash
 
-    def get_stash_api(self) -> StashInterface:
+    def get_stash_api(self) -> StashClient:
+        """Get Stash API client.
+
+        Returns:
+            StashClient instance
+
+        Raises:
+            RuntimeError: If failed to initialize Stash API
+        """
         try:
             stash_context = self.get_stash_context()
-            return stash_context.interface
+            return stash_context.client
         except RuntimeError as e:
             raise RuntimeError(f"Failed to initialize Stash API: {e}")
 

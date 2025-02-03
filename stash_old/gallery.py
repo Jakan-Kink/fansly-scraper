@@ -208,7 +208,22 @@ class Gallery(StashGalleryProtocol):
 
     def to_update_input_dict(self) -> dict:
         """Converts the Gallery object into a dictionary matching the GalleryUpdateInput GraphQL definition."""
-        return {"id": self.id, **self.to_create_input_dict()}
+        # Convert files to IDs
+        file_ids = []
+        for f in self.files:
+            if hasattr(f, "id"):
+                file_ids.append(f.id)
+            elif isinstance(f, dict) and "id" in f:
+                file_ids.append(f["id"])
+
+        # Create base input
+        base_input = self.to_create_input_dict()
+
+        # Add file IDs if we have any
+        if file_ids:
+            base_input["file_ids"] = file_ids
+
+        return {"id": self.id, **base_input}
 
     def stash_create(self, interface: StashInterface) -> dict:
         """Creates the gallery in stash using the interface.

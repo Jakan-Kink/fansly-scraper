@@ -5,6 +5,7 @@ This module provides:
 2. Database operation logging
 3. Performance monitoring
 4. Error tracking
+5. Log rotation by size and time
 """
 
 import logging
@@ -17,7 +18,19 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from textio import print_error, print_info
+from textio.logging import SizeAndTimeRotatingFileHandler
+
+
+def _log_to_sqlalchemy(logger_name: str, level: int, message: str) -> None:
+    """Log a message to a specific SQLAlchemy logger.
+
+    Args:
+        logger_name: Name of the SQLAlchemy logger to use
+        level: Logging level (e.g., logging.INFO)
+        message: Message to log
+    """
+    logger = logging.getLogger(logger_name)
+    logger.log(level, message)
 
 
 class DatabaseLogger:
@@ -59,10 +72,24 @@ class DatabaseLogger:
         for logger_name in loggers:
             logger = logging.getLogger(logger_name)
             logger.setLevel(logging.INFO)
+            logger.propagate = False  # Prevent propagation to parent loggers
 
-            # Add file handler if path provided
+            # Add rotating file handler if path provided
             if self.log_path:
-                handler = logging.FileHandler(self.log_path)
+                # Create logs directory if needed
+                self.log_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Set up rotating handler
+                handler = SizeAndTimeRotatingFileHandler(
+                    filename=str(self.log_path),
+                    maxBytes=100 * 1024 * 1024,  # 10MB
+                    backupCount=20,
+                    when="h",  # Hourly rotation
+                    interval=1,
+                    utc=True,
+                    compression="gz",
+                    keep_uncompressed=2,  # Keep 2 most recent logs uncompressed
+                )
                 handler.setLevel(logging.INFO)
                 formatter = logging.Formatter(
                     "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -70,12 +97,15 @@ class DatabaseLogger:
                 handler.setFormatter(formatter)
                 logger.addHandler(handler)
 
-    def setup_engine_logging(self, engine: Engine) -> None:
+    def setup_engine_logging(self, engine: Engine | Any) -> None:
         """Set up logging for SQLAlchemy engine.
 
         Args:
-            engine: SQLAlchemy Engine instance
+            engine: SQLAlchemy Engine instance (sync or async)
         """
+        # For async engines, use the underlying sync engine
+        if hasattr(engine, "sync_engine"):
+            engine = engine.sync_engine
 
         @event.listens_for(engine, "before_cursor_execute")
         def before_cursor_execute(
@@ -104,32 +134,47 @@ class DatabaseLogger:
             # Log slow queries (>100ms)
             if total > 0.1:
                 self._stats["slow_queries"] += 1
-                print_info(f"Slow query ({total:.2f}s): {statement[:100]}...")
+                _log_to_sqlalchemy(
+                    "sqlalchemy.engine",
+                    logging.INFO,
+                    f"Slow query ({total:.2f}s): {statement[:100]}...",
+                )
 
         @event.listens_for(engine, "handle_error")
         def handle_error(context: Any) -> None:
             self._stats["errors"] += 1
             error = context.original_exception
-            print_error(f"Database error: {error}")
+            _log_to_sqlalchemy(
+                "sqlalchemy.engine", logging.ERROR, f"Database error: {error}"
+            )
 
-    def setup_session_logging(self, session: Session) -> None:
+    def setup_session_logging(self, session: Session | Any) -> None:
         """Set up logging for SQLAlchemy session.
 
         Args:
-            session: SQLAlchemy Session instance
+            session: SQLAlchemy Session instance (sync or async)
         """
+        # For async sessions, use the underlying sync session
+        if hasattr(session, "sync_session"):
+            session = session.sync_session
 
         @event.listens_for(session, "after_transaction_create")
         def after_transaction_create(session: Session, transaction: Any) -> None:
-            print_info(f"Transaction started: {transaction}")
+            _log_to_sqlalchemy(
+                "sqlalchemy.orm", logging.DEBUG, f"Transaction started: {transaction}"
+            )
 
         @event.listens_for(session, "after_transaction_end")
         def after_transaction_end(session: Session, transaction: Any) -> None:
-            print_info(f"Transaction ended: {transaction}")
+            _log_to_sqlalchemy(
+                "sqlalchemy.orm", logging.DEBUG, f"Transaction ended: {transaction}"
+            )
 
         @event.listens_for(session, "after_rollback")
         def after_rollback(session: Session) -> None:
-            print_error("Transaction rolled back")
+            _log_to_sqlalchemy(
+                "sqlalchemy.orm", logging.ERROR, "Transaction rolled back"
+            )
 
     def get_stats(self) -> dict[str, Any]:
         """Get current statistics.

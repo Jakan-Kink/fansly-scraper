@@ -27,7 +27,7 @@ async def download_wall(
         state: Current download state
         wall_id: ID of the wall to download
     """
-    print_info(f"Downloading wall {wall_id}. Anticipate remarkable outcomes!")
+    print_info(f"Downloading wall {wall_id}...")
     print()
 
     # Set download type for directory creation

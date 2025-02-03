@@ -134,7 +134,7 @@ class Image(StashImageProtocol):
             "o_counter": self.o_counter,
             "organized": self.organized,
             "visual_files": [f.to_dict() for f in self.visual_files],
-            "paths": vars(self.paths) if self.paths else None,
+            "paths": self.paths.to_dict() if self.paths else None,
             "galleries": [g.to_dict() for g in self.galleries],
             "studio": self.studio.to_dict() if self.studio else None,
             "tags": [t.to_dict() for t in self.tags],
