@@ -1115,12 +1115,11 @@ class StashProcessing:
                 "fansly_studio_dict": fansly_studio_result.__dict__,
             }
         )
-        fansly_studio = (
-            fansly_studio_result.studios[0] if fansly_studio_result.count > 0 else None
-        )
-        if not fansly_studio:
+        if fansly_studio_result.count == 0:
             raise ValueError("Fansly Studio not found in Stash")
-        # No need to recreate Studio object, it's already a dict with the right data
+
+        # Convert dict to Studio object
+        fansly_studio = Studio(**fansly_studio_result.studios[0])
         debug_print(
             {
                 "method": "StashProcessing - process_creator_studio",
@@ -1130,10 +1129,14 @@ class StashProcessing:
         creator_studio_name = f"{account.username} (Fansly)"
         studio_data = await self.context.client.find_studios(q=creator_studio_name)
         if studio_data.count == 0:
+            # Create new studio with required fields
             studio = Studio(
+                id="new",  # Special value indicating new object to Stash
                 name=creator_studio_name,
                 parent_studio=fansly_studio,
                 url=f"https://fansly.com/{account.username}/posts",
+                created_at=account.createdAt,
+                updated_at=account.createdAt,  # Initially same as created_at
             )
             await studio.save(self.context.client)
         else:

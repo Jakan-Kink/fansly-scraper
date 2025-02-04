@@ -739,7 +739,8 @@ class StashClient:
             )
             ```
         """
-        filter_["q"] = q
+        if q:
+            filter_["q"] = q
         try:
             result = await self.execute(
                 fragments.FIND_PERFORMERS_QUERY,
@@ -1094,7 +1095,7 @@ class StashClient:
             ```
         """
         if q:
-            studio_filter["q"] = q
+            filter_["q"] = q
         try:
             result = await self.execute(
                 fragments.FIND_STUDIOS_QUERY,
