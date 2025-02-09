@@ -9,8 +9,8 @@ from strawberry import ID, lazy
 from metadata import Media, Message, Post
 
 from .base import StashObject
+from .enums import BulkUpdateIdMode
 from .files import Folder, GalleryFile
-from .inputs import GalleryCreateInput, GalleryUpdateInput
 
 if TYPE_CHECKING:
     from .performer import Performer
@@ -187,12 +187,11 @@ class Gallery(StashObject):
         # Build gallery
         gallery = cls(
             id="new",  # Will be replaced on save
-            title=(
-                content.content[:100] if content.content else None
-            ),  # Truncate long content
             details=content.content,
             urls=urls,
-            date=content.createdAt.isoformat(),
+            date=content.createdAt.strftime(
+                "%Y-%m-%d"
+            ),  # Stash expects YYYY-MM-DD format
             created_at=content.createdAt or datetime.now(),
             updated_at=datetime.now(),
             organized=True,  # Mark as organized since we have metadata
@@ -206,45 +205,222 @@ class Gallery(StashObject):
 
         return gallery
 
-    def to_input(self) -> dict[str, Any]:
+    async def to_input(self) -> dict[str, Any]:
         """Convert to GraphQL input.
 
         Returns:
             Dictionary of input fields for create/update
         """
+        # Field definitions with their conversion functions
+        field_conversions = {
+            "title": str,
+            "code": str,
+            "urls": list,
+            "details": str,
+            "photographer": str,
+            "rating100": int,
+            "organized": bool,
+            "date": lambda d: (
+                d.strftime("%Y-%m-%d")
+                if isinstance(d, datetime)
+                else (
+                    datetime.fromisoformat(d).strftime("%Y-%m-%d")
+                    if isinstance(d, str)
+                    else None
+                )
+            ),
+        }
+
+        # Process regular fields
+        data = {}
+        for field, converter in field_conversions.items():
+            if hasattr(self, field):
+                value = getattr(self, field)
+                if value is not None:
+                    try:
+                        converted = converter(value)
+                        if converted is not None:
+                            data[field] = converted
+                    except (ValueError, TypeError):
+                        pass
+
+        # Add ID if this is an update
         if hasattr(self, "id") and self.id != "new":
-            # Update existing
-            return GalleryUpdateInput(
-                id=self.id,
-                title=self.title,
-                code=self.code,
-                urls=self.urls,
-                date=self.date,
-                details=self.details,
-                photographer=self.photographer,
-                rating100=self.rating100,
-                organized=self.organized,
-                scene_ids=[s.id for s in self.scenes],
-                studio_id=self.studio.id if self.studio else None,
-                tag_ids=[t.id for t in self.tags],
-                performer_ids=[p.id for p in self.performers],
-            ).__dict__
-        else:
-            # Create new
-            return GalleryCreateInput(
-                title=self.title or "",  # Required by schema
-                code=self.code,
-                urls=self.urls,
-                date=self.date,
-                details=self.details,
-                photographer=self.photographer,
-                rating100=self.rating100,
-                organized=self.organized,
-                scene_ids=[s.id for s in self.scenes],
-                studio_id=self.studio.id if self.studio else None,
-                tag_ids=[t.id for t in self.tags],
-                performer_ids=[p.id for p in self.performers],
-            ).__dict__
+            data["id"] = self.id
+
+        # Helper function to get ID from object or dict
+        async def get_id(obj: Any) -> str | None:
+            if isinstance(obj, dict):
+                return obj.get("id")
+            if hasattr(obj, "awaitable_attrs"):
+                await obj.awaitable_attrs.id
+                return obj.id
+            return getattr(obj, "id", None)
+
+        # Process relationships
+        relationships = {
+            # Standard ID relationships
+            "studio": ("studio_id", False),  # (target_field, is_list)
+            "performers": ("performer_ids", True),
+            "tags": ("tag_ids", True),
+            "scenes": ("scene_ids", True),
+        }
+
+        for rel_field, (target_field, is_list) in relationships.items():
+            if hasattr(self, rel_field):
+                value = getattr(self, rel_field)
+                if not value:
+                    continue
+
+                if is_list:
+                    # Handle list relationships
+                    ids = []
+                    for item in value:
+                        if item_id := await get_id(item):
+                            ids.append(item_id)
+                    if ids:
+                        data[target_field] = ids
+                else:
+                    # Handle single relationships
+                    if item_id := await get_id(value):
+                        data[target_field] = item_id
+
+        # Create input object based on operation type
+        input_class = GalleryUpdateInput if "id" in data else GalleryCreateInput
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+
+@strawberry.input
+class BulkUpdateStrings:
+    """Input for bulk string updates."""
+
+    values: list[str]  # [String!]!
+    mode: BulkUpdateIdMode  # BulkUpdateIdMode!
+
+
+@strawberry.input
+class BulkUpdateIds:
+    """Input for bulk ID updates."""
+
+    ids: list[ID]  # [ID!]!
+    mode: BulkUpdateIdMode  # BulkUpdateIdMode!
+
+
+@strawberry.input
+class GalleryCreateInput:
+    """Input for creating galleries."""
+
+    # Required fields
+    title: str  # String!
+
+    # Optional fields
+    code: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
+    rating100: int | None = None  # Int
+    organized: bool | None = None  # Boolean
+    scene_ids: list[ID] | None = None  # [ID!]
+    studio_id: ID | None = None  # ID
+    tag_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+
+
+@strawberry.input
+class GalleryUpdateInput:
+    """Input for updating galleries."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    title: str | None = None  # String
+    code: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
+    rating100: int | None = None  # Int
+    organized: bool | None = None  # Boolean
+    scene_ids: list[ID] | None = None  # [ID!]
+    studio_id: ID | None = None  # ID
+    tag_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+    primary_file_id: ID | None = None  # ID
+
+
+@strawberry.input
+class GalleryAddInput:
+    """Input for adding images to gallery."""
+
+    gallery_id: ID  # ID!
+    image_ids: list[ID]  # [ID!]!
+
+
+@strawberry.input
+class GalleryRemoveInput:
+    """Input for removing images from gallery."""
+
+    gallery_id: ID  # ID!
+    image_ids: list[ID]  # [ID!]!
+
+
+@strawberry.input
+class GallerySetCoverInput:
+    """Input for setting gallery cover."""
+
+    gallery_id: ID  # ID!
+    cover_image_id: ID  # ID!
+
+
+@strawberry.input
+class GalleryResetCoverInput:
+    """Input for resetting gallery cover."""
+
+    gallery_id: ID  # ID!
+
+
+@strawberry.input
+class GalleryDestroyInput:
+    """Input for destroying galleries.
+
+    If delete_file is true, then the zip file will be deleted if the gallery is zip-file-based.
+    If gallery is folder-based, then any files not associated with other galleries will be
+    deleted, along with the folder, if it is not empty."""
+
+    ids: list[ID]  # [ID!]!
+    delete_file: bool | None = None  # Boolean
+    delete_generated: bool | None = None  # Boolean
+
+
+@strawberry.input
+class BulkGalleryUpdateInput:
+    """Input for bulk updating galleries."""
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    ids: list[ID]  # [ID!]!
+    code: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: BulkUpdateStrings | None = None  # BulkUpdateStrings
+    date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
+    rating100: int | None = None  # Int (1-100)
+    organized: bool | None = None  # Boolean
+    scene_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    studio_id: ID | None = None  # ID
+    tag_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    performer_ids: BulkUpdateIds | None = None  # BulkUpdateIds
 
 
 @strawberry.type

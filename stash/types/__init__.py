@@ -1,7 +1,7 @@
 """Strawberry GraphQL types for Stash."""
 
 # Base types
-from .base import StashObject
+from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
 
 # Support types
 from .config import (
@@ -88,13 +88,21 @@ from .filters import (
 
 # Core types
 from .gallery import (
+    BulkGalleryUpdateInput,
     FindGalleriesResultType,
     FindGalleryChaptersResultType,
     Gallery,
+    GalleryAddInput,
     GalleryChapter,
     GalleryChapterCreateInput,
     GalleryChapterUpdateInput,
+    GalleryCreateInput,
+    GalleryDestroyInput,
     GalleryPathsType,
+    GalleryRemoveInput,
+    GalleryResetCoverInput,
+    GallerySetCoverInput,
+    GalleryUpdateInput,
 )
 from .group import (
     BulkGroupUpdateInput,
@@ -115,9 +123,10 @@ from .image import (
     Image,
     ImageDestroyInput,
     ImageFileType,
+    ImagePathsType,
     ImagesDestroyInput,
 )
-from .job import FindJobInput, Job, JobStatus, JobStatusUpdate
+from .job import FindJobInput, Job, JobStatus
 from .logging import LogEntry, LogLevel
 from .markers import (
     FindSceneMarkersResultType,
@@ -152,13 +161,28 @@ from .metadata import (
     ScanMetadataOptions,
     SystemStatus,
 )
-from .performer import FindPerformersResultType, Performer
+from .not_implemented import (
+    DLNAStatus,
+    JobStatusUpdate,
+    LatestVersion,
+    SQLExecResult,
+    SQLQueryResult,
+    StashBoxValidationResult,
+    Version,
+)
+from .performer import (
+    FindPerformersResultType,
+    Performer,
+    PerformerCreateInput,
+    PerformerUpdateInput,
+)
 from .scalars import Any, BoolMap, Int64, Map, PluginConfigMap, Time, Timestamp, Upload
 from .scene import (
     AssignSceneFileInput,
     FindScenesResultType,
     HistoryMutationResult,
     Scene,
+    SceneCreateInput,
     SceneDestroyInput,
     SceneFileType,
     SceneGroup,
@@ -171,19 +195,30 @@ from .scene import (
     ScenePathsType,
     ScenesDestroyInput,
     SceneStreamEndpoint,
+    SceneUpdateInput,
     VideoCaption,
 )
-from .studio import FindStudiosResultType, Studio, StudioDestroyInput
+from .studio import (
+    FindStudiosResultType,
+    Studio,
+    StudioCreateInput,
+    StudioDestroyInput,
+    StudioUpdateInput,
+)
 from .tag import (
     BulkTagUpdateInput,
     FindTagsResultType,
     Tag,
+    TagCreateInput,
     TagDestroyInput,
     TagsMergeInput,
+    TagUpdateInput,
 )
 
 __all__ = [
     # Base types
+    "BulkUpdateIds",
+    "BulkUpdateStrings",
     "StashObject",
     # Core types
     "Scene",
@@ -255,13 +290,23 @@ __all__ = [
     "TagFilterType",
     "TimestampCriterionInput",
     # Gallery types
+    "BulkGalleryUpdateInput",
+    "BulkUpdateIds",
+    "BulkUpdateStrings",
     "FindGalleriesResultType",
     "FindGalleryChaptersResultType",
+    "GalleryAddInput",
     "GalleryChapter",
     "GalleryChapterCreateInput",
     "GalleryChapterUpdateInput",
+    "GalleryCreateInput",
+    "GalleryDestroyInput",
     "GalleryFile",
     "GalleryPathsType",
+    "GalleryRemoveInput",
+    "GalleryResetCoverInput",
+    "GallerySetCoverInput",
+    "GalleryUpdateInput",
     # Group types
     "BulkGroupUpdateInput",
     "BulkUpdateGroupDescriptionsInput",
@@ -321,10 +366,14 @@ __all__ = [
     "SystemStatus",
     # Performer types
     "FindPerformersResultType",
+    "PerformerCreateInput",
+    "PerformerUpdateInput",
     # Scene types
     "AssignSceneFileInput",
+    "BulkSceneUpdateInput",
     "FindScenesResultType",
     "HistoryMutationResult",
+    "SceneCreateInput",
     "SceneDestroyInput",
     "SceneFileType",
     "SceneGroup",
@@ -337,6 +386,7 @@ __all__ = [
     "ScenePathsType",
     "ScenesDestroyInput",
     "SceneStreamEndpoint",
+    "SceneUpdateInput",
     # Scalar types
     "Any",
     "BoolMap",
@@ -348,12 +398,16 @@ __all__ = [
     "Upload",
     # Studio types
     "FindStudiosResultType",
+    "StudioCreateInput",
     "StudioDestroyInput",
+    "StudioUpdateInput",
     # Tag types
     "BulkTagUpdateInput",
     "FindTagsResultType",
+    "TagCreateInput",
     "TagDestroyInput",
     "TagsMergeInput",
+    "TagUpdateInput",
     # Enum types
     "BlobsStorageType",
     "CircumisedEnum",
@@ -370,4 +424,12 @@ __all__ = [
     "ResolutionEnum",
     "SortDirectionEnum",
     "StreamingResolutionEnum",
+    # Not Implemented types
+    "DLNAStatus",
+    "JobStatusUpdate",
+    "LatestVersion",
+    "SQLExecResult",
+    "SQLQueryResult",
+    "StashBoxValidationResult",
+    "Version",
 ]

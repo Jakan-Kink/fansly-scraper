@@ -8,9 +8,8 @@ from strawberry import ID, lazy
 
 from metadata import Media
 
-from .base import StashObject
+from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
 from .files import ImageFile, VisualFile
-from .inputs import ImageUpdateInput
 
 if TYPE_CHECKING:
     from .gallery import Gallery
@@ -47,6 +46,7 @@ class Image(StashObject):
     # Optional fields
     title: str | None = None  # String
     code: str | None = None  # String
+    urls: list[str] = strawberry.field(default_factory=list)  # [String!]
     rating100: int | None = None  # Int (1-100)
     date: str | None = None  # String
     details: str | None = None  # String
@@ -81,75 +81,130 @@ class Image(StashObject):
     files: list[ImageFile] = strawberry.field(default_factory=list)  # [ImageFile!]!
 
     @classmethod
-    async def from_media(
-        cls,
-        media: Media,
-        performer: (
-            Annotated["Performer", lazy("stash.types.performer.Performer")] | None
-        ) = None,
-        studio: Annotated["Studio", lazy("stash.types.studio.Studio")] | None = None,
-    ) -> "Image":
-        """Create image from media.
+    def from_dict(cls, data: dict[str, Any]) -> "Image":
+        """Create image from dictionary.
 
         Args:
-            media: Media to convert
-            performer: Optional performer to associate
-            studio: Optional studio to associate
+            data: Dictionary containing image data
 
         Returns:
             New image instance
         """
-        # Build image
-        image = cls(
-            id="new",  # Will be replaced on save
-            title=media.local_filename,
-            date=media.createdAt,
-            created_at=media.createdAt or datetime.now(),
-            updated_at=datetime.now(),
-            organized=True,  # Mark as organized since we have metadata
-        )
+        # Filter out fields that aren't part of our class
+        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
 
-        # Add relationships
-        if performer:
-            image.performers = [performer]
-        if studio:
-            image.studio = studio
+        # Convert timestamps
+        if "created_at" in filtered_data:
+            filtered_data["created_at"] = datetime.fromisoformat(
+                filtered_data["created_at"]
+            )
+        if "updated_at" in filtered_data:
+            filtered_data["updated_at"] = datetime.fromisoformat(
+                filtered_data["updated_at"]
+            )
+
+        # Create instance
+        image = cls(**filtered_data)
+
+        # Convert lists
+        if "files" in filtered_data:
+            image.files = [ImageFile(**f) for f in filtered_data["files"]]
+        if "visual_files" in filtered_data:
+            image.visual_files = [
+                VisualFile(**f) for f in filtered_data["visual_files"]
+            ]
 
         return image
 
-    def to_input(self) -> dict[str, Any]:
+    async def to_input(self) -> dict[str, Any]:
         """Convert to GraphQL input.
 
         Returns:
             Dictionary of input fields
         """
+        # Field definitions with their conversion functions
+        field_conversions = {
+            "title": str,
+            "code": str,
+            "urls": list,
+            "details": str,
+            "photographer": str,
+            "rating100": int,
+            "organized": bool,
+            "date": lambda d: (
+                d.strftime("%Y-%m-%d")
+                if isinstance(d, datetime)
+                else (
+                    datetime.fromisoformat(d).strftime("%Y-%m-%d")
+                    if isinstance(d, str)
+                    else None
+                )
+            ),
+        }
+
+        # Process regular fields
         data = {}
+        for field, converter in field_conversions.items():
+            if hasattr(self, field):
+                value = getattr(self, field)
+                if value is not None:
+                    try:
+                        converted = converter(value)
+                        if converted is not None:
+                            data[field] = converted
+                    except (ValueError, TypeError):
+                        # Skip fields that can't be converted
+                        pass
 
-        # Add optional fields if set
-        if self.title:
-            data["title"] = self.title
-        if self.url:
-            data["url"] = self.url
-        if self.date:
-            data["date"] = self.date.isoformat()
-        if self.rating100 is not None:
-            data["rating100"] = self.rating100
-        if self.organized is not None:
-            data["organized"] = self.organized
+        # ID is required - we only update existing objects
+        if not hasattr(self, "id") or self.id == "new":
+            raise ValueError(
+                f"Image must have an ID for updates, got: {getattr(self, 'id', None)}"
+            )
+        data["id"] = self.id
 
-        # Add relationships
-        if self.studio:
-            data["studio_id"] = self.studio.id
-        if self.performers:
-            data["performer_ids"] = [p.id for p in self.performers]
-        if self.tags:
-            data["tag_ids"] = [t.id for t in self.tags]
+        # Helper function to get ID from object or dict
+        async def get_id(obj: Any) -> str | None:
+            if isinstance(obj, dict):
+                return obj.get("id")
+            if hasattr(obj, "awaitable_attrs"):
+                await obj.awaitable_attrs.id
+            return getattr(obj, "id", None)
 
-        # Add ID for updates
-        if hasattr(self, "id") and self.id != "new":
-            data["id"] = self.id
+        # Process relationships
+        relationships = {
+            "studio": ("studio_id", False),  # (target_field, is_list)
+            "performers": ("performer_ids", True),
+            "tags": ("tag_ids", True),
+        }
 
-        return data
+        for rel_field, (target_field, is_list) in relationships.items():
+            if hasattr(self, rel_field):
+                value = getattr(self, rel_field)
+                if not value:
+                    continue
+
+                if is_list:
+                    # Handle list relationships
+                    ids = []
+                    for item in value:
+                        if item_id := await get_id(item):
+                            ids.append(item_id)
+                    if ids:
+                        data[target_field] = ids
+                else:
+                    # Handle single relationships
+                    if item_id := await get_id(value):
+                        data[target_field] = item_id
+
+        # Convert to update input and dict
+        input_obj = ImageUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
 
 
 @strawberry.input
@@ -168,6 +223,51 @@ class ImagesDestroyInput:
     ids: list[ID]  # [ID!]!
     delete_file: bool | None = None  # Boolean
     delete_generated: bool | None = None  # Boolean
+
+
+@strawberry.input
+class ImageUpdateInput:
+    """Input for updating images."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    title: str | None = None  # String
+    code: str | None = None  # String
+    rating100: int | None = None  # Int (1-100)
+    organized: bool | None = None  # Boolean
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
+    studio_id: ID | None = None  # ID
+    performer_ids: list[ID] | None = None  # [ID!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    gallery_ids: list[ID] | None = None  # [ID!]
+    primary_file_id: ID | None = None  # ID
+
+
+@strawberry.input
+class BulkImageUpdateInput:
+    """Input for bulk updating images."""
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    ids: list[ID]  # [ID!]
+    rating100: int | None = None  # Int (1-100)
+    organized: bool | None = None  # Boolean
+    url: str | None = None  # String @deprecated
+    urls: BulkUpdateStrings | None = None  # BulkUpdateStrings
+    date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
+    studio_id: ID | None = None  # ID
+    performer_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    tag_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    gallery_ids: BulkUpdateIds | None = None  # BulkUpdateIds
 
 
 @strawberry.type

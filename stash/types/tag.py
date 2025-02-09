@@ -9,7 +9,6 @@ from strawberry import ID, lazy
 from metadata import Hashtag
 
 from .base import StashObject
-from .inputs import TagCreateInput, TagUpdateInput
 
 
 @strawberry.type
@@ -124,6 +123,39 @@ class BulkTagUpdateInput:
     aliases: list[str] | None = None  # [String!]
     ignore_auto_tag: bool | None = None  # Boolean
     favorite: bool | None = None  # Boolean
+    parent_ids: list[ID] | None = None  # [ID!]
+    child_ids: list[ID] | None = None  # [ID!]
+
+
+@strawberry.input
+class TagCreateInput:
+    """Input for creating tags."""
+
+    # Required fields
+    name: str  # String!
+
+    # Optional fields
+    description: str | None = None  # String
+    aliases: list[str] | None = None  # [String!]
+    ignore_auto_tag: bool | None = None  # Boolean
+    image: str | None = None  # String (URL or base64)
+    parent_ids: list[ID] | None = None  # [ID!]
+    child_ids: list[ID] | None = None  # [ID!]
+
+
+@strawberry.input
+class TagUpdateInput:
+    """Input for updating tags."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    name: str | None = None  # String
+    description: str | None = None  # String
+    aliases: list[str] | None = None  # [String!]
+    ignore_auto_tag: bool | None = None  # Boolean
+    image: str | None = None  # String (URL or base64)
     parent_ids: list[ID] | None = None  # [ID!]
     child_ids: list[ID] | None = None  # [ID!]
 

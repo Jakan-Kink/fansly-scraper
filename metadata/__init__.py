@@ -36,6 +36,7 @@ from .account import (
     Account,
     AccountMedia,
     AccountMediaBundle,
+    MediaStoryState,
     TimelineStats,
     account_avatar,
     account_banner,
@@ -43,18 +44,28 @@ from .account import (
     process_account_data,
     process_media_bundles,
 )
+from .attachable import Attachable
 from .attachment import Attachment, ContentType, HasAttachments
-from .database import Database, require_database_config
+from .database import (
+    Database,
+    DatabaseSyncManager,
+    OptimizedSQLiteMemory,
+    is_network_path,
+    require_database_config,
+    run_migrations_if_needed,
+)
 from .hashtag import Hashtag, extract_hashtags, post_hashtags, process_post_hashtags
+from .logging_config import DatabaseLogger
 from .media import (
     Media,
+    MediaLocation,
     media_variants,
     process_media_download,
     process_media_download_accessible,
     process_media_download_handler,
     process_media_info,
-    process_media_metadata,
 )
+from .media_utils import HasPreview
 from .messages import Group, Message, process_groups_response, process_messages_metadata
 from .post import (
     Post,
@@ -63,6 +74,17 @@ from .post import (
     process_pinned_posts,
     process_posts_metadata,
     process_timeline_posts,
+)
+from .relationship_logger import (
+    clear_missing_relationships,
+    log_missing_relationship,
+    print_missing_relationships_summary,
+)
+from .resource_management import (
+    AsyncConnections,
+    BaseConnections,
+    ConnectionManager,
+    ThreadLocalConnections,
 )
 from .story import Story
 from .wall import Wall, process_account_walls, process_wall_posts
@@ -75,7 +97,6 @@ __all__ = [
     "process_media_download",
     "process_media_download_accessible",
     "process_media_download_handler",
-    "process_media_metadata",
     "process_media_info",
     "process_messages_metadata",
     "process_post_hashtags",
@@ -84,16 +105,32 @@ __all__ = [
     "process_timeline_posts",
     "process_wall_posts",
     "require_database_config",
+    "run_migrations_if_needed",
+    "clear_missing_relationships",
+    "log_missing_relationship",
+    "print_missing_relationships_summary",
     "Account",
     "AccountMedia",
     "AccountMediaBundle",
+    "AsyncConnections",
+    "Attachable",
     "Attachment",
     "Base",
+    "BaseConnections",
+    "ConnectionManager",
     "Database",
+    "DatabaseLogger",
+    "DatabaseSyncManager",
     "Group",
+    "HasPreview",
+    "is_network_path",
     "Media",
+    "MediaLocation",
+    "MediaStoryState",
     "Message",
+    "OptimizedSQLiteMemory",
     "Post",
+    "ThreadLocalConnections",
     "TimelineStats",
     "Wall",
     "account_avatar",

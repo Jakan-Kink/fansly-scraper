@@ -8,9 +8,8 @@ from strawberry import ID, lazy
 
 from metadata import Media, Post
 
-from .base import StashObject
-from .files import StashID, VideoFile
-from .inputs import SceneCreateInput, SceneUpdateInput
+from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
+from .files import StashID, StashIDInput, VideoFile
 
 if TYPE_CHECKING:
     from .gallery import Gallery
@@ -172,100 +171,152 @@ class Scene(StashObject):
     )  # [VideoCaption!]
 
     @classmethod
-    async def from_media(
-        cls,
-        media: Media,
-        post: Post | None = None,
-        performer: (
-            Annotated["Performer", lazy("stash.types.performer.Performer")] | None
-        ) = None,
-        studio: Annotated["Studio", lazy("stash.types.studio.Studio")] | None = None,
-    ) -> "Scene":
-        """Create scene from media.
+    def from_dict(cls, data: dict[str, Any]) -> "Scene":
+        """Create scene from dictionary.
 
         Args:
-            media: Media to convert
-            post: Optional post containing the media
-            performer: Optional performer to associate
-            studio: Optional studio to associate
+            data: Dictionary containing scene data
 
         Returns:
             New scene instance
         """
-        # Get title from post content or media filename
-        title = None
-        if post and post.content:
-            title = post.content[:100]  # Truncate long content
-        elif media.local_filename:
-            title = media.local_filename
+        # Map GraphQL field names to our field names
+        field_mapping = {
+            "sceneStreams": "scene_streams",
+        }
 
-        # Build scene
-        scene = cls(
-            id="new",  # Will be replaced on save
-            title=title,
-            details=post.content if post else None,
-            date=post.createdAt.isoformat() if post else media.createdAt.isoformat(),
-            urls=[f"https://fansly.com/post/{post.id}"] if post else [],
-            created_at=media.createdAt or datetime.now(),
-            updated_at=datetime.now(),
-            organized=True,  # Mark as organized since we have metadata
-        )
+        # Filter out fields that aren't part of our class
+        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
+        filtered_data = {}
+        for k, v in data.items():
+            mapped_key = field_mapping.get(k, k)
+            if mapped_key in valid_fields:
+                filtered_data[mapped_key] = v
 
-        # Add relationships
-        if performer:
-            scene.performers = [performer]
-        if studio:
-            scene.studio = studio
+        # Convert timestamps
+        if "created_at" in filtered_data:
+            filtered_data["created_at"] = datetime.fromisoformat(
+                filtered_data["created_at"]
+            )
+        if "updated_at" in filtered_data:
+            filtered_data["updated_at"] = datetime.fromisoformat(
+                filtered_data["updated_at"]
+            )
+
+        # Create instance
+        scene = cls(**filtered_data)
+
+        # Convert lists
+        if "files" in filtered_data:
+            scene.files = [VideoFile(**f) for f in filtered_data["files"]]
+        if "stash_ids" in filtered_data:
+            scene.stash_ids = [StashID(**s) for s in filtered_data["stash_ids"]]
 
         return scene
 
-    def to_input(self) -> dict[str, Any]:
+    async def to_input(self) -> dict[str, Any]:
         """Convert to GraphQL input.
 
         Returns:
             Dictionary of input fields for create/update
         """
-        if hasattr(self, "id") and self.id != "new":
-            # Update existing
-            return SceneUpdateInput(
-                id=self.id,
-                title=self.title,
-                code=self.code,
-                details=self.details,
-                director=self.director,
-                urls=self.urls,
-                date=self.date,
-                rating100=self.rating100,
-                organized=self.organized,
-                studio_id=self.studio.id if self.studio else None,
-                performer_ids=[p.id for p in self.performers],
-                tag_ids=[t.id for t in self.tags],
-                gallery_ids=[g.id for g in self.galleries],
-                stashIds=[
-                    StashID(endpoint=s.endpoint, stash_id=s.stash_id)
-                    for s in self.stashIds
-                ],
-            ).__dict__
-        else:
-            # Create new
-            return SceneCreateInput(
-                title=self.title,
-                code=self.code,
-                details=self.details,
-                director=self.director,
-                urls=self.urls,
-                date=self.date,
-                rating100=self.rating100,
-                organized=self.organized,
-                studio_id=self.studio.id if self.studio else None,
-                performer_ids=[p.id for p in self.performers],
-                tag_ids=[t.id for t in self.tags],
-                gallery_ids=[g.id for g in self.galleries],
-                stashIds=[
-                    StashID(endpoint=s.endpoint, stash_id=s.stash_id)
-                    for s in self.stashIds
-                ],
-            ).__dict__
+        # Field definitions with their conversion functions
+        field_conversions = {
+            "title": str,
+            "code": str,
+            "details": str,
+            "director": str,
+            "urls": list,
+            "rating100": int,
+            "organized": bool,
+            "date": lambda d: (
+                d.strftime("%Y-%m-%d")
+                if isinstance(d, datetime)
+                else (
+                    datetime.fromisoformat(d).strftime("%Y-%m-%d")
+                    if isinstance(d, str)
+                    else None
+                )
+            ),
+        }
+
+        # Process regular fields
+        data = {}
+        for field, converter in field_conversions.items():
+            if hasattr(self, field):
+                value = getattr(self, field)
+                if value is not None:
+                    try:
+                        converted = converter(value)
+                        if converted is not None:
+                            data[field] = converted
+                    except (ValueError, TypeError):
+                        pass
+
+        # ID is required - we only update existing objects
+        if not hasattr(self, "id") or self.id == "new":
+            raise ValueError(
+                f"Scene must have an ID for updates, got: {getattr(self, 'id', None)}"
+            )
+        data["id"] = self.id
+
+        # Helper function to get ID from object or dict
+        async def get_id(obj: Any) -> str | None:
+            if isinstance(obj, dict):
+                return obj.get("id")
+            if hasattr(obj, "awaitable_attrs"):
+                await obj.awaitable_attrs.id
+            return getattr(obj, "id", None)
+
+        # Process relationships
+        relationships = {
+            # Standard ID relationships
+            "studio": ("studio_id", False),  # (target_field, is_list)
+            "performers": ("performer_ids", True),
+            "tags": ("tag_ids", True),
+            "galleries": ("gallery_ids", True),
+            # Special case with custom transform
+            "stash_ids": (
+                "stash_ids",
+                True,
+                lambda s: StashID(endpoint=s.endpoint, stash_id=s.stash_id),
+            ),
+        }
+
+        for rel_field, mapping in relationships.items():
+            if hasattr(self, rel_field):
+                value = getattr(self, rel_field)
+                if not value:
+                    continue
+
+                if len(mapping) == 3:
+                    # Custom transform
+                    target_field, is_list, transform = mapping
+                else:
+                    # Standard ID extraction
+                    target_field, is_list = mapping
+                    transform = get_id
+
+                if is_list:
+                    # Handle list relationships
+                    items = []
+                    for item in value:
+                        if transformed := await transform(item):
+                            items.append(transformed)
+                    if items:
+                        data[target_field] = items
+                else:
+                    # Handle single relationships
+                    if transformed := await transform(value):
+                        data[target_field] = transformed
+
+        # Convert to update input and dict
+        input_obj = SceneUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
 
 
 @strawberry.type
@@ -306,6 +357,98 @@ class SceneParserResult:
     tag_ids: list[ID] | None = None  # [ID!]
 
 
+@strawberry.input
+class SceneGroupInput:
+    """Input for scene group from schema/types/scene.graphql."""
+
+    group_id: ID  # ID!
+    scene_index: int | None = None  # Int
+
+
+@strawberry.input
+class SceneCreateInput:
+    """Input for creating scenes."""
+
+    # All fields optional
+    title: str | None = None  # String
+    code: str | None = None  # String
+    details: str | None = None  # String
+    director: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    rating100: int | None = None  # Int
+    organized: bool | None = None  # Boolean
+    studio_id: ID | None = None  # ID
+    gallery_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+    groups: list[SceneGroupInput] | None = None  # [SceneGroupInput!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    cover_image: str | None = None  # String (URL or base64)
+    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
+    file_ids: list[ID] | None = None  # [ID!]
+
+
+@strawberry.input
+class BulkSceneUpdateInput:
+    """Input for bulk updating scenes."""
+
+    # Optional fields
+    clientMutationId: str | None = None  # String
+    ids: list[ID]  # [ID!]
+    title: str | None = None  # String
+    code: str | None = None  # String
+    details: str | None = None  # String
+    director: str | None = None  # String
+    url: str | None = None  # String @deprecated(reason: "Use urls")
+    urls: BulkUpdateStrings | None = None  # BulkUpdateStrings
+    date: str | None = None  # String
+    rating100: int | None = None  # Int (1-100)
+    organized: bool | None = None  # Boolean
+    studio_id: ID | None = None  # ID
+    gallery_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    performer_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    tag_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    group_ids: BulkUpdateIds | None = None  # BulkUpdateIds
+    movie_ids: BulkUpdateIds | None = (
+        None  # BulkUpdateIds @deprecated(reason: "Use group_ids")
+    )
+
+
+@strawberry.input
+class SceneUpdateInput:
+    """Input for updating scenes."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    title: str | None = None  # String
+    code: str | None = None  # String
+    details: str | None = None  # String
+    director: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    rating100: int | None = None  # Int
+    organized: bool | None = None  # Boolean
+    studio_id: ID | None = None  # ID
+    gallery_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+    groups: list[SceneGroupInput] | None = None  # [SceneGroupInput!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    cover_image: str | None = None  # String (URL or base64)
+    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
+    resume_time: float | None = None  # Float
+    play_duration: float | None = None  # Float
+    primary_file_id: ID | None = None  # ID
+
+    # Deprecated fields
+    o_counter: int | None = None  # Int @deprecated
+    play_count: int | None = None  # Int @deprecated
+
+
 @strawberry.type
 class SceneParserResultType:
     """Result type for scene parser from schema/types/scene.graphql."""
@@ -333,14 +476,6 @@ class SceneDestroyInput:
     id: ID  # ID!
     delete_file: bool | None = None  # Boolean
     delete_generated: bool | None = None  # Boolean
-
-
-@strawberry.input
-class SceneGroupInput:
-    """Input for scene group from schema/types/scene.graphql."""
-
-    group_id: ID  # ID!
-    scene_index: int | None = None  # Int
 
 
 @strawberry.input

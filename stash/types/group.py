@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING, Annotated, Any, List, Optional
 import strawberry
 from strawberry import ID, lazy
 
-from .base import StashObject
+from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
 from .enums import BulkUpdateIdMode
-from .inputs import BulkUpdateIds, BulkUpdateStrings
 
 if TYPE_CHECKING:
     from .scene import Scene

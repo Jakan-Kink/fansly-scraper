@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from download.core import DownloadState
 
     from .media import Media
+    from .messages import Message
     from .post import Post
     from .story import Story
     from .wall import Wall
@@ -158,7 +159,24 @@ class Account(Base):
     banner: Mapped[Media | None] = relationship(
         "Media",
         secondary="account_banner",
-        lazy="selectin",
+    )
+    # Back references
+    posts: Mapped[list[Post]] = relationship(
+        "Post",
+        back_populates="account",
+        lazy="select",  # Use select loading since we don't always need posts
+    )
+    sent_messages: Mapped[list[Message]] = relationship(
+        "Message",
+        back_populates="sender",
+        foreign_keys="[Message.senderId]",
+        lazy="select",  # Use select loading since we don't always need messages
+    )
+    received_messages: Mapped[list[Message]] = relationship(
+        "Message",
+        back_populates="recipient",
+        foreign_keys="[Message.recipientId]",
+        lazy="select",  # Use select loading since we don't always need messages
     )
     profileAccess: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     accountMedia: Mapped[set[AccountMedia]] = relationship(
@@ -533,7 +551,7 @@ async def _process_bundle_media_items(
             continue
 
         if isinstance(media_item, dict):
-            await _process_media_item_dict_inner(config, media_item)
+            await _process_media_item_dict_inner(config, media_item, session=session)
             media_id = media_item["id"]
 
         await link_media_to_bundle(session, bundle["id"], media_id, pos)

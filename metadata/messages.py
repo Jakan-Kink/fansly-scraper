@@ -122,8 +122,18 @@ class Message(Base):
         cascade="all, delete-orphan",
         order_by="Attachment.pos",  # Order attachments by position
     )
-    sender: Mapped[Account] = relationship("Account", foreign_keys=[senderId])
-    recipient: Mapped[Account] = relationship("Account", foreign_keys=[recipientId])
+    sender: Mapped[Account] = relationship(
+        "Account",
+        foreign_keys=[senderId],
+        lazy="joined",  # Use joined loading since we always need sender info
+        back_populates="sent_messages",
+    )
+    recipient: Mapped[Account] = relationship(
+        "Account",
+        foreign_keys=[recipientId],
+        lazy="joined",  # Use joined loading since we always need recipient info
+        back_populates="received_messages",
+    )
     group: Mapped[Group] = relationship(
         "Group", foreign_keys=[groupId], lazy="selectin", overlaps="messages"
     )

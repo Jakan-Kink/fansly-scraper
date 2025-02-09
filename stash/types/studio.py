@@ -9,8 +9,7 @@ from strawberry import ID, lazy
 from metadata import Account
 
 from .base import StashObject
-from .files import StashID
-from .inputs import StudioCreateInput, StudioUpdateInput
+from .files import StashID, StashIDInput
 
 if TYPE_CHECKING:
     from .group import Group
@@ -126,6 +125,47 @@ class StudioDestroyInput:
     """Input for destroying a studio from schema/types/studio.graphql."""
 
     id: ID  # ID!
+
+
+@strawberry.input
+class StudioCreateInput:
+    """Input for creating studios."""
+
+    # Required fields
+    name: str  # String!
+
+    # Optional fields
+    url: str | None = None  # String
+    parent_id: ID | None = None  # ID
+    image: str | None = None  # String (URL or base64)
+    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
+    rating100: int | None = None  # Int
+    favorite: bool | None = None  # Boolean
+    details: str | None = None  # String
+    aliases: list[str] | None = None  # [String!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    ignore_auto_tag: bool | None = None  # Boolean
+
+
+@strawberry.input
+class StudioUpdateInput:
+    """Input for updating studios."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    name: str | None = None  # String
+    url: str | None = None  # String
+    parent_id: ID | None = None  # ID
+    image: str | None = None  # String (URL or base64)
+    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
+    rating100: int | None = None  # Int
+    favorite: bool | None = None  # Boolean
+    details: str | None = None  # String
+    aliases: list[str] | None = None  # [String!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    ignore_auto_tag: bool | None = None  # Boolean
 
 
 @strawberry.type

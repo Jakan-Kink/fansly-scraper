@@ -17,6 +17,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapper, Session
 
 from textio.logging import json_output
 
+from .decorators import retry_on_locked_db
+
 T = TypeVar("T", bound="Base")
 
 
@@ -57,7 +59,10 @@ class Base(AsyncAttrs, DeclarativeBase):
         event.listen(Base, "load", Base._attach_timezone)
 
     @staticmethod
-    def _attach_timezone(target: Any, _context: Any) -> None:
+    def _attach_timezone(
+        target: Any,
+        _context: Any,
+    ) -> None:
         """Attach UTC timezone to all timezone-aware datetime columns on load.
 
         This method is called automatically when an object is loaded from the database.
@@ -77,7 +82,10 @@ class Base(AsyncAttrs, DeclarativeBase):
                     setattr(target, column.key, value.replace(tzinfo=timezone.utc))
 
     @staticmethod
-    def convert_timestamps(data: dict[str, Any], date_fields: Sequence[str]) -> None:
+    def convert_timestamps(
+        data: dict[str, Any],
+        date_fields: Sequence[str],
+    ) -> None:
         """Convert timestamp fields in data from milliseconds/seconds to datetime.
 
         This helper method processes timestamp fields in a data dictionary, converting
@@ -153,6 +161,11 @@ class Base(AsyncAttrs, DeclarativeBase):
             return instance
 
     @classmethod
+    @retry_on_locked_db(
+        retries=5,
+        delay=0.2,
+        max_delay=5.0,
+    )
     async def async_get_or_create(
         cls: type[T],
         session: AsyncSession,
@@ -185,7 +198,9 @@ class Base(AsyncAttrs, DeclarativeBase):
 
     @staticmethod
     def update_fields(
-        instance: Any, data: dict[str, Any], exclude: set[str] | None = None
+        instance: Any,
+        data: dict[str, Any],
+        exclude: set[str] | None = None,
     ) -> bool:
         """Update instance fields only if values have changed.
 

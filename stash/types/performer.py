@@ -13,8 +13,8 @@ from metadata import Account
 
 from .base import StashObject
 from .enums import CircumisedEnum, GenderEnum
-from .files import StashID
-from .inputs import PerformerCreateInput, PerformerUpdateInput
+from .files import StashID, StashIDInput
+from .metadata import CustomFieldsInput
 
 if TYPE_CHECKING:
     from ..client import StashClient
@@ -114,6 +114,39 @@ class Performer(StashObject):
             raise ValueError(f"Failed to update avatar: {e}") from e
 
     @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Performer":
+        """Create performer from dictionary.
+
+        Args:
+            data: Dictionary containing performer data
+
+        Returns:
+            New performer instance
+        """
+        # Filter out fields that aren't part of our class
+        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+
+        # Convert timestamps
+        if "created_at" in filtered_data:
+            filtered_data["created_at"] = datetime.fromisoformat(
+                filtered_data["created_at"]
+            )
+        if "updated_at" in filtered_data:
+            filtered_data["updated_at"] = datetime.fromisoformat(
+                filtered_data["updated_at"]
+            )
+
+        # Create instance
+        performer = cls(**filtered_data)
+
+        # Convert lists
+        if "stash_ids" in filtered_data:
+            performer.stash_ids = [StashID(**s) for s in filtered_data["stash_ids"]]
+
+        return performer
+
+    @classmethod
     async def from_account(cls, account: Account) -> "Performer":
         """Create performer from account.
 
@@ -126,18 +159,29 @@ class Performer(StashObject):
         return cls(
             id="new",  # Will be replaced on save
             name=account.displayName or account.username,
-            disambiguation=account.username,  # Use username as disambiguation
+            alias_list=(
+                [account.username]
+                if (
+                    account.displayName
+                    and account.displayName.lower() != account.username.lower()
+                )
+                else []
+            ),  # Only add username as alias if using displayName and it's different (case-insensitive)
             urls=[f"https://fansly.com/{account.username}/posts"],
             country=account.location,
             details=account.about,
             created_at=account.createdAt or datetime.now(),
             updated_at=datetime.now(),
-            # Set reasonable defaults
-            favorite=True,  # Mark as favorite since it's a followed account
+            # Required fields with defaults
+            favorite=False,  # Default to not favorite
+            tags=[],  # Empty list of tags to start
             ignore_auto_tag=False,  # Allow auto-tagging
             scene_count=0,
             image_count=0,
             gallery_count=0,
+            group_count=0,
+            performer_count=0,
+            scenes=[],
         )
 
     def to_input(self) -> dict[str, Any]:
@@ -215,6 +259,87 @@ class Performer(StashObject):
                 ],
                 custom_fields=self.custom_fields,
             ).__dict__
+
+
+@strawberry.input
+class PerformerCreateInput:
+    """Input for creating performers."""
+
+    # Required fields
+    name: str  # String!
+
+    # Optional fields
+    disambiguation: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    gender: GenderEnum | None = None  # GenderEnum
+    birthdate: str | None = None  # String
+    ethnicity: str | None = None  # String
+    country: str | None = None  # String
+    eye_color: str | None = None  # String
+    height_cm: int | None = None  # Int
+    measurements: str | None = None  # String
+    fake_tits: str | None = None  # String
+    penis_length: float | None = None  # Float
+    circumcised: CircumisedEnum | None = None  # CircumisedEnum
+    career_length: str | None = None  # String
+    tattoos: str | None = None  # String
+    piercings: str | None = None  # String
+    alias_list: list[str] | None = None  # [String!]
+    twitter: str | None = None  # String @deprecated
+    instagram: str | None = None  # String @deprecated
+    favorite: bool | None = None  # Boolean
+    tag_ids: list[ID] | None = None  # [ID!]
+    image: str | None = None  # String (URL or base64)
+    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
+    rating100: int | None = None  # Int
+    details: str | None = None  # String
+    death_date: str | None = None  # String
+    hair_color: str | None = None  # String
+    weight: int | None = None  # Int
+    ignore_auto_tag: bool | None = None  # Boolean
+    custom_fields: dict[str, Any] | None = None  # Map
+
+
+@strawberry.input
+class PerformerUpdateInput:
+    """Input for updating performers."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    name: str | None = None  # String
+    disambiguation: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    gender: GenderEnum | None = None  # GenderEnum
+    birthdate: str | None = None  # String
+    ethnicity: str | None = None  # String
+    country: str | None = None  # String
+    eye_color: str | None = None  # String
+    height_cm: int | None = None  # Int
+    measurements: str | None = None  # String
+    fake_tits: str | None = None  # String
+    penis_length: float | None = None  # Float
+    circumcised: CircumisedEnum | None = None  # CircumisedEnum
+    career_length: str | None = None  # String
+    tattoos: str | None = None  # String
+    piercings: str | None = None  # String
+    alias_list: list[str] | None = None  # [String!]
+    twitter: str | None = None  # String @deprecated
+    instagram: str | None = None  # String @deprecated
+    favorite: bool | None = None  # Boolean
+    tag_ids: list[ID] | None = None  # [ID!]
+    image: str | None = None  # String (URL or base64)
+    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
+    rating100: int | None = None  # Int
+    details: str | None = None  # String
+    death_date: str | None = None  # String
+    hair_color: str | None = None  # String
+    weight: int | None = None  # Int
+    ignore_auto_tag: bool | None = None  # Boolean
+    custom_fields: CustomFieldsInput | None = None  # CustomFieldsInput
 
 
 @strawberry.type

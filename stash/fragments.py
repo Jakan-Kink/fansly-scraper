@@ -85,7 +85,7 @@ mutation MetadataScan($input: ScanMetadataInput!) {
 """
 
 # File fragments
-FILE_FIELDS = """
+FILE_FIELDS = """fragment FileFields on BaseFile {
     id
     path
     basename
@@ -99,10 +99,10 @@ FILE_FIELDS = """
     }
     created_at
     updated_at
-"""
+}"""
 
-VIDEO_FILE_FIELDS = f"""
-    {FILE_FIELDS}
+VIDEO_FILE_FIELDS = """fragment VideoFileFields on VideoFile {
+    ...FileFields
     format
     width
     height
@@ -111,15 +111,17 @@ VIDEO_FILE_FIELDS = f"""
     audio_codec
     frame_rate
     bit_rate
-"""
+}"""
 
-IMAGE_FILE_FIELDS = f"""
-    {FILE_FIELDS}
+IMAGE_FILE_FIELDS = """fragment ImageFileFields on ImageFile {
+    ...FileFields
     width
     height
-"""
+}"""
 
-GALLERY_FILE_FIELDS = FILE_FIELDS
+GALLERY_FILE_FIELDS = """fragment GalleryFileFields on GalleryFile {
+    ...FileFields
+}"""
 
 # Scene fragments
 SCENE_FIELDS = """
@@ -148,27 +150,7 @@ SCENE_FIELDS = """
     play_history
     o_history
     files {
-        id
-        path
-        basename
-        parent_folder_id
-        zip_file_id
-        mod_time
-        size
-        fingerprints {
-            type
-            value
-        }
-        format
-        width
-        height
-        duration
-        video_codec
-        audio_codec
-        frame_rate
-        bit_rate
-        created_at
-        updated_at
+        ...VideoFileFields
     }
     paths {
         screenshot
@@ -365,41 +347,101 @@ TAG_FIELDS = """
 """
 
 # Scene query templates
+SCENE_QUERY_FRAGMENTS = f"""
+{FILE_FIELDS}
+{VIDEO_FILE_FIELDS}
+fragment SceneFragment on Scene {{
+    {SCENE_FIELDS}
+}}
+"""
+
 FIND_SCENE_QUERY = f"""
+{SCENE_QUERY_FRAGMENTS}
 query FindScene($id: ID!) {{
     findScene(id: $id) {{
-        {SCENE_FIELDS}
+        ...SceneFragment
     }}
 }}
 """
 
 FIND_SCENES_QUERY = f"""
+{SCENE_QUERY_FRAGMENTS}
 query FindScenes($filter: FindFilterType, $scene_filter: SceneFilterType) {{
     findScenes(filter: $filter, scene_filter: $scene_filter) {{
         count
         duration
         filesize
         scenes {{
-            {SCENE_FIELDS}
+            ...SceneFragment
         }}
     }}
 }}
 """
 
 CREATE_SCENE_MUTATION = f"""
+{SCENE_QUERY_FRAGMENTS}
 mutation CreateScene($input: SceneCreateInput!) {{
     sceneCreate(input: $input) {{
-        {SCENE_FIELDS}
+        ...SceneFragment
     }}
 }}
 """
 
 UPDATE_SCENE_MUTATION = f"""
+{SCENE_QUERY_FRAGMENTS}
 mutation UpdateScene($input: SceneUpdateInput!) {{
     sceneUpdate(input: $input) {{
-        {SCENE_FIELDS}
+        ...SceneFragment
     }}
 }}
+"""
+
+FIND_DUPLICATE_SCENES_QUERY = f"""
+{SCENE_QUERY_FRAGMENTS}
+query FindDuplicateScenes($distance: Int, $duration_diff: Float) {{
+    findDuplicateScenes(distance: $distance, duration_diff: $duration_diff) {{
+        ...SceneFragment
+    }}
+}}
+"""
+
+PARSE_SCENE_FILENAMES_QUERY = """
+query ParseSceneFilenames($filter: FindFilterType, $config: SceneParserInput!) {
+    parseSceneFilenames(filter: $filter, config: $config)
+}
+"""
+
+SCENE_WALL_QUERY = f"""
+{SCENE_QUERY_FRAGMENTS}
+query SceneWall($q: String) {{
+    sceneWall(q: $q) {{
+        ...SceneFragment
+    }}
+}}
+"""
+
+BULK_SCENE_UPDATE_MUTATION = f"""
+{SCENE_QUERY_FRAGMENTS}
+mutation BulkSceneUpdate($input: BulkSceneUpdateInput!) {{
+    bulkSceneUpdate(input: $input) {{
+        ...SceneFragment
+    }}
+}}
+"""
+
+SCENES_UPDATE_MUTATION = f"""
+{SCENE_QUERY_FRAGMENTS}
+mutation ScenesUpdate($input: [SceneUpdateInput!]!) {{
+    scenesUpdate(input: $input) {{
+        ...SceneFragment
+    }}
+}}
+"""
+
+SCENE_GENERATE_SCREENSHOT_MUTATION = """
+mutation SceneGenerateScreenshot($id: ID!, $at: Float) {
+    sceneGenerateScreenshot(id: $id, at: $at)
+}
 """
 
 # Performer query templates
@@ -567,39 +609,124 @@ GALLERY_FIELDS = """
 """
 
 # Gallery query templates
+GALLERY_QUERY_FRAGMENTS = f"""
+{FILE_FIELDS}
+{GALLERY_FILE_FIELDS}
+fragment GalleryFragment on Gallery {{
+    {GALLERY_FIELDS}
+}}
+"""
+
 FIND_GALLERY_QUERY = f"""
+{GALLERY_QUERY_FRAGMENTS}
 query FindGallery($id: ID!) {{
     findGallery(id: $id) {{
-        {GALLERY_FIELDS}
+        ...GalleryFragment
     }}
 }}
 """
 
 FIND_GALLERIES_QUERY = f"""
+{GALLERY_QUERY_FRAGMENTS}
 query FindGalleries($filter: FindFilterType, $gallery_filter: GalleryFilterType) {{
     findGalleries(filter: $filter, gallery_filter: $gallery_filter) {{
         count
         galleries {{
-            {GALLERY_FIELDS}
+            ...GalleryFragment
         }}
     }}
 }}
 """
 
 CREATE_GALLERY_MUTATION = f"""
+{GALLERY_QUERY_FRAGMENTS}
 mutation CreateGallery($input: GalleryCreateInput!) {{
     galleryCreate(input: $input) {{
-        {GALLERY_FIELDS}
+        ...GalleryFragment
     }}
 }}
 """
 
 UPDATE_GALLERY_MUTATION = f"""
+{GALLERY_QUERY_FRAGMENTS}
 mutation UpdateGallery($input: GalleryUpdateInput!) {{
     galleryUpdate(input: $input) {{
-        {GALLERY_FIELDS}
+        ...GalleryFragment
     }}
 }}
+"""
+
+GALLERIES_UPDATE_MUTATION = f"""
+{GALLERY_QUERY_FRAGMENTS}
+mutation GalleriesUpdate($input: [GalleryUpdateInput!]!) {{
+    galleriesUpdate(input: $input) {{
+        ...GalleryFragment
+    }}
+}}
+"""
+
+GALLERY_DESTROY_MUTATION = """
+mutation GalleryDestroy($input: GalleryDestroyInput!) {
+    galleryDestroy(input: $input)
+}
+"""
+
+REMOVE_GALLERY_IMAGES_MUTATION = """
+mutation RemoveGalleryImages($input: GalleryRemoveInput!) {
+    removeGalleryImages(input: $input)
+}
+"""
+
+SET_GALLERY_COVER_MUTATION = """
+mutation SetGalleryCover($input: GallerySetCoverInput!) {
+    setGalleryCover(input: $input)
+}
+"""
+
+RESET_GALLERY_COVER_MUTATION = """
+mutation ResetGalleryCover($input: GalleryResetCoverInput!) {
+    resetGalleryCover(input: $input)
+}
+"""
+
+GALLERY_CHAPTER_CREATE_MUTATION = f"""
+{GALLERY_QUERY_FRAGMENTS}
+mutation GalleryChapterCreate($input: GalleryChapterCreateInput!) {{
+    galleryChapterCreate(input: $input) {{
+        id
+        title
+        image_index
+        gallery {{
+            ...GalleryFragment
+        }}
+    }}
+}}
+"""
+
+GALLERY_CHAPTER_UPDATE_MUTATION = f"""
+{GALLERY_QUERY_FRAGMENTS}
+mutation GalleryChapterUpdate($input: GalleryChapterUpdateInput!) {{
+    galleryChapterUpdate(input: $input) {{
+        id
+        title
+        image_index
+        gallery {{
+            ...GalleryFragment
+        }}
+    }}
+}}
+"""
+
+GALLERY_CHAPTER_DESTROY_MUTATION = """
+mutation GalleryChapterDestroy($id: ID!) {
+    galleryChapterDestroy(id: $id)
+}
+"""
+
+GALLERY_ADD_IMAGES_MUTATION = """
+mutation AddGalleryImages($input: GalleryAddInput!) {
+    addGalleryImages(input: $input)
+}
 """
 
 
@@ -658,39 +785,51 @@ IMAGE_FIELDS = """
 """
 
 # Image query templates
+IMAGE_QUERY_FRAGMENTS = f"""
+{FILE_FIELDS}
+{IMAGE_FILE_FIELDS}
+fragment ImageFragment on Image {{
+    {IMAGE_FIELDS}
+}}
+"""
+
 FIND_IMAGE_QUERY = f"""
+{IMAGE_QUERY_FRAGMENTS}
 query FindImage($id: ID!) {{
     findImage(id: $id) {{
-        {IMAGE_FIELDS}
+        ...ImageFragment
     }}
 }}
 """
 
 FIND_IMAGES_QUERY = f"""
+{IMAGE_QUERY_FRAGMENTS}
 query FindImages($filter: FindFilterType, $image_filter: ImageFilterType) {{
     findImages(filter: $filter, image_filter: $image_filter) {{
         count
         megapixels
         filesize
         images {{
-            {IMAGE_FIELDS}
+            ...ImageFragment
         }}
     }}
 }}
 """
 
 CREATE_IMAGE_MUTATION = f"""
+{IMAGE_QUERY_FRAGMENTS}
 mutation CreateImage($input: ImageCreateInput!) {{
     imageCreate(input: $input) {{
-        {IMAGE_FIELDS}
+        ...ImageFragment
     }}
 }}
 """
 
 UPDATE_IMAGE_MUTATION = f"""
+{IMAGE_QUERY_FRAGMENTS}
 mutation UpdateImage($input: ImageUpdateInput!) {{
     imageUpdate(input: $input) {{
-        {IMAGE_FIELDS}
+        ...ImageFragment
     }}
 }}
 """
@@ -764,4 +903,46 @@ mutation UpdateMarker($input: SceneMarkerUpdateInput!) {{
         {MARKER_FIELDS}
     }}
 }}
+"""
+
+# Scene marker tag query
+SCENE_MARKER_TAG_QUERY = f"""
+{TAG_FIELDS}
+{MARKER_FIELDS}
+query FindSceneMarkerTags($scene_id: ID!) {{
+    sceneMarkerTags(scene_id: $scene_id) {{
+        tag {{
+            {TAG_FIELDS}
+        }}
+        scene_markers {{
+            {MARKER_FIELDS}
+        }}
+    }}
+}}
+"""
+
+# Tag mutations
+TAGS_MERGE_MUTATION = f"""
+{TAG_FIELDS}
+mutation TagsMerge($input: TagsMergeInput!) {{
+    tagsMerge(input: $input) {{
+        {TAG_FIELDS}
+    }}
+}}
+"""
+
+BULK_TAG_UPDATE_MUTATION = f"""
+{TAG_FIELDS}
+mutation BulkTagUpdate($input: BulkTagUpdateInput!) {{
+    bulkTagUpdate(input: $input) {{
+        {TAG_FIELDS}
+    }}
+}}
+"""
+
+# Metadata mutations
+METADATA_GENERATE_MUTATION = """
+mutation MetadataGenerate($input: GenerateMetadataInput!) {
+    metadataGenerate(input: $input)
+}
 """

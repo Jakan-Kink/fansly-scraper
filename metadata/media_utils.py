@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
 from textio import json_output
 
@@ -116,7 +115,7 @@ def validate_media_id(
 
 
 async def process_preview(
-    session: Session,
+    session: AsyncSession,
     config: FanslyConfig,
     parent: HasPreview,
     preview_data: dict | str | None,

@@ -48,6 +48,12 @@ class Post(Base):
     accountId: Mapped[int] = mapped_column(
         Integer, ForeignKey("accounts.id"), nullable=False
     )
+    account: Mapped[Account] = relationship(
+        "Account",
+        foreign_keys=[accountId],
+        lazy="joined",  # Use joined loading since we always need account info
+        back_populates="posts",  # Add back reference
+    )
     content: Mapped[str] = mapped_column(String, nullable=True, default="")
     fypFlag: Mapped[int] = mapped_column(Integer, nullable=True, default=0)
     inReplyTo: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)

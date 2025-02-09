@@ -4,11 +4,14 @@ import asyncio
 import concurrent.futures
 import mimetypes
 import multiprocessing
+import os
 import re
+import traceback
 from pathlib import Path
+from typing import Any
 
 from aiomultiprocess import Pool
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from tqdm import tqdm
@@ -24,6 +27,9 @@ from metadata.media import Media
 from pathio import set_create_directory_for_download
 from textio import print_error, print_info
 from textio.logging import json_output
+
+# Module-level variable to track dedupe_init passes
+_dedupe_pass_count = 0
 
 
 @require_database_config
@@ -114,6 +120,145 @@ def safe_rglob(base_path: Path, pattern: str) -> list[Path]:
     return list(base_path.rglob(filename))
 
 
+async def find_media_records(
+    session: AsyncSession,
+    conditions: dict[str, Any],
+) -> list[Media]:
+    """Find media records matching any of the given conditions.
+
+    Args:
+        session: SQLAlchemy async session
+        conditions: Dict of field -> value pairs to match on
+
+    Returns:
+        List of matching Media records
+    """
+    query = select(Media)
+    or_conditions = []
+    and_conditions = []
+
+    for field, value in conditions.items():
+        if field == "id":
+            or_conditions.append(Media.id == value)
+        elif field == "content_hash":
+            or_conditions.append(Media.content_hash == value)
+        elif field == "local_filename":
+            or_conditions.extend(
+                [
+                    # Handle both exact and normalized matches
+                    Media.local_filename.ilike(value),
+                    Media.local_filename == value,
+                ]
+            )
+        elif field == "accountId":
+            and_conditions.append(Media.accountId == int(value))  # Convert to int
+        elif field == "is_downloaded":
+            and_conditions.append(Media.is_downloaded == value)
+
+    if or_conditions:
+        and_conditions.append(or_(*or_conditions))
+
+    if and_conditions:
+        query = query.where(and_(*and_conditions))
+
+    result = await session.execute(query)
+    return result.scalars().all()
+
+
+def verify_file_existence(
+    base_path: Path,
+    filenames: list[str],
+) -> dict[str, bool]:
+    """Verify existence of multiple files at once.
+
+    Args:
+        base_path: Base directory to search in
+        filenames: List of filenames to check
+
+    Returns:
+        Dict mapping filenames to existence booleans
+    """
+    # First try direct path lookup
+    results = {}
+    for filename in filenames:
+        direct_path = base_path / filename
+        if direct_path.is_file():
+            results[filename] = True
+            continue
+
+        # If not found directly, try rglob
+        found = False
+        for found_file in safe_rglob(base_path, filename):
+            if found_file.is_file():
+                found = True
+                break
+        results[filename] = found
+
+    return results
+
+
+# Function to calculate file hash in a separate process
+def calculate_file_hash(
+    file_info: tuple[Path, str],
+) -> tuple[Path, str | None, dict]:
+    """Calculate hash for a file in a separate process.
+
+    Args:
+        file_info: Tuple of (file_path, mimetype)
+
+    Returns:
+        Tuple of (file_path, hash or None, debug_info)
+    """
+    file_path, mimetype = file_info
+    debug_info = {
+        "path": str(file_path),
+        "mimetype": mimetype,
+        "size": file_path.stat().st_size if file_path.exists() else None,
+        "exists": file_path.exists(),
+        "is_file": file_path.is_file() if file_path.exists() else None,
+        "readable": os.access(file_path, os.R_OK) if file_path.exists() else None,
+    }
+    try:
+        if "image" in mimetype:
+            hash_value = get_hash_for_image(file_path)
+            debug_info.update(
+                {
+                    "hash_type": "image",
+                    "hash_success": bool(hash_value),
+                    "hash_value": hash_value if hash_value else None,
+                }
+            )
+            return file_path, hash_value, debug_info
+        elif "video" in mimetype or "audio" in mimetype:
+            hash_value = get_hash_for_other_content(file_path)
+            debug_info.update(
+                {
+                    "hash_type": "video/audio",
+                    "hash_success": bool(hash_value),
+                    "hash_value": hash_value if hash_value else None,
+                }
+            )
+            return file_path, hash_value, debug_info
+        else:
+            debug_info.update(
+                {
+                    "hash_type": "unsupported",
+                    "hash_success": False,
+                    "reason": "unsupported_mimetype",
+                }
+            )
+    except Exception as e:
+        debug_info.update(
+            {
+                "hash_success": False,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc(),
+            }
+        )
+    return file_path, None, debug_info
+
+
 @with_database_session(async_session=True)
 async def get_or_create_media(
     file_path: Path,
@@ -125,140 +270,216 @@ async def get_or_create_media(
     config: FanslyConfig | None = None,
     session: AsyncSession | None = None,
 ) -> tuple[Media, bool]:
+    """Get or create a media record with optimized database access.
+
+    Strategy:
+    1. One query to get media by ID and/or hash
+    2. Calculate hash only if needed
+    3. One update/insert at the end
+    """
     filename = normalize_filename(get_filename_only(file_path), config=config)
     hash_verified = False
 
-    # First try by ID if available
+    json_output(
+        1,
+        "get_or_create_media",
+        {
+            "state": "start",
+            "media_id": media_id,
+            "filename": filename,
+            "mimetype": mimetype,
+            "initial_hash": file_hash,
+            "trust_filename": trust_filename,
+        },
+    )
+
+    # Build query to find existing media
+    query = select(Media)
+    conditions = []
+
     if media_id:
-        media = (
-            await session.execute(
-                select(Media).where(Media.id == media_id).with_for_update()
-            )
-        ).scalar_one_or_none()
-        if media:
-            # If filenames match
-            if media.local_filename == filename:
-                # If record has a hash, we can trust it
-                # json_output(
-                #     1,
-                #     "dedupe-get_or_create_media",
-                #     f"file_path: {file_path} -- media_id: {media_id} -- media.local_filename: {media.local_filename} -- media.is_downloaded: {media.is_downloaded} -- media.content_hash: {media.content_hash}",
-                # )
-                if media.content_hash:
-                    hash_verified = True
-                    return media, hash_verified
-                # If no hash, calculate it regardless of trust_filename
-                calculated_hash = None
-                if "image" in mimetype:
-                    calculated_hash = get_hash_for_image(file_path)
-                elif "video" in mimetype or "audio" in mimetype:
-                    calculated_hash = get_hash_for_other_content(file_path)
-
-                if calculated_hash:
-                    # Get all media with this hash using optimized lookup
-                    existing_row = config._database.find_media_by_hash(calculated_hash)
-                    other_media_list = []
-                    if existing_row and existing_row[0] != media.id:
-                        # Convert tuple to Media object
-                        other_media = await session.get(Media, existing_row[0])
-                        if other_media:
-                            other_media_list = [other_media]
-
-                    if other_media_list:
-                        # Keep the first one and delete the rest
-                        other_media = other_media_list[0]
-                        for duplicate in other_media_list[1:]:
-                            await session.delete(duplicate)
-
-                        # Now handle the first duplicate as before
-                        if other_media.id != media.id:
-                            # Merge the records - keep the one with the correct ID
-                            media.content_hash = calculated_hash
-                            media.is_downloaded = True
-                            await session.delete(other_media)
-                            await session.flush()
-                    else:
-                        media.content_hash = calculated_hash
-                        media.is_downloaded = True
-                        await session.flush()
-                    hash_verified = True
-                    return media, hash_verified
-                # If we couldn't calculate hash but trust filename
-                elif trust_filename:
-                    return media, hash_verified
-
-    # Try by hash if we have one using optimized lookup
+        conditions.append(Media.id == media_id)
     if file_hash:
-        existing_row = config._database.find_media_by_hash(file_hash)
-        if existing_row:
-            media = await session.get(Media, existing_row[0])
-            if media:
-                hash_verified = True
-                return media, hash_verified
-    elif not trust_filename:
-        # Calculate hash if needed and not provided
-        calculated_hash = None
-        if "image" in mimetype:
-            calculated_hash = get_hash_for_image(file_path)
-        elif "video" in mimetype or "audio" in mimetype:
-            calculated_hash = get_hash_for_other_content(file_path)
+        conditions.append(Media.content_hash == file_hash)
 
-        if calculated_hash:
-            existing_row = config._database.find_media_by_hash(calculated_hash)
-            if existing_row:
-                media = await session.get(Media, existing_row[0])
-                if media:
-                    hash_verified = True
-                    return media, hash_verified
-            file_hash = calculated_hash  # Use for new record if needed
+    # If we have conditions, try to find existing media
+    if conditions:
+        query = query.where(or_(*conditions))
+        result = await session.execute(query)
+        existing_media = result.scalars().all()
+        json_output(
+            1,
+            "get_or_create_media",
+            {
+                "state": "query_existing",
+                "conditions": [str(c) for c in conditions],
+                "found_count": len(existing_media),
+                "found_ids": [m.id for m in existing_media],
+            },
+        )
+    else:
+        existing_media = []
+        json_output(
+            1,
+            "get_or_create_media",
+            {
+                "state": "no_query_conditions",
+            },
+        )
 
-    # Double-check for ID before creating new record
-    if media_id:
-        # One final check with row lock before creating
-        media = (
-            await session.execute(
-                select(Media).where(Media.id == media_id).with_for_update()
+    # If we found media by ID, verify/update it
+    media_by_id = (
+        next((m for m in existing_media if m.id == media_id), None)
+        if media_id
+        else None
+    )
+    if media_by_id:
+        json_output(
+            1,
+            "get_or_create_media",
+            {
+                "state": "found_by_id",
+                "media_id": media_by_id.id,
+                "has_hash": bool(media_by_id.content_hash),
+                "filename_match": media_by_id.local_filename == filename,
+            },
+        )
+
+        # If filenames match and we have a hash, we're done
+        if media_by_id.local_filename == filename and media_by_id.content_hash:
+            hash_verified = True
+            json_output(
+                1,
+                "get_or_create_media",
+                {
+                    "state": "quick_return",
+                    "media_id": media_by_id.id,
+                    "reason": "filename_and_hash_match",
+                },
             )
-        ).scalar_one_or_none()
-        if media:
-            # If we have a hash in the DB, verify it matches
-            if media.content_hash:
-                calculated_hash = None
-                if not file_hash:  # Only calculate if we don't already have it
-                    if "image" in mimetype:
-                        calculated_hash = get_hash_for_image(file_path)
-                    elif "video" in mimetype or "audio" in mimetype:
-                        calculated_hash = get_hash_for_other_content(file_path)
-                else:
-                    calculated_hash = file_hash
+            return media_by_id, hash_verified
 
-                if calculated_hash and media.content_hash != calculated_hash:
-                    raise MediaHashMismatchError(
-                        f"Hash mismatch for media {media_id}: "
-                        f"DB has {media.content_hash}, file has {calculated_hash}"
-                    )
+        # Calculate hash if needed and not provided
+        if not file_hash and not trust_filename:
+            json_output(
+                1,
+                "get_or_create_media",
+                {
+                    "state": "calculating_hash",
+                    "media_id": media_by_id.id,
+                    "reason": "verify_existing",
+                    "mimetype": mimetype,
+                },
+            )
+            if "image" in mimetype:
+                file_hash = get_hash_for_image(file_path)
+            elif "video" in mimetype or "audio" in mimetype:
+                file_hash = get_hash_for_other_content(file_path)
 
-            # Update existing record instead of creating new
-            media.content_hash = file_hash
-            media.local_filename = filename
-            media.is_downloaded = True
-            media.mimetype = mimetype
-            if not media.accountId:
-                media.accountId = await get_account_id(session, state)
-            await session.flush()
-            return media, hash_verified
+        # If we have a hash now, verify it matches
+        if (
+            file_hash
+            and media_by_id.content_hash
+            and media_by_id.content_hash != file_hash
+        ):
+            json_output(
+                1,
+                "get_or_create_media",
+                {
+                    "state": "hash_mismatch",
+                    "media_id": media_by_id.id,
+                    "db_hash": media_by_id.content_hash,
+                    "file_hash": file_hash,
+                },
+            )
+            raise MediaHashMismatchError(
+                f"Hash mismatch for media {media_id}: "
+                f"DB has {media_by_id.content_hash}, file has {file_hash}"
+            )
 
-    # Create new if definitely not found
+        # Update existing record
+        media_by_id.content_hash = file_hash
+        media_by_id.local_filename = filename
+        media_by_id.is_downloaded = True
+        media_by_id.mimetype = mimetype
+        if not media_by_id.accountId:
+            media_by_id.accountId = await get_account_id(session, state)
+
+        hash_verified = bool(file_hash)
+        json_output(
+            1,
+            "get_or_create_media",
+            {
+                "state": "updated_existing",
+                "media_id": media_by_id.id,
+                "updated_fields": [
+                    "content_hash",
+                    "local_filename",
+                    "is_downloaded",
+                    "mimetype",
+                ]
+                + (["accountId"] if not media_by_id.accountId else []),
+            },
+        )
+        return media_by_id, hash_verified
+
+    # If we found media by hash, use that
+    media_by_hash = (
+        next((m for m in existing_media if m.content_hash == file_hash), None)
+        if file_hash
+        else None
+    )
+    if media_by_hash:
+        hash_verified = True
+        json_output(
+            1,
+            "get_or_create_media",
+            {
+                "state": "found_by_hash",
+                "media_id": media_by_hash.id,
+                "hash": file_hash,
+            },
+        )
+        return media_by_hash, hash_verified
+
+    # If we get here, we need to create new media
+    # Calculate hash if needed and not provided
+    if not file_hash and not trust_filename:
+        json_output(
+            1,
+            "get_or_create_media",
+            {
+                "state": "calculating_hash",
+                "reason": "new_media",
+                "mimetype": mimetype,
+            },
+        )
+        if "image" in mimetype:
+            file_hash = get_hash_for_image(file_path)
+        elif "video" in mimetype or "audio" in mimetype:
+            file_hash = get_hash_for_other_content(file_path)
+
+    # Create new media
     media = Media(
         id=media_id,
-        content_hash=file_hash,  # Might be None if trust_filename=True
+        content_hash=file_hash,
         local_filename=filename,
         is_downloaded=True,
         mimetype=mimetype,
         accountId=(await get_account_id(session, state)),
     )
     session.add(media)
-    await session.flush()
+    hash_verified = bool(file_hash)
+
+    json_output(
+        1,
+        "get_or_create_media",
+        {
+            "state": "created_new",
+            "media_id": media_id,
+            "has_hash": bool(file_hash),
+        },
+    )
 
     return media, hash_verified
 
@@ -291,8 +512,39 @@ async def get_account_id(session: AsyncSession, state: DownloadState) -> int | N
     return None
 
 
+async def categorize_file(
+    file_path: Path,
+    hash2_pattern: re.Pattern[str],
+) -> tuple[str, tuple] | None:
+    """Categorize a file into 'hash2', 'media_id', or 'needs_hash'.
+
+    Returns:
+        Tuple of (category, file_info) or None if file should be skipped
+    """
+
+    filename = file_path.name
+    media_id, _ = get_id_from_filename(filename)
+    mimetype, _ = mimetypes.guess_type(file_path)
+
+    if not mimetype:
+        return None
+
+    match2 = hash2_pattern.search(filename)
+    if match2:
+        return "hash2", (file_path, media_id, mimetype, match2.group(1))
+    elif media_id:
+        return "media_id", (file_path, media_id, mimetype)
+    else:
+        return "needs_hash", (file_path, mimetype)
+
+
 @require_database_config
-async def dedupe_init(config: FanslyConfig, state: DownloadState):
+@with_database_session(async_session=True)
+async def dedupe_init(
+    config: FanslyConfig,
+    state: DownloadState,
+    session: AsyncSession | None = None,
+) -> None:
     """Initialize deduplication by scanning existing files and updating the database.
 
     This function:
@@ -304,6 +556,24 @@ async def dedupe_init(config: FanslyConfig, state: DownloadState):
     6. Updates the database with file information
     7. Marks files as downloaded in the database
     """
+    # Use module-level variable to track pass count
+    global _dedupe_pass_count
+    if not globals().get("_dedupe_pass_count"):
+        _dedupe_pass_count = 0
+    _dedupe_pass_count += 1
+    call_count = _dedupe_pass_count
+
+    json_output(
+        1,
+        "dedupe_init",
+        {
+            "pass": call_count,
+            "state": "starting",
+            "download_path": str(state.download_path) if state.download_path else None,
+            "creator_id": state.creator_id,
+            "creator_name": state.creator_name,
+        },
+    )
 
     # First, migrate any full paths in the database to filenames only
     await migrate_full_paths_to_filenames(config)
@@ -312,6 +582,18 @@ async def dedupe_init(config: FanslyConfig, state: DownloadState):
     set_create_directory_for_download(config, state)
 
     if not state.download_path or not state.download_path.is_dir():
+        json_output(
+            1,
+            "dedupe_init",
+            {
+                "pass": call_count,
+                "state": "early_return",
+                "reason": (
+                    "no_download_path" if not state.download_path else "not_a_directory"
+                ),
+                "path": str(state.download_path) if state.download_path else None,
+            },
+        )
         return
 
     print_info(
@@ -319,83 +601,55 @@ async def dedupe_init(config: FanslyConfig, state: DownloadState):
     )
 
     # Count existing records
-    async with config._database.async_session_scope() as session:
-        result = await session.execute(
-            select(func.count())  # pylint: disable=not-callable
-            .select_from(Media)
-            .where(
-                Media.is_downloaded == True,  # noqa: E712
-                Media.accountId == state.creator_id,
-            )
-        )
-        existing_downloaded = result.scalar_one()
-        print_info(f"Existing downloaded records: {existing_downloaded}")
+    existing_media = await find_media_records(
+        session,
+        {
+            "accountId": state.creator_id,
+            "is_downloaded": True,
+        },
+    )
+    existing_downloaded = len(existing_media)
+    print_info(f"Existing downloaded records: {existing_downloaded}")
 
     # Initialize patterns and counters
     processed_count = 0
     preserved_count = 0
     hash2_pattern = re.compile(r"_hash2_([a-fA-F0-9]+)")
 
-    # Get all files
-    all_files = list(safe_rglob(state.download_path, "*"))
-
-    # Function to calculate file hash in a separate process
-    def calculate_file_hash(file_info: tuple[Path, str]) -> tuple[Path, str | None]:
-        """Calculate hash for a file in a separate process.
-
-        Args:
-            file_info: Tuple of (file_path, mimetype)
-
-        Returns:
-            Tuple of (file_path, hash or None)
-        """
-        file_path, mimetype = file_info
-        try:
-            if "image" in mimetype:
-                return file_path, get_hash_for_image(file_path)
-            elif "video" in mimetype or "audio" in mimetype:
-                return file_path, get_hash_for_other_content(file_path)
-        except Exception:
-            pass
-        return file_path, None
-
     max_workers = max(
         1, multiprocessing.cpu_count() // 2
     )  # Use half of available cores
 
     # First, collect all files that need hashing
-    files_to_hash = []
+    all_files = [f for f in safe_rglob(state.download_path, "*") if f.is_file()]
+    file_batches = {
+        "hash2": [],  # (file_path, media_id, mimetype, hash2_value)
+        "media_id": [],  # (file_path, media_id, mimetype)
+        "needs_hash": [],  # (file_path, mimetype)
+    }
+
+    # Categorize files
+    tasks = [categorize_file(f, hash2_pattern) for f in all_files]
     pbar = tqdm(
         total=len(all_files), desc="Processing files", dynamic_ncols=True, unit="files"
     )
 
-    for file_path in all_files:
-        if not file_path.is_file():
-            pbar.update(1)
-            continue
+    for task in asyncio.as_completed(tasks):
+        if result := await task:
+            category, file_info = result
+            file_batches[category].append(file_info)
+        pbar.update(1)
+    pbar.close()
 
-        filename = file_path.name
-        # Extract media ID if present
-        media_id, is_preview = get_id_from_filename(filename)
-
-        # Determine mimetype
-        mimetype, _ = mimetypes.guess_type(file_path)
-        if not mimetype:
-            pbar.update(1)
-            continue
-
-        # Update progress bar description with current file
-        extension = file_path.suffix.lower()
-        pbar.set_description(
-            f"Processing {file_path.name[:(40 - len(extension))]}..{extension}",
-            refresh=True,
+    # Process hash2 files (files with known hashes)
+    if file_batches["hash2"]:
+        pbar = tqdm(
+            total=len(file_batches["hash2"]),
+            desc="Processing hash2 files",
+            unit="files",
         )
-
-        # Handle files with hash2 format (trusted source)
-        match2 = hash2_pattern.search(filename)
-        if match2:
-            hash2_value = match2.group(1)
-            new_name = hash2_pattern.sub("", filename)
+        for file_path, media_id, mimetype, hash2_value in file_batches["hash2"]:
+            new_name = hash2_pattern.sub("", file_path.name)
             _, hash_verified = await get_or_create_media(
                 file_path=file_path.with_name(new_name),
                 media_id=media_id,
@@ -404,13 +658,21 @@ async def dedupe_init(config: FanslyConfig, state: DownloadState):
                 file_hash=hash2_value,
                 trust_filename=True,
                 config=config,
+                session=session,
             )
             if hash_verified:
                 preserved_count += 1
             pbar.update(1)
-            continue
+        pbar.close()
 
-        if media_id:
+    # Process files with media IDs
+    if file_batches["media_id"]:
+        pbar = tqdm(
+            total=len(file_batches["media_id"]),
+            desc="Processing media ID files",
+            unit="files",
+        )
+        for file_path, media_id, mimetype in file_batches["media_id"]:
             _, hash_verified = await get_or_create_media(
                 file_path=file_path,
                 media_id=media_id,
@@ -418,127 +680,214 @@ async def dedupe_init(config: FanslyConfig, state: DownloadState):
                 state=state,
                 trust_filename=True,
                 config=config,
+                session=session,
             )
             if hash_verified:
                 processed_count += 1
             pbar.update(1)
-            continue
+        pbar.close()
 
-        # Add file to hash list
-        files_to_hash.append((file_path, mimetype))
-        pbar.update(1)
-
-    pbar.close()
-
-    # Hash files in parallel using multiprocessing
-    with tqdm(
-        total=len(files_to_hash),
-        desc=f"Processing files ({max_workers} workers)",
-        dynamic_ncols=True,
-        unit="files",
-    ) as pbar:
-        # Create a chunksize that balances overhead and parallelism
-        chunksize = max(1, len(files_to_hash) // (max_workers * 4))
-
+    # Process files needing hashes
+    if file_batches["needs_hash"]:
+        # Use multiprocessing for hash calculation
         with multiprocessing.Pool(processes=max_workers) as pool:
+            pbar = tqdm(
+                total=len(file_batches["needs_hash"]),
+                desc=f"Processing files ({max_workers} workers)",
+                unit="files",
+            )
             try:
-                # Use imap_unordered with a reasonable chunksize for better progress updates
-                for file_path, file_hash in pool.imap_unordered(
-                    calculate_file_hash, files_to_hash, chunksize=chunksize
+                for file_path, file_hash, debug_info in pool.imap_unordered(
+                    calculate_file_hash,
+                    file_batches["needs_hash"],
+                    chunksize=max(
+                        1, len(file_batches["needs_hash"]) // (max_workers * 4)
+                    ),
                 ):
                     if file_hash is None:
                         pbar.update(1)
                         continue
 
-                    # Update progress bar description with current file
-                    extension = file_path.suffix.lower()
-                    pbar.set_description(
-                        f"Processing {file_path.name[:(40 - len(extension))]}..{extension}",
-                        refresh=True,
-                    )
-
-                    # Process the file with its hash
-                    _, hash_verified = await get_or_create_media(
-                        file_path=file_path,
-                        media_id=get_id_from_filename(file_path.name)[0],
-                        mimetype=mimetypes.guess_type(file_path)[0],
-                        state=state,
-                        file_hash=file_hash,
-                        trust_filename=False,
-                        config=config,
-                    )
-                    if hash_verified:
-                        processed_count += 1
-
-                    # Update progress bar in main process
-                    pbar.update(1)
-                    # Periodically refresh to show current speed
-                    if pbar.n % 10 == 0:
-                        pbar.refresh()
-
-            except Exception as e:
-                print_error(f"Error processing files: {e}")
-                # Let the main process handle cleanup
-
-    async with config._database.async_session_scope() as session:
-        downloaded_list = (
-            (
-                await session.execute(
-                    select(Media).where(
-                        Media.is_downloaded == True,  # noqa: E712
-                        Media.accountId == state.creator_id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        with tqdm(
-            total=len(downloaded_list), desc="Checking DB files...", dynamic_ncols=True
-        ) as pbar:
-            for media in downloaded_list:
-                pbar.set_description(f"Checking DB - ID: {media.id}", refresh=True)
-                # print_info(
-                #     f"Checking DB - ID: {media.id} -- filename: {media.local_filename} -- hash: {media.content_hash}"
-                # )
-                if media.local_filename:
-                    if any(f.name == media.local_filename for f in all_files):
+                    try:
+                        _, hash_verified = await get_or_create_media(
+                            file_path=file_path,
+                            media_id=get_id_from_filename(file_path.name)[0],
+                            mimetype=mimetypes.guess_type(file_path)[0],
+                            state=state,
+                            file_hash=file_hash,
+                            trust_filename=False,
+                            config=config,
+                            session=session,
+                        )
+                        if hash_verified:
+                            processed_count += 1
+                    except Exception as e:
+                        json_output(
+                            1,
+                            "dedupe_init",
+                            {
+                                "pass": call_count,
+                                "state": "file_process_error",
+                                "file_info": debug_info,
+                                "error": str(e),
+                                "error_type": type(e).__name__,
+                                "traceback": traceback.format_exc(),
+                            },
+                        )
+                    finally:
                         pbar.update(1)
-                        continue
-                    else:
-                        media.is_downloaded = False
-                        media.content_hash = None
-                        media.local_filename = None
+            finally:
+                pbar.close()
+                pool.close()
+                pool.join()
+
+    downloaded_list = await find_media_records(
+        session,
+        {
+            "is_downloaded": True,
+            "accountId": state.creator_id,
+        },
+    )
+    # Log start of database check
+    json_output(
+        1,
+        "dedupe_init",
+        {
+            "pass": call_count,
+            "state": "checking_database",
+            "downloaded_count": len(downloaded_list),
+        },
+    )
+    with tqdm(
+        total=len(downloaded_list), desc="Checking DB files...", dynamic_ncols=True
+    ) as pbar:
+        for media in downloaded_list:
+            pbar.set_description(f"Checking DB - ID: {media.id}", refresh=True)
+            # Log each record check
+            json_output(
+                2,  # More detailed logging level
+                "dedupe_init",
+                {
+                    "pass": call_count,
+                    "state": "checking_record",
+                    "media_id": media.id,
+                    "filename": media.local_filename,
+                    "hash": media.content_hash,
+                },
+            )
+            if media.local_filename:
+                if any(f.name == media.local_filename for f in all_files):
+                    pbar.update(1)
+                    continue
                 else:
+                    # File marked as downloaded but not found - clean up record
+                    json_output(
+                        1,
+                        "dedupe_init",
+                        {
+                            "pass": call_count,
+                            "state": "file_missing",
+                            "media_id": media.id,
+                            "filename": media.local_filename,
+                        },
+                    )
                     media.is_downloaded = False
                     media.content_hash = None
-                await session.commit()
-                pbar.update(1)
+                    media.local_filename = None
+            else:
+                media.is_downloaded = False
+                media.content_hash = None
+            pbar.update(1)
+    await session.flush()
 
     # Get updated counts
-    async with config._database.async_session_scope() as session:
-        new_downloaded = (
-            await session.execute(
-                select(func.count())  # pylint: disable=not-callable
-                .select_from(Media)
-                .where(
-                    Media.is_downloaded == True,  # noqa: E712
-                    Media.accountId == state.creator_id,
-                )
-            )
-        ).scalar_one()
+    result = await find_media_records(
+        session=session,
+        conditions={
+            "is_downloaded": True,
+            "accountId": state.creator_id,
+        },
+    )
+    final_downloaded = len(result)
+
+    # Log final statistics
+    json_output(
+        1,
+        "dedupe_init",
+        {
+            "pass": call_count,
+            "state": "finished",
+            "initial_records": existing_downloaded,
+            "final_records": final_downloaded,
+            "new_records": final_downloaded - existing_downloaded,
+            "processed_count": processed_count,
+            "preserved_count": preserved_count,
+            "total_files": len(all_files),
+            "files_hashed": len(file_batches["needs_hash"]),
+        },
+    )
 
     print_info(
         f"Database deduplication initialized!"
-        f"\n{17 * ' '}Added {new_downloaded - existing_downloaded} new entries to the database"
+        f"\n{17 * ' '}Added {final_downloaded - existing_downloaded} new entries to the database"
         f"\n{17 * ' '}Processed {processed_count} files with content verification"
         f"\n{17 * ' '}Preserved {preserved_count} trusted hash2 format entries"
     )
 
     print_info(
         "Files will now be tracked in the database instead of using filename hashes."
-        "\nThis provides better organization and reliable deduplication."
     )
+
+
+def _calculate_hash_for_file(
+    filename: Path,
+    mimetype: str,
+) -> str | None:
+    """Calculate hash for a file based on its mimetype.
+
+    Args:
+        filename: Path to the file
+        mimetype: MIME type of the file
+
+    Returns:
+        Hash string or None if hash couldn't be calculated
+    """
+    try:
+        if "image" in mimetype:
+            return get_hash_for_image(filename)
+        elif "video" in mimetype or "audio" in mimetype:
+            return get_hash_for_other_content(filename)
+    except Exception as e:
+        json_output(
+            1,
+            "dedupe_media_file",
+            {
+                "state": "hash_error",
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc(),
+            },
+        )
+    return None
+
+
+def _check_file_exists(
+    base_path: Path,
+    filename: str,
+) -> bool:
+    """Check if a file exists in the given base path.
+
+    Args:
+        base_path: Base directory to search in
+        filename: Filename to look for
+
+    Returns:
+        True if file exists, False otherwise
+    """
+    for found_file in safe_rglob(base_path, filename):
+        if found_file.is_file():
+            return True
+    return False
 
 
 @require_database_config
@@ -567,7 +916,16 @@ def dedupe_media_file(
     Returns:
         bool: True if it is a duplicate or False otherwise
     """
-    from metadata.media import Media
+    json_output(
+        1,
+        "dedupe_media_file",
+        {
+            "state": "starting",
+            "media_id": media_record.id if media_record else None,
+            "filename": str(filename),
+            "mimetype": mimetype,
+        },
+    )
 
     # Check database for existing records
     with config._database.session_scope() as session:
@@ -578,40 +936,36 @@ def dedupe_media_file(
         if media_id:
             existing_by_id = session.query(Media).filter_by(id=media_id).first()
             if existing_by_id:
+                # Calculate hash if needed
                 file_hash = None
                 if existing_by_id.content_hash is None:
-                    if "image" in mimetype:
-                        file_hash = get_hash_for_image(filename)
-                    elif "video" in mimetype or "audio" in mimetype:
-                        file_hash = get_hash_for_other_content(filename)
+                    file_hash = _calculate_hash_for_file(filename, mimetype)
 
                 # First check if filenames match
                 if existing_by_id.local_filename == get_filename_only(filename):
-                    # Same filename for same ID - perfect match
                     if file_hash:
                         existing_by_id.content_hash = file_hash
                     existing_by_id.is_downloaded = True
                     session.commit()
                     return True
 
+                # Handle missing filename
                 if existing_by_id.local_filename is None:
                     existing_by_id.local_filename = get_filename_only(filename)
                     existing_by_id.is_downloaded = True
                     file_hash = None
-                    if "image" in mimetype:
-                        file_hash = get_hash_for_image(filename)
-                    elif "video" in mimetype or "audio" in mimetype:
-                        file_hash = get_hash_for_other_content(filename)
+                    if not file_hash:
+                        file_hash = _calculate_hash_for_file(filename, mimetype)
                     if file_hash:
                         existing_by_id.content_hash = file_hash
                     session.commit()
                     return True
 
+                # Handle path normalization
                 if (
                     existing_by_id.local_filename == filename
                     or get_filename_only(existing_by_id.local_filename) == filename
                 ):
-                    # Same filename for same ID - perfect match, but with full path in DB
                     existing_by_id.local_filename = get_filename_only(filename)
                     existing_by_id.is_downloaded = True
                     session.commit()
@@ -619,27 +973,30 @@ def dedupe_media_file(
 
                 # Different filename but same ID - check if it's actually the same file
                 if existing_by_id.content_hash:  # Only if we have a hash to compare
-                    file_hash = None
-                    if "image" in mimetype:
-                        file_hash = get_hash_for_image(filename)
-                    elif "video" in mimetype or "audio" in mimetype:
-                        file_hash = get_hash_for_other_content(filename)
+                    if not file_hash:
+                        file_hash = _calculate_hash_for_file(filename, mimetype)
 
                     if file_hash and file_hash == existing_by_id.content_hash:
                         # Same content but wrong filename - check if DB's file exists
-                        db_file_exists = False
                         db_filename = existing_by_id.local_filename
                         if db_filename == str(filename):
                             existing_by_id.local_filename = get_filename_only(filename)
                             existing_by_id.is_downloaded = True
                             session.commit()
                             return True
-                        for found_file in safe_rglob(state.download_path, db_filename):
-                            if found_file.is_file():
-                                db_file_exists = True
-                                break
-                        print_info(
-                            f"db_filename: {db_filename} -- filename: {filename}"
+
+                        db_file_exists = _check_file_exists(
+                            state.download_path, db_filename
+                        )
+                        json_output(
+                            1,
+                            "dedupe_media_file",
+                            {
+                                "state": "checking_db_file",
+                                "db_filename": db_filename,
+                                "filename": str(filename),
+                                "exists": db_file_exists,
+                            },
                         )
 
                         if db_file_exists:
@@ -672,49 +1029,34 @@ def dedupe_media_file(
 
             # Different filename - check if it's actually the same file
             if existing_by_name.content_hash:  # Only if we have a hash to compare
-                file_hash = None
-                if "image" in mimetype:
-                    file_hash = get_hash_for_image(filename)
-                elif "video" in mimetype or "audio" in mimetype:
-                    file_hash = get_hash_for_other_content(filename)
+                file_hash = _calculate_hash_for_file(filename, mimetype)
 
                 if file_hash and file_hash == existing_by_name.content_hash:
                     # Same content but wrong filename - check if DB's file exists
-                    db_file_exists = False
-                    db_filename = existing_by_name.local_filename
-                    for found_file in safe_rglob(state.download_path, db_filename):
-                        if found_file.is_file():
-                            db_file_exists = True
-                            break
+                    db_file_exists = _check_file_exists(
+                        state.download_path, existing_by_name.local_filename
+                    )
 
                     if db_file_exists:
-                        # DB's file exists, this is a duplicate with wrong name - remove it
+                        # DB's file exists, this is a duplicate - remove it
                         filename.unlink()
                         return True
                     else:
-                        # DB's file is missing but this is the same content - update DB filename
+                        # DB's file is missing but content matches - update DB filename
                         existing_by_name.local_filename = get_filename_only(filename)
                         session.commit()
                         return True
 
         # If not in DB or no hash match, calculate hash and update DB
-        file_hash = None
-        if "image" in mimetype:
-            file_hash = get_hash_for_image(filename)
-        elif "video" in mimetype or "audio" in mimetype:
-            file_hash = get_hash_for_other_content(filename)
-
+        file_hash = _calculate_hash_for_file(filename, mimetype)
         if file_hash:
             # Check if hash exists in database
             media = session.query(Media).filter_by(content_hash=file_hash).first()
             if media:
                 # Found by hash - check if DB's file exists
-                db_file_exists = False
-                db_filename = media.local_filename
-                for found_file in safe_rglob(state.download_path, db_filename):
-                    if found_file.is_file():
-                        db_file_exists = True
-                        break
+                db_file_exists = _check_file_exists(
+                    state.download_path, media.local_filename
+                )
 
                 if db_file_exists:
                     # DB's file exists, this is a duplicate - remove it
@@ -731,4 +1073,5 @@ def dedupe_media_file(
             media_record.local_filename = get_filename_only(filename)
             media_record.is_downloaded = True
             session.commit()
-            return False
+
+    return False

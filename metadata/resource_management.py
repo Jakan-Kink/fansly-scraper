@@ -21,9 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
 
-from textio import print_debug, print_error, print_info, print_warning
-
-from .decorators import retry_on_locked_db
+from textio import print_debug, print_error, print_warning
 
 RT = TypeVar("RT")
 
@@ -359,6 +357,67 @@ class ThreadLocalConnections(BaseConnections):
         conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
         return conn
 
+    def _check_existing_connection(self, thread_id: str) -> Any | None:
+        """Check for an existing connection for this thread.
+
+        Args:
+            thread_id: Thread ID to check
+
+        Returns:
+            Connection if found and healthy, None otherwise
+        """
+        conn = getattr(self._connections, thread_id, None)
+        if conn is not None:
+            return conn
+        return None
+
+    def _try_reuse_memory_connection(self, thread_id: str) -> Any | None:
+        """Try to reuse an existing in-memory connection.
+
+        Args:
+            thread_id: Thread ID to get connection for
+
+        Returns:
+            Connection if found and healthy, None otherwise
+        """
+        if not self._is_memory_db:
+            return None
+
+        for tid in self._get_ids():
+            if tid != thread_id:
+                existing_conn = getattr(self._connections, tid, None)
+                if existing_conn is not None:
+                    try:
+                        existing_conn.execute("SELECT 1")
+                        setattr(self._connections, thread_id, existing_conn)
+                        return existing_conn
+                    except Exception:  # nosec B112
+                        continue
+        return None
+
+    def _try_pool_connection(self, thread_id: str) -> Any | None:
+        """Try to get a connection from the pool.
+
+        Args:
+            thread_id: Thread ID to get connection for
+
+        Returns:
+            Connection if found and healthy, None otherwise
+        """
+        with self._pool_lock:
+            if self._connection_pool:
+                conn = self._connection_pool.pop()
+                try:
+                    conn.execute("SELECT 1")
+                    setattr(self._connections, thread_id, conn)
+                    return conn
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        return None
+
     def get_connection(self, thread_id: str) -> Any | None:
         """Get connection for a specific thread.
 
@@ -375,41 +434,17 @@ class ThreadLocalConnections(BaseConnections):
         """
         lock = self._get_lock(thread_id)
         with lock:  # type: ignore
-            conn = getattr(self._connections, thread_id, None)
-            if conn is not None:
+            # Try existing connection
+            if conn := self._check_existing_connection(thread_id):
                 return conn
 
-            # For in-memory database, try to reuse any existing connection
-            if self._is_memory_db:
-                # Try to get any existing connection first
-                for tid in self._get_ids():
-                    if tid != thread_id:
-                        existing_conn = getattr(self._connections, tid, None)
-                        if existing_conn is not None:
-                            try:
-                                # Verify connection is good
-                                existing_conn.execute("SELECT 1")
-                                # Share the same in-memory database
-                                setattr(self._connections, thread_id, existing_conn)
-                                return existing_conn
-                            except Exception:  # nosec B112
-                                continue  # Connection failed, try next one
+            # Try reusing in-memory connection
+            if conn := self._try_reuse_memory_connection(thread_id):
+                return conn
 
-            # Try to get a connection from the pool
-            with self._pool_lock:
-                if self._connection_pool:
-                    conn = self._connection_pool.pop()
-                    try:
-                        # Verify connection is good
-                        conn.execute("SELECT 1")
-                        setattr(self._connections, thread_id, conn)
-                        return conn
-                    except Exception:
-                        # Connection is bad, don't reuse it
-                        try:
-                            conn.close()
-                        except Exception:
-                            pass
+            # Try pool connection
+            if conn := self._try_pool_connection(thread_id):
+                return conn
 
             return None
 
@@ -524,6 +559,11 @@ class AsyncConnections(BaseConnections):
     4. Resource cleanup across tasks
     """
 
+    # Lock timeouts
+    LOCK_TIMEOUT = 5.0  # 5 seconds for normal operations
+    CLEANUP_TIMEOUT = 10.0  # 10 seconds for cleanup operations
+    BUSY_TIMEOUT = 30000  # 30 seconds for SQLite busy timeout (in ms)
+
     def __init__(
         self,
         optimized_storage: Any,
@@ -544,19 +584,21 @@ class AsyncConnections(BaseConnections):
 
         # Initialize base class with async storage
         super().__init__(use_thread_local=False)
-        # Always use asyncio.Lock for global lock in AsyncConnections
-        self._global_lock = asyncio.Lock()
-        print_debug("AsyncConnections: Base class initialized")
 
-        # Initialize async-specific attributes
-        self._optimized_storage = optimized_storage
-        self._shared_cache_uri = optimized_storage.shared_uri
-        self._connection_pool = []
-        self._pool_lock = asyncio.Lock()
-        self._query_locks: dict[int, asyncio.Lock] = {}
+        # Initialize separate locks for different operations
+        self._global_lock = asyncio.Lock()  # For global operations
+        self._session_locks: dict[int, asyncio.Lock] = {}  # For session management
+        self._query_locks: dict[int, asyncio.Lock] = {}  # For query execution
+        self._pool_lock = asyncio.Lock()  # For connection pool access
         self._lock_info: dict[int, tuple[str, float]] = (
             {}
         )  # task_id -> (operation, timestamp)
+
+        # Initialize connection management
+        self._optimized_storage = optimized_storage
+        self._shared_cache_uri = optimized_storage.shared_uri
+        self._connection_pool = []
+
         print_debug("AsyncConnections: Initialization complete")
 
     async def _create_lock(self, id_: str | int) -> asyncio.Lock:
@@ -583,10 +625,44 @@ class AsyncConnections(BaseConnections):
                     self._locks[id_] = asyncio.Lock()
                 return self._locks[id_]
 
+    async def _get_session_lock(self, task_id: int) -> asyncio.Lock:
+        """Get or create session lock for a task.
+
+        Args:
+            task_id: Task ID to get lock for
+
+        Returns:
+            Task-specific session lock
+        """
+        print_debug(f"[{task_id}] Getting session lock")
+        if task_id not in self._session_locks:
+            async with self._global_lock:
+                if task_id not in self._session_locks:
+                    self._session_locks[task_id] = asyncio.Lock()
+        return self._session_locks[task_id]
+
+    async def _get_query_lock(self, task_id: int) -> asyncio.Lock:
+        """Get or create query lock for a task.
+
+        Args:
+            task_id: Task ID to get lock for
+
+        Returns:
+            Task-specific query lock
+        """
+        print_debug(f"[{task_id}] Getting query lock")
+        if task_id not in self._query_locks:
+            async with self._global_lock:
+                if task_id not in self._query_locks:
+                    self._query_locks[task_id] = asyncio.Lock()
+        return self._query_locks[task_id]
+
     async def _get_lock(self, id_: str | int) -> asyncio.Lock:
         """Get or create lock for a specific ID.
 
         This overrides the base class method to handle async lock creation.
+        For backward compatibility - new code should use _get_session_lock
+        or _get_query_lock.
 
         Args:
             id_: Task ID to get lock for
@@ -594,33 +670,16 @@ class AsyncConnections(BaseConnections):
         Returns:
             Task-specific asyncio.Lock
         """
-        print_debug(
-            f"[{id_}] Getting lock (caller: {self.__class__.__name__}._get_lock)"
-        )
+        print_debug(f"[{id_}] Getting legacy lock")
+        if isinstance(id_, int):
+            return await self._get_session_lock(id_)
 
-        # Check if lock exists first
-        if self._use_thread_local:
-            if hasattr(self._locks, str(id_)):
-                print_debug(f"[{id_}] Found existing lock in thread-local")
-                return getattr(self._locks, str(id_))
-        else:
-            if id_ in self._locks:
-                print_debug(f"[{id_}] Found existing lock in dict")
-                return self._locks[id_]
-
-        # If no lock exists, create it with proper async locking
-        async with self._global_lock:
-            # Check again in case another task created it while we were waiting
-            if self._use_thread_local:
-                if not hasattr(self._locks, str(id_)):
-                    print_debug(f"[{id_}] Creating new asyncio.Lock in thread-local")
-                    setattr(self._locks, str(id_), asyncio.Lock())
-                return getattr(self._locks, str(id_))
-            else:
+        # For string IDs (legacy), use the old behavior
+        if id_ not in self._locks:
+            async with self._global_lock:
                 if id_ not in self._locks:
-                    print_debug(f"[{id_}] Creating new asyncio.Lock in dict")
                     self._locks[id_] = asyncio.Lock()
-                return self._locks[id_]
+        return self._locks[id_]
 
     def _create_shared_connection(self) -> sqlite3.Connection:
         """Create a connection with shared cache mode.
@@ -644,18 +703,164 @@ class AsyncConnections(BaseConnections):
         conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
         return conn
 
+    async def _acquire_session_lock(
+        self,
+        task_id: int,
+        session_lock: asyncio.Lock,
+    ) -> bool:
+        """Acquire session lock with timeout.
+
+        Args:
+            task_id: Task ID for logging
+            session_lock: Lock to acquire
+
+        Returns:
+            True if lock acquired, False otherwise
+
+        Raises:
+            TimeoutError: If lock acquisition times out
+        """
+        print_debug(f"[{task_id}] Attempting to acquire session lock")
+        try:
+            await asyncio.wait_for(session_lock.acquire(), timeout=self.LOCK_TIMEOUT)
+            print_debug(f"[{task_id}] Session lock acquired")
+            return True
+        except TimeoutError:
+            print_error(f"[{task_id}] Session lock acquisition timed out")
+            return False
+
+    async def _verify_session_health(
+        self,
+        task_id: int,
+        session: AsyncSession,
+        query_lock: asyncio.Lock,
+    ) -> bool:
+        """Verify session is healthy by executing a test query.
+
+        Args:
+            task_id: Task ID for logging
+            session: Session to test
+            query_lock: Lock for query execution
+
+        Returns:
+            True if session is healthy, False otherwise
+        """
+        try:
+            print_debug(f"[{task_id}] Testing session health")
+            async with asyncio.timeout(self.LOCK_TIMEOUT):
+                async with query_lock:
+                    await session.execute(text("SELECT 1"))
+            print_debug(f"[{task_id}] Session is healthy")
+            return True
+        except Exception as e:
+            print_debug(f"[{task_id}] Session health check failed: {e}")
+            return False
+
+    async def _check_existing_session(
+        self,
+        task_id: int,
+        session_lock: asyncio.Lock,
+        query_lock: asyncio.Lock,
+    ) -> tuple[AsyncSession, int] | None:
+        """Check for an existing session and verify it's healthy.
+
+        Args:
+            task_id: Task ID to check for existing session
+            session_lock: Lock for session management operations
+            query_lock: Lock for database query execution
+
+        Returns:
+            Tuple of (session, ref_count) if found and healthy, None otherwise
+
+        Raises:
+            TimeoutError: If lock acquisition or query execution times out
+            Exception: If session health check fails or cleanup fails
+        """
+        if task_id not in self._connections:
+            return None
+
+        session, count = self._connections[task_id]  # type: ignore
+        try:
+            print_debug(f"[{task_id}] Testing existing session")
+            async with asyncio.timeout(self.LOCK_TIMEOUT):
+                async with query_lock:
+                    await session.execute(text("SELECT 1"))
+            print_debug(f"[{task_id}] Found existing session (ref_count={count})")
+            return session, count
+        except Exception as e:
+            print_debug(f"[{task_id}] Session health check failed: {e}")
+            # Release session lock before cleanup
+            session_lock.release()
+            await self._cleanup_id(task_id)
+            # Reacquire session lock
+            await asyncio.wait_for(session_lock.acquire(), timeout=self.LOCK_TIMEOUT)
+            return None
+
+    async def _try_pool_session(
+        self,
+        task_id: int,
+        query_lock: asyncio.Lock,
+    ) -> tuple[AsyncSession, int] | None:
+        """Try to get a session from the connection pool.
+
+        Args:
+            task_id: Task ID to get session for
+            query_lock: Lock for database query execution
+
+        Returns:
+            Tuple of (session, ref_count) if created and healthy, None otherwise
+
+        Raises:
+            TimeoutError: If lock acquisition or query execution times out
+            Exception: If connection test fails or session creation fails
+        """
+        async with self._pool_lock:
+            if not self._connection_pool:
+                return None
+
+            conn = self._connection_pool.pop()
+            try:
+                print_debug(f"[{task_id}] Testing pool connection")
+                async with asyncio.timeout(self.LOCK_TIMEOUT):
+                    async with query_lock:
+                        await conn.execute(text("PRAGMA busy_timeout=30000"))
+                        await conn.execute(text("SELECT 1"))
+                session = AsyncSession(conn)
+                self._connections[task_id] = (session, 1)  # type: ignore
+                print_debug(f"[{task_id}] Got connection from pool")
+                return session, 1
+            except Exception as e:
+                print_debug(f"[{task_id}] Pool connection test failed: {e}")
+                try:
+                    await conn.close()
+                except Exception as e:
+                    print_debug(f"[{task_id}] Error closing bad connection: {e}")
+                return None
+
     async def get_session(self, task_id: int) -> tuple[AsyncSession, int] | None:
         """Get session and reference count for a task.
 
-        If a session exists for this task, return it.
-        Otherwise, try to reuse a connection from the pool
-        or create a new one with shared cache mode.
+        This method uses separate locks for session management and queries
+        to reduce contention:
+        - Session lock: For managing session state and reference counting
+        - Query lock: For actual database operations
+        - Pool lock: For connection pool access
+
+        The method tries the following strategies in order:
+        1. Check for existing session and verify it's healthy
+        2. Try to get a connection from the pool
+        3. Return None if no session can be obtained
 
         Args:
             task_id: Task ID to get session for
 
         Returns:
-            Tuple of (session, ref_count) or None if not found
+            Tuple of (session, ref_count) if session obtained, None otherwise
+
+        Raises:
+            TimeoutError: If lock acquisition or query execution times out
+            RuntimeError: If no database instance is available
+            Exception: If session operations fail
         """
         if not self._optimized_storage:
             print_error(f"[{task_id}] No database instance available")
@@ -664,70 +869,30 @@ class AsyncConnections(BaseConnections):
         print_debug(
             f"[{task_id}] Getting session (caller: {self.__class__.__name__}.get_session)"
         )
-        lock = await self._get_lock(task_id)
+        session_lock = await self._get_session_lock(task_id)
+        query_lock = await self._get_query_lock(task_id)
         print_debug(
-            f"[{task_id}] Using lock: {lock}, type={type(lock)}, dir={dir(lock)}, methods={[m for m in dir(lock) if not m.startswith('_')]}"
+            f"[{task_id}] Using locks: session={session_lock}, query={query_lock}"
         )
 
-        # Verify we got an asyncio.Lock
-        if not isinstance(lock, asyncio.Lock):
-            print_error(
-                f"[{task_id}] Wrong lock type! Expected asyncio.Lock, got {type(lock)}"
-            )
-            print_error(f"[{task_id}] Lock attributes: {dir(lock)}")
-            print_error(
-                f"[{task_id}] Lock state: {lock.__dict__ if hasattr(lock, '__dict__') else 'no __dict__'}"
-            )
-            raise TypeError(f"Wrong lock type! Expected asyncio.Lock, got {type(lock)}")
-
         try:
-            # Try to acquire lock with timeout
-            print_debug(
-                f"[{task_id}] Attempting to acquire lock in {self.__class__.__name__}.get_session"
-            )
-            print_debug(f"[{task_id}] Lock state before acquire: {lock}")
-            await asyncio.wait_for(lock.acquire(), timeout=2)
-            print_debug(f"[{task_id}] Lock state after acquire: {lock}")
-            print_debug(
-                f"[{task_id}] Lock acquired in {self.__class__.__name__}.get_session"
-            )
+            # Try to acquire session lock with timeout
+            print_debug(f"[{task_id}] Attempting to acquire session lock")
+            await asyncio.wait_for(session_lock.acquire(), timeout=self.LOCK_TIMEOUT)
+            print_debug(f"[{task_id}] Session lock acquired")
 
             try:
-                # Check existing session
-                if task_id in self._connections:
-                    session, count = self._connections[task_id]  # type: ignore
-                    try:
-                        print_debug(f"[{task_id}] Testing existing session")
-                        await session.execute(text("SELECT 1"))
-                        print_debug(
-                            f"[{task_id}] Found existing session (ref_count={count})"
-                        )
-                        return session, count
-                    except Exception as e:
-                        print_debug(f"[{task_id}] Session health check failed: {e}")
-                        # Session is invalid, remove it
-                        await self._cleanup_id(task_id)
+                # Try existing session
+                if result := await self._check_existing_session(
+                    task_id,
+                    session_lock,
+                    query_lock,
+                ):
+                    return result
 
-                # Try to get a connection from the pool
-                print_debug(f"[{task_id}] Trying to get connection from pool")
-                async with self._pool_lock:
-                    if self._connection_pool:
-                        conn = self._connection_pool.pop()
-                        try:
-                            print_debug(f"[{task_id}] Testing pool connection")
-                            conn.execute("SELECT 1")
-                            session = AsyncSession(conn)
-                            self._connections[task_id] = (session, 1)  # type: ignore
-                            print_debug(f"[{task_id}] Got connection from pool")
-                            return session, 1
-                        except Exception as e:
-                            print_debug(f"[{task_id}] Pool connection test failed: {e}")
-                            try:
-                                conn.close()
-                            except Exception as e:
-                                print_debug(
-                                    f"[{task_id}] Error closing bad connection: {e}"
-                                )
+                # Try pool session
+                if result := await self._try_pool_session(task_id, query_lock):
+                    return result
 
                 print_debug(f"[{task_id}] No session available")
                 return None
@@ -736,9 +901,9 @@ class AsyncConnections(BaseConnections):
                 print_debug(
                     f"[{task_id}] Releasing lock in {self.__class__.__name__}.get_session"
                 )
-                print_debug(f"[{task_id}] Lock state before release: {lock}")
-                lock.release()
-                print_debug(f"[{task_id}] Lock state after release: {lock}")
+                print_debug(f"[{task_id}] Lock state before release: {session_lock}")
+                session_lock.release()
+                print_debug(f"[{task_id}] Lock state after release: {session_lock}")
 
         except TimeoutError:
             print_error(
@@ -915,27 +1080,26 @@ class AsyncConnections(BaseConnections):
     async def decrement_ref_count(self, task_id: int) -> None:
         """Decrement reference count for a task's session.
 
+        This method uses separate locks to reduce contention:
+        - Session lock for reference counting
+        - Query lock for database operations
+        - Pool lock for connection management
+
         Args:
             task_id: Task ID to decrement count for
         """
         print_debug(
             f"[{task_id}] Decrementing ref count (caller: {self.__class__.__name__}.decrement_ref_count)"
         )
-        lock = await self._get_lock(task_id)
-        print_debug(
-            f"[{task_id}] Using lock: {lock}, type={type(lock)}, dir={dir(lock)}"
-        )
+        session_lock = await self._get_session_lock(task_id)
+        query_lock = await self._get_query_lock(task_id)
 
         try:
             # Check lock status before attempting to acquire
             self._check_lock_status(task_id)
-            print_debug(
-                f"[{task_id}] Attempting to acquire lock in {self.__class__.__name__}.decrement_ref_count"
-            )
-            await asyncio.wait_for(lock.acquire(), timeout=2)
-            print_debug(
-                f"[{task_id}] Lock acquired in {self.__class__.__name__}.decrement_ref_count"
-            )
+            print_debug(f"[{task_id}] Attempting to acquire session lock")
+            await asyncio.wait_for(session_lock.acquire(), timeout=self.LOCK_TIMEOUT)
+            print_debug(f"[{task_id}] Session lock acquired")
 
             try:
                 async with self._track_lock(task_id, "decrement_ref_count"):
@@ -948,29 +1112,36 @@ class AsyncConnections(BaseConnections):
 
                     session, count = self._connections[task_id]  # type: ignore
                     if count <= 1:
+                        # Mark session for cleanup
+                        self._connections[task_id] = (session, 0)  # type: ignore
+
                         try:
-                            # Separate timeout for remove_session
-                            print_debug(f"[{task_id}] Count <= 1, removing session")
-                            async with asyncio.timeout(
-                                3
-                            ):  # 3 second timeout for removal
-                                await self.remove_session(task_id, existing_lock=lock)
-                        except TimeoutError:
-                            print_error(f"[{task_id}] Timeout removing session")
-                            # Force cleanup but keep lock state consistent
+                            # Use query lock for database operations
+                            async with asyncio.timeout(self.CLEANUP_TIMEOUT):
+                                async with query_lock:
+                                    await session.execute(text("SELECT 1"))
+                                    # Add connection to pool if healthy
+                                    async with self._pool_lock:
+                                        self._connection_pool.append(
+                                            session.connection()
+                                        )
+                        except Exception:
+                            # Close if unhealthy
                             try:
-                                print_debug(f"[{task_id}] Forcing cleanup")
-                                session.sync_session_factory = (
-                                    None  # Break circular refs
-                                )
-                                session._sync_manager = None  # Break circular refs
-                                del self._connections[task_id]
+                                async with asyncio.timeout(self.CLEANUP_TIMEOUT):
+                                    await session.close()
                             except Exception as e:
-                                print_error(
-                                    f"[{task_id}] Error during forced cleanup: {e}"
-                                )
-                                raise e
+                                print_error(f"[{task_id}] Error closing session: {e}")
+                        finally:
+                            # Clean up task resources
+                            if task_id in self._connections:
+                                del self._connections[task_id]
+                            if task_id in self._session_locks:
+                                del self._session_locks[task_id]
+                            if task_id in self._query_locks:
+                                del self._query_locks[task_id]
                     else:
+                        # Just decrement the count
                         print_debug(
                             f"[{task_id}] Decreasing ref count from {count} to {count - 1}"
                         )
@@ -979,7 +1150,7 @@ class AsyncConnections(BaseConnections):
                 print_debug(
                     f"[{task_id}] Releasing lock in {self.__class__.__name__}.decrement_ref_count"
                 )
-                lock.release()
+                session_lock.release()
         except TimeoutError as e:
             print_error(f"[{task_id}] Timeout acquiring lock")
             # Don't force cleanup here - we couldn't get the lock
@@ -988,10 +1159,56 @@ class AsyncConnections(BaseConnections):
             print_error(
                 f"[{task_id}] Error in {self.__class__.__name__}.decrement_ref_count: {e}"
             )
-            if lock.locked():
+            if session_lock.locked():
                 print_debug(f"[{task_id}] Releasing lock after error")
-                lock.release()
+                session_lock.release()
             raise
+
+    def _cleanup_session(self, task_id: int, session: Any) -> None:
+        """Clean up a single session.
+
+        Args:
+            task_id: Task ID for logging
+            session: Session to clean up
+        """
+        try:
+            if isinstance(session, AsyncSession):
+                # We can't await here, so just warn
+                print_warning(f"Async session {task_id} may not be properly closed")
+            else:
+                session.close()
+        except Exception:
+            pass  # Ignore close errors
+
+    def _cleanup_pool_connection(self, conn: Any) -> None:
+        """Clean up a single pool connection.
+
+        Args:
+            conn: Connection to clean up
+        """
+        try:
+            conn.close()
+        except Exception:
+            pass  # Ignore close errors
+
+    def _cleanup_task_connections(self) -> None:
+        """Clean up all task connections."""
+        for task_id in list(self._connections.keys()):
+            try:
+                session, _ = self._connections[task_id]  # type: ignore
+                self._cleanup_session(task_id, session)
+                del self._connections[task_id]
+            except Exception as e:
+                print_error(f"Error cleaning up connection {task_id}: {e}")
+
+    def _cleanup_connection_pool(self) -> None:
+        """Clean up all connections in the pool."""
+        while self._connection_pool:
+            try:
+                conn = self._connection_pool.pop()
+                self._cleanup_pool_connection(conn)
+            except Exception as e:
+                print_error(f"Error cleaning up pooled connection: {e}")
 
     def _cleanup_all_connections(self) -> None:
         """Clean up all async connections synchronously.
@@ -1003,34 +1220,8 @@ class AsyncConnections(BaseConnections):
         4. Clears the connection pool
         """
         try:
-            # Clean up all task connections
-            for task_id in list(self._connections.keys()):
-                try:
-                    session, _ = self._connections[task_id]  # type: ignore
-                    try:
-                        if isinstance(session, AsyncSession):
-                            # We can't await here, so just warn
-                            print_warning(
-                                f"Async session {task_id} may not be properly closed"
-                            )
-                        else:
-                            session.close()
-                    except Exception:
-                        pass  # Ignore close errors
-                    del self._connections[task_id]
-                except Exception as e:
-                    print_error(f"Error cleaning up connection {task_id}: {e}")
-
-            # Clear the connection pool
-            while self._connection_pool:
-                try:
-                    conn = self._connection_pool.pop()
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass  # Ignore close errors
-                except Exception as e:
-                    print_error(f"Error cleaning up pooled connection: {e}")
+            self._cleanup_task_connections()
+            self._cleanup_connection_pool()
         except Exception as e:
             print_error(f"Error during connection cleanup: {e}")
 

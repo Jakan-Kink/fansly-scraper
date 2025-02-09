@@ -61,15 +61,21 @@ async def main():
             createdAt=post.createdAt,
         )
 
-        # Convert to scene
-        scene = await Scene.from_media(
-            media=media,
-            post=post,
-            performer=performer,
-            studio=studio,
+        # Find existing scene in Stash
+        scenes = await client.find_scenes(
+            scene_filter={
+                "path": {"modifier": "INCLUDES", "value": media.local_filename}
+            }
         )
-        await scene.save(client)
-        logger.info(f"Created scene: {scene.title}")
+        if scenes.count > 0:
+            scene = scenes.scenes[0]
+            # Update scene metadata
+            scene.details = post.content
+            scene.urls = [f"https://fansly.com/post/{post.id}"]
+            scene.performers = [performer]
+            scene.studio = studio
+            await scene.save(client)
+            logger.info(f"Updated scene: {scene.title}")
 
         # Convert post to gallery
         gallery = await Gallery.from_content(

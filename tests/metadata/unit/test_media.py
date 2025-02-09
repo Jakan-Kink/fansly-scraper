@@ -2,32 +2,38 @@
 
 import json
 from datetime import datetime, timezone
-from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from metadata.base import Base
-from metadata.media import Media, MediaLocation, _process_media_item_dict_inner
+from metadata.media import Media, MediaLocation, process_media_item_dict
 
 
-class TestMedia(TestCase):
+@pytest.mark.asyncio
+class TestMedia:
     """Test cases for Media class and related functions."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    async def setup(self):
         """Set up test database and session."""
-        self.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
+        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        self.Session = sessionmaker(
+            self.engine, class_=AsyncSession, expire_on_commit=False
+        )
         self.session = self.Session()
+        yield
+        await self.session.close()
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
 
-    def tearDown(self):
-        """Clean up test database."""
-        self.session.close()
-        Base.metadata.drop_all(self.engine)
-
-    def test_media_creation(self):
+    async def test_media_creation(self):
         """Test creating a Media object with basic attributes."""
         media = Media(
             id=1,
@@ -38,17 +44,17 @@ class TestMedia(TestCase):
             duration=30.5,
         )
         self.session.add(media)
-        self.session.commit()
+        await self.session.commit()
 
-        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
-        self.assertEqual(saved_media.id, 1)
-        self.assertEqual(saved_media.accountId, 123)
-        self.assertEqual(saved_media.mimetype, "video/mp4")
-        self.assertEqual(saved_media.width, 1920)
-        self.assertEqual(saved_media.height, 1080)
-        self.assertEqual(saved_media.duration, 30.5)
+        saved_media = (await self.session.execute(select(Media))).scalar_one_or_none()
+        assert saved_media.id == 1
+        assert saved_media.accountId == 123
+        assert saved_media.mimetype == "video/mp4"
+        assert saved_media.width == 1920
+        assert saved_media.height == 1080
+        assert saved_media.duration == 30.5
 
-    def test_process_video_metadata(self):
+    async def test_process_video_metadata(self):
         """Test processing video metadata with duration and dimensions."""
         config_mock = MagicMock()
         media_item = {
@@ -60,14 +66,14 @@ class TestMedia(TestCase):
             ),
         }
 
-        _process_media_item_dict_inner(config_mock, media_item, session=self.session)
+        await process_media_item_dict(config_mock, media_item, session=self.session)
 
-        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
-        self.assertEqual(saved_media.width, 1920)
-        self.assertEqual(saved_media.height, 1080)
-        self.assertEqual(saved_media.duration, 30.5)
+        saved_media = (await self.session.execute(select(Media))).scalar_one_or_none()
+        assert saved_media.width == 1920
+        assert saved_media.height == 1080
+        assert saved_media.duration == 30.5
 
-    def test_media_location(self):
+    async def test_media_location(self):
         """Test creating and associating MediaLocation with Media."""
         media = Media(id=1, accountId=123)
         location = MediaLocation(
@@ -75,15 +81,13 @@ class TestMedia(TestCase):
         )
         self.session.add(media)
         self.session.add(location)
-        self.session.commit()
+        await self.session.commit()
 
-        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
-        self.assertEqual(len(saved_media.locations), 1)
-        self.assertEqual(
-            saved_media.locations["loc1"].location, "https://example.com/video.mp4"
-        )
+        saved_media = (await self.session.execute(select(Media))).scalar_one_or_none()
+        assert len(saved_media.locations) == 1
+        assert saved_media.locations["loc1"].location == "https://example.com/video.mp4"
 
-    def test_invalid_metadata(self):
+    async def test_invalid_metadata(self):
         """Test handling invalid metadata JSON."""
         config_mock = MagicMock()
         media_item = {
@@ -93,10 +97,10 @@ class TestMedia(TestCase):
             "metadata": "invalid json",
         }
 
-        _process_media_item_dict_inner(config_mock, media_item, session=self.session)
+        await process_media_item_dict(config_mock, media_item, session=self.session)
 
-        saved_media = self.session.execute(select(Media)).scalar_one_or_none()
-        self.assertEqual(saved_media.meta_info, "invalid json")
-        self.assertIsNone(saved_media.duration)
-        self.assertIsNone(saved_media.width)
-        self.assertIsNone(saved_media.height)
+        saved_media = (await self.session.execute(select(Media))).scalar_one_or_none()
+        assert saved_media.meta_info == "invalid json"
+        assert saved_media.duration is None
+        assert saved_media.width is None
+        assert saved_media.height is None

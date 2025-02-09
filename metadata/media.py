@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import traceback
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -17,7 +18,9 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    insert,
     select,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
@@ -148,90 +151,572 @@ class Media(Base):
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
-def process_media_metadata(metadata: dict) -> None:
-    json_output(1, "meta/media - p_m_m", metadata)
-    pass
+class MediaBatch:
+    def __init__(self):
+        self.media_items = []  # Media records to insert/update
+        self.locations = []  # Location records to insert
+        self.variants = []  # Variant relationships to insert
+        self.seen_media = set()  # Track media IDs we've seen
+        self.seen_locations = set()  # Track (mediaId, locationId) pairs
+        self.seen_variants = set()  # Track (mediaId, variantId) pairs
+
+    def add_media(
+        self,
+        media_item: dict,
+        account_id: int | None = None,
+        parent_created_at: int | None = None,
+    ) -> None:
+        """Add a media item and all its variants recursively.
+
+        Args:
+            media_item: The media item to process
+            account_id: Optional account ID if not in media_item
+            parent_created_at: Optional createdAt from parent media for variants
+        """
+        if media_item["id"] in self.seen_media:
+            return
+
+        # Process media item
+        filtered_media = self._prepare_media_data(media_item, account_id)
+
+        # For variants without createdAt, use parent's
+        if parent_created_at is not None and "createdAt" not in media_item:
+            filtered_media["createdAt"] = datetime.fromtimestamp(
+                parent_created_at, timezone.utc
+            )
+
+        self.media_items.append(filtered_media)
+        self.seen_media.add(media_item["id"])
+
+        # Process locations
+        if "locations" in media_item:
+            for loc in media_item["locations"]:
+                loc_key = (media_item["id"], loc["locationId"])
+                if loc_key not in self.seen_locations:
+                    self.locations.append(
+                        {
+                            "mediaId": media_item["id"],
+                            "locationId": loc["locationId"],
+                            "location": loc["location"],
+                        }
+                    )
+                    self.seen_locations.add(loc_key)
+
+        # Process variants recursively
+        if "variants" in media_item:
+            # Get this media's raw createdAt timestamp for variants
+            this_created_at = media_item.get(
+                "createdAt"
+            )  # Get raw timestamp before conversion
+
+            # Get this media's accountId for variants
+            this_account_id = filtered_media.get("accountId")
+
+            for variant in media_item["variants"]:
+                # Add variant relationship
+                var_key = (media_item["id"], variant["id"])
+                if var_key not in self.seen_variants:
+                    self.variants.append(
+                        {
+                            "mediaId": media_item["id"],
+                            "variantId": variant["id"],
+                        }
+                    )
+                    self.seen_variants.add(var_key)
+                # Process variant as media (recursive), passing this media's createdAt and accountId
+                self.add_media(variant, this_account_id, this_created_at)
+
+    def _prepare_media_data(self, media_item: dict, account_id: int | None) -> dict:
+        """Extract and prepare media data for database operations.
+
+        This method:
+        1. Filters known fields and relationships
+        2. Processes metadata (dimensions, duration, etc.)
+        3. Converts timestamps
+        4. Sets default values
+
+        Args:
+            media_item: Raw media item dictionary
+            account_id: Optional account ID to use if not in media_item
+
+        Returns:
+            Processed and filtered media data dictionary
+        """
+        # Make a deep copy to prevent mutations
+        media_item = copy.deepcopy(media_item)
+
+        # Define known relations and fields to ignore
+        known_relations = {
+            # Handled relationships
+            "locations",
+            "variants",
+            "preview",  # Preview media is processed separately
+            # Intentionally ignored fields
+            "filename",
+            "metadata",  # Handled by mapping to meta_info
+            "variantHash",  # Not used in database
+            "permissionFlags",
+            "price",
+            "permissions",
+            "likeCount",
+            "purchased",
+            "whitelisted",
+            "accountPermissionFlags",
+            "liked",
+        }
+
+        # Process data using Base class method
+        filtered_media, unknown_attrs = Media.process_data(
+            media_item,
+            known_relations,
+            "meta/media - batch",
+            convert_timestamps_fields=("createdAt", "updatedAt"),
+        )
+
+        # Log unknown attributes at higher level if present
+        if unknown_attrs:
+            json_output(2, "meta/media - unknown_attrs", unknown_attrs)
+
+        # Set account ID if provided
+        filtered_media["accountId"] = filtered_media.get("accountId", account_id)
+
+        # Process metadata for video dimensions and duration
+        if "metadata" in media_item:
+            filtered_media["meta_info"] = media_item["metadata"]
+            if media_item.get("mimetype", "").startswith("video/"):
+                try:
+                    metadata = json.loads(media_item["metadata"])
+                    if "original" in metadata:
+                        filtered_media.update(
+                            {
+                                "width": metadata["original"].get("width"),
+                                "height": metadata["original"].get("height"),
+                            }
+                        )
+                    if "duration" in metadata:
+                        filtered_media["duration"] = float(metadata.get("duration"))
+                except (
+                    json.JSONDecodeError,
+                    ValueError,
+                    AttributeError,
+                    KeyError,
+                ) as e:
+                    json_output(
+                        2,
+                        "meta/media - metadata_error",
+                        {
+                            "error": str(e),
+                            "media_id": media_item.get("id"),
+                            "metadata": media_item["metadata"],
+                        },
+                    )
+
+        return filtered_media
+
+
+async def _get_or_create_media(
+    session: AsyncSession,
+    items: list[dict],
+    phase_name: str,
+) -> dict[int, Media]:
+    """Get existing media records or create new ones.
+
+    This function:
+    1. Gets all existing media in one query
+    2. Creates new records with minimum fields
+    3. Updates changed fields on existing records
+    4. Returns a mapping of media IDs to objects
+    """
+    existing_media = {}
+    new_count = 0
+    updated_count = 0
+
+    # Process items in batches
+    for batch_items in _chunk_items(items, 100):
+        for item in batch_items:
+            # Prepare minimum fields for get_or_create
+            item_id = int(item["id"])
+            filters = {"id": item_id}
+            defaults = {
+                "accountId": item["accountId"],
+                "type": item.get("type"),
+                "status": item.get("status"),
+            }
+
+            # Get or create the media object
+            media, created = await Media.async_get_or_create(
+                session,
+                filters=filters,
+                defaults=defaults,
+            )
+
+            # Update additional fields if needed
+            if Base.update_fields(media, item, exclude={"id"}):
+                updated_count += 0 if created else 1
+
+            if created:
+                new_count += 1
+
+            existing_media[item_id] = media
+
+    # Log changes
+    if new_count:
+        json_output(
+            1,
+            f"meta/media - batch - {phase_name}",
+            {"new_objects": new_count},
+        )
+
+    if updated_count:
+        json_output(
+            1,
+            f"meta/media - batch - {phase_name}",
+            {"updated_objects": updated_count},
+        )
+
+    return existing_media
+
+
+async def _sync_relationships(
+    session: AsyncSession,
+    batch: MediaBatch,
+) -> None:
+    """Synchronize media relationships (locations and variants).
+
+    This function:
+    1. Gets existing relationships in one query
+    2. Creates new relationships that don't exist
+    3. Updates changed locations
+    4. Maintains global location cache
+    """
+    # Process locations
+    if batch.locations:
+        # Group locations by media ID for efficient processing
+        locations_by_media: dict[int, list[dict]] = {}
+        for loc in batch.locations:
+            media_id = loc["mediaId"]
+            locations_by_media.setdefault(media_id, []).append(loc)
+
+        # Process each media's locations
+        for media_id, locations in locations_by_media.items():
+            # Get wanted location IDs for this media
+            wanted_location_ids = {loc["locationId"] for loc in locations}
+
+            # Get existing locations from cache or database
+            existing_location_ids = media_locations_by_media.get(media_id, set())
+            if not existing_location_ids:
+                result = await session.execute(
+                    select(MediaLocation.locationId).where(
+                        MediaLocation.mediaId == media_id
+                    )
+                )
+                existing_location_ids = {row[0] for row in result.fetchall()}
+                media_locations_by_media[media_id] = existing_location_ids
+
+            # Find new locations to add
+            new_location_ids = wanted_location_ids - existing_location_ids
+            if not new_location_ids:
+                continue
+
+            # Create new location objects
+            new_locations = []
+            for location_id in new_location_ids:
+                location = next(
+                    loc for loc in locations if loc["locationId"] == location_id
+                )
+                new_locations.append(
+                    MediaLocation(
+                        mediaId=media_id,
+                        locationId=location_id,
+                        location=location["location"],
+                    )
+                )
+
+            # Add new locations and update cache
+            if new_locations:
+                session.add_all(new_locations)
+                media_locations_by_media[media_id].update(new_location_ids)
+                json_output(
+                    1,
+                    "meta/media - batch - locations",
+                    {
+                        "media_id": media_id,
+                        "new_locations": len(new_locations),
+                    },
+                )
+
+    # Process variants
+    if batch.variants:
+        # Group variants by media ID
+        variants_by_media: dict[int, list[dict]] = {}
+        for var in batch.variants:
+            media_id = var["mediaId"]
+            variants_by_media.setdefault(media_id, []).append(var)
+
+        # Process each media's variants
+        for media_id, variants in variants_by_media.items():
+            # Get existing variants - get both mediaId and variantId
+            result = await session.execute(
+                select(
+                    media_variants.c.mediaId,
+                    media_variants.c.variantId,
+                ).where(media_variants.c.mediaId == media_id)
+            )
+            # Track complete (mediaId, variantId) pairs
+            existing_pairs = {(row.mediaId, row.variantId) for row in result}
+
+            # Prepare variant pairs to add
+            variant_pairs = []
+            for variant in variants:
+                pair = (media_id, variant["variantId"])
+                if pair not in existing_pairs:
+                    variant_pairs.append(
+                        {
+                            "mediaId": media_id,
+                            "variantId": variant["variantId"],
+                        }
+                    )
+                else:
+                    json_output(
+                        1,  # Info level
+                        "meta/media - batch - variants - skip",
+                        {
+                            "media_id": media_id,
+                            "variant_id": variant["variantId"],
+                            "reason": "already exists",
+                        },
+                    )
+
+            # Add any new variants
+            if variant_pairs:
+                try:
+                    # Still use OR IGNORE as a safety net for race conditions
+                    await session.execute(
+                        media_variants.insert().prefix_with("OR IGNORE"),
+                        variant_pairs,
+                    )
+                    json_output(
+                        1,
+                        "meta/media - batch - variants",
+                        {
+                            "media_id": media_id,
+                            "new_variants": len(variant_pairs),
+                        },
+                    )
+                except Exception as e:
+                    json_output(
+                        2,  # Warning level
+                        "meta/media - batch - variants - error",
+                        {
+                            "media_id": media_id,
+                            "error": str(e),
+                            "variant_count": len(variant_pairs),
+                            "first_variant": (
+                                variant_pairs[0] if variant_pairs else None
+                            ),
+                        },
+                    )
+
+
+async def _process_media_batch(
+    session: AsyncSession,
+    batch: MediaBatch,
+) -> None:
+    """Process all collected media operations in a single transaction."""
+    async with session.begin_nested():
+        if not batch.media_items:
+            return
+
+        # Split into parents and variants
+        parent_media = []
+        variant_media = []
+        for item in batch.media_items:
+            is_variant = any(v["variantId"] == item["id"] for v in batch.variants)
+            (variant_media if is_variant else parent_media).append(item)
+
+        json_output(
+            1,
+            "meta/media - batch - split",
+            {
+                "parent_count": len(parent_media),
+                "variant_count": len(variant_media),
+            },
+        )
+
+        # Process parents first, then variants
+        for phase, items in enumerate([parent_media, variant_media]):
+            if items:  # Skip empty phases
+                phase_name = "parent" if phase == 0 else "variant"
+                await _get_or_create_media(session, items, phase_name)
+
+        # Process relationships
+        await _sync_relationships(session, batch)
+
+
+def _chunk_items(items: list[dict], chunk_size: int) -> Iterator[list[dict]]:
+    """Split items into manageable chunks to avoid memory issues."""
+    for i in range(0, len(items), chunk_size):
+        yield items[i : i + chunk_size]
 
 
 @require_database_config
 @with_database_session(async_session=True)
 async def process_media_info(
-    config: FanslyConfig, media_infos: dict, session: AsyncSession | None = None
+    config: FanslyConfig,
+    media_infos: dict,
+    session: AsyncSession | None = None,
 ) -> None:
     """Process media info and store in the database.
 
     Args:
         config: FanslyConfig instance for database access
         media_infos: Dictionary containing media info data or a batch of media infos
-    """
-
-    # Handle batch processing
-    if "batch" in media_infos:
-        batch = media_infos["batch"]
-        for media_info in batch:
-            # Process each item in the batch within the same transaction
-            await _process_single_media_info(config, media_info, session)
-        return
-
-    # Single item processing
-    await _process_single_media_info(config, media_infos, session)
-
-
-async def _process_single_media_info(
-    config: FanslyConfig, media_infos: dict, session: AsyncSession
-) -> None:
-    """Process a single media info item.
-
-    Args:
-        config: FanslyConfig instance for database access
-        media_infos: Dictionary containing media info data
-        session: SQLAlchemy async session
+        session: Optional AsyncSession for database operations
     """
     from .account import AccountMedia
 
-    media_infos = copy.deepcopy(media_infos)
-    json_output(1, "meta/media - p_m_i", media_infos)
+    # Create batch collector
+    batch = MediaBatch()
 
-    # Known attributes that are handled separately
-    known_relations = {
-        # Handled relationships
-        "media",
-        "preview",
-        # Intentionally ignored fields
-        "permissionFlags",
-        "price",
-        "permissions",
-        "likeCount",
-        "purchased",
-        "whitelisted",
-        "accountPermissionFlags",
-        "liked",
-    }
+    # Process single item or batch
+    items_to_process = media_infos.get("batch", [media_infos])
 
-    # Process media data
-    filtered_account_media, _ = AccountMedia.process_data(
-        media_infos, known_relations, "meta/media - p_m_i", ("createdAt", "deletedAt")
-    )
-    json_output(1, "meta/media - p_m_i - filtered", filtered_account_media)
+    # Process AccountMedia records first
+    account_media_batch = []
+    for media_info in items_to_process:
+        # Process AccountMedia data
+        known_relations = {
+            "media",
+            "preview",
+            "permissionFlags",
+            "price",
+            "permissions",
+            "likeCount",
+            "purchased",
+            "whitelisted",
+            "accountPermissionFlags",
+            "liked",
+        }
+        filtered_account_media, _ = AccountMedia.process_data(
+            media_info,
+            known_relations,
+            "meta/media - p_m_i",
+            ("createdAt", "deletedAt"),
+        )
+        account_media_batch.append(filtered_account_media)
 
-    # Get or create account media
-    account_media, created = await AccountMedia.async_get_or_create(
-        session,
-        {
-            "id": filtered_account_media["id"],
-            "accountId": filtered_account_media["accountId"],
-            "mediaId": filtered_account_media["mediaId"],
-        },
-        filtered_account_media,
-    )
+        # Add media and preview to batch
+        if "media" in media_info:
+            batch.add_media(
+                media_info["media"],
+                filtered_account_media["accountId"],
+            )
+        if "preview" in media_info:
+            batch.add_media(
+                media_info["preview"],
+                filtered_account_media["accountId"],
+            )
 
-    # Update fields
-    Base.update_fields(account_media, filtered_account_media)
+    # Process all data in a single transaction
+    async with session.begin_nested():
+        # Process AccountMedia records
+        if account_media_batch:
+            # Get existing records
+            result = await session.execute(
+                select(AccountMedia.id).where(
+                    AccountMedia.id.in_([am["id"] for am in account_media_batch])
+                )
+            )
+            existing_account_media = set(result.scalars().all())
 
-    # Process related media items
-    for field in ["media", "preview"]:
-        if field in media_infos:
-            await process_media_item_dict(config, media_infos[field], session=session)
+            # Split into inserts and updates
+            to_insert = []
+            to_update = []
+            for am in account_media_batch:
+                if am["id"] in existing_account_media:
+                    to_update.append(am)
+                else:
+                    to_insert.append(am)
+
+            # Bulk insert new records
+            if to_insert:
+                await session.execute(
+                    AccountMedia.__table__.insert().prefix_with("OR IGNORE"),
+                    to_insert,
+                )
+
+            # Bulk update existing records
+            if to_update:
+                for item in to_update:
+                    am_id = item.pop("id")
+                    # Only update fields that are present and not None
+                    update_values = {k: v for k, v in item.items() if v is not None}
+                    if update_values:  # Only update if we have values to update
+                        await session.execute(
+                            update(AccountMedia)
+                            .where(AccountMedia.id == am_id)
+                            .values(**update_values)
+                        )
+
+        # Process all media operations
+        await _process_media_batch(session, batch)
+
+
+# async def _process_single_media_info(
+#     config: FanslyConfig, media_infos: dict, session: AsyncSession
+# ) -> None:
+#     """Process a single media info item.
+
+#     Args:
+#         config: FanslyConfig instance for database access
+#         media_infos: Dictionary containing media info data
+#         session: SQLAlchemy async session
+#     """
+#     from .account import AccountMedia
+
+#     media_infos = copy.deepcopy(media_infos)
+#     json_output(1, "meta/media - p_m_i", media_infos)
+
+#     # Known attributes that are handled separately
+#     known_relations = {
+#         # Handled relationships
+#         "media",
+#         "preview",
+#         # Intentionally ignored fields
+#         "permissionFlags",
+#         "price",
+#         "permissions",
+#         "likeCount",
+#         "purchased",
+#         "whitelisted",
+#         "accountPermissionFlags",
+#         "liked",
+#     }
+
+#     # Process media data
+#     filtered_account_media, _ = AccountMedia.process_data(
+#         media_infos, known_relations, "meta/media - p_m_i", ("createdAt", "deletedAt")
+#     )
+#     json_output(1, "meta/media - p_m_i - filtered", filtered_account_media)
+
+#     # Get or create account media
+#     account_media, created = await AccountMedia.async_get_or_create(
+#         session,
+#         {
+#             "id": filtered_account_media["id"],
+#             "accountId": filtered_account_media["accountId"],
+#             "mediaId": filtered_account_media["mediaId"],
+#         },
+#         filtered_account_media,
+#     )
+
+#     # Update fields
+#     Base.update_fields(account_media, filtered_account_media)
+
+#     # Process related media items
+#     for field in ["media", "preview"]:
+#         if field in media_infos:
+#             await process_media_item_dict(config, media_infos[field], session=session)
 
 
 @require_database_config
@@ -254,134 +739,105 @@ async def process_media_item_dict(
         await _process_media_item_dict_inner(config, media_item, session=session)
 
 
-def _process_media_metadata(
-    media_item: dict[str, any],
-    filtered_media: dict[str, any],
-) -> None:
-    """Process media metadata and update filtered_media.
+# async def _process_media_locations(
+#     session: AsyncSession,
+#     media: Media,
+#     locations: list[dict[str, any]],
+# ) -> None:
+#     """Process media locations.
 
-    Args:
-        media_item: Raw media item dictionary
-        filtered_media: Dictionary of filtered media data to update
-    """
-    if "metadata" not in media_item:
-        return
+#     Args:
+#         session: SQLAlchemy async session
+#         media: Media instance
+#         locations: List of location data dictionaries
+#     """
+#     # Get all location IDs
+#     media_id = media.id
+#     wanted_location_ids = {loc["locationId"] for loc in locations}
 
-    filtered_media["meta_info"] = media_item["metadata"]
-    if not media_item.get("mimetype", "").startswith("video/"):
-        return
+#     # Get existing locations in one query
+#     result = await session.execute(
+#         select(MediaLocation).where(
+#             MediaLocation.mediaId == media_id,
+#             MediaLocation.locationId.in_(wanted_location_ids),
+#         )
+#     )
+#     existing_locations = result.scalars().all()
+#     existing_location_ids = {loc.locationId for loc in existing_locations}
 
-    try:
-        metadata = json.loads(media_item["metadata"])
-        # Extract original dimensions and duration if available
-        if "original" in metadata:
-            filtered_media["width"] = metadata["original"].get("width")
-            filtered_media["height"] = metadata["original"].get("height")
-        if "duration" in metadata:
-            filtered_media["duration"] = float(metadata.get("duration"))
-    except (json.JSONDecodeError, ValueError, AttributeError, KeyError) as e:
-        json_output(1, "meta/media - p_m_i_d - metadata error", str(e))
+#     # Add new locations
+#     locations_to_add = []
+#     for location_id in wanted_location_ids - existing_location_ids:
+#         locations_to_add.append(
+#             MediaLocation(
+#                 mediaId=media_id,
+#                 locationId=location_id,
+#                 location=next(
+#                     loc["location"]
+#                     for loc in locations
+#                     if loc["locationId"] == location_id
+#                 ),
+#             )
+#         )
 
+#     # Update cache
+#     media_locations_by_media[media_id] = wanted_location_ids
 
-async def _process_media_locations(
-    session: AsyncSession,
-    media: Media,
-    locations: list[dict[str, any]],
-) -> None:
-    """Process media locations.
-
-    Args:
-        session: SQLAlchemy async session
-        media: Media instance
-        locations: List of location data dictionaries
-    """
-    # Get all location IDs
-    media_id = media.id
-    wanted_location_ids = {loc["locationId"] for loc in locations}
-
-    # Get existing locations in one query
-    result = await session.execute(
-        select(MediaLocation).where(
-            MediaLocation.mediaId == media_id,
-            MediaLocation.locationId.in_(wanted_location_ids),
-        )
-    )
-    existing_locations = result.scalars().all()
-    existing_location_ids = {loc.locationId for loc in existing_locations}
-
-    # Add new locations
-    locations_to_add = []
-    for location_id in wanted_location_ids - existing_location_ids:
-        locations_to_add.append(
-            MediaLocation(
-                mediaId=media_id,
-                locationId=location_id,
-                location=next(
-                    loc["location"]
-                    for loc in locations
-                    if loc["locationId"] == location_id
-                ),
-            )
-        )
-
-    # Update cache
-    media_locations_by_media[media_id] = wanted_location_ids
-
-    # Bulk insert new locations
-    if locations_to_add:
-        session.add_all(locations_to_add)
+#     # Bulk insert new locations
+#     if locations_to_add:
+#         session.add_all(locations_to_add)
 
 
-async def _process_media_variants(
-    session: AsyncSession,
-    config: FanslyConfig,
-    media: Media,
-    variants: list[dict[str, any]],
-    account_id: int,
-) -> None:
-    """Process media variants.
+# async def _process_media_variants(
+#     session: AsyncSession,
+#     config: FanslyConfig,
+#     media: Media,
+#     variants: list[dict[str, any]],
+#     account_id: int,
+# ) -> None:
+#     """Process media variants.
 
-    Args:
-        session: SQLAlchemy async session
-        config: FanslyConfig instance
-        media: Media instance
-        variants: List of variant data dictionaries
-        account_id: ID of the account that owns the media
-    """
-    # Get existing variants to avoid duplicates
-    result = await session.execute(
-        select(media_variants.c.variantId).where(media_variants.c.mediaId == media.id)
-    )
-    existing_variants = {row[0] for row in result.fetchall()}
+#     Args:
+#         session: SQLAlchemy async session
+#         config: FanslyConfig instance
+#         media: Media instance
+#         variants: List of variant data dictionaries
+#         account_id: ID of the account that owns the media
+#     """
+#     # Get existing variants to avoid duplicates
+#     result = await session.execute(
+#         select(media_variants.c.variantId).where(media_variants.c.mediaId == media.id)
+#     )
+#     existing_variants = {row[0] for row in result.fetchall()}
 
-    # Filter out existing variants
-    new_variants = [v for v in variants if v["id"] not in existing_variants]
-    if not new_variants:
-        return
+#     # Filter out existing variants
+#     new_variants = [v for v in variants if v["id"] not in existing_variants]
+#     if not new_variants:
+#         return
 
-    # Process all variants in one transaction
-    async with session.begin_nested():
-        # Process all variant media items
-        for variant in new_variants:
-            await _process_media_item_dict_inner(
-                config,
-                variant,
-                session=session,
-                account_id=account_id,
-            )
+#     # Process all variants in one transaction
+#     async with session.begin_nested():
+#         # Process all variant media items
+#         for variant in new_variants:
+#             await _process_media_item_dict_inner(
+#                 config,
+#                 variant,
+#                 session=session,
+#                 account_id=account_id,
+#             )
 
-        # Batch insert all variant relationships
-        if new_variants:
-            await session.execute(
-                media_variants.insert()
-                .prefix_with("OR IGNORE")
-                .values(
-                    [
-                        {"mediaId": media.id, "variantId": variant["id"]}
-                        for variant in new_variants
-                    ]
-                )
-            )
+#         # Batch insert all variant relationships
+#         if new_variants:
+#             await session.execute(
+#                 media_variants.insert()
+#                 .prefix_with("OR IGNORE")
+#                 .values(
+#                     [
+#                         {"mediaId": media.id, "variantId": variant["id"]}
+#                         for variant in new_variants
+#                     ]
+#                 )
+#             )
 
 
 @with_database_session(async_session=True)
@@ -399,9 +855,6 @@ async def _process_media_item_dict_inner(
         session: SQLAlchemy async session for database operations
         account_id: Optional account ID if not present in media_item
     """
-    # Create deep copy of input data
-    media_item = copy.deepcopy(media_item)
-
     # Check if media_item is the correct type
     if not isinstance(media_item, dict):
         json_output(
@@ -411,72 +864,16 @@ async def _process_media_item_dict_inner(
         )
         return
 
-    # Known attributes that are handled separately
-    known_relations = {
-        # Handled relationships
-        "locations",
-        "variants",
-        "filename",
-        # Intentionally ignored fields
-        "metadata",  # Handled by mapping to meta_info
-        "variantHash",  # Not used in database
-    }
-
-    # Process media data
-    filtered_media, _ = Media.process_data(
-        media_item,
-        known_relations,
-        "meta/media - _p_m_i_d_i",
-        ("createdAt", "updatedAt"),
-    )
-    filtered_media["accountId"] = filtered_media.get("accountId", account_id)
-
-    # Process metadata
-    _process_media_metadata(media_item, filtered_media)
-
-    # Ensure required fields are present before proceeding
-    if "accountId" not in filtered_media:
-        json_output(
-            1,
-            "meta/media - missing_required_field",
-            {"mediaId": filtered_media.get("id"), "missing_field": "accountId"},
-        )
-        return  # Skip this media if accountId is missing
-
     if not isinstance(session, AsyncSession):
         json_output(1, "meta/media - _p_m_i_d_i - no_session", type(session))
         raise TypeError("No session provided for database operations")
 
-    # Begin a nested transaction
-    async with session.begin_nested():
-        # Get or create media
-        media, created = await Media.async_get_or_create(
-            session,
-            {"id": filtered_media["id"]},
-            filtered_media,
-        )
+    # Create batch collector and add the media item
+    batch = MediaBatch()
+    batch.add_media(media_item, account_id)
 
-        # Update fields
-        Base.update_fields(media, filtered_media)
-
-        # Flush to ensure media exists in DB before processing relations
-        await session.flush()
-
-        # Process locations if present
-        if "locations" in media_item:
-            await _process_media_locations(session, media, media_item["locations"])
-            await session.flush()
-
-        # Process variants if present
-        if "variants" in media_item:
-            await _process_media_variants(
-                session,
-                config,
-                media,
-                media_item["variants"],
-                filtered_media["accountId"],
-            )
-            await session.flush()
+    # Process all data in a single transaction
+    await _process_media_batch(session, batch)
 
 
 def _should_skip_media(media_obj: Media) -> bool:

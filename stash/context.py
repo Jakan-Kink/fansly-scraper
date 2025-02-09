@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from requests.structures import CaseInsensitiveDict
 
 from .client import StashClient
+from .logging import client_logger as logger
 
 
 class StashContext:
@@ -65,17 +67,40 @@ class StashContext:
         Raises:
             RuntimeError: If client is not initialized
         """
-        return self.client
+        if self._client is None:
+            logger.error("Client not initialized - use get_client() first")
+            raise RuntimeError("Client not initialized - use get_client() first")
+        return self._client
 
-    @property
-    def client(self) -> StashClient:
-        """Get Stash client.
+    async def get_client(self) -> StashClient:
+        """Get initialized Stash client.
 
         Returns:
             StashClient instance
 
         Raises:
-            RuntimeError: If client is not initialized
+            RuntimeError: If client initialization fails
+        """
+        if self._client is None:
+            self._client = StashClient(
+                conn=self.conn,
+                verify_ssl=self.verify_ssl,
+            )
+            try:
+                await self._client.initialize()
+                logger.debug("Client initialization complete")
+            except Exception as e:
+                logger.error(f"Client initialization failed: {e}")
+                self._client = None
+                raise RuntimeError(f"Failed to initialize Stash client: {e}")
+        return self._client
+
+    @property
+    def client(self) -> StashClient:
+        """Get client instance.
+
+        Returns:
+            StashClient instance
         """
         if self._client is None:
             self._client = StashClient(
@@ -92,7 +117,7 @@ class StashContext:
 
     async def __aenter__(self) -> StashClient:
         """Enter async context manager."""
-        return self.client
+        return await self.get_client()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit async context manager."""

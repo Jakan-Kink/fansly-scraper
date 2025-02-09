@@ -152,6 +152,14 @@ class ScenePathsType:
     caption: str | None = None  # String (Resolver)
 
 
+@strawberry.input
+class StashIDInput:
+    """Input for StashID from schema/types/stash-box.graphql."""
+
+    endpoint: str  # String!
+    stash_id: str  # String!
+
+
 @strawberry.type
 class StashID:
     """StashID type from schema/types/stash-box.graphql."""

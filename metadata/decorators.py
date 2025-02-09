@@ -84,6 +84,215 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
     return decorator
 
 
+def _get_retry_settings(func_name: str) -> tuple[int, float, float]:
+    """Get default retry settings based on function name.
+
+    Args:
+        func_name: Name of the function being decorated
+
+    Returns:
+        Tuple of (retry_count, base_delay, max_delay)
+    """
+    if any(x in func_name for x in ["sync", "cleanup", "close"]):
+        return 10, 1.0, 30.0  # More retries and longer delays for sync operations
+    return 3, 0.1, 5.0  # Normal settings for regular operations
+
+
+def _calculate_retry_delay(
+    attempt: int, base_delay: float, max_delay: float, jitter: bool = True
+) -> float:
+    """Calculate delay for next retry attempt.
+
+    Args:
+        attempt: Current attempt number (0-based)
+        base_delay: Base delay between retries
+        max_delay: Maximum delay allowed
+        jitter: Whether to add random jitter
+
+    Returns:
+        Delay in seconds for next retry
+    """
+    delay = min(max_delay, base_delay * (2**attempt))
+    if jitter:
+        delay *= random.uniform(0.5, 1.5)
+    return delay
+
+
+def _log_retry_attempt(
+    func_name: str,
+    attempt: int,
+    retry_count: int,
+    retry_delay: float,
+    base_wait: float,
+    wait_time: float,
+    max_wait: float,
+) -> None:
+    """Log information about retry attempt.
+
+    Args:
+        func_name: Name of the function being retried
+        attempt: Current attempt number (0-based)
+        retry_count: Maximum number of retries
+        retry_delay: Base delay between retries
+        base_wait: Base wait time without jitter
+        wait_time: Actual wait time with jitter
+        max_wait: Maximum wait time allowed
+    """
+    print_info(
+        f"Database locked on {func_name}, attempt {attempt + 1}/{retry_count}\n"
+        f"  Base delay: {retry_delay:.3f}s\n"
+        f"  This attempt: {base_wait:.1f}s\n"
+        f"  With jitter: {wait_time:.1f}s\n"
+        f"  Max delay: {max_wait:.1f}s"
+    )
+
+
+async def _handle_async_retry(
+    func: Callable[..., RT],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    retry_count: int,
+    retry_delay: float,
+    max_wait: float,
+    jitter: bool,
+) -> RT:
+    """Handle retries for async functions.
+
+    Args:
+        func: Async function to retry
+        args: Positional arguments for function
+        kwargs: Keyword arguments for function
+        retry_count: Maximum number of retries
+        retry_delay: Base delay between retries
+        max_wait: Maximum delay allowed
+        jitter: Whether to add random jitter
+
+    Returns:
+        Result from function call
+
+    Raises:
+        Exception: If all retries fail
+    """
+    # Get function signature
+    sig = inspect.signature(func)
+
+    # Handle keyword-only arguments
+    params = list(sig.parameters.values())
+    if params and params[0].name == "self":
+        # Skip self parameter for methods
+        params = params[1:]
+
+    # Check for keyword-only parameters
+    keyword_only = {p.name for p in params if p.kind == inspect.Parameter.KEYWORD_ONLY}
+
+    # If we have keyword-only parameters and they're in args,
+    # move them to kwargs
+    if keyword_only and args:
+        bound = sig.bind_partial(*args)
+        for name in keyword_only:
+            if name in bound.arguments:
+                kwargs[name] = bound.arguments[name]
+                args = tuple(a for i, a in enumerate(args) if params[i].name != name)
+
+    for attempt in range(retry_count):
+        try:
+            return await func(*args, **kwargs)
+        except (sqlite3.OperationalError, OperationalError) as e:
+            if "database is locked" not in str(e):
+                raise
+            if attempt == retry_count - 1:
+                print_error(f"Max retries ({retry_count}) reached for {func.__name__}")
+                raise
+
+            base_wait = retry_delay * (2**attempt)
+            wait_time = _calculate_retry_delay(attempt, retry_delay, max_wait, jitter)
+            _log_retry_attempt(
+                func.__name__,
+                attempt,
+                retry_count,
+                retry_delay,
+                base_wait,
+                wait_time,
+                max_wait,
+            )
+            await asyncio.sleep(wait_time)
+
+    return None  # type: ignore # Typing hint - never reached
+
+
+def _handle_sync_retry(
+    func: Callable[..., RT],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    retry_count: int,
+    retry_delay: float,
+    max_wait: float,
+    jitter: bool,
+) -> RT:
+    """Handle retries for sync functions.
+
+    Args:
+        func: Sync function to retry
+        args: Positional arguments for function
+        kwargs: Keyword arguments for function
+        retry_count: Maximum number of retries
+        retry_delay: Base delay between retries
+        max_wait: Maximum delay allowed
+        jitter: Whether to add random jitter
+
+    Returns:
+        Result from function call
+
+    Raises:
+        Exception: If all retries fail
+    """
+    # Get function signature
+    sig = inspect.signature(func)
+
+    # Handle keyword-only arguments
+    params = list(sig.parameters.values())
+    if params and params[0].name == "self":
+        # Skip self parameter for methods
+        params = params[1:]
+
+    # Check for keyword-only parameters
+    keyword_only = {p.name for p in params if p.kind == inspect.Parameter.KEYWORD_ONLY}
+
+    # If we have keyword-only parameters and they're in args,
+    # move them to kwargs
+    if keyword_only and args:
+        bound = sig.bind_partial(*args)
+        for name in keyword_only:
+            if name in bound.arguments:
+                kwargs[name] = bound.arguments[name]
+                args = tuple(a for i, a in enumerate(args) if params[i].name != name)
+
+    for attempt in range(retry_count):
+        try:
+            return func(*args, **kwargs)
+        except (sqlite3.OperationalError, OperationalError) as e:
+            if "database is locked" not in str(e):
+                raise
+            if attempt == retry_count - 1:
+                print_error(f"Max retries ({retry_count}) reached for {func.__name__}")
+                raise
+
+            base_wait = retry_delay * (2**attempt)
+            wait_time = _calculate_retry_delay(attempt, retry_delay, max_wait, jitter)
+            _log_retry_attempt(
+                func.__name__,
+                attempt,
+                retry_count,
+                retry_delay,
+                base_wait,
+                wait_time,
+                max_wait,
+            )
+            time.sleep(wait_time)
+
+    return None  # type: ignore # Typing hint - never reached
+
+
 def retry_on_locked_db(
     retries: int | None = None,
     delay: float | None = None,
@@ -101,97 +310,63 @@ def retry_on_locked_db(
         jitter: Whether to add random jitter to delay (default: True)
             Helps prevent thundering herd problems
 
-    The actual delay is calculated as:
-        min(max_delay, base_delay * (2 ** attempt))
-
-    If jitter is True, a random factor between 0.5 and 1.5 is applied.
+    Returns:
+        Decorated function that handles retries
     """
 
-    # Default settings depend on operation type
-    def get_settings(func_name: str) -> tuple[int, float, float]:
-        if any(x in func_name for x in ["sync", "cleanup", "close"]):
-            return 10, 1.0, 30.0  # More retries and longer delays for sync operations
-        return 3, 0.1, 5.0  # Normal settings for regular operations
-
-    def calculate_delay(attempt: int, base_delay: float, max_delay: float) -> float:
-        """Calculate delay with exponential backoff and optional jitter."""
-        delay = min(max_delay, base_delay * (2**attempt))
-        if jitter:
-            # Add random jitter between 0.5x and 1.5x
-            delay *= random.uniform(0.5, 1.5)
-        return delay
-
     def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
+        # Get retry settings
+        retry_count, retry_delay, max_wait = _get_retry_settings(func.__name__)
+        if retries is not None:
+            retry_count = retries
+        if delay is not None:
+            retry_delay = delay
+        if max_delay is not None:
+            max_wait = max_delay
+
+        # Get original function (unwrap any other decorators)
+        original_func = inspect.unwrap(func)
+        sig = inspect.signature(original_func)
+
+        # Create wrapper with same signature
         if asyncio.iscoroutinefunction(func):
 
-            @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> RT:
-                retry_count, retry_delay, max_wait = get_settings(func.__name__)
-                if retries is not None:
-                    retry_count = retries
-                if delay is not None:
-                    retry_delay = delay
-                if max_delay is not None:
-                    max_wait = max_delay
-
-                for attempt in range(retry_count):
-                    try:
-                        return await func(*args, **kwargs)
-                    except (sqlite3.OperationalError, OperationalError) as e:
-                        if "database is locked" not in str(e):
-                            raise
-                        if attempt == retry_count - 1:
-                            print_error(
-                                f"Max retries ({retry_count}) reached for {func.__name__}"
-                            )
-                            raise
-                        base_wait = retry_delay * (2**attempt)
-                        wait_time = calculate_delay(attempt, retry_delay, max_wait)
-                        print_info(
-                            f"Database locked on {func.__name__}, attempt {attempt + 1}/{retry_count}\n"
-                            f"  Base delay: {retry_delay:.3f}s\n"
-                            f"  This attempt: {base_wait:.1f}s\n"
-                            f"  With jitter: {wait_time:.1f}s\n"
-                            f"  Max delay: {max_wait:.1f}s"
-                        )
-                        await asyncio.sleep(wait_time)
-                return None  # type: ignore # Typing hint - never reached
-
-            return async_wrapper
-
-        @functools.wraps(func)
-        def sync_wrapper(*args: Any, **kwargs: Any) -> RT:
-            retry_count, retry_delay, max_wait = get_settings(func.__name__)
-            if retries is not None:
-                retry_count = retries
-            if delay is not None:
-                retry_delay = delay
-            if max_delay is not None:
-                max_wait = max_delay
-
-            for attempt in range(retry_count):
+                # Try to bind arguments to original signature
                 try:
-                    return func(*args, **kwargs)
-                except (sqlite3.OperationalError, OperationalError) as e:
-                    if "database is locked" not in str(e):
-                        raise
-                    if attempt == retry_count - 1:
-                        print_error(
-                            f"Max retries ({retry_count}) reached for {func.__name__}"
-                        )
-                        raise
-                    base_wait = retry_delay * (2**attempt)
-                    wait_time = calculate_delay(attempt, retry_delay, max_wait)
-                    print_info(
-                        f"Database locked on {func.__name__}, attempt {attempt + 1}/{retry_count}\n"
-                        f"  Base delay: {retry_delay:.3f}s\n"
-                        f"  This attempt: {base_wait:.1f}s\n"
-                        f"  With jitter: {wait_time:.1f}s\n"
-                        f"  Max delay: {max_wait:.1f}s"
-                    )
-                    time.sleep(wait_time)
-            return None  # type: ignore # Typing hint - never reached
+                    bound = sig.bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    args = bound.args
+                    kwargs = bound.kwargs
+                except TypeError:
+                    # If binding fails, pass through as-is
+                    pass
 
-        return sync_wrapper
+                return await _handle_async_retry(
+                    func, args, kwargs, retry_count, retry_delay, max_wait, jitter
+                )
+
+            # Copy signature to wrapper
+            async_wrapper.__signature__ = sig  # type: ignore
+            return functools.wraps(func)(async_wrapper)
+
+        def sync_wrapper(*args: Any, **kwargs: Any) -> RT:
+            # Try to bind arguments to original signature
+            try:
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+                args = bound.args
+                kwargs = bound.kwargs
+            except TypeError:
+                # If binding fails, pass through as-is
+                pass
+
+            return _handle_sync_retry(
+                func, args, kwargs, retry_count, retry_delay, max_wait, jitter
+            )
+
+        # Copy signature to wrapper
+        sync_wrapper.__signature__ = sig  # type: ignore
+        return functools.wraps(func)(sync_wrapper)
 
     return decorator

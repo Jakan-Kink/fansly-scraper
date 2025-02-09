@@ -234,16 +234,32 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
                 self.stream = None
 
     def _compress_file(self, filepath):
+        """Compress a log file with proper error handling.
+
+        Args:
+            filepath: Path to the file to compress
+
+        This method:
+        1. Checks if compression is enabled
+        2. Verifies file exists and should be compressed
+        3. Handles race conditions during compression
+        4. Cleans up partial files on error
+        """
         if not self.compression:
             return
 
-        if not os.path.exists(filepath):
+        # Use atomic operations to check file existence
+        try:
+            if not os.path.exists(filepath):
+                return
+        except OSError:
+            # File might have been deleted between check and use
             return
 
         # Extract the file number from the filepath (e.g., "log.1" -> 1)
         try:
             file_num = int(filepath.split(".")[-1])
-        except ValueError:
+        except (ValueError, IndexError):
             file_num = 0
 
         # Skip compression if this file should be kept uncompressed
@@ -253,15 +269,48 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
         if self.compression == "gz":
             compressed_path = f"{filepath}.gz"
+            temp_path = f"{compressed_path}.tmp"
+
             try:
-                with open(filepath, "rb") as f_in:
-                    with gzip.open(compressed_path, "wb") as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                os.remove(filepath)
+                # First compress to a temporary file
+                try:
+                    with open(filepath, "rb") as f_in:
+                        with gzip.open(temp_path, "wb") as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+                except OSError as e:
+                    if "No such file or directory" in str(e):
+                        # File was deleted while we were reading it
+                        return
+                    raise
+
+                # Then atomically move the temp file to final location
+                try:
+                    os.replace(temp_path, compressed_path)
+                except OSError:
+                    # Another process might have created the file
+                    if os.path.exists(compressed_path):
+                        os.remove(temp_path)
+                    else:
+                        raise
+
+                # Finally try to remove the original
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    # File might already be gone
+                    pass
+
             except Exception as e:
-                if os.path.exists(compressed_path):
-                    os.remove(compressed_path)
-                raise e
+                # Clean up any partial files
+                for path in [temp_path, compressed_path]:
+                    try:
+                        if os.path.exists(path):
+                            os.remove(path)
+                    except OSError:
+                        pass
+                # Only re-raise if original file still exists
+                if os.path.exists(filepath):
+                    raise e
         elif self.compression == "7z":
             try:
                 shutil.make_archive(

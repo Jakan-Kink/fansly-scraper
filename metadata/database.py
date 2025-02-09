@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import aiosqlite
 from sqlalchemy import Engine, create_engine, event, text
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, DisconnectionError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -150,8 +150,8 @@ def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> 
         - Updates to latest version if database already has migrations
         - Uses appropriate shared memory space based on creator name
     """
-    # Set the correct shared memory URI in Alembic config
-    if database.creator_name:
+    # Set the correct shared memory URI in Alembic config - must match _setup_optimized_connection
+    if database.config.separate_metadata and database.creator_name:
         safe_name = "".join(c if c.isalnum() else "_" for c in database.creator_name)
         uri = f"sqlite:///file:creator_{safe_name}?mode=memory&cache=shared"
     else:
@@ -467,14 +467,48 @@ class Database:
         Both sync and async connections are initialized upfront to ensure
         they share the same in-memory database and engines.
         """
+        # Verify database configuration
+        if self.config.separate_metadata:
+            # In separate mode, creator_name must be:
+            # - None for global database
+            # - str for creator-specific database
+            if not isinstance(self.creator_name, (str, type(None))):
+                raise TypeError(
+                    f"creator_name must be str or None in separate mode, got {type(self.creator_name)}"
+                )
+            if self.creator_name and (
+                not isinstance(self.creator_name, str) or not self.creator_name.strip()
+            ):
+                raise ValueError(
+                    f"creator_name must be non-empty string when provided, got {self.creator_name!r}"
+                )
+
         # Create shared memory database with appropriate name
         if self.config.separate_metadata and self.creator_name:
             # Use creator-specific shared memory for separate metadata
             safe_name = "".join(c if c.isalnum() else "_" for c in self.creator_name)
             shared_uri = f"file:creator_{safe_name}?mode=memory&cache=shared"
+            print_debug(
+                {
+                    "method": "Database._setup_optimized_connection",
+                    "status": "using_creator_specific_db",
+                    "creator_name": self.creator_name,
+                    "safe_name": safe_name,
+                }
+            )
         else:
-            # Use global shared memory for global database
+            # Use global shared memory for:
+            # - Non-separate mode (regardless of creator_name)
+            # - Separate mode without creator_name
             shared_uri = "file:global_db?mode=memory&cache=shared"
+            print_debug(
+                {
+                    "method": "Database._setup_optimized_connection",
+                    "status": "using_global_db",
+                    "separate_metadata": self.config.separate_metadata,
+                    "creator_name": self.creator_name,
+                }
+            )
         print_info(f"Creating shared memory database with URI: {shared_uri}")
 
         # Create in-memory database
@@ -504,8 +538,26 @@ class Database:
             check_same_thread=False,
             detect_types=sqlite3.PARSE_DECLTYPES
             | sqlite3.PARSE_COLNAMES,  # Better type handling
+            timeout=60,  # 60 second connection timeout
         )
-        conn.text_factory = str  # Set text factory after connection creation
+
+        # Configure SQLite for in-memory operation
+        conn.execute("PRAGMA busy_timeout=60000")  # 60 second busy timeout
+        conn.execute("PRAGMA temp_store=MEMORY")  # Use memory for temp tables
+        conn.execute(
+            "PRAGMA cache_size=-80000"
+        )  # Use 4MB memory for page cache (larger for in-memory DB)
+        conn.execute("PRAGMA page_size=4096")  # Standard page size
+        conn.execute(
+            "PRAGMA foreign_keys=OFF"
+        )  # Disable foreign key constraints for flexibility
+        conn.execute(
+            "PRAGMA locking_mode=EXCLUSIVE"
+        )  # Better for in-memory DBs since we're using shared cache
+
+        # Set text handling
+        conn.text_factory = str
+
         return conn
 
     def _setup_engines_and_sessions(self) -> None:
@@ -531,17 +583,58 @@ class Database:
         print_info(f"Creating engines with shared URI: {shared_uri}")
 
         # Common configuration for both engines
-        # Neither SQLite nor aiosqlite support pooling with shared memory
         engine_config = {
             "future": True,  # Use SQLAlchemy 2.0 style
             "echo": False,  # Disable SQL echoing (we use our own logging)
+            "poolclass": None,  # Disable pooling for in-memory DB with shared cache
             "connect_args": {
                 "uri": True,  # Required for shared memory URIs
-                "timeout": 30,  # Connection timeout in seconds
+                "timeout": 60,  # Connection timeout in seconds
                 "check_same_thread": False,  # Allow multi-threading
-                "isolation_level": "READ COMMITTED",  # Transaction isolation level
+                "isolation_level": None,  # Let SQLAlchemy handle transactions
+                "cached_statements": 1000,  # Cache more prepared statements
             },
         }
+
+        # Log engine configuration
+        print_info("Database engine configuration:")
+        print_info("  Using shared memory SQLite (no connection pooling)")
+        print_info(f"  Connection Timeout: {engine_config['connect_args']['timeout']}s")
+        print_info(
+            f"  Isolation Level: {engine_config['connect_args']['isolation_level']}"
+        )
+        print_info(
+            f"  Check Same Thread: {engine_config['connect_args']['check_same_thread']}"
+        )
+        print_info(f"  URI Mode: {engine_config['connect_args']['uri']}")
+
+        def _on_connect(dbapi_connection, connection_record):
+            """Configure connection on checkout."""
+            # Set thread-local storage for connection
+            if not hasattr(connection_record, "_thread_id"):
+                connection_record._thread_id = threading.get_ident()
+
+            # Configure SQLite connection
+            dbapi_connection.execute("PRAGMA busy_timeout=60000")
+            dbapi_connection.execute("PRAGMA temp_store=MEMORY")
+
+        def _on_checkin(dbapi_connection, connection_record):
+            """Clean up connection on checkin."""
+            if hasattr(connection_record, "_thread_id"):
+                del connection_record._thread_id
+
+        def _on_checkout(dbapi_connection, connection_record, connection_proxy):
+            """Verify connection on checkout."""
+            if (
+                hasattr(connection_record, "_thread_id")
+                and connection_record._thread_id != threading.get_ident()
+            ):
+                # Connection was created in a different thread
+                connection_proxy._pool.dispose()
+                raise DisconnectionError(
+                    "Connection was created in thread %s but checked out from thread %s"
+                    % (connection_record._thread_id, threading.get_ident())
+                )
 
         # Create sync engine with shared memory URI
         self.sync_engine = create_engine(
@@ -549,6 +642,12 @@ class Database:
             creator=lambda: self._create_optimized_connection(shared_uri),
             **engine_config,
         )
+
+        # Set up event listeners for connection management
+        event.listen(self.sync_engine, "connect", _on_connect)
+        event.listen(self.sync_engine, "checkin", _on_checkin)
+        event.listen(self.sync_engine, "checkout", _on_checkout)
+
         # Set up logging for sync engine
         db_logger.setup_engine_logging(self.sync_engine)
 
@@ -562,35 +661,56 @@ class Database:
         db_logger.setup_engine_logging(self.async_engine)
 
         # Create session factories with optimized settings
-        session_config = {
-            "expire_on_commit": False,  # Prevent unnecessary reloads
-            "twophase": False,  # Not needed for SQLite
-            "autoflush": False,  # Prevent unnecessary flushes
-        }
-
         self.sync_session_factory = sessionmaker(
-            bind=self.sync_engine, class_=Session, **session_config
+            bind=self.sync_engine,
+            expire_on_commit=False,  # Don't expire objects after commit
+            class_=Session,
         )
 
         self.async_session_factory = async_sessionmaker(
-            bind=self.async_engine, class_=AsyncSession, **session_config
+            bind=self.async_engine,
+            expire_on_commit=False,  # Don't expire objects after commit
+            class_=AsyncSession,
         )
+
+        # Register cleanup handlers
+        atexit.register(self._cleanup_sync_engine)
+        atexit.register(self._cleanup_async_engine)
+
+    def _cleanup_sync_engine(self) -> None:
+        """Clean up sync engine on exit."""
+        if hasattr(self, "sync_engine"):
+            print_info("Cleaning up sync engine...")
+            try:
+                self.sync_engine.dispose()
+                print_info("Sync engine cleanup complete")
+            except Exception as e:
+                print_error(f"Error during sync engine cleanup: {e}")
+
+    def _cleanup_async_engine(self) -> None:
+        """Clean up async engine on exit."""
+        if hasattr(self, "async_engine"):
+            print_info("Cleaning up async engine...")
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    print_info("Using running event loop for cleanup")
+                    loop.create_task(self.async_engine.dispose())
+                else:
+                    print_info("Creating new event loop for cleanup")
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self.async_engine.dispose())
+                    finally:
+                        loop.close()
+                print_info("Async engine cleanup complete")
+            except Exception as e:
+                print_error(f"Error during async engine cleanup: {e}")
 
         # Create public session context managers with corruption handling
         self.sync_session = self.get_sync_session  # Uses ConnectionManager
         self.async_session = self.get_async_session  # Uses ConnectionManager
-
-        # Log engine configuration
-        print_info("Database engine configuration:")
-        print_info("  Using shared memory SQLite (no connection pooling)")
-        print_info(f"  Connection Timeout: {engine_config['connect_args']['timeout']}s")
-        print_info(
-            f"  Isolation Level: {engine_config['connect_args']['isolation_level']}"
-        )
-        print_info(
-            f"  Check Same Thread: {engine_config['connect_args']['check_same_thread']}"
-        )
-        print_info(f"  URI Mode: {engine_config['connect_args']['uri']}")
 
     def _recreate_connections(self) -> None:
         """Recreate all database connections.
@@ -1734,10 +1854,14 @@ class DatabaseSyncManager:
         self._stop_event = threading.Event()
         self._sync_thread = None
         self.commit_count = 0
+        # Locks for different purposes
         self._sync_lock = threading.Lock()  # Lock to coordinate syncs with transactions
+        self._thread_lock = threading.Lock()  # Lock for thread management
+        self._transaction_lock = threading.Lock()  # Lock for transaction counter
+
+        # State tracking
         self._active_transactions = 0  # Count of active transactions
         self.optimized_storage = optimized_storage
-        self._transaction_lock = threading.Lock()  # Lock for transaction counter
 
         # Initialize sync statistics
         self._sync_stats = {
@@ -1791,15 +1915,38 @@ class DatabaseSyncManager:
                 f"(interval: {self.sync_interval}s, commits: {self.sync_commits})"
             )
 
+    def stop_sync_thread(self) -> None:
+        """Stop the background sync thread safely.
+
+        This method:
+        1. Signals the thread to stop
+        2. Waits for it to finish (with timeout)
+        3. Cleans up thread resources
+        """
+        if self._sync_thread is not None and self._sync_thread.is_alive():
+            print_debug("Stopping sync thread...")
+            self._stop_event.set()
+            self._sync_thread.join(timeout=5.0)  # Wait up to 5 seconds
+            if self._sync_thread.is_alive():
+                print_warning("Sync thread did not stop gracefully")
+            self._sync_thread = None
+            print_debug("Sync thread stopped")
+
     def start_sync_thread(self) -> None:
         """Start the background sync thread.
 
         This should be called after any initial sync operations are complete.
+        The method is safe to call multiple times - it will only start one thread.
         """
+        with self._thread_lock:  # Use dedicated lock for thread management
+            # First, stop any existing thread
+            self.stop_sync_thread()
 
-        if self._sync_thread is None:
+            # Now start a new thread
+            self._stop_event.clear()  # Clear any previous stop signal
             self._sync_thread = Thread(target=self._sync_loop, daemon=True)
             self._sync_thread.start()
+            print_debug("Started sync thread")
 
     def _sync_loop(self) -> None:
         """Background sync loop maintaining accurate intervals using monotonic time."""
@@ -2060,23 +2207,3 @@ class DatabaseSyncManager:
             raise
         finally:
             self._sync_lock.release()
-
-    def stop_sync_thread(self) -> None:
-        """Stop background sync thread.
-
-        This method:
-        1. Signals thread to stop
-        2. Waits for completion
-        3. Updates statistics
-        4. Cleans up resources
-        """
-        if self._sync_thread:
-            try:
-                self._stop_event.set()
-                self._sync_thread.join(timeout=5)
-                if self._sync_thread.is_alive():
-                    print_error("Sync thread did not stop cleanly")
-                self._sync_thread = None
-            except Exception as e:
-                print_error(f"Error stopping sync thread: {e}")
-                self._sync_stats["last_error"] = str(e)

@@ -13,12 +13,31 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Type, TypeVar
 
 import strawberry
+from strawberry import ID
 from strawberry.types import Info
+
+from .enums import BulkUpdateIdMode
 
 if TYPE_CHECKING:
     from ..client import StashClient
 
 T = TypeVar("T", bound="StashObject")
+
+
+@strawberry.input
+class BulkUpdateStrings:
+    """Input for bulk string updates."""
+
+    values: list[str]  # [String!]!
+    mode: BulkUpdateIdMode  # BulkUpdateIdMode!
+
+
+@strawberry.input
+class BulkUpdateIds:
+    """Input for bulk ID updates."""
+
+    ids: list[ID]  # [ID!]!
+    mode: BulkUpdateIdMode  # BulkUpdateIdMode!
 
 
 @strawberry.interface
@@ -124,16 +143,54 @@ class StashObject:
                 }}
             """
 
-        result = await client.execute(
-            mutation,
-            {"input": self.to_input()},
-        )
+        # Get input data
+        try:
+            # Get input data
+            input_data = self.to_input()
+            # If it's a coroutine, await it
+            if hasattr(input_data, "__await__"):
+                input_data = await input_data
+
+            # Ensure input_data is a plain dict
+            if not isinstance(input_data, dict):
+                raise ValueError(
+                    f"to_input() must return a dict, got {type(input_data)}"
+                )
+
+            # Ensure all values are JSON serializable
+            for key, value in list(
+                input_data.items()
+            ):  # Use list to allow modification during iteration
+                if hasattr(value, "__await__"):
+                    print(f"Found coroutine in {key}: {value}")
+                    input_data[key] = await value
+                elif isinstance(value, (list, tuple)):
+                    # Check for coroutines in lists/tuples
+                    new_value = []
+                    for item in value:
+                        if hasattr(item, "__await__"):
+                            print(f"Found coroutine in {key} list: {item}")
+                            new_value.append(await item)
+                        else:
+                            new_value.append(item)
+                    input_data[key] = new_value
+
+            result = await client.execute(
+                mutation,
+                {"input": input_data},
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to save {self.__type_name__}: {e}") from e
 
         # Update ID if this was a create
         if not hasattr(self, "id") or self.id == "new":
-            self.id = result[f"{self.__type_name__.lower()}Create"]["id"]
+            result_key = f"{self.__type_name__.lower()}Create"
+            if result_key not in result:
+                print(f"DEBUG: Missing '{result_key}' in result: {result}")
+                raise ValueError(f"Missing '{result_key}' in response")
+            self.id = result[result_key]["id"]
 
-    def to_input(self) -> dict[str, Any]:
+    async def to_input(self) -> dict[str, Any]:
         """Convert to GraphQL input type.
 
         Returns:

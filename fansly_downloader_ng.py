@@ -258,11 +258,28 @@ async def main(config: FanslyConfig) -> int:
                     # Load client account into the database
                     await asyncio.sleep(random.uniform(0.4, 0.75))
 
-                    creator_dict = (
-                        config.get_api()
-                        .get_creator_account_info(creator_name=client_user_name)
-                        .json()["response"][0]
-                    )
+                    try:
+                        response = config.get_api().get_creator_account_info(
+                            creator_name=client_user_name
+                        )
+                        json_output(
+                            1,
+                            "main - client-account-data",
+                            (response),
+                        )
+                        json = response.json()
+                        json_output(
+                            1,
+                            "main - client-account-data",
+                            (json),
+                        )
+                        creator_dict = json["response"][0]
+                    except Exception as e:
+                        print_error(f"Error getting client account info: {e}")
+                        print_error(
+                            f"Error getting client account info: {traceback.format_exc()}"
+                        )
+                        raise
 
                     json_output(
                         1,
@@ -351,10 +368,21 @@ async def main(config: FanslyConfig) -> int:
                         # Create processor using factory method
                         stash_processor = StashProcessing.from_config(config, state)
 
-                        # Run initial processing and let background tasks continue
+                        # Run initial processing and wait for background tasks
                         await stash_processor.start_creator_processing()
-                        # Insert a 10 second sleep that won't block asyncio tasks
-                        await asyncio.sleep(10)
+
+                        # Wait for background processing to complete
+                        if stash_processor._background_task:
+                            try:
+                                print_info(
+                                    "Waiting for background processing to complete..."
+                                )
+                                await stash_processor._background_task
+                                print_info("Background processing complete")
+                            except Exception as e:
+                                print_error(f"Background processing failed: {e}")
+                                # Continue to next creator even if background processing fails
+                                exit_code = SOME_USERS_FAILED
                     else:
                         sleep(10)
 
