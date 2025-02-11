@@ -42,6 +42,7 @@ from .context import StashContext
 from .types import (
     Gallery,
     GalleryChapter,
+    GalleryFile,
     Image,
     ImageFile,
     Performer,
@@ -134,20 +135,16 @@ class StashProcessing:
         Raises:
             RuntimeError: If no StashContext connection data available
         """
-        from metadata import Database
-
         state_copy = deepcopy(state)
         context = config.get_stash_context()
-        database = Database(config, creator_name=state.creator_name)
-        owns_db = True
         instance = cls(
             config=config,
             state=state_copy,
             context=context,
-            database=database,
+            database=config._database,  # Use existing database instance
             _background_task=None,
             _cleanup_event=asyncio.Event(),
-            _owns_db=owns_db,
+            _owns_db=False,  # We don't own the database
         )
         return instance
 
@@ -1025,9 +1022,23 @@ class StashProcessing:
                     await gallery.destroy(self.context.client)
                 return
 
-            # Split files by type
-            image_files = [f for f in files if isinstance(f, ImageFile)]
-            scene_files = [f for f in files if isinstance(f, VideoFile)]
+            # Create GalleryFile objects for each file
+            gallery_files = []
+            for file in files:
+                if isinstance(file, (ImageFile, VideoFile)):
+                    # Create GalleryFile from BaseFile
+                    gallery_file = GalleryFile(
+                        id=file.id,
+                        path=file.path,
+                        basename=file.basename,
+                        parent_folder_id=file.parent_folder_id,
+                        zip_file_id=file.zip_file_id,
+                        mod_time=file.mod_time,
+                        size=file.size,
+                        fingerprints=file.fingerprints,
+                        # created_at and updated_at handled by Stash
+                    )
+                    gallery_files.append(gallery_file)
 
             debug_print(
                 {
@@ -1036,57 +1047,63 @@ class StashProcessing:
                     "item_id": item.id,
                     "gallery_id": gallery.id,
                     "total_files": len(files),
-                    "image_files": len(image_files),
-                    "scene_files": len(scene_files),
-                    "image_ids": [f.id for f in image_files],
-                    "scene_ids": [f.id for f in scene_files],
+                    "gallery_files": len(gallery_files),
+                    "file_details": [
+                        {
+                            "id": f.id,
+                            "path": str(f.path),
+                            "type": f.__class__.__name__,
+                        }
+                        for f in gallery_files
+                    ],
                 }
             )
 
-            # Add images through galleryAdd mutation
-            if image_files:
+            # Add files to gallery
+            if gallery_files:
                 try:
-                    success = await self.context.client.add_gallery_images(
-                        gallery_id=gallery.id,
-                        image_ids=[f.id for f in image_files],
-                    )
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_item_gallery",
-                            "status": "gallery_images_added",
-                            "item_id": item.id,
-                            "gallery_id": gallery.id,
-                            "success": success,
-                            "image_count": len(image_files),
-                        }
-                    )
-                    if not success:
+                    # Add files to gallery
+                    gallery.files = gallery_files
+                    await gallery.save(self.context.client)
+
+                    # For images, also establish the Image -> Gallery relationship
+                    image_files = [f for f in files if isinstance(f, ImageFile)]
+                    if image_files:
+                        success = await self.context.client.add_gallery_images(
+                            gallery_id=gallery.id,
+                            image_ids=[f.id for f in image_files],
+                        )
                         debug_print(
                             {
                                 "method": "StashProcessing - _process_item_gallery",
-                                "status": "image_add_failed",
+                                "status": "gallery_images_added",
                                 "item_id": item.id,
                                 "gallery_id": gallery.id,
+                                "success": success,
                                 "image_count": len(image_files),
                             }
                         )
+                        if not success:
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _process_item_gallery",
+                                    "status": "image_add_failed",
+                                    "item_id": item.id,
+                                    "gallery_id": gallery.id,
+                                    "image_count": len(image_files),
+                                }
+                            )
                 except Exception as e:
                     debug_print(
                         {
                             "method": "StashProcessing - _process_item_gallery",
-                            "status": "image_add_error",
+                            "status": "gallery_update_error",
                             "item_id": item.id,
                             "gallery_id": gallery.id,
-                            "image_count": len(image_files),
                             "error": str(e),
                             "traceback": traceback.format_exc(),
                         }
                     )
-
-            # Add scenes through gallery update
-            if scene_files:
-                gallery.scenes = scene_files
-                await gallery.save(self.context.client)
 
     async def _get_gallery_by_stash_id(
         self,
@@ -1128,10 +1145,22 @@ class StashProcessing:
 
         for gallery_dict in galleries.galleries:
             gallery = Gallery(**gallery_dict)
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_gallery_by_title",
+                    "gallery_studio_type": (
+                        type(gallery.studio).__name__ if gallery.studio else None
+                    ),
+                    "gallery_studio": gallery.studio,
+                }
+            )
             if (
                 gallery.title == title
                 and gallery.date == item.createdAt.strftime("%Y-%m-%d")
-                and (not studio or gallery.studio_id == studio.id)
+                and (
+                    not studio
+                    or (gallery.studio and gallery.studio.get("id") == studio.id)
+                )
             ):
                 debug_print(
                     {
@@ -1229,8 +1258,7 @@ class StashProcessing:
             details=item.content,
             code=str(item.id),  # Use post/message ID as code for uniqueness
             date=item.createdAt.strftime("%Y-%m-%d"),
-            created_at=item.createdAt,
-            updated_at=datetime.now(),
+            # created_at and updated_at handled by Stash
             organized=True,  # Mark as organized since we have metadata
         )
 
@@ -1492,32 +1520,107 @@ class StashProcessing:
             }
         )
         if attachment.media and attachment.media.media:
-            media_files = await self._process_media_to_files(
-                media=attachment.media.media,
-                session=session,
-            )
+            # Process media and update metadata
+            media = attachment.media.media
+            if hasattr(media, "awaitable_attrs"):
+                await media.awaitable_attrs.variants
+
             debug_print(
                 {
                     "method": "StashProcessing - process_creator_attachment",
-                    "status": "processed_media",
+                    "status": "processing_media",
                     "attachment_id": attachment.id,
-                    "files_found": len(media_files),
+                    "media_id": media.id,
+                    "variant_count": (
+                        len(media.variants) if hasattr(media, "variants") else 0
+                    ),
                 }
             )
-            files.extend(media_files)
 
+            # Find in Stash by path and update metadata
+            result = None
+            if media.stash_id:
+                result = await self._find_stash_files_by_id(
+                    [(media.stash_id, media.mimetype)]
+                )
+            else:
+                result = await self._find_stash_files_by_path(
+                    [(str(media.id), media.mimetype)]
+                )
+
+            # Update metadata and collect files
+            for stash_obj, file in result:
+                await self._update_stash_metadata(
+                    stash_obj=stash_obj,
+                    item=item,
+                    account=account,
+                    media_id=str(media.id),
+                )
+                files.append(file)
         # Handle media bundles
+        debug_print(
+            {
+                "method": "StashProcessing - process_creator_attachment",
+                "status": "checking_bundle",
+                "attachment_id": attachment.id,
+                "has_bundle": hasattr(attachment, "bundle"),
+                "bundle_loaded": hasattr(attachment, "awaitable_attrs"),
+            }
+        )
+        if hasattr(attachment, "awaitable_attrs"):
+            await attachment.awaitable_attrs.bundle
         if attachment.bundle:
             bundle: AccountMediaBundle = attachment.bundle
+            if hasattr(bundle, "awaitable_attrs"):
+                await bundle.awaitable_attrs.accountMedia
+
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator_attachment",
+                    "status": "processing_bundle",
+                    "attachment_id": attachment.id,
+                    "bundle_id": bundle.id,
+                    "media_count": (
+                        len(bundle.accountMedia)
+                        if hasattr(bundle, "accountMedia")
+                        else 0
+                    ),
+                }
+            )
+
             # Process each media item in the bundle
             for account_media in bundle.accountMedia:
                 if account_media.media:
-                    files.extend(
-                        await self._process_media_to_files(
-                            media=account_media.media,
-                            session=session,
+                    # Find in Stash by path and update metadata
+                    result = None
+                    if account_media.media.stash_id:
+                        result = await self._find_stash_files_by_id(
+                            [
+                                (
+                                    account_media.media.stash_id,
+                                    account_media.media.mimetype,
+                                )
+                            ]
                         )
-                    )
+                    else:
+                        result = await self._find_stash_files_by_path(
+                            [
+                                (
+                                    str(account_media.media.id),
+                                    account_media.media.mimetype,
+                                )
+                            ]
+                        )
+
+                    # Update metadata and collect files
+                    for stash_obj, file in result:
+                        await self._update_stash_metadata(
+                            stash_obj=stash_obj,
+                            item=item,
+                            account=account,
+                            media_id=str(account_media.media.id),
+                        )
+                        files.append(file)
 
         # Handle aggregated posts
         if (
@@ -1597,18 +1700,44 @@ class StashProcessing:
 
         return files
 
+    def _get_file_from_stash_obj(
+        self,
+        stash_obj: Scene | Image,
+    ) -> ImageFile | VideoFile | None:
+        """Get ImageFile or VideoFile from Scene or Image object.
+
+        Args:
+            stash_obj: Scene or Image object from Stash
+
+        Returns:
+            ImageFile or VideoFile object, or None if no files found
+        """
+        if isinstance(stash_obj, Image):
+            # Get the primary ImageFile
+            if stash_obj.visual_files:
+                for file in stash_obj.visual_files:
+                    if isinstance(file, ImageFile):
+                        return file
+        elif isinstance(stash_obj, Scene):
+            # Get the primary VideoFile
+            if stash_obj.files:
+                return stash_obj.files[0]
+        return None
+
     async def _process_media_file(
         self,
         media_file: Any,  # AccountMedia.media or AccountMedia.preview
         media_obj: AccountMedia,
         is_preview: bool = False,
-    ) -> tuple[dict | None, Scene | Image | None]:
+        session: AsyncSession | None = None,
+    ) -> tuple[dict | None, ImageFile | VideoFile | None]:
         """Process a media file from AccountMedia.
 
         Args:
             media_file: The media file to process
             media_obj: The parent AccountMedia object
             is_preview: Whether this is a preview file
+            session: Optional database session to use
 
         Returns:
             Tuple of (raw stash object, processed file object)
@@ -1618,11 +1747,15 @@ class StashProcessing:
                 return await self._find_stash_file_by_id(
                     stash_id=media_file.stash_id,
                     mime_type=media_file.mimetype,
+                    media_obj=media_obj,
+                    session=session,
                 )
             elif media_file.local_filename or await media_file.awaitable_attrs.variants:
                 return await self._find_stash_file_by_path(
                     media_file=media_file,
                     mime_type=media_file.mimetype,
+                    media_obj=media_obj,
+                    session=session,
                 )
         except Exception as e:
             debug_print(
@@ -1635,62 +1768,131 @@ class StashProcessing:
             )
             return None, None
 
-    async def _find_stash_file_by_id(
+    def _create_nested_path_or_conditions(
         self,
-        stash_id: str,
-        mime_type: str,
-    ) -> tuple[dict | None, Scene | Image | None]:
-        """Find a file in Stash by ID.
+        media_ids: list[str],
+    ) -> dict[str, dict]:
+        """Create nested OR conditions for path filters.
 
         Args:
-            stash_id: The Stash ID to search for
-            mime_type: The MIME type of the file
+            media_ids: List of media IDs to search for
 
         Returns:
-            Tuple of (raw stash object, processed file object)
-
-        Raises:
-            ValueError: If mime_type is invalid
+            Nested OR conditions for path filter
         """
+        # Create individual path conditions
+        conditions = [
+            {
+                "path": {
+                    "modifier": "INCLUDES",
+                    "value": media_id,
+                }
+            }
+            for media_id in media_ids
+        ]
 
-        def convert_obj(
-            obj: Any, cls: type[Scene] | type[Image]
-        ) -> Scene | Image | None:
-            """Convert object to Scene or Image."""
-            if not obj:
-                return None
-            data = obj.__dict__ if hasattr(obj, "__dict__") else obj
-            return cls.from_dict(data)
+        if len(conditions) == 1:
+            return conditions[0]
+        if len(conditions) == 2:
+            return {
+                "OR": {
+                    "path": conditions[0]["path"],
+                    "OR": conditions[1],
+                }
+            }
+        else:
+            return {
+                "OR": {
+                    "path": conditions[0]["path"],
+                    "OR": self._create_nested_path_or_conditions(media_ids[1:])["OR"],
+                }
+            }
 
-        match mime_type:
-            case str() as mime if mime.startswith("image"):
-                stash_obj = await self.context.client.find_image(stash_id)
-                return (stash_obj, convert_obj(stash_obj, Image))
-            case str() as mime if mime.startswith("video"):
-                stash_obj = await self.context.client.find_scene(stash_id)
-                return (stash_obj, convert_obj(stash_obj, Scene))
-            case str() as mime if mime.startswith("application"):
-                stash_obj = await self.context.client.find_scene(stash_id)
-                return (stash_obj, convert_obj(stash_obj, Scene))
-            case _:
-                raise ValueError(f"Invalid media type: {mime_type}")
-
-    async def _find_stash_file_by_path(
+    async def _find_stash_files_by_id(
         self,
-        media_file: Any,
-        mime_type: str,
-    ) -> tuple[dict | None, Scene | Image | None]:
-        """Find a file in Stash by path.
+        stash_files: list[tuple[str, str]],  # List of (stash_id, mime_type) tuples
+    ) -> list[tuple[dict, Scene | Image]]:
+        """Find files in Stash by stash ID.
 
         Args:
-            media_file: The media file object (with local_filename and variants)
-            mime_type: The MIME type of the file
+            stash_files: List of (stash_id, mime_type) tuples to search for
 
         Returns:
-            Tuple of (raw stash object, processed file object)
+            List of (raw stash object, processed file object) tuples
+        """
+        found = []
 
-        Raises:
-            ValueError: If mime_type is invalid
+        # Group by mime type
+        image_ids = []
+        scene_ids = []
+        for stash_id, mime_type in stash_files:
+            if mime_type.startswith("image"):
+                image_ids.append(stash_id)
+            else:  # video or application -> scenes
+                scene_ids.append(stash_id)
+
+        # Find images
+        if image_ids:
+            debug_print(
+                {
+                    "method": "StashProcessing - _find_stash_files_by_id",
+                    "status": "finding_images",
+                    "stash_ids": image_ids,
+                }
+            )
+            for stash_id in image_ids:
+                try:
+                    stash_obj = await self.context.client.find_image(stash_id)
+                    image = Image.from_dict(stash_obj) if stash_obj else None
+                    if image and (file := self._get_file_from_stash_obj(image)):
+                        found.append((stash_obj, file))
+                except Exception as e:
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _find_stash_files_by_id",
+                            "status": "image_find_failed",
+                            "stash_id": stash_id,
+                            "error": str(e),
+                        }
+                    )
+
+        # Find scenes
+        if scene_ids:
+            debug_print(
+                {
+                    "method": "StashProcessing - _find_stash_files_by_id",
+                    "status": "finding_scenes",
+                    "stash_ids": scene_ids,
+                }
+            )
+            for stash_id in scene_ids:
+                try:
+                    stash_obj = await self.context.client.find_scene(stash_id)
+                    scene = Scene.from_dict(stash_obj) if stash_obj else None
+                    if scene and (file := self._get_file_from_stash_obj(scene)):
+                        found.append((stash_obj, file))
+                except Exception as e:
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _find_stash_files_by_id",
+                            "status": "scene_find_failed",
+                            "stash_id": stash_id,
+                            "error": str(e),
+                        }
+                    )
+
+        return found
+
+    async def _find_stash_files_by_path(
+        self,
+        media_files: list[tuple[str, str]],  # List of (media_id, mime_type) tuples
+    ) -> list[tuple[dict, Scene | Image]]:
+        """Find files in Stash by media IDs in path, grouped by mime type.
+
+        Args:
+            media_files: List of (media_id, mime_type) tuples to search for
+        Returns:
+            List of (raw stash object, processed file object) tuples
         """
         filter_params = {
             "per_page": -1,
@@ -1698,132 +1900,134 @@ class StashProcessing:
             "direction": "DESC",
         }
 
-        # Build list of paths to search
-        paths = [media_file.local_filename] if media_file.local_filename else []
-        if await media_file.awaitable_attrs.variants:
-            for variant in await media_file.awaitable_attrs.variants:
-                if variant.local_filename:
-                    paths.append(variant.local_filename)
+        # Group media IDs by mime type
+        image_ids = []
+        scene_ids = []  # Both video and application use find_scenes
+        for media_id, mime_type in media_files:
+            if mime_type.startswith("image"):
+                image_ids.append(media_id)
+            else:  # video or application -> scenes
+                scene_ids.append(media_id)
 
-        # Try each path until we find a match
-        for path in paths:
-            # Extract ID from filename
-            if match := re.search(r"_id_(\d+)", path):
-                media_id = match.group(1)
-                path_filter = {
-                    "path": {
-                        "modifier": "INCLUDES",
-                        "value": media_id,
-                    }
-                }
-            else:
-                # Fallback to full path if no ID found
-                path_filter = {
-                    "path": {
-                        "modifier": "INCLUDES",
-                        "value": path,
-                    }
-                }
+        found = []
 
+        # Find images
+        if image_ids:
+            path_filter = self._create_nested_path_or_conditions(image_ids)
+            debug_print(
+                {
+                    "method": "StashProcessing - _find_stash_files_by_path",
+                    "status": "searching_images",
+                    "media_ids": image_ids,
+                    "filter": path_filter,
+                }
+            )
             try:
-                match mime_type:
-                    case str() as mime if mime.startswith("image"):
-                        results = await self.context.client.find_images(
-                            image_filter=path_filter,
-                            filter_=filter_params,
-                        )
-                        if results.count > 0:
-                            stash_obj = results.images[0]
-                            return (
-                                stash_obj,
-                                Image.from_dict(stash_obj) if stash_obj else None,
-                            )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_file_by_path",
-                                "status": "no_image_found",
-                                "path": path,
-                                "filter": path_filter,
-                            }
-                        )
-                    case str() as mime if mime.startswith("video"):
-                        try:
-                            results = await self.context.client.find_scenes(
-                                scene_filter=path_filter,
-                                filter_=filter_params,
-                            )
-                            # Debug the results structure
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _find_stash_file_by_path",
-                                    "status": "debug_results",
-                                    "path": path,
-                                    "results_type": type(results).__name__,
-                                    "results": results,
-                                }
-                            )
-
-                            if results.count > 0:
-                                stash_obj = results.scenes[0]
-                                return (
-                                    stash_obj,
-                                    Scene.from_dict(stash_obj) if stash_obj else None,
-                                )
-
-                        except Exception as e:
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _find_stash_file_by_path",
-                                    "status": "path_search_failed",
-                                    "path": path,
-                                    "error": str(e),
-                                    "traceback": traceback.format_exc(),
-                                }
-                            )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_file_by_path",
-                                "status": "no_video_found",
-                                "path": path,
-                                "filter": path_filter,
-                            }
-                        )
-                    case str() as mime if mime.startswith("application"):
-                        results = await self.context.client.find_scenes(
-                            scene_filter=path_filter,
-                            filter_=filter_params,
-                        )
-                        if results.count > 0:
-                            stash_obj = results.scenes[0]
-                            return (
-                                stash_obj,
-                                Scene.from_dict(stash_obj) if stash_obj else None,
-                            )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_file_by_path",
-                                "status": "no_application_found",
-                                "path": path,
-                                "filter": path_filter,
-                            }
-                        )
-                    case _:
-                        raise ValueError(f"Invalid media type: {mime_type}")
+                results = await self.context.client.find_images(
+                    image_filter=path_filter,
+                    filter_=filter_params,
+                )
+                if results.count > 0:
+                    for stash_obj in results.images:
+                        image = Image.from_dict(stash_obj) if stash_obj else None
+                        if image and (file := self._get_file_from_stash_obj(image)):
+                            found.append((stash_obj, file))
             except Exception as e:
                 debug_print(
                     {
-                        "method": "StashProcessing - _find_stash_file_by_path",
-                        "status": "path_search_failed",
-                        "path": path,
+                        "method": "StashProcessing - _find_stash_files_by_path",
+                        "status": "image_search_failed",
+                        "media_ids": image_ids,
                         "error": str(e),
-                        "traceback": traceback.format_exc(),
                     }
                 )
-                continue
 
-        return (None, None)
+        # Find scenes (both video and application)
+        if scene_ids:
+            path_filter = self._create_nested_path_or_conditions(scene_ids)
+            debug_print(
+                {
+                    "method": "StashProcessing - _find_stash_files_by_path",
+                    "status": "searching_scenes",
+                    "media_ids": scene_ids,
+                    "filter": path_filter,
+                }
+            )
+            try:
+                results = await self.context.client.find_scenes(
+                    scene_filter=path_filter,
+                    filter_=filter_params,
+                )
+                if results.count > 0:
+                    for stash_obj in results.scenes:
+                        scene = Scene.from_dict(stash_obj) if stash_obj else None
+                        if scene and (file := self._get_file_from_stash_obj(scene)):
+                            found.append((stash_obj, file))
+            except Exception as e:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _find_stash_files_by_path",
+                        "status": "scene_search_failed",
+                        "media_ids": scene_ids,
+                        "error": str(e),
+                    }
+                )
+
+        return found
 
     @with_session()
+    async def _update_stash_metadata(
+        self,
+        stash_obj: Scene | Image,
+        item: HasMetadata,  # Post or Message
+        account: Account,
+        media_id: str,
+        is_preview: bool = False,
+    ) -> None:
+        """Update metadata on Stash object using data we already have.
+
+        Args:
+            stash_obj: Scene or Image to update
+            item: Post or Message containing metadata
+            account: Account that created the content
+            media_id: ID to use for code field
+            is_preview: Whether this is a preview file
+        """
+        # Update basic metadata
+        stash_obj.title = self._generate_title_from_content(
+            content=item.content,
+            username=account.username,
+            created_at=item.createdAt,
+        )
+        stash_obj.details = item.content
+        stash_obj.date = item.createdAt.strftime("%Y-%m-%d")
+        stash_obj.code = str(media_id)
+
+        # Add performers (we already have the account)
+        performers = []
+        if main_performer := await self._find_existing_performer(account):
+            performers.append(main_performer)
+
+        # Add mentioned performers if any
+        if hasattr(item, "accountMentions") and item.accountMentions:
+            for mention in item.accountMentions:
+                if mention_performer := await self._find_existing_performer(mention):
+                    performers.append(mention_performer)
+
+        if performers:
+            stash_obj.performers = performers
+
+        # Add studio (we already have the account)
+        if studio := await self._find_existing_studio(account):
+            stash_obj.studio = studio
+
+        # Mark as preview if needed
+        if is_preview:
+            await self._add_preview_tag(stash_obj)
+
+        # Save changes to Stash
+        await stash_obj.save(self.context.client)
+
     async def _update_file_metadata(
         self,
         file: Scene | Image,
@@ -1840,53 +2044,192 @@ class StashProcessing:
             session: Optional database session
         """
         # Find attachment that contains this media
+        debug_print(
+            {
+                "method": "StashProcessing - _update_file_metadata",
+                "status": "finding_attachment",
+                "file_id": file.id,
+                "media_id": media_obj.id,
+                "media_type": type(media_obj).__name__,
+            }
+        )
+
+        # Collect all possible media IDs (original, variants, preview)
+        media_ids = [media_obj.id]  # Start with the original media ID
+
+        # Add variant IDs
+        if hasattr(media_obj, "variants") and media_obj.variants:
+            media_ids.extend(v.id for v in media_obj.variants)
+
+        # Add preview ID
+        if hasattr(media_obj, "preview") and media_obj.preview:
+            media_ids.append(media_obj.preview.id)
+
+        debug_print(
+            {
+                "method": "StashProcessing - _update_file_metadata",
+                "status": "searching_media_ids",
+                "file_id": file.id,
+                "original_media_id": media_obj.id,
+                "variant_count": (
+                    len(media_obj.variants) if hasattr(media_obj, "variants") else 0
+                ),
+                "has_preview": (
+                    bool(media_obj.preview) if hasattr(media_obj, "preview") else False
+                ),
+                "all_media_ids": media_ids,
+            }
+        )
+
+        # Find attachment for any of these media IDs
         stmt = (
             select(Attachment)
+            .join(Attachment.media)  # Attachment -> AccountMedia
+            .join(AccountMedia.media)  # AccountMedia -> Media
             .options(
                 selectinload(Attachment.post).selectinload(Post.account),
                 selectinload(Attachment.message).selectinload(Message.sender),
+                selectinload(Attachment.media).selectinload(AccountMedia.media),
+                selectinload(Attachment.bundle)
+                .selectinload(AccountMediaBundle.accountMedia)
+                .selectinload(AccountMedia.media),
             )
-            .where(
-                (Attachment.contentType == ContentType.ACCOUNT_MEDIA)
-                & (Attachment.contentId == media_obj.id)
-            )
+            .where(Media.id.in_(media_ids))
         )
+
+        # If not found, try finding through media variants
         result = await session.execute(stmt)
         attachment = result.scalar_one_or_none()
+        if not attachment:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "checking_variants",
+                    "file_id": file.id,
+                    "media_id": media_obj.id,
+                }
+            )
+            # Find through media variants
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "building_variant_query",
+                    "file_id": file.id,
+                    "media_id": media_obj.id,
+                    "media_type": type(media_obj).__name__,
+                }
+            )
+            try:
+                # First find the original media through variants
+                variant_media = (
+                    select(Media).join(Media.variants).where(Media.id == media_obj.id)
+                ).scalar_subquery()
+
+                # Then find the attachment that contains this media
+                stmt = (
+                    select(Attachment)
+                    .join(Attachment.media)  # Attachment -> AccountMedia
+                    .join(AccountMedia.media)  # AccountMedia -> Media
+                    .where(Media.id == variant_media)
+                    .options(
+                        selectinload(Attachment.post).selectinload(Post.account),
+                        selectinload(Attachment.message).selectinload(Message.sender),
+                        selectinload(Attachment.media).selectinload(AccountMedia.media),
+                        selectinload(Attachment.bundle)
+                        .selectinload(AccountMediaBundle.accountMedia)
+                        .selectinload(AccountMedia.media),
+                    )
+                )
+                debug_print(
+                    {
+                        "method": "StashProcessing - _update_file_metadata",
+                        "status": "variant_query_built",
+                        "file_id": file.id,
+                        "media_id": media_obj.id,
+                        "query": str(stmt),
+                    }
+                )
+                result = await session.execute(stmt)
+                attachment = result.scalar_one_or_none()
+            except Exception as e:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _update_file_metadata",
+                        "status": "variant_query_failed",
+                        "file_id": file.id,
+                        "media_id": media_obj.id,
+                        "error": str(e),
+                    }
+                )
+                attachment = None
+            except Exception as e:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _update_file_metadata",
+                        "status": "variant_query_failed",
+                        "file_id": file.id,
+                        "media_id": media_obj.id,
+                        "error": str(e),
+                    }
+                )
+                attachment = None
+
+        if attachment:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "found_attachment",
+                    "file_id": file.id,
+                    "media_id": media_obj.id,
+                    "attachment_id": attachment.id,
+                    "content_type": (
+                        attachment.contentType.name if attachment.contentType else None
+                    ),
+                    "post_id": attachment.post.id if attachment.post else None,
+                    "message_id": attachment.message.id if attachment.message else None,
+                }
+            )
 
         # Update metadata based on source
         if attachment:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "checking_content",
+                    "file_id": file.id,
+                    "media_id": media_obj.id,
+                    "attachment_id": attachment.id,
+                    "content_type": (
+                        attachment.contentType.name if attachment.contentType else None
+                    ),
+                    "content_id": attachment.contentId,
+                    "post_id": attachment.postId,
+                    "message_id": attachment.messageId,
+                }
+            )
+
+            # Load relationships
+            if hasattr(attachment, "awaitable_attrs"):
+                if attachment.postId:
+                    await attachment.awaitable_attrs.post
+                if attachment.messageId:
+                    await attachment.awaitable_attrs.message
+
+            # Get content from attachment
             content = attachment.post or attachment.message
+
             if content:
-                # Get account based on content type
-                if hasattr(content, "account"):  # Post
-                    account = content.account
-                else:  # Message
-                    account = content.sender
-
-                # Get username
-                if hasattr(account, "awaitable_attrs"):
-                    username = await account.awaitable_attrs.username
-                else:
-                    username = account.username
-
-                # Generate title
-                title = self._generate_title_from_content(
-                    content=content.content,
-                    username=username,
-                    created_at=content.createdAt,
-                    current_pos=(
-                        media_obj.position if hasattr(media_obj, "position") else None
-                    ),
-                    total_media=(
-                        media_obj.total_media
-                        if hasattr(media_obj, "total_media")
-                        else None
-                    ),
-                )  # Not a coroutine anymore
-                file.title = title
-
-                # Update other metadata
+                debug_print(
+                    {
+                        "method": "StashProcessing - _update_file_metadata",
+                        "status": "found_content",
+                        "file_id": file.id,
+                        "media_id": media_obj.id,
+                        "content_type": type(content).__name__,
+                        "content_id": content.id,
+                    }
+                )
+                # Update metadata from content
                 await self._update_content_metadata(
                     file=file,
                     content=content,
@@ -1894,14 +2237,11 @@ class StashProcessing:
                     session=session,
                 )
 
-        # Update date for all files
-        file.date = media_obj.createdAt
-
         # Add preview tag if needed
         if is_preview:
             await self._add_preview_tag(file)
 
-        # Save changes to Stash
+        # Save all changes to Stash
         await file.save(self.context.client)
 
         # Write back stash_id to media object
@@ -1926,17 +2266,23 @@ class StashProcessing:
             media_obj: AccountMedia object containing metadata
             session: Optional database session
         """
-        # Update title and details
+        # Load relationships
         if hasattr(content, "account"):  # Post
             account = content.account
         else:  # Message
             account = content.sender
 
-        # Get username for title
+        # Load account data
         if hasattr(account, "awaitable_attrs"):
-            username = await account.awaitable_attrs.username
-        else:
-            username = account.username
+            await account.awaitable_attrs.username
+            await account.awaitable_attrs.displayName
+
+        # Load mentions
+        if hasattr(content, "awaitable_attrs"):
+            await content.awaitable_attrs.accountMentions
+
+        # Get username for title
+        username = account.username
 
         # Generate title using same method as gallery titles
         file.title = self._generate_title_from_content(
@@ -1947,37 +2293,73 @@ class StashProcessing:
         file.details = content.content
 
         # Update date
-        file.date = content.createdAt
+        file.date = content.createdAt.strftime("%Y-%m-%d")  # Stash expects YYYY-MM-DD
 
         # Start with empty performers list
         performers = []
 
         # Add main account as performer
-        if hasattr(content, "account"):  # Post
-            account = content.account
-        else:  # Message
-            account = content.sender
         if main_performer := await self._find_existing_performer(account):
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "adding_main_performer",
+                    "file_id": file.id,
+                    "performer_id": main_performer.id,
+                    "performer_name": main_performer.name,
+                }
+            )
             performers.append(main_performer)
 
         # Add account mentions as performers
-        if content.accountMentions:
+        if hasattr(content, "accountMentions") and content.accountMentions:
             for mention in content.accountMentions:
                 if mention_performer := await self._find_existing_performer(mention):
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _update_file_metadata",
+                            "status": "adding_mention_performer",
+                            "file_id": file.id,
+                            "performer_id": mention_performer.id,
+                            "performer_name": mention_performer.name,
+                        }
+                    )
                     performers.append(mention_performer)
 
         # Set performers if we have any
         if performers:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "setting_performers",
+                    "file_id": file.id,
+                    "performer_count": len(performers),
+                    "performer_names": [p.name for p in performers],
+                }
+            )
             file.performers = performers
 
         # Set studio if available
-        if studio := await self._find_existing_studio(account):
+        studio = await self._find_existing_studio(account)
+        if studio:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "setting_studio",
+                    "file_id": file.id,
+                    "studio_id": studio.id,
+                    "studio_name": studio.name,
+                }
+            )
             file.studio = studio
             # Set code based on content type
             if isinstance(file, Scene) or isinstance(file, Image):
                 file.code = str(media_obj.id)  # Media ID for Image/Scene
             else:
                 file.code = str(content.id)  # Post/Message ID for Gallery
+
+        # Set organized flag since we have metadata
+        # file.organized = True
 
     async def _add_preview_tag(
         self,
@@ -2105,8 +2487,7 @@ class StashProcessing:
                 name=creator_studio_name,
                 parent_studio=fansly_studio,
                 url=f"https://fansly.com/{account.username}/posts",
-                created_at=account.createdAt,
-                updated_at=account.createdAt,  # Initially same as created_at
+                # created_at and updated_at handled by Stash
             )
             await studio.save(self.context.client)
         else:

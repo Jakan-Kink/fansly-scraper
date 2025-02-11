@@ -71,12 +71,12 @@ class StashClient(
             self.log.debug("Using API key authentication")
             headers["ApiKey"] = api_key
 
-        # Debug MRO
-        print("DEBUG: Method Resolution Order:")
+        # Debug MRO in logs only
+        self.log.debug("Method Resolution Order:")
         for c in self.__class__.__mro__:
-            print(f"  {c.__module__}.{c.__name__}")
+            self.log.debug(f"  {c.__module__}.{c.__name__}")
             if hasattr(c, "execute"):
-                print("    Has execute() method")
+                self.log.debug("    Has execute() method")
 
         # Initialize base class
         super().__init__(conn=conn, verify_ssl=verify_ssl)

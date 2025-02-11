@@ -106,8 +106,7 @@ class Image:
     date: str | None = None  # String
     rating100: int | None = None  # Int
     organized: bool = False  # Boolean!
-    created_at: datetime  # Time!
-    updated_at: datetime  # Time!
+    # created_at and updated_at handled by Stash
 
 
 @strawberry.type
@@ -192,8 +191,7 @@ class Gallery(StashObject):
             date=content.createdAt.strftime(
                 "%Y-%m-%d"
             ),  # Stash expects YYYY-MM-DD format
-            created_at=content.createdAt or datetime.now(),
-            updated_at=datetime.now(),
+            # created_at and updated_at handled by Stash
             organized=True,  # Mark as organized since we have metadata
         )
 

@@ -67,8 +67,7 @@ class Studio(StashObject):
             name=account.displayName or account.username,
             url=f"https://fansly.com/{account.username}",
             details=account.about,
-            created_at=account.createdAt or datetime.now(),
-            updated_at=datetime.now(),
+            # created_at and updated_at handled by Stash
             # Set reasonable defaults
             ignore_auto_tag=False,  # Allow auto-tagging
             favorite=True,  # Mark as favorite since it's a followed account

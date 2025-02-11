@@ -94,15 +94,7 @@ class Image(StashObject):
         valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
 
-        # Convert timestamps
-        if "created_at" in filtered_data:
-            filtered_data["created_at"] = datetime.fromisoformat(
-                filtered_data["created_at"]
-            )
-        if "updated_at" in filtered_data:
-            filtered_data["updated_at"] = datetime.fromisoformat(
-                filtered_data["updated_at"]
-            )
+        # created_at and updated_at handled by Stash
 
         # Create instance
         image = cls(**filtered_data)
@@ -177,6 +169,7 @@ class Image(StashObject):
             "studio": ("studio_id", False),  # (target_field, is_list)
             "performers": ("performer_ids", True),
             "tags": ("tag_ids", True),
+            "galleries": ("gallery_ids", True),
         }
 
         for rel_field, (target_field, is_list) in relationships.items():

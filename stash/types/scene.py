@@ -88,8 +88,7 @@ class SceneMarker:
     tags: list[Annotated["Tag", lazy("stash.types.tag.Tag")]] = strawberry.field(
         default_factory=list
     )  # [Tag!]!
-    created_at: datetime  # Time!
-    updated_at: datetime  # Time!
+    # created_at and updated_at handled by Stash
 
 
 @strawberry.type
@@ -127,8 +126,7 @@ class Scene(StashObject):
     urls: list[str] = strawberry.field(default_factory=list)  # [String!]!
     organized: bool = False  # Boolean!
     interactive: bool = False  # Boolean!
-    created_at: datetime  # Time!
-    updated_at: datetime  # Time!
+    # created_at and updated_at handled by Stash
     play_history: list[datetime] = strawberry.field(
         default_factory=list
     )  # [Time!]! (Times a scene was played)
@@ -161,8 +159,9 @@ class Scene(StashObject):
         default_factory=list
     )  # [Performer!]!
     stash_ids: list[StashID] = strawberry.field(default_factory=list)  # [StashID!]!
-    scene_streams: list[SceneStreamEndpoint] = strawberry.field(
-        default_factory=list
+    sceneStreams: list[SceneStreamEndpoint] = strawberry.field(
+        default_factory=list,
+        name="sceneStreams",  # Match GraphQL field name exactly
     )  # [SceneStreamEndpoint!]! (Return valid stream paths)
 
     # Optional lists
@@ -180,28 +179,16 @@ class Scene(StashObject):
         Returns:
             New scene instance
         """
-        # Map GraphQL field names to our field names
-        field_mapping = {
-            "sceneStreams": "scene_streams",
-        }
+        # No field mapping needed - using exact GraphQL names
 
         # Filter out fields that aren't part of our class
         valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
         filtered_data = {}
         for k, v in data.items():
-            mapped_key = field_mapping.get(k, k)
-            if mapped_key in valid_fields:
-                filtered_data[mapped_key] = v
+            if k in valid_fields:
+                filtered_data[k] = v
 
-        # Convert timestamps
-        if "created_at" in filtered_data:
-            filtered_data["created_at"] = datetime.fromisoformat(
-                filtered_data["created_at"]
-            )
-        if "updated_at" in filtered_data:
-            filtered_data["updated_at"] = datetime.fromisoformat(
-                filtered_data["updated_at"]
-            )
+        # created_at and updated_at handled by Stash
 
         # Create instance
         scene = cls(**filtered_data)

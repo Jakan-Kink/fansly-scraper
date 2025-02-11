@@ -1,12 +1,15 @@
 """Base types for Stash models.
 
 Note: While this is not a schema interface, it represents a common pattern
-in the schema where many types have id, created_at, and updated_at fields.
-This includes core types like Scene, Gallery, Performer, etc., and file types
-like VideoFile, ImageFile, etc.
+in the schema where many types have an id field. This includes core types
+like Scene, Gallery, Performer, etc., and file types like VideoFile,
+ImageFile, etc.
 
 We use this interface to provide common functionality for these types, even
 though the schema doesn't explicitly define an interface for them.
+
+Note: created_at and updated_at are handled by Stash internally and not
+included in this interface.
 """
 
 from datetime import datetime
@@ -50,8 +53,7 @@ class StashObject:
 
     Common fields (matching schema pattern):
     - id: Unique identifier (ID!)
-    - created_at: Creation timestamp (Time!)
-    - updated_at: Last update timestamp (Time!)
+    Note: created_at and updated_at are handled by Stash internally
 
     Common functionality provided:
     - find_by_id: Find object by ID
@@ -65,9 +67,7 @@ class StashObject:
     # Fields to include in queries
     __field_names__: ClassVar[set[str]]
 
-    id: str
-    created_at: datetime
-    updated_at: datetime
+    id: str  # Only required field - Stash handles created_at/updated_at internally
 
     @classmethod
     def _get_field_names(cls) -> set[str]:

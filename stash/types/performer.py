@@ -127,15 +127,7 @@ class Performer(StashObject):
         valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
 
-        # Convert timestamps
-        if "created_at" in filtered_data:
-            filtered_data["created_at"] = datetime.fromisoformat(
-                filtered_data["created_at"]
-            )
-        if "updated_at" in filtered_data:
-            filtered_data["updated_at"] = datetime.fromisoformat(
-                filtered_data["updated_at"]
-            )
+        # created_at and updated_at handled by Stash
 
         # Create instance
         performer = cls(**filtered_data)
@@ -170,8 +162,7 @@ class Performer(StashObject):
             urls=[f"https://fansly.com/{account.username}/posts"],
             country=account.location,
             details=account.about,
-            created_at=account.createdAt or datetime.now(),
-            updated_at=datetime.now(),
+            # created_at and updated_at handled by Stash
             # Required fields with defaults
             favorite=False,  # Default to not favorite
             tags=[],  # Empty list of tags to start

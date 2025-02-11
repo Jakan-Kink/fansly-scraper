@@ -97,8 +97,6 @@ FILE_FIELDS = """fragment FileFields on BaseFile {
         type
         value
     }
-    created_at
-    updated_at
 }"""
 
 VIDEO_FILE_FIELDS = """fragment VideoFileFields on VideoFile {
@@ -141,8 +139,6 @@ SCENE_FIELDS = """
         language_code
         caption_type
     }
-    created_at
-    updated_at
     last_played_at
     resume_time
     play_duration
@@ -171,8 +167,6 @@ SCENE_FIELDS = """
         rating100
         favorite
         details
-        created_at
-        updated_at
     }
     performers {
         id
@@ -198,16 +192,12 @@ SCENE_FIELDS = """
         death_date
         hair_color
         weight
-        created_at
-        updated_at
     }
     tags {
         id
         name
         description
         aliases
-        created_at
-        updated_at
         image_path
     }
     stash_ids {
@@ -255,8 +245,6 @@ PERFORMER_FIELDS = """
     death_date
     hair_color
     weight
-    created_at
-    updated_at
     stash_ids {
         endpoint
         stash_id
@@ -266,8 +254,6 @@ PERFORMER_FIELDS = """
         name
         description
         aliases
-        created_at
-        updated_at
         image_path
     }
     custom_fields
@@ -289,8 +275,6 @@ STUDIO_FIELDS = """
     rating100
     favorite
     details
-    created_at
-    updated_at
     stash_ids {
         endpoint
         stash_id
@@ -300,8 +284,6 @@ STUDIO_FIELDS = """
         name
         description
         aliases
-        created_at
-        updated_at
         image_path
     }
     parent_studio {
@@ -319,8 +301,6 @@ TAG_FIELDS = """
     description
     aliases
     ignore_auto_tag
-    created_at
-    updated_at
     favorite
     image_path
     scene_count
@@ -564,8 +544,6 @@ GALLERY_FIELDS = """
     rating100
     organized
     image_count
-    created_at
-    updated_at
     studio {
         id
         name
@@ -574,8 +552,6 @@ GALLERY_FIELDS = """
         rating100
         favorite
         details
-        created_at
-        updated_at
     }
     scenes {
         id
@@ -729,7 +705,6 @@ mutation AddGalleryImages($input: GalleryAddInput!) {
 }
 """
 
-
 # Image fragments
 IMAGE_FIELDS = """
     id
@@ -742,8 +717,6 @@ IMAGE_FIELDS = """
     urls
     details
     photographer
-    created_at
-    updated_at
     studio {
         id
         name
@@ -865,8 +838,6 @@ MARKER_FIELDS = """
     stream
     preview
     screenshot
-    created_at
-    updated_at
 """
 
 # Marker query templates

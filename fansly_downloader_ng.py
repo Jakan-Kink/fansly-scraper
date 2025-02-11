@@ -19,7 +19,7 @@ import traceback
 
 # from memory_profiler import profile
 from datetime import datetime
-from time import sleep
+from time import monotonic, sleep
 
 from alembic.config import Config as AlembicConfig
 from config import FanslyConfig, load_config, validate_adjust_config
@@ -257,6 +257,7 @@ async def main(config: FanslyConfig) -> int:
 
                     # Load client account into the database
                     await asyncio.sleep(random.uniform(0.4, 0.75))
+                    creator_start_monotonic = monotonic()
 
                     try:
                         response = config.get_api().get_creator_account_info(
@@ -306,7 +307,7 @@ async def main(config: FanslyConfig) -> int:
                         DownloadMode.STASH_ONLY,
                     ):
                         await dedupe_init(config, state)
-                        await dedupe_init(config, state)
+                        # await dedupe_init(config, state)
 
                     # Download mode:
                     # Normal: Downloads Timeline + Messages one after another.
@@ -383,8 +384,18 @@ async def main(config: FanslyConfig) -> int:
                                 print_error(f"Background processing failed: {e}")
                                 # Continue to next creator even if background processing fails
                                 exit_code = SOME_USERS_FAILED
-                    else:
-                        sleep(10)
+
+                        # Clean up processor
+                        await stash_processor.cleanup()
+
+                    # Ensure at least 30 seconds between creators
+                    time_since_start = monotonic() - creator_start_monotonic
+                    if time_since_start < 30:
+                        time_remaining = 30 - time_since_start
+                        print_info(
+                            f"Waiting {time_remaining:.1f}s until next creator loop, to not hit Fansly API rate limits"
+                        )
+                        await asyncio.sleep(time_remaining)
 
                 finally:
                     # Only restore the file path - don't cleanup the database

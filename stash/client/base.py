@@ -222,21 +222,14 @@ class StashClientBase:
 
     async def get_configuration_defaults(self) -> ConfigDefaultSettingsResult:
         """Get default configuration settings."""
-        print("DEBUG: Entering get_configuration_defaults")  # Temporary debug print
         self.log.debug("Getting configuration defaults...")
         try:
-            print(
-                "DEBUG: About to execute CONFIG_DEFAULTS_QUERY"
-            )  # Temporary debug print
-            print(
-                f"DEBUG: Query is: {fragments.CONFIG_DEFAULTS_QUERY}"
-            )  # Temporary debug print
+            self.log.debug("Executing CONFIG_DEFAULTS_QUERY")
             result = await self.execute(fragments.CONFIG_DEFAULTS_QUERY)
-            print("DEBUG: Got result from execute")  # Temporary debug print
             self.log.debug(f"Got configuration result: {result}")
 
             if not result:
-                print("DEBUG: Result is None")  # Temporary debug print
+                self.log.debug("Result is None")
                 self.log.warning(
                     "No result from configuration query, using hardcoded defaults"
                 )
@@ -483,9 +476,13 @@ class StashClientBase:
             if not job:
                 return None
 
-            self.log.debug(
+            status_msg = (
                 f"Waiting for Job:{job_id} Status:{job.status} Progress:{job.progress}"
             )
+            self.log.debug(status_msg)
+            from textio import print_info
+
+            print_info(status_msg)
 
             if job.status == status:
                 return True

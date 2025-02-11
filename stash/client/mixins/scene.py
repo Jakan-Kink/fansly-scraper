@@ -171,8 +171,8 @@ class SceneClientMixin(StashClientProtocol):
                 - title: Scene title
                 - urls: List of URLs associated with the scene
                 - organized: Whether the scene is organized
-                - created_at: Creation timestamp
-                - updated_at: Last update timestamp
+
+                Note: created_at and updated_at are handled by Stash
 
         Returns:
             Created Scene object with ID and any server-generated fields
@@ -187,9 +187,7 @@ class SceneClientMixin(StashClientProtocol):
             scene = Scene(
                 title="My Scene",
                 urls=["https://example.com/scene"],
-                organized=True,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+                organized=True,  # created_at and updated_at handled by Stash
             )
             created = await client.create_scene(scene)
             print(f"Created scene with ID: {created.id}")
@@ -200,9 +198,7 @@ class SceneClientMixin(StashClientProtocol):
             scene = Scene(
                 title="My Scene",
                 urls=["https://example.com/scene"],
-                organized=True,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+                organized=True,  # created_at and updated_at handled by Stash
                 # Add relationships
                 performers=[performer1, performer2],
                 studio=studio,
@@ -216,9 +212,7 @@ class SceneClientMixin(StashClientProtocol):
             scene = Scene(
                 title="My Scene",
                 urls=["https://example.com/scene"],
-                organized=True,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+                organized=True,  # created_at and updated_at handled by Stash
                 # Add metadata
                 details="Scene description",
                 date="2024-01-31",
