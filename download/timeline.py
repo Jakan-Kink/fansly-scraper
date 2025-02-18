@@ -7,20 +7,46 @@ import traceback
 from asyncio import sleep
 
 from requests import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import FanslyConfig
-from errors import ApiError
+from config import FanslyConfig, with_database_session
+from errors import ApiError, DuplicatePageError
 from metadata import process_timeline_posts
-from textio import input_enter_continue, print_debug, print_error, print_info
+from textio import (
+    input_enter_continue,
+    print_debug,
+    print_error,
+    print_info,
+    print_warning,
+)
 
-from .common import get_unique_media_ids, process_download_accessible_media
+from .common import (
+    check_page_duplicates,
+    get_unique_media_ids,
+    process_download_accessible_media,
+)
 from .core import DownloadState
 from .media import download_media_infos
 from .types import DownloadType
 
 
-async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
+@with_database_session(async_session=True)
+async def download_timeline(
+    config: FanslyConfig,
+    state: DownloadState,
+    session: AsyncSession | None = None,
+) -> None:
+    """Download timeline posts and media.
 
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        session: Optional AsyncSession for database operations
+
+    Raises:
+        DuplicatePageError: If all posts on a page are already in metadata
+            and use_pagination_duplication is True
+    """
     print_info("Executing Timeline functionality...")
     print()
 
@@ -61,9 +87,17 @@ async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
             timeline_response.raise_for_status()
 
             if timeline_response.status_code == 200:
-
                 timeline = timeline_response.json()["response"]
-                await process_timeline_posts(config, state, timeline)
+                await process_timeline_posts(config, state, timeline, session=session)
+
+                # Check for duplicates if enabled
+                await check_page_duplicates(
+                    config=config,
+                    page_data=timeline,
+                    page_type="timeline",
+                    cursor=timeline_cursor if timeline_cursor != 0 else None,
+                    session=session,
+                )
 
                 if config.debug:
                     print_debug(f"Timeline object: {timeline}")
@@ -89,11 +123,15 @@ async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
                 # Reset batch duplicate counter for new batch
                 state.start_batch()
                 media_infos = await download_media_infos(
-                    config=config, state=state, media_ids=all_media_ids
+                    config=config,
+                    state=state,
+                    media_ids=all_media_ids,
                 )
 
                 if not await process_download_accessible_media(
-                    config, state, media_infos
+                    config,
+                    state,
+                    media_infos,
                 ):
                     # Break on deduplication error - already downloaded
                     break
@@ -137,6 +175,11 @@ async def download_timeline(config: FanslyConfig, state: DownloadState) -> None:
                 35,
             )
             input_enter_continue(config.interactive)
+
+        except DuplicatePageError as e:
+            print_warning(str(e))
+            print()
+            break
 
         except Exception:
             print_error(

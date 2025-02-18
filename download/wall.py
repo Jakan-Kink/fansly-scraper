@@ -5,20 +5,36 @@ import traceback
 from asyncio import sleep
 
 from requests import Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import FanslyConfig
-from errors import ApiError
-from metadata import process_wall_posts
-from textio import input_enter_continue, print_debug, print_error, print_info
+from config import FanslyConfig, with_database_session
+from errors import ApiError, DuplicatePageError
+from metadata import Wall, process_wall_posts
+from textio import (
+    input_enter_continue,
+    print_debug,
+    print_error,
+    print_info,
+    print_warning,
+)
 
-from .common import get_unique_media_ids, process_download_accessible_media
+from .common import (
+    check_page_duplicates,
+    get_unique_media_ids,
+    process_download_accessible_media,
+)
 from .core import DownloadState
 from .media import download_media_infos
 from .types import DownloadType
 
 
+@with_database_session(async_session=True)
 async def download_wall(
-    config: FanslyConfig, state: DownloadState, wall_id: str
+    config: FanslyConfig,
+    state: DownloadState,
+    wall_id: str,
+    session: AsyncSession | None = None,
 ) -> None:
     """Download all posts from a specific wall.
 
@@ -26,9 +42,14 @@ async def download_wall(
         config: FanslyConfig instance
         state: Current download state
         wall_id: ID of the wall to download
+        session: Optional AsyncSession for database operations
     """
-    print_info(f"Downloading wall {wall_id}...")
-    print()
+    # Get wall name from database
+    wall = await session.get(Wall, wall_id)
+    wall_name = wall.name if wall and wall.name else None
+    wall_info = f"'{wall_name}' ({wall_id})" if wall_name else wall_id
+
+    print_info(f"Downloading wall {wall_info}...")
 
     # Set download type for directory creation
     state.download_type = DownloadType.WALL
@@ -51,11 +72,11 @@ async def download_wall(
 
         if before_cursor == "0":
             print_info(
-                f"Inspecting most recent wall posts... [CID: {state.creator_id}, WID: {wall_id}]"
+                f"Inspecting most recent wall posts from {wall_info}... [CID: {state.creator_id}]"
             )
         else:
             print_info(
-                f"Inspecting wall posts before: {before_cursor} [CID: {state.creator_id}, WID: {wall_id}]"
+                f"Inspecting wall posts from {wall_info} before: {before_cursor} [CID: {state.creator_id}]"
             )
 
         wall_response = Response()
@@ -73,6 +94,16 @@ async def download_wall(
             if wall_response.status_code == 200:
                 wall_data = wall_response.json()["response"]
                 await process_wall_posts(config, state, wall_id, wall_data)
+
+                # Check for duplicates if enabled
+                await check_page_duplicates(
+                    config=config,
+                    page_data=wall_data,
+                    page_type="wall",
+                    page_id=wall_id,
+                    cursor=before_cursor if before_cursor != "0" else None,
+                    session=session,
+                )
 
                 if config.debug:
                     print_debug(f"Wall data object: {wall_data}")
@@ -149,6 +180,11 @@ async def download_wall(
                 35,
             )
             input_enter_continue(config.interactive)
+
+        except DuplicatePageError as e:
+            print_warning(str(e))
+            print()
+            break  # Break out of the loop to stop processing this wall
 
         except Exception:
             print_error(

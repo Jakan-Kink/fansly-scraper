@@ -476,13 +476,10 @@ class StashClientBase:
             if not job:
                 return None
 
-            status_msg = (
+            # Only log through stash's logger
+            self.log.info(
                 f"Waiting for Job:{job_id} Status:{job.status} Progress:{job.progress}"
             )
-            self.log.debug(status_msg)
-            from textio import print_info
-
-            print_info(status_msg)
 
             if job.status == status:
                 return True

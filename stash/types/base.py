@@ -197,3 +197,24 @@ class StashObject:
             Dictionary of input fields
         """
         raise NotImplementedError("Subclasses must implement to_input()")
+
+    def __hash__(self) -> int:
+        """Make object hashable based on type and ID.
+
+        Returns:
+            Hash of (type_name, id)
+        """
+        return hash((self.__type_name__, self.id))
+
+    def __eq__(self, other: object) -> bool:
+        """Compare objects based on type and ID.
+
+        Args:
+            other: Object to compare with
+
+        Returns:
+            True if objects are equal
+        """
+        if not isinstance(other, StashObject):
+            return NotImplemented
+        return (self.__type_name__, self.id) == (other.__type_name__, other.id)

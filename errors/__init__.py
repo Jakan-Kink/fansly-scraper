@@ -115,6 +115,45 @@ class MediaHashMismatchError(MediaError):
         super().__init__(*args)
 
 
+class DuplicatePageError(RuntimeError):
+    """Raised when all posts on a page are already in metadata."""
+
+    def __init__(
+        self,
+        page_type: str,
+        page_id: str | None = None,
+        cursor: str | None = None,
+        wall_name: str | None = None,
+    ):
+        self.page_type = page_type
+        self.page_id = page_id
+        self.cursor = cursor
+        self.wall_name = wall_name
+        self.message = (
+            f"All posts on {page_type}"
+            + (f" '{wall_name}'" if wall_name else "")
+            + (f" ({page_id})" if page_id and not wall_name else "")
+            + (f" before {cursor}" if cursor else "")
+            + " already in metadata"
+        )
+        super().__init__(self.message)
+
+
+class InvalidTraceLogError(RuntimeError):
+    """Raised when trace_logger is used with a level other than TRACE.
+
+    The trace_logger is specifically for TRACE level messages only.
+    Using any other level (DEBUG, INFO, etc.) is a programming error.
+    """
+
+    def __init__(self, level_name: str):
+        self.level_name = level_name
+        self.message = (
+            f"trace_logger only accepts TRACE level messages, got {level_name}"
+        )
+        super().__init__(self.message)
+
+
 # endregion
 
 
@@ -139,4 +178,6 @@ __all__ = [
     "MediaError",
     "MediaHashMismatchError",
     "M3U8Error",
+    "DuplicatePageError",
+    "InvalidTraceLogError",
 ]

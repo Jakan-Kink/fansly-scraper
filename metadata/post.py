@@ -27,7 +27,6 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from config.decorators import with_database_session
 from textio import json_output
 
-from .account import process_media_bundles_data
 from .attachment import Attachment, ContentType
 from .base import Base
 from .database import require_database_config
@@ -196,10 +195,13 @@ async def process_pinned_posts(
         await session.flush()
 
 
+@require_database_config
+@with_database_session(async_session=True)
 async def process_timeline_posts(
     config: FanslyConfig,
     state: DownloadState,
     posts: list[dict[str, any]],
+    session: AsyncSession | None = None,
 ) -> None:
     """Process timeline posts.
 
@@ -207,6 +209,7 @@ async def process_timeline_posts(
         config: FanslyConfig instance
         state: Current download state
         posts: List of post data dictionaries
+        session: Optional AsyncSession for database operations
     """
     import time
 
@@ -224,7 +227,7 @@ async def process_timeline_posts(
     posts_start = time.time()
     for post in tl_posts:
         post_start = time.time()
-        await _process_timeline_post(config, post)
+        await _process_timeline_post(config, post, session=session)
         json_output(
             1,
             "meta/post - timing - single_post",
@@ -237,7 +240,7 @@ async def process_timeline_posts(
     if "aggregatedPosts" in posts:
         agg_start = time.time()
         for post in posts["aggregatedPosts"]:
-            await _process_timeline_post(config, post)
+            await _process_timeline_post(config, post, session=session)
         agg_time = time.time() - agg_start
 
     # Process media in batches
@@ -250,7 +253,7 @@ async def process_timeline_posts(
         batch_start = time.time()
 
         # Process the entire batch at once
-        await process_media_info(config, {"batch": batch})
+        await process_media_info(config, {"batch": batch}, session=session)
 
         json_output(
             1,
@@ -267,7 +270,13 @@ async def process_timeline_posts(
 
     # Process media bundles if present
     bundles_start = time.time()
-    await process_media_bundles_data(config, posts, id_fields=["accountId"])
+    from .account import (
+        process_media_bundles_data,  # Import here to avoid circular import
+    )
+
+    await process_media_bundles_data(
+        config, posts, id_fields=["accountId"], session=session
+    )
     bundles_time = time.time() - bundles_start
 
     # Process accounts
@@ -275,7 +284,7 @@ async def process_timeline_posts(
     accounts = posts["accounts"]
     for account in accounts:
         account_start = time.time()
-        await process_account_data(config, data=account)
+        await process_account_data(config, data=account, session=session)
         json_output(
             1,
             "meta/post - timing - single_account",
@@ -536,8 +545,6 @@ async def _process_post_attachments(
         )
 
 
-@require_database_config
-@with_database_session(async_session=True)
 async def _process_timeline_post(
     config: FanslyConfig,
     post: dict[str, any],
@@ -696,7 +703,7 @@ async def _process_timeline_post(
                 await session.execute(post_mentions.insert().values(mention))
         mentions_time = time.time() - mentions_start
 
-    # Collect and process hashtags
+    # Process hashtags
     hashtags_time = 0
     if post_obj.content:
         hashtags_start = time.time()

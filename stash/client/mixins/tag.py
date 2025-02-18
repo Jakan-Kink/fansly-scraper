@@ -1,8 +1,10 @@
 """Tag-related client functionality."""
 
+import json
 from typing import Any
 
 from ... import fragments
+from ...client_helpers import async_lru_cache
 from ...types import FindTagsResultType, Tag
 from ..protocols import StashClientProtocol
 
@@ -10,6 +12,7 @@ from ..protocols import StashClientProtocol
 class TagClientMixin(StashClientProtocol):
     """Mixin for tag-related client methods."""
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_tag(self, id: str) -> Tag | None:
         """Find a tag by its ID.
 
@@ -31,6 +34,7 @@ class TagClientMixin(StashClientProtocol):
             self.log.error(f"Failed to find tag {id}: {e}")
             return None
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_tags(
         self,
         filter_: dict[str, Any] = {"per_page": -1},
@@ -53,6 +57,9 @@ class TagClientMixin(StashClientProtocol):
             FindTagsResultType containing:
                 - count: Total number of matching tags
                 - tags: List of Tag objects
+
+        Note:
+            Results are cached using async_lru_cache with the function arguments as key.
         """
         try:
             # Add q to filter if provided

@@ -46,14 +46,7 @@ from .account import (
 )
 from .attachable import Attachable
 from .attachment import Attachment, ContentType, HasAttachments
-from .database import (
-    Database,
-    DatabaseSyncManager,
-    OptimizedSQLiteMemory,
-    is_network_path,
-    require_database_config,
-    run_migrations_if_needed,
-)
+from .database import Database, require_database_config
 from .hashtag import Hashtag, extract_hashtags, post_hashtags, process_post_hashtags
 from .logging_config import DatabaseLogger
 from .media import (
@@ -80,12 +73,8 @@ from .relationship_logger import (
     log_missing_relationship,
     print_missing_relationships_summary,
 )
-from .resource_management import (
-    AsyncConnections,
-    BaseConnections,
-    ConnectionManager,
-    ThreadLocalConnections,
-)
+
+# Database connection management is now handled internally by Database class
 from .story import Story
 from .wall import Wall, process_account_walls, process_wall_posts
 
@@ -105,32 +94,24 @@ __all__ = [
     "process_timeline_posts",
     "process_wall_posts",
     "require_database_config",
-    "run_migrations_if_needed",
     "clear_missing_relationships",
     "log_missing_relationship",
     "print_missing_relationships_summary",
     "Account",
     "AccountMedia",
     "AccountMediaBundle",
-    "AsyncConnections",
     "Attachable",
     "Attachment",
     "Base",
-    "BaseConnections",
-    "ConnectionManager",
     "Database",
     "DatabaseLogger",
-    "DatabaseSyncManager",
     "Group",
     "HasPreview",
-    "is_network_path",
     "Media",
     "MediaLocation",
     "MediaStoryState",
     "Message",
-    "OptimizedSQLiteMemory",
     "Post",
-    "ThreadLocalConnections",
     "TimelineStats",
     "Wall",
     "account_avatar",

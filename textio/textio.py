@@ -1,72 +1,80 @@
-"""Console Output"""
+"""Console Output
+
+This module provides user-facing output functions that use the centralized
+logging configuration from config/logging.py.
+
+Functions:
+- output() - Base function for all output
+- print_* - Convenience functions for different message types
+- json_output - For structured JSON logging
+
+Note: All logger configuration is now centralized in config/logging.py.
+This module only provides the output functions.
+"""
 
 import os
 import platform
 import subprocess
 import sys
-from functools import partialmethod
-from pathlib import Path
 from time import sleep
 
-from loguru import logger
-
-LOG_FILE_NAME: str = "fansly_downloader_ng.log"
-
-# Global debug flag
-DEBUG_ENABLED = False
-
-
-def set_debug_enabled(enabled: bool) -> None:
-    """Set the global debug flag.
-
-    Args:
-        enabled: Whether debug output should be enabled
-    """
-    global DEBUG_ENABLED
-    DEBUG_ENABLED = enabled
+# Note: Logger imports are inside functions to avoid circular imports
 
 
 # most of the time, we utilize this to display colored output rather than logging or prints
 def output(level: int, log_type: str, color: str, message: str) -> None:
-    try:
-        logger.level(log_type, no=level, color=color)
+    """Output a message with color and level.
 
-    except TypeError:
-        # level failsafe
-        pass
-    except ValueError:
-        # color failsafe
-        pass
+    Args:
+        level: Log level number (1-7)
+        log_type: Type/category of log message
+        color: Color for the message (used in format string)
+        message: The message to log
+    """
+    # Import here to avoid circular imports
+    from config import textio_logger
+    from config.logging import _LEVEL_MAP, _LEVEL_VALUES
 
-    logger.__class__.type = partialmethod(logger.__class__.log, log_type)
+    # Convert level 1-7 to loguru level name
+    if 1 <= level <= 7:
+        level = _LEVEL_MAP[level]  # Maps to loguru's levels (10, 20, 30, etc)
 
-    logger.remove()
+    # Convert level number to name
+    for name, value in _LEVEL_VALUES.items():
+        if value == level:
+            level = name
+            break
 
-    logger.add(
-        sys.stdout,
-        format="<level>{level}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>",
-        level=log_type,
-        filter=lambda record: not record["extra"].get("json", False),
-    )
-    logger.add(
-        Path.cwd() / "logs" / LOG_FILE_NAME,
-        encoding="utf-8",
-        format="[{level} ] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]: {message}",
-        level=log_type,
-        filter=lambda record: not record["extra"].get("json", False),
-        rotation="100MB",
-        retention=5,
-        backtrace=True,
-        diagnose=True,
-    )
-
-    logger.type(message)
+    # Log using the centralized textio logger
+    # Level filtering is handled by loguru based on handler's level setting
+    textio_logger.log(level, message)
 
 
 def json_output(level: int, log_type: str, message: str) -> None:
-    from .logging import json_output as json_output_impl
+    """Output JSON-formatted log messages.
 
-    json_output_impl(level, log_type, message)
+    Args:
+        level: Log level number (1-7)
+        log_type: Type/category of log message
+        message: The message to log
+    """
+    # Import here to avoid circular imports
+    from config import json_logger
+    from config.logging import _LEVEL_MAP, _LEVEL_VALUES
+
+    # Convert level 1-7 to loguru level name
+    if 1 <= level <= 7:
+        level = _LEVEL_MAP[level]  # Maps to loguru's levels (10, 20, 30, etc)
+
+    # Convert level number to name
+    for name, value in _LEVEL_VALUES.items():
+        if value == level:
+            level = name
+            break
+
+    # Log using the centralized json logger
+    # Level filtering is handled by loguru based on handler's level setting
+    json_logger.log(level, message)
 
 
 def print_config(message: str) -> None:
@@ -74,10 +82,6 @@ def print_config(message: str) -> None:
 
 
 def print_debug(message: str) -> None:
-    # Only output debug messages if debug flag is set
-    if not DEBUG_ENABLED:
-        return
-
     output(7, " DEBUG", "<light-red>", message)
 
 

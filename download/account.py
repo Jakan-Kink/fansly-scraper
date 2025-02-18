@@ -3,16 +3,18 @@
 import asyncio
 import random
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from config import FanslyConfig, with_database_session
 from config.modes import DownloadMode
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
-from metadata import process_account_data, require_database_config
-from textio import json_output, print_error, print_info, print_warning
+from metadata import Base, TimelineStats, process_account_data, require_database_config
+from textio import json_output, print_error, print_info
 
 from .downloadstate import DownloadState
 
@@ -191,15 +193,18 @@ def _update_state_from_account(
         print()
 
 
+@with_database_session(async_session=True)
 async def get_creator_account_info(
     config: FanslyConfig,
     state: DownloadState,
+    session: AsyncSession | None = None,
 ) -> None:
     """Get and process creator account information.
 
     Args:
         config: The program configuration
         state: Current download state
+        session: Optional AsyncSession for database operations
 
     Raises:
         RuntimeError: If download mode is not set
@@ -215,6 +220,23 @@ async def get_creator_account_info(
     account = _extract_account_data(response, config)
     json_output(1, "account_data", account)
     _update_state_from_account(config, state, account)
+
+    # Check for timeline duplication if enabled
+    if config.use_duplicate_threshold and "timelineStats" in account:
+        if "fetchedAt" in account["timelineStats"]:
+            # Get current TimelineStats from db
+            stmt = select(TimelineStats).where(
+                TimelineStats.accountId == state.creator_id
+            )
+            result = await session.execute(stmt)
+            if current_stats := result.scalar_one_or_none():
+                # Convert API timestamp to datetime
+                stats_data = {"fetchedAt": account["timelineStats"]["fetchedAt"]}
+                Base.convert_timestamps(stats_data, ("fetchedAt",))
+                api_fetched_at = stats_data["fetchedAt"]
+                # Compare with db fetchedAt
+                if current_stats.fetchedAt == api_fetched_at:
+                    state.fetchedTimelineDuplication = True
 
 
 async def _make_rate_limited_request(
@@ -380,28 +402,32 @@ async def get_following_accounts(
         # Process accounts and collect usernames
         usernames = set()
 
-        # Process each account
-        for i, account in enumerate(following_accounts, 1):
-            username = account.get("username")
-            if username:
-                usernames.add(username)
-            print_info(
-                f"Processing followed account {i}/{total}: {username or 'unknown'}"
-            )
+        # Process all accounts in a single session
+        async with config._database.async_session_scope() as session:
+            # Process each account
+            for i, account in enumerate(following_accounts, 1):
+                username = account.get("username")
+                if username:
+                    usernames.add(username)
+                print_info(
+                    f"Processing followed account {i}/{total}: {username or 'unknown'}"
+                )
 
-            # Process account data in main DB if NOT using separate metadata
-            if not config.separate_metadata:
-                try:
-                    await process_account_data(
-                        config=config,
-                        state=state,
-                        data=account,
-                    )
-                    # Flush to ensure data is written
-                except Exception as e:
-                    print_error(f"Error processing account {username}: {e}")
-                    # Don't fail completely if one account fails
-                    continue
+                # Process account data in main DB if NOT using separate metadata
+                if not config.separate_metadata:
+                    try:
+                        await process_account_data(
+                            config=config,
+                            state=state,
+                            data=account,
+                            session=session,  # Pass the session
+                        )
+                        # Flush to ensure data is written
+                        await session.flush()
+                    except Exception as e:
+                        print_error(f"Error processing account {username}: {e}")
+                        # Don't fail completely if one account fails
+                        continue
 
         return usernames
 

@@ -31,6 +31,7 @@ from textio import json_output
 
 from .base import Base
 from .database import require_database_config
+from .wall import process_account_walls
 
 if TYPE_CHECKING:
     from config import FanslyConfig
@@ -71,7 +72,11 @@ async def process_media_bundles_data(
                 break
 
     if account_id:
-        await process_media_bundles(config, account_id, data["accountMediaBundles"])
+        await process_media_bundles(
+            config=config,
+            account_id=account_id,
+            media_bundles=data["accountMediaBundles"],
+        )
         await session.commit()
 
 
@@ -527,6 +532,7 @@ async def _process_bundle_content(
     bundle.pop("bundleContent", None)  # Remove bundleContent from bundle data
 
 
+@require_database_config
 @with_database_session(async_session=True)
 async def _process_bundle_media_items(
     bundle: dict,
@@ -623,12 +629,11 @@ async def _process_single_bundle(
     await session.flush()
 
     # Process bundle content and media items
-    await _process_bundle_content(session, bundle)
-    await _process_bundle_media_items(bundle, config)
+    await _process_bundle_content(bundle=bundle, session=session)
+    await _process_bundle_media_items(bundle=bundle, config=config, session=session)
     await session.flush()
 
 
-@require_database_config
 async def process_media_bundles(
     config: FanslyConfig,
     account_id: int,
@@ -643,14 +648,15 @@ async def process_media_bundles(
         config: FanslyConfig instance for database access
         account_id: ID of the account the bundles belong to
         media_bundles: List of bundle data dictionaries containing bundle information and content
-        session: Optional SQLAlchemy async session. If not provided, a new session will be created.
     """
     # Create deep copy of input data
     media_bundles = copy.deepcopy(media_bundles)
 
     for bundle in media_bundles:
         await _process_single_bundle(
-            bundle=bundle, account_id=account_id, config=config
+            bundle=bundle,
+            account_id=account_id,
+            config=config,
         )
 
 
@@ -716,6 +722,7 @@ async def process_banner(
     await session.flush()
 
 
+@require_database_config
 @with_database_session(async_session=True)
 async def process_account_data(
     config: FanslyConfig,
@@ -795,7 +802,11 @@ async def process_account_data(
     if "timelineStats" in data:
         stats_data = data["timelineStats"]
         stats_data["accountId"] = account.id
-        stats_data["fetchedAt"] = datetime.now(timezone.utc)
+        # Handle fetchedAt
+        if "fetchedAt" not in stats_data:
+            stats_data["fetchedAt"] = datetime.now(timezone.utc)
+        else:
+            Base.convert_timestamps(stats_data, ("fetchedAt",))
 
         # Get or create timeline stats
         stats, created = await TimelineStats.async_get_or_create(
@@ -837,3 +848,12 @@ async def process_account_data(
         # Update story state attributes
         Base.update_fields(story, story_data)
         await session.flush()
+
+    # Process walls if present
+    if "walls" in data:
+        await process_account_walls(
+            config=config,
+            account=account,
+            walls_data=data["walls"],
+            session=session,
+        )

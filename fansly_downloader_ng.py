@@ -22,9 +22,17 @@ from datetime import datetime
 from time import monotonic, sleep
 
 from alembic.config import Config as AlembicConfig
-from config import FanslyConfig, load_config, validate_adjust_config
-from config.args import map_args_to_config, parse_args
-from config.modes import DownloadMode
+from config import (
+    DownloadMode,
+    FanslyConfig,
+    load_config,
+    update_logging_config,
+    validate_adjust_config,
+)
+from config.args import (  # Keep in args to avoid circular imports
+    map_args_to_config,
+    parse_args,
+)
 from download.core import (
     DownloadState,
     GlobalState,
@@ -64,13 +72,14 @@ from pathio import delete_temporary_pyinstaller_files, get_creator_database_path
 from textio import (
     input_enter_close,
     input_enter_continue,
+    json_output,
     print_error,
     print_info,
     print_warning,
     set_window_title,
 )
-from textio.logging import json_output
 from updater import self_update
+from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 # tell PIL to be tolerant of files that are truncated
 # ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -125,6 +134,20 @@ def _handle_interrupt(signum, frame):
     sys.exit(130)  # 128 + SIGINT(2)
 
 
+def increase_file_descriptor_limit() -> None:
+    """Increase the file descriptor limit to handle many open files."""
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        # Try to increase to hard limit or 4096, whichever is lower
+        new_soft = min(hard, 4096)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+        print_info(f"Increased file descriptor limit from {soft} to {new_soft}")
+    except Exception as e:
+        print_warning(f"Could not increase file descriptor limit: {e}")
+
+
 # @profile(precision=2, stream=open('memory_use.log', 'w', encoding='utf-8'))
 async def main(config: FanslyConfig) -> int:
     """The main logic of the downloader program.
@@ -135,6 +158,9 @@ async def main(config: FanslyConfig) -> int:
     :return: The exit code of the program.
     :rtype: int
     """
+    # Check semaphores at start of main
+    monitor_semaphores(threshold=20)  # Check what semaphores exist at main start
+
     exit_code = EXIT_SUCCESS
 
     timer = Timer("Total")
@@ -155,6 +181,9 @@ async def main(config: FanslyConfig) -> int:
     # when the config may be saved again.
     # Thus a separate config_args.ini will be used for the session.
     download_mode_set = map_args_to_config(args, config)
+    update_logging_config(
+        config, config.debug
+    )  # Update logging with final config state
 
     self_update(config)
 
@@ -166,6 +195,9 @@ async def main(config: FanslyConfig) -> int:
         )
 
     print()
+
+    # Check semaphores before database initialization
+    monitor_semaphores(threshold=20)  # Check what semaphores exist before DB init
 
     # Initialize database first since we need it for deduplication
     from metadata.database import Database
@@ -262,11 +294,6 @@ async def main(config: FanslyConfig) -> int:
                     try:
                         response = config.get_api().get_creator_account_info(
                             creator_name=client_user_name
-                        )
-                        json_output(
-                            1,
-                            "main - client-account-data",
-                            (response),
                         )
                         json = response.json()
                         json_output(
@@ -375,11 +402,11 @@ async def main(config: FanslyConfig) -> int:
                         # Wait for background processing to complete
                         if stash_processor._background_task:
                             try:
-                                print_info(
-                                    "Waiting for background processing to complete..."
-                                )
+                                # print_info(
+                                #     "Waiting for background processing to complete..."
+                                # )
                                 await stash_processor._background_task
-                                print_info("Background processing complete")
+                                # print_info("Background processing complete")
                             except Exception as e:
                                 print_error(f"Background processing failed: {e}")
                                 # Continue to next creator even if background processing fails
@@ -396,6 +423,9 @@ async def main(config: FanslyConfig) -> int:
                             f"Waiting {time_remaining:.1f}s until next creator loop, to not hit Fansly API rate limits"
                         )
                         await asyncio.sleep(time_remaining)
+
+                    monitor_semaphores(threshold=20)  # Warn if too many semaphores
+                    cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
                 finally:
                     # Only restore the file path - don't cleanup the database
@@ -433,6 +463,9 @@ async def main(config: FanslyConfig) -> int:
         except Exception as e:
             print_error(f"Error in background tasks: {e}")
         print_info("All background tasks completed.")
+
+    monitor_semaphores(threshold=20)  # Warn if too many semaphores
+    cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
     return exit_code
 
@@ -506,6 +539,12 @@ async def _async_main(config: FanslyConfig) -> int:
 
 
 if __name__ == "__main__":
+    # Start monitoring semaphores before anything else
+    monitor_semaphores(threshold=20)  # Initial baseline check
+
+    # Increase file descriptor limit
+    increase_file_descriptor_limit()
+
     # Create config at top level so it's available for cleanup
     config = FanslyConfig(program_version=__version__)
 

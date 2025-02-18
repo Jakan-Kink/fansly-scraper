@@ -1,16 +1,15 @@
 """Logging Module
 
-This module provides custom logging handlers and utilities for advanced log management.
-It includes handlers for both standard Python logging and loguru, with support for
-size and time-based rotation, compression, and custom formatting.
-
-Features:
+This module provides custom logging handlers for advanced log management.
+The main handler class SizeTimeRotatingHandler supports:
 - Combined size and time-based log rotation
 - Multiple compression formats (gz, 7z, lzha)
 - UTC time support
 - Configurable backup count and intervals
-- Loguru integration with custom handlers
-- Interception of standard logging
+- Proper cleanup and compression
+
+Note: All logger configuration is now centralized in config/logging.py.
+This module only provides the handler implementation.
 """
 
 import gzip
@@ -20,12 +19,9 @@ import shutil
 import sys
 import time
 from datetime import datetime, timezone
-from functools import partialmethod
 from logging.handlers import BaseRotatingHandler
 from pathlib import Path
 from typing import Any
-
-from loguru import logger
 
 
 class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
@@ -341,25 +337,6 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             raise ValueError(f"Unsupported compression type: {self.compression}")
 
 
-class InterceptHandler(logging.Handler):
-    """Intercepts standard logging and redirects to loguru."""
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            level = logger.level(record.levelname).name
-        except ValueError:
-            level = record.levelno
-
-        frame, depth = sys._getframe(6), 6
-        while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
-            depth += 1
-
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
-
-
 class SizeTimeRotatingHandler:
     """A loguru-compatible handler that uses SizeAndTimeRotatingFileHandler.
 
@@ -378,6 +355,7 @@ class SizeTimeRotatingHandler:
         compression: str = "gz",
         keep_uncompressed: int = 0,
         encoding: str = "utf-8",
+        log_level: str = "INFO",
     ):
         """Initialize the handler.
 
@@ -391,6 +369,7 @@ class SizeTimeRotatingHandler:
             compression: Compression format ('gz', '7z', 'lzha')
             keep_uncompressed: Number of recent files to keep uncompressed
             encoding: File encoding
+            log_level: Logging level (default: INFO)
         """
         self.handler = SizeAndTimeRotatingFileHandler(
             filename=filename,
@@ -408,7 +387,14 @@ class SizeTimeRotatingHandler:
             datefmt=None,
         )
         self.handler.setFormatter(self.formatter)
-        self.levelno = logging.INFO
+        # Convert level to int if it's a string (for backward compatibility)
+        if isinstance(log_level, str):
+            try:
+                self.levelno = int(log_level)
+            except ValueError:
+                self.levelno = logging.INFO
+        else:
+            self.levelno = log_level
 
     def write(self, message: str | dict[str, Any]) -> None:
         """Write a log record.
@@ -442,12 +428,21 @@ class SizeTimeRotatingHandler:
                     func=None,
                 )
 
-            # Ensure proper cleanup after emission
+            # Write record with proper cleanup
             try:
                 self.handler.emit(record)
             finally:
+                # Always ensure stream is closed
                 if self.handler.stream:
-                    self.handler.stream.flush()
+                    try:
+                        self.handler.stream.flush()
+                    except Exception:
+                        pass
+                    try:
+                        self.handler.stream.close()
+                    except Exception:
+                        pass
+                    self.handler.stream = None
         except Exception as e:
             print(f"Error in SizeTimeRotatingHandler: {e}", file=sys.stderr)
             # Ensure stream is flushed even on error
@@ -472,51 +467,6 @@ class SizeTimeRotatingHandler:
         """Close the handler (alias for close)."""
         self.close()
 
-
-def get_json_log_path() -> str:
-    """Get the path to the JSON log file.
-
-    Returns:
-        The path to use for JSON logging, using environment variable if set
-    """
-    return os.getenv("LOGURU_JSON_LOG_FILE", "fansly_downloader_ng_json.log")
-
-
-def json_output(level: int, log_type: str, message: str) -> None:
-    """Output JSON-formatted log messages with size and time rotation.
-
-    Args:
-        level: Log level number
-        log_type: Type/category of log message
-        message: The message to log
-    """
-    try:
-        logger.level(log_type, no=level)
-    except (TypeError, ValueError):
-        # level or color failsafe
-        pass
-
-    logger.__class__.type = partialmethod(logger.__class__.log, log_type)
-    logger.remove()
-
-    # Use our custom handler for JSON logs with size and time rotation
-    json_handler = SizeTimeRotatingHandler(
-        filename=str(Path.cwd() / "logs" / get_json_log_path()),
-        max_bytes=500 * 1000 * 1000,  # 50MB
-        backup_count=20,  # Keep 20 files total
-        when="h",
-        interval=2,  # Rotate every 2 hours if needed
-        compression="gz",
-        keep_uncompressed=3,  # Keep last 3 files uncompressed
-        encoding="utf-8",
-    )
-    logger.add(
-        json_handler.write,
-        format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]:\n{message}",
-        level=log_type,
-        filter=lambda record: record["extra"].get("json", False),
-        backtrace=False,
-        diagnose=False,
-    )
-
-    logger.bind(json=True).type(message)
+    def __del__(self) -> None:
+        """Ensure handler is closed when object is deleted."""
+        self.close()

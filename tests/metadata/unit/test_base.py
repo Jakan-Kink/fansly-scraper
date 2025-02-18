@@ -1,19 +1,23 @@
 """Unit tests for metadata.base module."""
 
 import asyncio
-from unittest import IsolatedAsyncioTestCase, TestCase
 
-from sqlalchemy import Integer, String, create_engine, select
+import pytest
+from sqlalchemy import Integer, MetaData, String, create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from metadata.base import Base
+
+# Create a separate metadata for testing
+test_metadata = MetaData()
 
 
 class TestModel(Base):
     """Test model for verifying Base functionality."""
 
     __tablename__ = "test_models"
+    metadata = test_metadata  # Use test metadata to avoid conflicts
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -27,83 +31,114 @@ class TestModel(Base):
         return f"Sync {self.name}"
 
 
-class TestBase(TestCase):
-    """Test cases for synchronous Base functionality."""
+@pytest.fixture
+def sync_engine():
+    """Create a sync SQLite engine for testing."""
+    engine = create_engine("sqlite:///:memory:")
+    test_metadata.create_all(engine)
+    yield engine
+    test_metadata.drop_all(engine)
 
-    def setUp(self):
-        """Set up test database and session."""
-        self.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
-        self.session = self.Session()
 
-    def tearDown(self):
-        """Clean up test database."""
-        self.session.close()
-        Base.metadata.drop_all(self.engine)
+@pytest.fixture
+def sync_session(sync_engine):
+    """Create a sync session for testing."""
+    Session = sessionmaker(bind=sync_engine)
+    session = Session()
+    yield session
+    session.close()
 
-    def test_model_creation(self):
-        """Test creating and querying a model."""
+
+@pytest.fixture
+def async_engine():
+    """Create an async SQLite engine for testing."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    return engine
+
+
+@pytest.fixture
+async def async_session(async_engine):
+    """Create an async session for testing."""
+    async with async_engine.begin() as conn:
+        await conn.run_sync(test_metadata.create_all)
+
+    session = AsyncSession(
+        bind=async_engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        yield session
+    finally:
+        await session.close()
+
+        async with async_engine.begin() as conn:
+            await conn.run_sync(test_metadata.drop_all)
+
+
+def test_model_creation(sync_session: Session):
+    """Test creating and querying a model."""
+    model = TestModel(id=1, name="test")
+    sync_session.add(model)
+    sync_session.commit()
+
+    # Query the model
+    result = sync_session.execute(
+        select(TestModel).where(TestModel.id == 1)
+    ).scalar_one()
+    assert result.name == "test"
+    assert result.sync_method() == "Sync test"
+
+
+def test_model_update(sync_session: Session):
+    """Test updating a model."""
+    # Create model
+    model = TestModel(id=1, name="test")
+    sync_session.add(model)
+    sync_session.commit()
+
+    # Update model
+    model.name = "updated"
+    sync_session.commit()
+
+    # Query updated model
+    result = sync_session.execute(
+        select(TestModel).where(TestModel.id == 1)
+    ).scalar_one()
+    assert result.name == "updated"
+    assert result.sync_method() == "Sync updated"
+
+
+@pytest.mark.asyncio
+async def test_async_model_creation(async_session):
+    """Test creating and querying a model asynchronously."""
+    async for session in async_session:
         model = TestModel(id=1, name="test")
-        self.session.add(model)
-        self.session.commit()
+        session.add(model)
+        await session.commit()
 
-        saved_model = self.session.execute(select(TestModel)).scalar_one_or_none()
-        self.assertEqual(saved_model.name, "test")
-        self.assertEqual(saved_model.sync_method(), "Sync test")
+        # Query the model
+        result = await session.execute(select(TestModel).where(TestModel.id == 1))
+        result = result.scalar_one()
+        assert result.name == "test"
+        assert await result.async_method() == "Async test"
 
-    def test_model_update(self):
-        """Test updating a model."""
+
+@pytest.mark.asyncio
+async def test_async_model_update(async_session):
+    """Test updating a model asynchronously."""
+    async for session in async_session:
+        # Create model
         model = TestModel(id=1, name="test")
-        self.session.add(model)
-        self.session.commit()
+        session.add(model)
+        await session.commit()
 
+        # Update model
         model.name = "updated"
-        self.session.commit()
+        await session.commit()
 
-        saved_model = self.session.execute(select(TestModel)).scalar_one_or_none()
-        self.assertEqual(saved_model.name, "updated")
-
-
-class TestBaseAsync(IsolatedAsyncioTestCase):
-    """Test cases for asynchronous Base functionality."""
-
-    async def asyncSetUp(self):
-        """Set up async test database and session."""
-        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-        self.async_session = sessionmaker(
-            self.engine, class_=AsyncSession, expire_on_commit=False
-        )
-
-    async def asyncTearDown(self):
-        """Clean up async test database."""
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-        await self.engine.dispose()
-
-    async def test_async_model_creation(self):
-        """Test creating and querying a model asynchronously."""
-        async with self.async_session() as session:
-            model = TestModel(id=1, name="test")
-            session.add(model)
-            await session.commit()
-
-            result = await session.get(TestModel, 1)
-            self.assertEqual(result.name, "test")
-            self.assertEqual(await result.async_method(), "Async test")
-
-    async def test_async_model_update(self):
-        """Test updating a model asynchronously."""
-        async with self.async_session() as session:
-            model = TestModel(id=1, name="test")
-            session.add(model)
-            await session.commit()
-
-            model.name = "updated"
-            await session.commit()
-
-            result = await session.get(TestModel, 1)
-            self.assertEqual(result.name, "updated")
+        # Query updated model
+        result = await session.execute(select(TestModel).where(TestModel.id == 1))
+        result = result.scalar_one()
+        assert result.name == "updated"
+        assert await result.async_method() == "Async updated"

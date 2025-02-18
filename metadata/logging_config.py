@@ -5,32 +5,19 @@ This module provides:
 2. Database operation logging
 3. Performance monitoring
 4. Error tracking
-5. Log rotation by size and time
+
+Note: All logger configuration is now centralized in config/logging.py.
+This module only provides database monitoring and statistics.
 """
 
-import logging
 import time
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from textio.logging import SizeAndTimeRotatingFileHandler
-
-
-def _log_to_sqlalchemy(logger_name: str, level: int, message: str) -> None:
-    """Log a message to a specific SQLAlchemy logger.
-
-    Args:
-        logger_name: Name of the SQLAlchemy logger to use
-        level: Logging level (e.g., logging.INFO)
-        message: Message to log
-    """
-    logger = logging.getLogger(logger_name)
-    logger.log(level, message)
+from config import db_logger
 
 
 class DatabaseLogger:
@@ -41,61 +28,19 @@ class DatabaseLogger:
     2. Performance monitoring
     3. Error tracking
     4. Operation statistics
+
+    Note: All logging is handled by the centralized db_logger.
+    This class only provides monitoring and statistics.
     """
 
-    def __init__(self, log_path: Path | None = None) -> None:
-        """Initialize database logger.
-
-        Args:
-            log_path: Optional path for log file
-        """
-        self.log_path = log_path
-        self._setup_logging()
+    def __init__(self) -> None:
+        """Initialize database logger."""
         self._stats = {
             "queries": 0,
             "errors": 0,
             "slow_queries": 0,
             "total_time": 0.0,
         }
-
-    def _setup_logging(self) -> None:
-        """Set up logging configuration."""
-        # SQLAlchemy loggers
-        loggers = [
-            "sqlalchemy.engine",
-            "sqlalchemy.pool",
-            "sqlalchemy.dialects",
-            "sqlalchemy.orm",
-        ]
-
-        # Configure each logger
-        for logger_name in loggers:
-            logger = logging.getLogger(logger_name)
-            logger.setLevel(logging.INFO)
-            logger.propagate = False  # Prevent propagation to parent loggers
-
-            # Add rotating file handler if path provided
-            if self.log_path:
-                # Create logs directory if needed
-                self.log_path.parent.mkdir(parents=True, exist_ok=True)
-
-                # Set up rotating handler
-                handler = SizeAndTimeRotatingFileHandler(
-                    filename=str(self.log_path),
-                    maxBytes=100 * 1024 * 1024,  # 10MB
-                    backupCount=20,
-                    when="h",  # Hourly rotation
-                    interval=1,
-                    utc=True,
-                    compression="gz",
-                    keep_uncompressed=2,  # Keep 2 most recent logs uncompressed
-                )
-                handler.setLevel(logging.INFO)
-                formatter = logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-                handler.setFormatter(formatter)
-                logger.addHandler(handler)
 
     def setup_engine_logging(self, engine: Engine | Any) -> None:
         """Set up logging for SQLAlchemy engine.
@@ -134,19 +79,13 @@ class DatabaseLogger:
             # Log slow queries (>100ms)
             if total > 0.1:
                 self._stats["slow_queries"] += 1
-                _log_to_sqlalchemy(
-                    "sqlalchemy.engine",
-                    logging.INFO,
-                    f"Slow query ({total:.2f}s): {statement[:100]}...",
-                )
+                db_logger.warning(f"Slow query ({total:.2f}s): {statement[:100]}...")
 
         @event.listens_for(engine, "handle_error")
         def handle_error(context: Any) -> None:
             self._stats["errors"] += 1
             error = context.original_exception
-            _log_to_sqlalchemy(
-                "sqlalchemy.engine", logging.ERROR, f"Database error: {error}"
-            )
+            db_logger.error(f"Database error: {error}")
 
     def setup_session_logging(self, session: Session | Any) -> None:
         """Set up logging for SQLAlchemy session.
@@ -160,21 +99,15 @@ class DatabaseLogger:
 
         @event.listens_for(session, "after_transaction_create")
         def after_transaction_create(session: Session, transaction: Any) -> None:
-            _log_to_sqlalchemy(
-                "sqlalchemy.orm", logging.DEBUG, f"Transaction started: {transaction}"
-            )
+            db_logger.debug(f"Transaction started: {transaction}")
 
         @event.listens_for(session, "after_transaction_end")
         def after_transaction_end(session: Session, transaction: Any) -> None:
-            _log_to_sqlalchemy(
-                "sqlalchemy.orm", logging.DEBUG, f"Transaction ended: {transaction}"
-            )
+            db_logger.debug(f"Transaction ended: {transaction}")
 
         @event.listens_for(session, "after_rollback")
         def after_rollback(session: Session) -> None:
-            _log_to_sqlalchemy(
-                "sqlalchemy.orm", logging.ERROR, "Transaction rolled back"
-            )
+            db_logger.error("Transaction rolled back")
 
     def get_stats(self) -> dict[str, Any]:
         """Get current statistics.
@@ -192,3 +125,11 @@ class DatabaseLogger:
             "slow_queries": 0,
             "total_time": 0.0,
         }
+
+    def cleanup(self) -> None:
+        """Clean up any resources.
+
+        Note: Logging cleanup is now handled by config/logging.py.
+        This method only resets statistics.
+        """
+        self.reset_stats()

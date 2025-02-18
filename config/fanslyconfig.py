@@ -43,6 +43,7 @@ class FanslyConfig(PathConfig):
     # Misc
     token_from_browser_name: str | None = None
     debug: bool = False
+    trace: bool = False  # For very detailed logging
     # If specified on the command-line
     post_id: str | None = None
     # Set on start after self-update
@@ -84,6 +85,7 @@ class FanslyConfig(PathConfig):
     show_downloads: bool = True
     show_skipped_downloads: bool = True
     use_duplicate_threshold: bool = False
+    use_pagination_duplication: bool = False  # Check each page for duplicates
     use_folder_suffix: bool = True
     # Show input prompts or sleep - for automation/scheduling purposes
     interactive: bool = True
@@ -117,6 +119,17 @@ class FanslyConfig(PathConfig):
 
     # StashContext
     stash_context_conn: dict[str, str] | None = None
+
+    # Logging
+    log_levels: dict[str, str] = field(
+        default_factory=lambda: {
+            "sqlalchemy": "INFO",
+            "stash_console": "INFO",
+            "stash_file": "INFO",
+            "textio": "INFO",
+            "json": "INFO",
+        }
+    )
     # endregion config.ini
 
     # endregion Fields
@@ -238,9 +251,20 @@ class FanslyConfig(PathConfig):
         self._parser.set(
             "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
         )
+        self._parser.set(
+            "Options",
+            "use_pagination_duplication",
+            str(self.use_pagination_duplication),
+        )
         self._parser.set("Options", "use_folder_suffix", str(self.use_folder_suffix))
         self._parser.set("Options", "interactive", str(self.interactive))
         self._parser.set("Options", "prompt_on_exit", str(self.prompt_on_exit))
+
+        # Only save debug/trace if explicitly set (advanced features)
+        if self.debug:
+            self._parser.set("Options", "debug", str(self.debug))
+        if self.trace:
+            self._parser.set("Options", "trace", str(self.trace))
 
         # Unsigned ints
         self._parser.set("Options", "timeline_retries", str(self.timeline_retries))
@@ -281,6 +305,12 @@ class FanslyConfig(PathConfig):
         # Logic
         self._parser.set("Logic", "check_key_pattern", str(self.check_key_pattern))
         self._parser.set("Logic", "main_js_pattern", str(self.main_js_pattern))
+
+        # Logging
+        if not self._parser.has_section("Logging"):
+            self._parser.add_section("Logging")
+        for logger, level in self.log_levels.items():
+            self._parser.set("Logging", logger, level)
 
     def _load_raw_config(self) -> list[str]:
         if self.config_path is None:

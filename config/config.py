@@ -207,6 +207,9 @@ def _handle_boolean_options(config: FanslyConfig, section: str) -> None:
         "show_skipped_downloads": True,
         "interactive": True,
         "prompt_on_exit": True,
+        "use_pagination_duplication": False,  # Check each page for duplicates
+        "debug": False,  # Debug mode
+        "trace": False,  # Very detailed logging
     }
 
     for option, default in boolean_options.items():
@@ -350,6 +353,38 @@ def _handle_stash_section(config: FanslyConfig) -> None:
         }
 
 
+def _handle_logging_section(config: FanslyConfig) -> None:
+    """Handle Logging section configuration."""
+    logging_section = "Logging"
+    _ensure_section_exists(config._parser, logging_section)
+
+    # Load configured levels from file, default to INFO
+    config.log_levels = {
+        "sqlalchemy": config._parser.get(
+            logging_section, "sqlalchemy", fallback="INFO"
+        ).upper(),
+        "stash_console": config._parser.get(
+            logging_section, "stash_console", fallback="INFO"
+        ).upper(),
+        "stash_file": config._parser.get(
+            logging_section, "stash_file", fallback="INFO"
+        ).upper(),
+        "textio": config._parser.get(
+            logging_section, "textio", fallback="INFO"
+        ).upper(),
+        "json": config._parser.get(logging_section, "json", fallback="INFO").upper(),
+    }
+
+    # Validate log levels
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    for logger, level in config.log_levels.items():
+        if level not in valid_levels:
+            print_warning(
+                f"Invalid log level '{level}' for logger '{logger}', using 'INFO'"
+            )
+            config.log_levels[logger] = "INFO"
+
+
 def _handle_config_error(e: Exception, config: FanslyConfig) -> None:
     """Handle configuration errors with appropriate messages."""
     error_string = str(e)
@@ -392,6 +427,12 @@ def load_config(config: FanslyConfig) -> None:
 
     :param FanslyConfig config: The configuration object to fill.
     """
+    # Initialize logging config first
+    from config.logging import init_logging_config, set_debug_enabled
+
+    init_logging_config(config)
+    set_debug_enabled(config.debug)
+
     print_info("Reading config.ini file ...")
     print()
 
@@ -420,6 +461,7 @@ def load_config(config: FanslyConfig) -> None:
         _handle_cache_section(config)
         _handle_logic_section(config)
         _handle_stash_section(config)
+        _handle_logging_section(config)
 
         # Safe to save! :-)
         save_config_or_raise(config)

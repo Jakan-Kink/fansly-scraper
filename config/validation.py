@@ -438,6 +438,36 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 #         input_enter_close(config.interactive)
 
 
+def validate_log_levels(config: FanslyConfig) -> None:
+    """Validate and adjust logging levels in config.
+
+    Args:
+        config: FanslyConfig instance to validate
+
+    Raises:
+        ValueError: If an invalid log level is provided
+    """
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    default_level = "DEBUG" if config.debug else "INFO"
+
+    for logger, level in config.log_levels.items():
+        # Convert to uppercase and validate
+        level = level.upper()
+        if level not in valid_levels:
+            print_warning(
+                f"Invalid log level '{level}' for logger '{logger}', using '{default_level}'"
+            )
+            config.log_levels[logger] = default_level
+
+    # Override all levels with DEBUG if --debug is set
+    if config.debug:
+        for logger in config.log_levels:
+            config.log_levels[logger] = "DEBUG"
+
+    # Save changes
+    save_config_or_raise(config)
+
+
 def validate_adjust_download_directory(config: FanslyConfig) -> None:
     """Validates the `download_directory` and `temp_folder` values from `config.ini`
     and corrects them if possible.

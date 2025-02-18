@@ -18,8 +18,6 @@ def mock_tag() -> Tag:
         description="Test tag description",
         aliases=["alias1", "alias2"],
         ignore_auto_tag=False,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
         favorite=True,
         image_path="/path/to/image.jpg",
         scene_count=10,
@@ -31,16 +29,12 @@ def mock_tag() -> Tag:
             Tag(
                 id="456",
                 name="Parent Tag",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
         ],
         children=[
             Tag(
                 id="789",
                 name="Child Tag",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
         ],
     )
@@ -120,9 +114,8 @@ async def test_create_tag(stash_client: StashClient, mock_tag: Tag) -> None:
     ):
         # Create with minimum fields
         tag = Tag(
+            id="new",  # Will be replaced on save
             name="New Tag",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         created = await stash_client.create_tag(tag)
         assert created.id == mock_tag.id
@@ -171,8 +164,6 @@ async def test_update_tag(stash_client: StashClient, mock_tag: Tag) -> None:
         new_parent = Tag(
             id="999",
             name="New Parent",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         tag.parents = [new_parent]
         updated = await stash_client.update_tag(tag)
@@ -188,14 +179,10 @@ async def test_merge_tags(stash_client: StashClient, mock_tag: Tag) -> None:
         Tag(
             id="456",
             name="Source Tag 1",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         ),
         Tag(
             id="789",
             name="Source Tag 2",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         ),
     ]
 
@@ -249,14 +236,10 @@ async def test_tag_hierarchy(stash_client: StashClient, mock_tag: Tag) -> None:
     parent_tag = Tag(
         id="456",
         name="Parent Tag",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
     )
     child_tag = Tag(
         id="789",
         name="Child Tag",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
     )
 
     with patch.object(

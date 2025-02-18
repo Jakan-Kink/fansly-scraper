@@ -172,7 +172,7 @@ async def process_account_walls(
             if getattr(wall, key) != value:
                 setattr(wall, key, value)
 
-        session.flush()
+        await session.flush()
 
     # Only delete walls if this is a full account data update
     # This function is called from process_account_data which gets all walls for an account

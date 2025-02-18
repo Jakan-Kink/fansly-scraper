@@ -4,9 +4,10 @@ import argparse
 from functools import partial
 from pathlib import Path
 
+from config.logging import set_debug_enabled
 from errors import ConfigError
 from helpers.common import get_post_id_from_request, is_valid_post_id
-from textio import print_debug, print_warning, set_debug_enabled
+from textio import print_debug, print_warning
 
 from .config import parse_items_from_line, sanitize_creator_names, save_config_or_raise
 from .fanslyconfig import FanslyConfig

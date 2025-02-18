@@ -27,7 +27,16 @@ def temp_config_dir():
     with TemporaryDirectory() as temp_dir:
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
+        # Create logs directory in both places
+        logs_dir = Path(temp_dir) / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        cwd_logs = Path.cwd() / "logs"
+        cwd_logs.mkdir(parents=True, exist_ok=True)
         yield Path(temp_dir)
+        # Clean up
+        from loguru import logger
+
+        logger.remove()  # Close all handlers
         os.chdir(original_cwd)
 
 

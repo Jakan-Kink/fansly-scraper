@@ -4,10 +4,13 @@ import asyncio
 import traceback
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from config import FanslyConfig
-from errors import ApiError, DuplicateCountError
+from errors import ApiError, DuplicateCountError, DuplicatePageError
 from media import MediaItem, parse_media_info
-from metadata import process_media_download_accessible, process_media_info
+from metadata import Post, Wall, process_media_info
 from pathio import set_create_directory_for_download
 from textio import input_enter_continue, print_error, print_info, print_warning
 
@@ -72,6 +75,54 @@ def get_unique_media_ids(info_object: dict[str, Any]) -> list[str]:
     return list(all_media_ids)
 
 
+async def check_page_duplicates(
+    config: FanslyConfig,
+    page_data: dict[str, Any],
+    page_type: str,
+    page_id: str | None = None,
+    cursor: str | None = None,
+    session: AsyncSession | None = None,
+) -> None:
+    """Check if all posts on a page are already in metadata.
+
+    Args:
+        config: FanslyConfig instance
+        page_data: Response data containing posts
+        page_type: Type of page (e.g., "timeline", "wall")
+        page_id: Optional ID of the page (e.g., wall ID)
+        cursor: Optional cursor/before value
+        session: Optional AsyncSession for database operations
+
+    Raises:
+        DuplicatePageError: If all posts are already in metadata
+    """
+    if not config.use_pagination_duplication:
+        return
+
+    if "posts" not in page_data or not page_data["posts"]:
+        return
+
+    all_posts_in_metadata = True
+    for post in page_data["posts"]:
+        # Check if post exists in metadata - only select id to avoid eager loading
+        stmt = select(Post.id).where(Post.id == post["id"])
+        result = await session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            all_posts_in_metadata = False
+            break
+
+    if all_posts_in_metadata:
+        # If this is a wall, get its metadata for the message
+        wall_name = None
+        if page_type == "wall" and page_id:
+            wall = await session.get(Wall, page_id)
+            if wall and wall.name:
+                wall_name = wall.name
+
+        await asyncio.sleep(5)  # Sleep before raising to avoid hammering API
+        raise DuplicatePageError(page_type, page_id, cursor, wall_name)
+
+
 def print_download_info(config: FanslyConfig) -> None:
     # starting here: stuff that literally every download mode uses, which should be executed at the very first everytime
     if config.user_agent:
@@ -112,8 +163,6 @@ async def process_download_accessible_media(
         False as a break indicator for "Timeline" downloads, True otherwise.
     """
     media_items: list[MediaItem] = []
-
-    # Timeline
 
     # Process media info in batches
     batch_size = 15  # Process one timeline page worth of items at a time
@@ -162,15 +211,19 @@ async def process_download_accessible_media(
     # await process_media_download_accessible(config, state, media_infos=media_infos)
 
     try:
-        # download it
-        await download_media(config, state, accessible_media)
+        # Download media
+        await download_media(
+            config,
+            state,
+            accessible_media,
+        )
 
     except DuplicateCountError:
         print_warning(
             f"Already downloaded all possible {state.download_type_str()} content! [Duplicate threshold exceeded {config.DUPLICATE_THRESHOLD}]"
         )
-        # "Timeline" needs a way to break the loop.
-        if state.download_type == DownloadType.TIMELINE:
+        # Timeline and Wall need a way to break the loop
+        if state.download_type in (DownloadType.TIMELINE, DownloadType.WALL):
             return False
 
     except Exception:

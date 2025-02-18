@@ -186,7 +186,8 @@ omit = [
     "*/.pytest_cache/*",
     "*/.git/*",
     "*/.github/*",
-    "*/htmlcov/*"
+    "*/htmlcov/*",
+    "stash/example.py"  # Example code, not production code
 ]
 command_line = "-m pytest discover -s tests/"
 parallel = false

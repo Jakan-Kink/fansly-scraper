@@ -242,16 +242,31 @@ class TestPerformancePatterns:
         sequential_time = time.time() - start_time
         print(f"Sequential operations time: {sequential_time:.2f}s")
 
-        # Test 2: Parallel operations
+        # Test 2: Parallel operations with session reuse
         import concurrent.futures
+        from threading import local
+
+        # Thread-local storage for session reuse
+        thread_local = local()
+
+        def get_session():
+            if not hasattr(thread_local, "session"):
+                thread_local.session = self.database.get_sync_session()
+            return thread_local.session
+
+        def worker():
+            session = get_session()
+            try:
+                perform_operation(session)
+            except Exception:
+                session.rollback()
+                raise
 
         start_time = time.time()
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
             for _ in range(NUM_OPERATIONS):
-                future = executor.submit(
-                    lambda: perform_operation(self.database.get_sync_session())
-                )
+                future = executor.submit(worker)
                 futures.append(future)
             concurrent.futures.wait(futures)
         parallel_time = time.time() - start_time

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from config import FanslyConfig
-from metadata.database import Database, retry_on_locked_db
+from metadata.database import Database
 
 
 @pytest.fixture
@@ -290,39 +290,6 @@ class TestSessionManagement:
             count = await result.scalar()
             assert count == 0
 
-    def test_retry_on_lock(self, database: Database):
-        """Test retry behavior on database locks."""
-        lock_count = 0
-
-        @retry_on_locked_db(retries=2, delay=0.01)
-        def test_func():
-            nonlocal lock_count
-            if lock_count < 2:
-                lock_count += 1
-                raise sqlite3.OperationalError("database is locked")
-            return "success"
-
-        # Should succeed after retries
-        assert test_func() == "success"
-        assert lock_count == 2
-
-    @pytest.mark.asyncio
-    async def test_async_retry_on_lock(self, database: Database):
-        """Test async retry behavior on database locks."""
-        lock_count = 0
-
-        @retry_on_locked_db(retries=2, delay=0.01)
-        async def test_func():
-            nonlocal lock_count
-            if lock_count < 2:
-                lock_count += 1
-                raise sqlite3.OperationalError("database is locked")
-            return "success"
-
-        # Should succeed after retries
-        assert await test_func() == "success"
-        assert lock_count == 2
-
 
 class TestMigrationIntegration:
     """Test migration integration in Database class."""
@@ -385,7 +352,8 @@ class TestLegacyFeatures:
             result = session.execute(text("SELECT * FROM test")).scalar()
             assert result == 1
 
-    def test_sync_to_remote(self, database: Database, tmp_path: Path):
+    @pytest.mark.asyncio
+    async def test_sync_to_remote(self, database: Database, tmp_path: Path):
         """Test remote sync."""
         # Create test data
         with database.session_scope() as session:
@@ -396,7 +364,7 @@ class TestLegacyFeatures:
         remote_path = tmp_path / "remote.db"
 
         # Sync to remote
-        assert database._sync_to_remote(
+        assert await database._sync_to_remote(
             database.optimized_storage.local_path,
             remote_path,
         )

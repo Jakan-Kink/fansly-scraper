@@ -201,12 +201,19 @@ def download_m3u8(
         print_debug(f"First segment: {segment_uris[0] if segment_uris else 'None'}")
         print_debug(f"Target path: {full_path}")
 
+        # Use a limited thread pool to avoid too many semaphores
+        max_workers = min(
+            16, max(4, len(segment_files) // 4)
+        )  # Between 4 and 16 workers
         with progress:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max_workers
+            ) as executor:
                 list(
                     progress.track(
                         executor.map(download_ts, segment_uris, segment_files),
                         total=len(segment_files),
+                        description=f"Downloading segments ({max_workers} threads)",
                     )
                 )
 

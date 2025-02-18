@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import random
 import shutil
 import tempfile
@@ -11,9 +10,10 @@ from pathlib import Path
 
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Column
-from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import FanslyConfig
+from config.decorators import with_database_session
 from errors import ApiError, DownloadError, DuplicateCountError, M3U8Error, MediaError
 from fileio.dedupe import dedupe_media_file
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
@@ -37,6 +37,7 @@ async def download_media_infos(
 
     Args:
         config: FanslyConfig instance
+        state: DownloadState instance
         media_ids: List of media IDs to fetch
 
     Returns:
@@ -104,8 +105,7 @@ def _update_media_type_stats(state: DownloadState, media_item: MediaItem) -> Non
         state.recent_audio_media_ids.add(media_item.media_id)
 
 
-@require_database_config
-def _verify_existing_file(
+async def _verify_existing_file(
     config: FanslyConfig,
     state: DownloadState,
     media_item: MediaItem,
@@ -113,7 +113,18 @@ def _verify_existing_file(
     media_record: Media,
 ) -> bool:
     """Verify existing file hash and update database if needed.
-    Returns True if file is verified and can be skipped."""
+    Returns True if file is verified and can be skipped.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        media_item: Media item to verify
+        check_path: Path to existing file
+        media_record: Media database record
+
+    Returns:
+        True if file is verified and can be skipped, False otherwise
+    """
     from textio import print_debug
 
     print_debug(f"Calculating hash for existing file: {check_path}")
@@ -136,16 +147,30 @@ def _verify_existing_file(
     return False
 
 
-@require_database_config
-def _verify_temp_download(
+@require_database_config  # Uses config._database directly
+@with_database_session(async_session=True)
+async def _verify_temp_download(
     config: FanslyConfig,
     state: DownloadState,
     media_item: MediaItem,
     check_path: Path,
     media_record: Media,
+    session: AsyncSession | None = None,
 ) -> bool:
     """Download to temp file and verify hash.
-    Returns True if file matches and can be skipped."""
+    Returns True if file matches and can be skipped.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        media_item: Media item to verify
+        check_path: Path to existing file
+        media_record: Media database record
+        session: Optional AsyncSession for database operations
+
+    Returns:
+        True if file matches and can be skipped, False otherwise
+    """
     temp_path = None
     try:
         kwargs = {"suffix": check_path.suffix, "delete": False}
@@ -167,12 +192,11 @@ def _verify_temp_download(
         # Compare hashes
         if temp_hash == media_record.content_hash:
             # Update database with verified hash
-            with config._database.session_scope() as session:
-                session.add(media_record)
-                media_record.content_hash = temp_hash
-                media_record.local_filename = str(check_path)
-                media_record.is_downloaded = True
-                session.commit()
+            media_record.content_hash = temp_hash
+            media_record.local_filename = str(check_path)
+            media_record.is_downloaded = True
+            session.add(media_record)
+            await session.flush()
 
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
@@ -258,16 +282,30 @@ def _download_regular_file(
             )
 
 
-@require_database_config
-def _download_m3u8_file(
+@require_database_config  # Uses config._database directly
+@with_database_session(async_session=True)
+async def _download_m3u8_file(
     config: FanslyConfig,
     state: DownloadState,
     media_item: MediaItem,
     check_path: Path,
     media_record: Media,
+    session: AsyncSession | None = None,
 ) -> bool:
     """Download and process an m3u8 file.
-    Returns True if file was skipped as duplicate."""
+    Returns True if file was skipped as duplicate.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        media_item: Media item to download
+        check_path: Path to save file
+        media_record: Media database record
+        session: Optional AsyncSession for database operations
+
+    Returns:
+        True if file was skipped as duplicate, False otherwise
+    """
     kwargs = {}
     if config.temp_folder:
         kwargs["dir"] = config.temp_folder
@@ -286,38 +324,35 @@ def _download_m3u8_file(
         # Calculate hash of the new file
         new_hash = get_hash_for_other_content(temp_path)
 
-        # Check if this hash exists in database
-        with config._database.session_scope() as session:
-            session.add(media_record)
+        # Use optimized hash lookup
+        existing_row = config._database.find_media_by_hash(new_hash)
+        existing_by_hash = None
+        if existing_row and existing_row[0] != media_record.id:
+            # Convert tuple to Media object
+            existing_by_hash = await session.get(Media, existing_row[0])
 
-            # Use optimized hash lookup
-            existing_row = config._database.find_media_by_hash(new_hash)
-            existing_by_hash = None
-            if existing_row and existing_row[0] != media_record.id:
-                # Convert tuple to Media object
-                existing_by_hash = session.get(Media, existing_row[0])
+        if existing_by_hash and existing_by_hash.is_downloaded:
+            # We found a duplicate
+            if config.show_downloads and config.show_skipped_downloads:
+                print_info(
+                    f"Deduplication [Hash]: {media_item.mimetype.split('/')[-2]} '{temp_path.name}' → "
+                    f"skipped (duplicate of {Path(existing_by_hash.local_filename).name})"
+                )
+            state.add_duplicate()
+            return True
 
-            if existing_by_hash and existing_by_hash.is_downloaded:
-                # We found a duplicate
-                if config.show_downloads and config.show_skipped_downloads:
-                    print_info(
-                        f"Deduplication [Hash]: {media_item.mimetype.split('/')[-2]} '{temp_path.name}' → "
-                        f"skipped (duplicate of {Path(existing_by_hash.local_filename).name})"
-                    )
-                state.add_duplicate()
-                return True
+        # No duplicate found, move file to final location
+        check_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(temp_path), str(check_path))
 
-            # No duplicate found, move file to final location
-            check_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(temp_path), str(check_path))
+        # Update database record
+        media_record.content_hash = new_hash
+        media_record.local_filename = str(check_path)
+        media_record.is_downloaded = True
+        session.add(media_record)
+        await session.flush()
 
-            # Update database record
-            media_record.content_hash = new_hash
-            media_record.local_filename = str(check_path)
-            media_record.is_downloaded = True
-            session.commit()
-
-            return False
+        return False
 
     finally:
         # Clean up temp directory
@@ -325,11 +360,18 @@ def _download_m3u8_file(
             shutil.rmtree(temp_dir)
 
 
-@require_database_config
 async def download_media(
-    config: FanslyConfig, state: DownloadState, accessible_media: list[MediaItem]
+    config: FanslyConfig,
+    state: DownloadState,
+    accessible_media: list[MediaItem],
 ):
-    """Downloads all media items to their respective target folders."""
+    """Downloads all media items to their respective target folders.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        accessible_media: List of media items to download
+    """
     if state.download_type == DownloadType.NOTSET:
         raise RuntimeError(
             "Internal error during media download - download type not set on state."
@@ -353,7 +395,11 @@ async def download_media(
 
         try:
             # Process media in database and get Media record
-            media_record = await process_media_download(config, state, media_item)
+            media_record = await process_media_download(
+                config,
+                state,
+                media_item,
+            )
             if media_record is None:
                 if config.show_downloads and config.show_skipped_downloads:
                     print_info(
@@ -392,14 +438,22 @@ async def download_media(
 
         if check_path.exists():
             # Verify existing file
-            if _verify_existing_file(
-                config, state, media_item, check_path, media_record
+            if await _verify_existing_file(
+                config,
+                state,
+                media_item,
+                check_path,
+                media_record,
             ):
                 continue
 
             # For regular files, verify by downloading to temp file
-            if media_item.file_extension != "m3u8" and _verify_temp_download(
-                config, state, media_item, check_path, media_record
+            if media_item.file_extension != "m3u8" and await _verify_temp_download(
+                config,
+                state,
+                media_item,
+                check_path,
+                media_record,
             ):
                 continue
 
@@ -411,7 +465,7 @@ async def download_media(
             # Download the file
             if media_item.file_extension == "m3u8":
                 # For m3u8, we download to a temp file first, then move to final location
-                is_dupe = _download_m3u8_file(
+                is_dupe = await _download_m3u8_file(
                     config=config,
                     state=state,
                     media_item=media_item,
@@ -429,8 +483,12 @@ async def download_media(
                 continue
 
             # Update database with file info
-            is_dupe = dedupe_media_file(
-                config, state, media_item.mimetype, file_save_path, media_record
+            is_dupe = await dedupe_media_file(
+                config,
+                state,
+                media_item.mimetype,
+                file_save_path,
+                media_record,
             )
 
             if not is_dupe:

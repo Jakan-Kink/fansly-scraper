@@ -1,5 +1,6 @@
 """Common test fixtures and configuration."""
 
+import asyncio
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,7 +8,7 @@ from tempfile import TemporaryDirectory
 import pytest
 from loguru import logger
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from alembic.config import Config as AlembicConfig
 from config import FanslyConfig
@@ -149,44 +150,24 @@ def test_config():
 @pytest.fixture
 def test_database(test_config):
     """Create a test database instance."""
-    # Ensure database directory exists
-    test_config.metadata_db_file.parent.mkdir(parents=True, exist_ok=True)
+    # Use in-memory database for tests
+    test_config.metadata_db_file = ":memory:"
+    test_config.skip_migrations = True  # Skip migrations for base tests
+    test_config._database = Database(test_config, skip_migrations=True)
 
-    # Create fresh database for each test
-    if test_config.metadata_db_file.exists():
-        test_config.metadata_db_file.unlink()
+    # Create engine and tables
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
 
-    test_config._database = Database(test_config)
-    alembic_cfg = AlembicConfig("alembic.ini")
-
-    # Set the database URL in the Alembic config
-    alembic_cfg.set_main_option(
-        "sqlalchemy.url", f"sqlite:///{test_config.metadata_db_file}"
-    )
-
-    # TODO: Update to use new async migrations
-    # noqa: F821 - run_migrations_if_needed will be replaced
-    run_migrations_if_needed(test_config._database, alembic_cfg)  # noqa: F821
+    # Create session factory
+    Session = sessionmaker(bind=engine)
+    test_config._database.Session = Session
 
     yield test_config._database
 
-    # Clean up database connections
-    try:
-        # Rollback any pending transactions
-        with test_config._database.get_sync_session() as session:
-            session.rollback()
-    except Exception:
-        pass
-
+    # Clean up
     try:
         test_config._database.close()
-    except Exception:
-        pass
-
-    # Clean up test database
-    try:
-        if test_config.metadata_db_file.exists():
-            test_config.metadata_db_file.unlink()
     except Exception:
         pass
 
@@ -196,3 +177,18 @@ def test_session(test_database):
     """Create a test database session."""
     with test_database.get_sync_session() as session:
         yield session
+
+
+@pytest.fixture
+async def test_async_session(test_database):
+    """Create an async test database session."""
+    async with test_database.get_async_session() as session:
+        yield session
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for each test case."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()

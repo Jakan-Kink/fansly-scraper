@@ -1,51 +1,26 @@
-"""Database management with improved resource handling.
-
-This module provides an improved version of the Database class with:
-- Better resource management
-- Cleaner async/sync separation
-- More consistent error handling
-- Reduced complexity
-- Write-through caching for network storage
-
-The module uses an in-memory SQLite database as a cache for the actual
-database file, which may be stored on a network drive. This provides:
-1. Better performance for network storage
-2. Write-through caching to prevent data loss
-3. Automatic background sync to network location
-4. Memory-optimized caching for databases under 1GB
-"""
+"""Database management with simplified resource handling."""
 
 from __future__ import annotations
 
 import asyncio
 import atexit
-import contextvars
-import hashlib
 import json
-import logging
 import os
 import shutil
 import sqlite3
-import subprocess
-
-# Encoding functionality moved inline
 import sys
 import tempfile
 import threading
-from asyncio import sleep as async_sleep  # noqa: F401
+import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from threading import Thread, local
-from time import monotonic
-from time import sleep as time_sleep
-from typing import TYPE_CHECKING, Any, TypeVar
+from threading import Thread
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
-import aiosqlite
-from sqlalchemy import Engine, create_engine, event, text
-from sqlalchemy.exc import DatabaseError, DisconnectionError
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import DisconnectionError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -53,14 +28,17 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql.elements import BindParameter
 
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
 from textio import print_debug, print_error, print_info, print_warning
+from utils.semaphore_monitor import monitor_semaphores
 
-from .decorators import retry_on_locked_db
 from .logging_config import DatabaseLogger
-from .resource_management import ConnectionManager
+
+if TYPE_CHECKING:
+    from config import FanslyConfig
 
 # Ensure proper UTF-8 encoding for logging on Windows
 if sys.platform == "win32":
@@ -72,37 +50,24 @@ if sys.platform == "win32":
 # Set up database logging
 logs_dir = Path("logs")
 logs_dir.mkdir(exist_ok=True)
-db_logger = DatabaseLogger(logs_dir / "sqlalchemy.log")
 
-if TYPE_CHECKING:
-    from config import FanslyConfig
-
-RT = TypeVar("RT")
+# Global database logger
+_db_logger: DatabaseLogger | None = None
 
 
-# Database path functions moved to pathio module
+def get_db_logger() -> DatabaseLogger:
+    """Get the global database logger, initializing it if needed."""
+    global _db_logger
+    if _db_logger is None:
+        _db_logger = DatabaseLogger()
+    return _db_logger
+
+
+RT = TypeVar("RT")  # Return type for decorator
 
 
 def require_database_config(func: Callable[..., RT]) -> Callable[..., RT]:
-    """Decorator to ensure database configuration is present.
-
-    This decorator works with both sync and async functions.
-
-    Args:
-        func: Function to decorate (can be sync or async)
-
-    Returns:
-        Wrapped function that ensures database config is present
-
-    Example:
-        @require_database_config
-        async def my_async_func(config: FanslyConfig, ...):
-            ...
-
-        @require_database_config
-        def my_sync_func(config: FanslyConfig, ...):
-            ...
-    """
+    """Decorator to ensure database configuration is present."""
     is_async = asyncio.iscoroutinefunction(func)
 
     def get_config(*args: Any, **kwargs: Any) -> Any:
@@ -134,455 +99,104 @@ def require_database_config(func: Callable[..., RT]) -> Callable[..., RT]:
     return async_wrapper if is_async else sync_wrapper
 
 
-def run_migrations_if_needed(database: Database, alembic_cfg: AlembicConfig) -> None:
-    """Ensure the database is migrated to the latest schema using Alembic.
-
-    This function checks if migrations are needed and applies them if necessary.
-    It handles both initial migration setup and updates to the latest version.
-
-    Args:
-        database: Database instance to migrate
-        alembic_cfg: Alembic configuration for migrations
-
-    Note:
-        - Creates alembic_version table if it doesn't exist
-        - Runs all migrations if database is not initialized
-        - Updates to latest version if database already has migrations
-        - Uses appropriate shared memory space based on creator name
-    """
-    # Set the correct shared memory URI in Alembic config - must match _setup_optimized_connection
-    if database.config.separate_metadata and database.creator_name:
-        safe_name = "".join(c if c.isalnum() else "_" for c in database.creator_name)
-        uri = f"sqlite:///file:creator_{safe_name}?mode=memory&cache=shared"
-    else:
-        uri = "sqlite:///file:global_db?mode=memory&cache=shared"
-    alembic_cfg.set_main_option("sqlalchemy.url", uri)
-
-    # Always run migrations on the in-memory database
-    print_info(f"Running migrations on shared memory database: {uri}")
-    with database.sync_engine.connect() as connection:
-        # Check if the alembic_version table exists
-        result = connection.execute(
-            text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
-            )
-        )
-        alembic_version_exists = result.fetchone() is not None
-
-        if not alembic_version_exists:
-            print_error("No alembic_version table found. Initializing migrations...")
-            alembic_cfg.attributes["connection"] = connection
-            alembic_upgrade(alembic_cfg, "head")  # Run all migrations
-            print_info("Migrations applied successfully.")
-        else:
-            print_info(
-                "Database is already initialized. Running migrations to the latest version..."
-            )
-            alembic_cfg.attributes["connection"] = connection
-            alembic_upgrade(alembic_cfg, "head")
-            print_info("Migrations applied successfully.")
-        connection.close()
-
-
-def is_network_path(path: Path) -> bool:
-    """Check if a path is on a network drive.
-
-    This checks for:
-    1. UNC paths (\\server\\share)
-    2. Mapped network drives
-    3. NFS mounts
-    4. SMB mounts
-
-    Args:
-        path: Path to check
-
-    Returns:
-        True if path is on network drive
-    """
-    try:
-        # Check if path exists and get absolute path
-        abs_path = path.absolute()
-
-        # UNC path check
-        if str(abs_path).startswith("\\\\"):
-            return True
-
-        # Get mount point info
-        import psutil
-
-        disk_info = psutil.disk_partitions(all=True)
-        mount_point = None
-
-        # Find the longest matching mount point
-        for partition in disk_info:
-            if str(abs_path).startswith(partition.mountpoint):
-                if mount_point is None or len(partition.mountpoint) > len(mount_point):
-                    mount_point = partition.mountpoint
-
-        if mount_point:
-            for partition in disk_info:
-                if partition.mountpoint == mount_point:
-                    # Check for network filesystems
-                    if any(
-                        fs in partition.fstype.lower()
-                        for fs in ["nfs", "cifs", "smb", "ncpfs", "afs"]
-                    ):
-                        return True
-                    # Check for network opts
-                    if partition.opts and any(
-                        opt in partition.opts.lower() for opt in ["net", "remote"]
-                    ):
-                        return True
-
-        return False
-    except Exception:
-        # If we can't determine, assume local for safety
-        return False
-
-
 class Database:
-    """Database management with improved resource handling.
+    """Database management with in-memory optimization.
 
-    This class provides database configuration, connection management, and
-    session handling with proper resource management and error handling.
+    This class provides a streamlined approach to database management:
+    - Uses in-memory SQLite with write-through caching
+    - Leverages SQLite's built-in locking
+    - Supports both sync and async operations
+    - Handles network path optimization
+    - Provides proper cleanup and resource management
 
-    Features:
-    1. Optimized SQLite with memory caching
-    2. Proper async/sync session management
-    3. Transaction retry on database locks
-    4. Connection pooling and cleanup
-    5. WAL mode and journal management
-    6. Integrity checking and recovery
-    7. Optimized queries with parameter binding
-    8. Case-insensitive lookups with indexes
-
-    Attributes:
-        config: FanslyConfig instance
-        connection_manager: Manager for all database connections
-        sync_engine: SQLAlchemy sync engine
-        async_engine: SQLAlchemy async engine
-        sync_session_factory: Session factory for sync sessions
-        async_session_factory: Session factory for async sessions
+    Class Attributes:
+        _sync_session_factory: Class-level session factory for sync operations
+        _async_session_factory: Class-level session factory for async operations
     """
 
-    sync_engine: Engine
-    async_engine: AsyncEngine
-    sync_session_factory: sessionmaker[Session]
-    async_session_factory: async_sessionmaker[AsyncSession]
-
-    @contextmanager
-    def get_sync_session(self) -> Generator[Session]:
-        """Provide a sync session for database interaction.
-
-        This is the recommended way to get a session for synchronous operations.
-        The session will automatically handle:
-        - Commits and rollbacks
-        - Connection pooling and reuse
-        - Reference counting
-        - Health checks
-        - Corruption detection and recovery
-        - Thread-safe cleanup
-
-        The session will be shared within the same thread to prevent lock collisions.
-        For cross-thread/task operations, the OptimizedSQLiteMemory class handles
-        proper locking and concurrency.
-
-        Example:
-            ```python
-            with db.get_sync_session() as session:
-                result = session.execute(select(Model))
-            ```
-
-        Yields:
-            Session: SQLAlchemy session with automatic cleanup and retry logic
-        """
-        thread_id = str(threading.get_ident())
-
-        # Try to get existing connection from pool
-        conn = self.connection_manager.thread_connections.get_connection(thread_id)
-        if conn is None:
-            # Create new connection with shared cache using the same URI
-            conn = (
-                self.connection_manager.thread_connections._create_shared_connection()
-            )
-            self.connection_manager.thread_connections.set_connection(thread_id, conn)
-
-        # Create session with engine using this connection
-        session = self.sync_session_factory(
-            bind=self.sync_engine.execution_options(connection=conn)
-        )
-        # Set up logging for session
-        db_logger.setup_session_logging(session)
-
-        try:
-            # Verify connection is healthy
-            session.execute(text("SELECT 1"))
-            yield session
-            if session.is_active:
-                session.commit()
-        except Exception as e:
-            if session.is_active:
-                try:
-                    session.rollback()
-                except Exception:
-                    pass  # Ignore rollback errors
-            if isinstance(
-                e, (sqlite3.DatabaseError, DatabaseError)
-            ) and "database disk image is malformed" in str(e):
-                print_error("Database corruption detected")
-                if self.optimized_storage.handle_corruption():
-                    print_info("Database corruption handled, retrying operation")
-            raise
-        finally:
-            session.close()
-            # Return healthy connection to pool or clean up
-            try:
-                conn.execute("SELECT 1")
-                with self.connection_manager.thread_connections._pool_lock:
-                    self.connection_manager.thread_connections._connection_pool.append(
-                        conn
-                    )
-            except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass  # Ignore close errors
-            self.connection_manager.thread_connections.remove_connection(thread_id)
-
-    @contextmanager
-    def session_scope(self) -> Generator[Session]:
-        """Legacy alias for get_sync_session to maintain compatibility.
-
-        This method exists for backward compatibility with older code.
-        New code should use get_sync_session instead.
-
-        Yields:
-            Session: SQLAlchemy session with automatic cleanup
-        """
-        with self.get_sync_session() as session:
-            yield session
-
-    @asynccontextmanager
-    async def async_session_scope(self) -> AsyncGenerator[AsyncSession]:
-        """Provide an async transactional scope with corruption detection.
-
-        This context manager:
-        1. Uses ConnectionManager for task safety
-        2. Handles async transactions and cleanup
-        3. Detects and handles corruption
-        4. Manages reference counting
-
-        Example:
-            async with db.async_session_scope() as session:
-                await session.add(some_object)
-                # Commit happens automatically if no errors
-                # Rollback happens automatically on error
-
-        Yields:
-            AsyncSession with automatic cleanup
-        """
-        task_id = id(asyncio.current_task())
-
-        # Try to get existing session first
-        session_info = await self.connection_manager.async_connections.get_session(
-            task_id
-        )
-        if session_info is not None:
-            # Use existing session
-            yield session_info[0]
-            return
-
-        try:
-            async with self.get_async_session() as session:
-                # Set up logging for async session
-                db_logger.setup_session_logging(session)
-                yield session
-        except Exception as e:
-            print_error(f"async_session_scope error: {e}")
-            # Don't do full cleanup here - just close the session
-            if hasattr(session, "close"):
-                try:
-                    await session.close()
-                except Exception as close_error:
-                    print_error(f"Error closing session: {close_error}")
-            raise
+    # Class-level session factories
+    _sync_session_factory = None
+    _async_session_factory = None
 
     def __init__(
         self,
         config: FanslyConfig,
-        skip_migrations: bool = False,
+        *,
         creator_name: str | None = None,
     ) -> None:
-        """Initialize database with configuration.
+        """Initialize database manager.
 
         Args:
-            config: FanslyConfig instance with database settings
-            skip_migrations: Whether to skip running migrations (default: False)
-            creator_name: Optional creator name for separate memory spaces
+            config: FanslyConfig instance
+            creator_name: Optional creator name for separate databases
         """
+        # Initialize all instance variables first to prevent cleanup errors
         self.config = config
-        self.db_file = Path(config.metadata_db_file)
         self.creator_name = creator_name
-        self._migrations_complete = False  # Track migration status
+        self._sync_thread = None
+        self._stop_sync = threading.Event()
+        self._commit_count = 0
+        self._last_sync = time.time()
+        self._sync_lock = threading.Lock()
+        self._thread_local = threading.local()
+        self._prepared_statements = {}
+        self._sync_engine = None
+        self._async_engine = None
+        self._sync_session_factory = None
+        self._async_session_factory = None
+        self._shared_connection = None  # Keeps in-memory database alive
+        self._sqlalchemy_connection = None  # Keeps SQLAlchemy connection alive
+        self._sync_interval = config.db_sync_seconds or 60
+        self._sync_commits = config.db_sync_commits or 1000
 
-        # 1. Set up optimized in-memory database and sync manager
-        self._setup_optimized_connection()
-
-        # 2. Set up engines and sessions
-        self._setup_engines_and_sessions()
-        self._setup_event_listeners()
-
-        # 3. Run migrations if needed
-        if not skip_migrations and not getattr(self.config, "skip_migrations", False):
-            alembic_cfg = AlembicConfig("alembic.ini")
-            run_migrations_if_needed(self, alembic_cfg)
-            # Sync immediately after migrations
-            # Create sync manager and do initial sync after migrations
-            if self.optimized_storage.remote_path:
-                self.optimized_storage.sync_manager = DatabaseSyncManager(
-                    remote_path=self.optimized_storage.remote_path,
-                    config=self.config,
-                    optimized_storage=self.optimized_storage,
-                )
-                print_info("Syncing after migrations...")
-                self.optimized_storage.sync_manager.sync_now()
-                print_info("Post-migration sync complete")
-                # Update our reference to the sync manager
-                self.sync_manager = self.optimized_storage.sync_manager
-                # Start background sync thread after initial sync is complete
-                print_info("Starting background sync thread...")
-                self.sync_manager.start_sync_thread()
-
-        # Mark migrations as complete and apply optimizations
-        self._migrations_complete = True
-        self.optimized_storage._setup_connection_optimizations()
-
-    def _setup_optimized_connection(self) -> None:
-        """Set up the optimized SQLite connection.
-
-        Creates OptimizedSQLiteMemory instance with proper thread safety
-        and connection management. The in-memory database is created first,
-        then the sync manager is set up to handle disk synchronization.
-
-        Both sync and async connections are initialized upfront to ensure
-        they share the same in-memory database and engines.
-        """
-        # Verify database configuration
-        if self.config.separate_metadata:
-            # In separate mode, creator_name must be:
-            # - None for global database
-            # - str for creator-specific database
-            if not isinstance(self.creator_name, (str, type(None))):
-                raise TypeError(
-                    f"creator_name must be str or None in separate mode, got {type(self.creator_name)}"
-                )
-            if self.creator_name and (
-                not isinstance(self.creator_name, str) or not self.creator_name.strip()
-            ):
-                raise ValueError(
-                    f"creator_name must be non-empty string when provided, got {self.creator_name!r}"
-                )
-
-        # Create shared memory database with appropriate name
-        if self.config.separate_metadata and self.creator_name:
-            # Use creator-specific shared memory for separate metadata
-            safe_name = "".join(c if c.isalnum() else "_" for c in self.creator_name)
-            shared_uri = f"file:creator_{safe_name}?mode=memory&cache=shared"
-            print_debug(
-                {
-                    "method": "Database._setup_optimized_connection",
-                    "status": "using_creator_specific_db",
-                    "creator_name": self.creator_name,
-                    "safe_name": safe_name,
-                }
+        # Determine database path
+        if creator_name and config.separate_metadata:
+            # Use creator-specific database
+            safe_name = "".join(c if c.isalnum() else "_" for c in creator_name)
+            self.db_file = (
+                config.metadata_db_file.parent / f"{safe_name}_metadata.sqlite3"
             )
         else:
-            # Use global shared memory for:
-            # - Non-separate mode (regardless of creator_name)
-            # - Separate mode without creator_name
-            shared_uri = "file:global_db?mode=memory&cache=shared"
-            print_debug(
-                {
-                    "method": "Database._setup_optimized_connection",
-                    "status": "using_global_db",
-                    "separate_metadata": self.config.separate_metadata,
-                    "creator_name": self.creator_name,
-                }
-            )
-        print_info(f"Creating shared memory database with URI: {shared_uri}")
+            # Use global database
+            self.db_file = config.metadata_db_file
 
-        # Create in-memory database
-        self.optimized_storage = OptimizedSQLiteMemory(
-            db_path=None if str(self.db_file) == ":memory:" else self.db_file,
-            shared_uri=shared_uri,
-        )
+        # Create shared memory URI
+        if self.config.separate_metadata and self.creator_name:
+            safe_name = "".join(c if c.isalnum() else "_" for c in self.creator_name)
+            self.shared_uri = f"file:creator_{safe_name}?mode=memory&cache=shared"
+        else:
+            self.shared_uri = "file:global_db?mode=memory&cache=shared"
+        # Create SQLAlchemy URI with proper shared memory syntax
+        self.sqlalchemy_uri = f"sqlite:///{self.shared_uri}?uri=true"
 
-        # Use the ConnectionManager from OptimizedSQLiteMemory
-        self.connection_manager = self.optimized_storage.connection_manager
-
-        # Use the sync manager from OptimizedSQLiteMemory
-        self.sync_manager = self.optimized_storage.sync_manager
-
-    def _create_optimized_connection(self, uri: str) -> sqlite3.Connection:
-        """Create an optimized SQLite connection with proper settings.
-
-        Args:
-            uri: Database URI to connect to
-
-        Returns:
-            Configured SQLite connection
-        """
-        conn = sqlite3.connect(
-            uri,
+        # Create initial in-memory database
+        self._shared_connection = sqlite3.connect(
+            self.shared_uri,
             uri=True,
+            isolation_level=None,
             check_same_thread=False,
-            detect_types=sqlite3.PARSE_DECLTYPES
-            | sqlite3.PARSE_COLNAMES,  # Better type handling
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
             timeout=60,  # 60 second connection timeout
         )
-
         # Configure SQLite for in-memory operation
-        conn.execute("PRAGMA busy_timeout=60000")  # 60 second busy timeout
-        conn.execute("PRAGMA temp_store=MEMORY")  # Use memory for temp tables
-        conn.execute(
-            "PRAGMA cache_size=-80000"
-        )  # Use 4MB memory for page cache (larger for in-memory DB)
-        conn.execute("PRAGMA page_size=4096")  # Standard page size
-        conn.execute(
-            "PRAGMA foreign_keys=OFF"
-        )  # Disable foreign key constraints for flexibility
-        conn.execute(
-            "PRAGMA locking_mode=EXCLUSIVE"
-        )  # Better for in-memory DBs since we're using shared cache
+        self._configure_memory_settings(self._shared_connection)
 
-        # Set text handling
-        conn.text_factory = str
+        # Prepare commonly used SQL statements
+        self._prepare_statements()
 
-        return conn
+        # Load existing database if it exists
+        if self.db_file.exists():
+            source_conn = sqlite3.connect(
+                self.db_file,
+                detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+            )
+            source_conn.backup(self._shared_connection)
+            source_conn.close()
 
-    def _setup_engines_and_sessions(self) -> None:
-        """Set up SQLAlchemy engines and session factories.
+        # Keep the shared connection alive
+        self._shared_connection = self._shared_connection
 
-        This method creates both synchronous and asynchronous engines and session
-        factories using the OptimizedSQLiteMemory's shared connections.
-
-        Both engines use the same in-memory database by using a shared URI
-        that points to the same memory location.
-
-        Engine Configuration:
-            - Pool Size: 5 permanent connections
-            - Max Overflow: 10 additional temporary connections
-            - Pool Timeout: 30 seconds wait for connection
-            - Pool Pre-Ping: True (verify connection before use)
-            - Pool Recycle: 1800 seconds (30 minutes)
-            - Connection Timeout: 30 seconds
-            - Isolation Level: READ COMMITTED
-        """
-        # Use the same shared memory URI as OptimizedSQLiteMemory
-        shared_uri = self.optimized_storage.shared_uri
-        print_info(f"Creating engines with shared URI: {shared_uri}")
-
-        # Common configuration for both engines
+        # Create SQLAlchemy engine with optimized settings
         engine_config = {
             "future": True,  # Use SQLAlchemy 2.0 style
             "echo": False,  # Disable SQL echoing (we use our own logging)
@@ -594,20 +208,22 @@ class Database:
                 "isolation_level": None,  # Let SQLAlchemy handle transactions
                 "cached_statements": 1000,  # Cache more prepared statements
             },
+            "creator": lambda: self._shared_connection,  # Use our existing shared connection
+            "isolation_level": "AUTOCOMMIT",  # Prevent auto-transactions
+            "execution_options": {
+                "expire_on_commit": False,  # Don't expire objects after commit
+                "autocommit": True,  # Allow autocommit mode
+                "preserve_session": True,  # Keep session alive
+            },
         }
 
-        # Log engine configuration
-        print_info("Database engine configuration:")
-        print_info("  Using shared memory SQLite (no connection pooling)")
-        print_info(f"  Connection Timeout: {engine_config['connect_args']['timeout']}s")
-        print_info(
-            f"  Isolation Level: {engine_config['connect_args']['isolation_level']}"
+        # Create sync engine with optimized settings
+        self._sync_engine = create_engine(
+            self.sqlalchemy_uri,
+            **engine_config,
         )
-        print_info(
-            f"  Check Same Thread: {engine_config['connect_args']['check_same_thread']}"
-        )
-        print_info(f"  URI Mode: {engine_config['connect_args']['uri']}")
 
+        # Set up event listeners for connection management
         def _on_connect(dbapi_connection, connection_record):
             """Configure connection on checkout."""
             # Set thread-local storage for connection
@@ -636,1016 +252,628 @@ class Database:
                     % (connection_record._thread_id, threading.get_ident())
                 )
 
-        # Create sync engine with shared memory URI
-        self.sync_engine = create_engine(
-            f"sqlite:///{shared_uri}",
-            creator=lambda: self._create_optimized_connection(shared_uri),
-            **engine_config,
-        )
-
         # Set up event listeners for connection management
-        event.listen(self.sync_engine, "connect", _on_connect)
-        event.listen(self.sync_engine, "checkin", _on_checkin)
-        event.listen(self.sync_engine, "checkout", _on_checkout)
+        event.listen(self._sync_engine, "connect", _on_connect)
+        event.listen(self._sync_engine, "checkin", _on_checkin)
+        event.listen(self._sync_engine, "checkout", _on_checkout)
 
         # Set up logging for sync engine
-        db_logger.setup_engine_logging(self.sync_engine)
+        get_db_logger().setup_engine_logging(self._sync_engine)
 
-        # Create async engine with same shared memory URI
-        self.async_engine = create_async_engine(
-            f"sqlite+aiosqlite:///{shared_uri}",
-            creator=lambda: self._create_optimized_connection(shared_uri),
-            **engine_config,
+        # Run migrations if needed
+        alembic_cfg = AlembicConfig("alembic.ini")
+        self._run_migrations_if_needed(alembic_cfg)
+
+        # Create and keep a persistent connection for migrations and validation
+        connection = self._sync_engine.connect()
+        connection = connection.execution_options(
+            isolation_level="AUTOCOMMIT",  # Prevent auto-transactions
+            expire_on_commit=False,  # Don't expire objects after commit
+            autocommit=True,  # Allow autocommit mode
+            preserve_session=True,  # Keep session alive
+            keep_transaction=True,  # Keep transaction open
+            close_with_result=False,  # Don't close after execute
+        )
+
+        # Check if alembic_version table exists
+        result = connection.execute(
+            text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+            )
+        )
+        alembic_version_exists = result.scalar() is not None
+
+        if not alembic_version_exists:
+            print_info("No alembic_version table found. Initializing migrations...")
+            alembic_cfg.attributes["connection"] = connection
+            alembic_upgrade(alembic_cfg, "head")  # Run all migrations
+            print_info("Migrations applied successfully.")
+        else:
+            print_info(
+                "Database is already initialized. Running migrations to latest version..."
+            )
+            alembic_cfg.attributes["connection"] = connection
+            alembic_upgrade(alembic_cfg, "head")
+            print_info("Migrations applied successfully.")
+
+        # Keep the connection for later use
+        self._sqlalchemy_connection = connection
+
+        # Get logger and update its level from config
+        logger = get_db_logger()
+        logger.log_level = config.log_levels.get("sqlalchemy", "INFO")
+
+        # Set up logging for sync engine
+        logger.setup_engine_logging(self._sync_engine)
+
+        # Create async engine with same settings
+        async_config = engine_config.copy()
+        async_config["connect_args"] = engine_config["connect_args"].copy()
+        self._async_engine = create_async_engine(
+            self.sqlalchemy_uri.replace("sqlite://", "sqlite+aiosqlite://"),
+            **async_config,
         )
         # Set up logging for async engine
-        db_logger.setup_engine_logging(self.async_engine)
+        logger.setup_engine_logging(self._async_engine)
 
-        # Create session factories with optimized settings
-        self.sync_session_factory = sessionmaker(
-            bind=self.sync_engine,
+        # Create session factories
+        # Simple sync session factory
+        Database._sync_session_factory = sessionmaker(
+            bind=self._sync_engine,
             expire_on_commit=False,  # Don't expire objects after commit
-            class_=Session,
         )
 
-        self.async_session_factory = async_sessionmaker(
-            bind=self.async_engine,
+        # Create async session factory with sync session for lazy loading
+        Database._async_session_factory = async_sessionmaker(
+            bind=self._async_engine,
             expire_on_commit=False,  # Don't expire objects after commit
-            class_=AsyncSession,
+            sync_session_class=Database._sync_session_factory,  # Use sync session for lazy loading
+            class_=AsyncSession,  # Ensure we get async sessions
         )
 
-        # Register cleanup handlers
-        atexit.register(self._cleanup_sync_engine)
-        atexit.register(self._cleanup_async_engine)
+        # Use class-level factories for this instance
+        self._sync_session_factory = Database._sync_session_factory
+        self._async_session_factory = Database._async_session_factory
 
-    def _cleanup_sync_engine(self) -> None:
-        """Clean up sync engine on exit."""
-        if hasattr(self, "sync_engine"):
-            print_info("Cleaning up sync engine...")
-            try:
-                self.sync_engine.dispose()
-                print_info("Sync engine cleanup complete")
-            except Exception as e:
-                print_error(f"Error during sync engine cleanup: {e}")
+        # Thread-local storage for session reuse
+        self._thread_local = threading.local()
 
-    def _cleanup_async_engine(self) -> None:
-        """Clean up async engine on exit."""
-        if hasattr(self, "async_engine"):
-            print_info("Cleaning up async engine...")
+        # Sync management
+        self._sync_interval = config.db_sync_seconds or 60
+        self._sync_commits = config.db_sync_commits or 1000
+        self._commit_count = 0
+        self._last_sync = time.time()
+        self._sync_lock = threading.Lock()
+        self._stop_sync = threading.Event()
+
+        # Start sync thread
+        self._sync_thread = Thread(
+            target=self._sync_task,
+            daemon=True,
+            name=f"DBSync-{self.db_file.stem}",
+        )
+        self._sync_thread.start()
+
+        # Register cleanup
+        atexit.register(self.close_sync)
+
+    def _sync_to_disk(self) -> None:
+        """Sync in-memory database to disk."""
+        with self._sync_lock:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    print_info("Using running event loop for cleanup")
-                    loop.create_task(self.async_engine.dispose())
-                else:
-                    print_info("Creating new event loop for cleanup")
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
+                # Use our existing shared connection as the source
+                if not self._shared_connection:
+                    print_error("No shared connection available for sync")
+                    return
+
+                # Create a temp file for atomic writes
+                temp_dir = self.db_file.parent
+                with tempfile.NamedTemporaryFile(
+                    dir=temp_dir, delete=False
+                ) as temp_file:
+                    temp_path = Path(temp_file.name)
+
+                try:
+                    # Create destination connection with proper settings
+                    dest_conn = sqlite3.connect(
+                        temp_path,
+                        isolation_level=None,
+                        detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+                    )
+
                     try:
-                        loop.run_until_complete(self.async_engine.dispose())
+                        # Configure destination for backup
+                        dest_conn.execute(
+                            "PRAGMA journal_mode=DELETE"
+                        )  # Simpler journal for backup
+                        dest_conn.execute(
+                            "PRAGMA synchronous=FULL"
+                        )  # Full sync for safety
+                        dest_conn.execute(
+                            "PRAGMA foreign_keys=OFF"
+                        )  # Disable FKs for backup
+
+                        print_info(f"Saving in-memory db to file: {self.db_file}")
+                        # Backup with progress reporting
+                        total_pages = None
+                        remaining_pages = None
+
+                        def progress(status, remaining, total):
+                            nonlocal total_pages, remaining_pages
+                            total_pages = total
+                            remaining_pages = remaining
+                            if total > 0:
+                                percent = 100.0 * (total - remaining) / total
+                                from config import db_logger
+
+                                db_logger.debug(
+                                    f"Backup progress: {percent:.1f}% ({remaining} pages remaining)"
+                                )
+
+                        # Perform backup with progress callback
+                        self._shared_connection.backup(
+                            dest_conn, pages=1000, progress=progress
+                        )
+
+                        # Verify backup
+                        source_tables = self._shared_connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                        dest_tables = dest_conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+
+                        if {t[0] for t in source_tables} != {t[0] for t in dest_tables}:
+                            raise RuntimeError("Table verification failed after backup")
+
+                        # Ensure all changes are written
+                        dest_conn.commit()
+                        dest_conn.execute("PRAGMA wal_checkpoint(FULL)")
+
                     finally:
-                        loop.close()
-                print_info("Async engine cleanup complete")
-            except Exception as e:
-                print_error(f"Error during async engine cleanup: {e}")
+                        dest_conn.close()
 
-        # Create public session context managers with corruption handling
-        self.sync_session = self.get_sync_session  # Uses ConnectionManager
-        self.async_session = self.get_async_session  # Uses ConnectionManager
+                    # Move temp file into place
+                    if self.db_file.exists():
+                        # Create backup of existing file
+                        backup_path = self.db_file.with_suffix(".sqlite3.bak")
+                        shutil.copy2(self.db_file, backup_path)
 
-    def _recreate_connections(self) -> None:
-        """Recreate all database connections.
+                        # Copy WAL and SHM files if they exist
+                        for ext in ["-wal", "-shm"]:
+                            old_wal = Path(str(self.db_file) + ext)
+                            if old_wal.exists():
+                                backup_wal = Path(str(backup_path) + ext)
+                                shutil.copy2(old_wal, backup_wal)
 
-        This method:
-        1. Closes existing connections
-        2. Recreates optimized connection
-        3. Sets up new engines and sessions
-        4. Reconfigures event listeners
-        """
-        try:
-            # Close existing connections
-            self._close_all_connections()
-
-            # Dispose engines
-            if hasattr(self, "sync_engine"):
-                self.sync_engine.dispose()
-            if hasattr(self, "async_engine"):
-                self.async_engine.dispose()
-
-            # Recreate everything
-            self._setup_optimized_connection()
-            self._setup_engines_and_sessions()
-            self._setup_event_listeners()
-
-        except Exception as e:
-            print_error(f"Error recreating connections: {e}")
-            raise
-
-    def _sync_to_remote(self, local_path: Path, remote_path: Path) -> bool:
-        """Sync local database to remote location.
-
-        Args:
-            local_path: Path to local database
-            remote_path: Path to remote database
-
-        Returns:
-            True if sync successful
-        """
-        try:
-            # Create remote directory if it doesn't exist
-            remote_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Copy main database with fsync
-            with open(local_path, "rb") as src, open(remote_path, "wb") as dst:
-                shutil.copyfileobj(src, dst)
-                dst.flush()
-                os.fsync(dst.fileno())
-
-            # Copy WAL and SHM files if they exist
-            for ext in ["-wal", "-shm"]:
-                local_wal = local_path.with_suffix(f".sqlite3{ext}")
-                if local_wal.exists():
-                    remote_wal = remote_path.with_suffix(f".sqlite3{ext}")
-                    shutil.copy2(local_wal, remote_wal)
-                    # Ensure WAL files are synced too
-                    with open(remote_wal, "rb+") as f:
+                    # Move new file into place with fsync
+                    shutil.move(temp_path, self.db_file)
+                    with open(self.db_file, "rb+") as f:
                         f.flush()
                         os.fsync(f.fileno())
 
-            return True
+                    # Copy WAL and SHM files if they exist
+                    for ext in ["-wal", "-shm"]:
+                        temp_wal = Path(str(temp_path) + ext)
+                        if temp_wal.exists():
+                            dest_wal = Path(str(self.db_file) + ext)
+                            shutil.copy2(temp_wal, dest_wal)
+                            with open(dest_wal, "rb+") as f:
+                                f.flush()
+                                os.fsync(f.fileno())
 
-        except Exception as e:
-            print_error(f"Error syncing to remote: {e}")
-            return False
+                    # Report final size
+                    final_size = self.db_file.stat().st_size
+                    print_info(
+                        f"Save complete. File size: {final_size / (1024*1024):.1f}MB"
+                    )
 
-    def _close_all_connections(self) -> None:
-        """Close all database connections.
+                    # Reset counters
+                    self._commit_count = 0
+                    self._last_sync = time.time()
 
-        This method:
-        1. Uses ConnectionManager to close all connections synchronously
-        2. Ensures proper cleanup even on errors
-        """
-        try:
-            if hasattr(self, "connection_manager"):
-                self.connection_manager.cleanup_sync()
-        except Exception as e:
-            print_error(f"Error closing all connections: {e}")
+                finally:
+                    # Clean up temp files
+                    try:
+                        if temp_path.exists():
+                            temp_path.unlink()
+                        for ext in ["-wal", "-shm"]:
+                            temp_wal = Path(str(temp_path) + ext)
+                            if temp_wal.exists():
+                                temp_wal.unlink()
+                    except Exception as cleanup_error:
+                        print_error(f"Error cleaning up temp files: {cleanup_error}")
 
-    def _setup_main_connection(self) -> None:
-        """Set up main SQLite connection with optimized settings."""
-        self.conn = self.optimized_storage.get_shared_connection()
-        if self.conn is None:
-            raise RuntimeError("Could not get shared connection")
-
-    def _handle_wal_checkpoint(self, conn: Any) -> None:
-        """Handle WAL file checkpointing.
-
-        Args:
-            conn: Database connection
-        """
-        for _ in range(3):  # Try up to 3 times
-            try:
-                result = conn.exec_driver_sql(
-                    "PRAGMA wal_checkpoint(PASSIVE)"
-                ).fetchone()
-                if result and result[0] > 1000:  # More than 1000 frames
-                    break
-                return  # Success or not enough frames
-            except sqlite3.OperationalError as e:
-                if "database is locked" not in str(e):
-                    raise
-                time_sleep(0.1)  # Wait 100ms before retry
-        # If we got here, we need to truncate
-        conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
-
-    def _handle_engine_disposal(self, engine: Engine) -> None:
-        """Handle engine disposal by cleaning up associated connections.
-
-        Args:
-            engine: The engine being disposed
-        """
-        if engine is self.sync_engine and hasattr(self, "async_engine"):
-            # If sync engine is disposed, dispose async engine too
-            self.async_engine.sync_engine.dispose()
-
-        if hasattr(self, "connection_manager"):
-            try:
-                # Always use sync cleanup in engine disposal
-                self.connection_manager.cleanup_sync()
             except Exception as e:
-                print_error(
-                    f"Error cleaning up connections during engine disposal: {e}"
-                )
+                print_error(f"Error syncing to disk: {e}")
+                # Original file and its backup should still be intact
 
-    def _handle_connection_close(
-        self, dbapi_connection: Any, connection_record: Any
-    ) -> None:
-        """Handle connection close by cleaning up from ConnectionManager.
-
-        Args:
-            dbapi_connection: The connection being closed
-            connection_record: SQLAlchemy connection record
-        """
-        if hasattr(self, "connection_manager"):
+    def _sync_task(self) -> None:
+        """Background task to sync database to disk."""
+        while not self._stop_sync.is_set():
             try:
-                # Check thread connections
-                for thread_id in self.connection_manager.thread_connections._get_ids():
-                    conn = self.connection_manager.get_thread_connection(thread_id)
-                    if conn is dbapi_connection:
-                        self.connection_manager.thread_connections.remove_connection(
-                            thread_id
-                        )
-                        break
+                # Check if sync needed
+                current_time = time.time()
+                if (
+                    self._commit_count >= self._sync_commits
+                    or current_time - self._last_sync >= self._sync_interval
+                ):
+                    self._sync_to_disk()
 
-                # For async connections, just remove from storage
-                # The session will be properly cleaned up by get_async_session's finally block
-                if hasattr(self.connection_manager, "async_connections"):
-                    task_id = id(asyncio.current_task())
-                    if (
-                        task_id
-                        in self.connection_manager.async_connections._connections
-                    ):
-                        del self.connection_manager.async_connections._connections[
-                            task_id
-                        ]
+                # Sleep briefly
+                time.sleep(1)
+
             except Exception as e:
-                print_error(f"Error cleaning up connection: {e}")
+                print_error(f"Error in sync task: {e}")
 
-        # Always ensure connection is closed
-        try:
-            dbapi_connection.close()
-        except Exception as e:
-            print_error(f"Error closing connection: {e}")
+    def _get_thread_session(self) -> Session | None:
+        """Get existing session for current thread if healthy."""
+        if hasattr(self._thread_local, "session"):
+            session = self._thread_local.session
+            try:
+                # Check if session is healthy
+                with session.begin():
+                    session.execute(text("SELECT 1"))
+                return session
+            except Exception:
+                delattr(self._thread_local, "session")
+        return None
 
-    def _handle_connection_setup(
-        self, dbapi_connection: Any, connection_record: Any
-    ) -> None:
-        """Set up new connection with proper settings.
-
-        Args:
-            dbapi_connection: The new connection
-            connection_record: SQLAlchemy connection record
-        """
-        # Apply memory optimizations
-        self.optimized_storage._configure_memory_settings(dbapi_connection)
-
-    def _handle_connection_checkin(
-        self, dbapi_connection: Any, connection_record: Any
-    ) -> None:
-        """Handle connection checkin by notifying sync manager.
-
-        Args:
-            dbapi_connection: The connection being checked in
-            connection_record: SQLAlchemy connection record
-        """
-        try:
-            # Test if connection is still usable
-            cursor = dbapi_connection.cursor()
-            cursor.execute("SELECT 1")
-            cursor.close()
-
-            # Notify sync manager of potential changes
-            if (
-                hasattr(self.optimized_storage, "sync_manager")
-                and self.optimized_storage.sync_manager is not None
-            ):
-                self.optimized_storage.sync_manager.notify_commit()
-        except Exception as e:
-            print_error(f"Error during connection checkin: {e}")
-
-    def _handle_engine_connect(self, connection: Any) -> None:
-        """Handle engine connection by setting up cleanup.
-
-        Args:
-            connection: The new engine connection
-        """
-
-        def cleanup():
-            """Clean up thread-local resources."""
-            thread_id = str(id(threading.current_thread()))
-            if hasattr(self, "connection_manager"):
-                self.connection_manager.thread_connections.remove_connection(thread_id)
-
-        threading.current_thread().__exitfunc = cleanup
-
-    def _setup_event_listeners(self) -> None:
-        """Set up SQLAlchemy event listeners for connection management."""
-        event.listen(Engine, "engine_disposed", self._handle_engine_disposal)
-        event.listen(Engine, "close", self._handle_connection_close)
-        event.listen(self.sync_engine, "connect", self._handle_connection_setup)
-        event.listen(self.sync_engine, "checkin", self._handle_connection_checkin)
-        event.listen(self.sync_engine, "engine_connect", self._handle_engine_connect)
-
-    def _get_thread_connection(self) -> sqlite3.Connection:
-        """Get thread-local connection.
+    @contextmanager
+    def session_scope(self) -> Generator[Session]:
+        """Get a sync session with proper resource management.
 
         Returns:
-            SQLite connection for current thread
-        """
-        thread_id = str(id(threading.current_thread()))
-        conn = self.connection_manager.get_thread_connection(thread_id)
-        if conn is None:
-            conn = self.optimized_storage.get_shared_connection()
-            if conn is not None:
-                self.connection_manager.set_thread_connection(thread_id, conn)
-        return conn
-
-    @asynccontextmanager
-    async def get_async_session(self) -> AsyncGenerator[AsyncSession]:
-        """Provide an async session for database interaction.
-
-        This context manager:
-        1. Gets a session with corruption detection
-        2. Handles transaction management
-        3. Provides proper cleanup
-        4. Verifies connection health
-        5. Handles rollback on errors
+            SQLAlchemy Session object
 
         Example:
-            ```python
-            async with db.get_async_session() as session:
-                result = await session.execute(select(Model))
-            ```
+            with db.session_scope() as session:
+                result = session.execute(text("SELECT * FROM table"))
+        """
+        # Try to reuse existing session
+        session = self._get_thread_session()
+        if session is not None:
+            yield session
+            return
 
-        Yields:
-            AsyncSession: SQLAlchemy async session with automatic cleanup and retry logic
+        # Create new session
+        session = Database._sync_session_factory()
+        self._thread_local.session = session
+        # Set up logging for session
+        get_db_logger().setup_session_logging(session)
 
-        Raises:
-            DatabaseError: If corruption is detected
-            TimeoutError: If any operation times out
-            Exception: Other database errors
+        try:
+            yield session
+            if session.is_active:
+                session.commit()
+                self._commit_count += 1
+        except Exception as e:
+            print_error(f"Error in sync session: {e}")
+            if session.is_active:
+                session.rollback()
+            raise
+        finally:
+            session.close()
+            delattr(self._thread_local, "session")
+
+    @asynccontextmanager
+    async def async_session_scope(self) -> AsyncGenerator[AsyncSession]:
+        """Get an async session with proper resource management.
+
+        This context manager:
+        1. Reuses sessions within the same task
+        2. Handles transactions properly
+        3. Manages session lifecycle
+        4. Provides proper cleanup
+
+        Example:
+            async with db.async_session_scope() as session:
+                result = await session.execute(text("SELECT * FROM table"))
         """
         task_id = id(asyncio.current_task())
-        session = None
+        task_local = getattr(self._thread_local, "async_sessions", {})
+        if not hasattr(self._thread_local, "async_sessions"):
+            self._thread_local.async_sessions = {}
+
+        # Try to get existing session for this task
+        session = task_local.get(task_id)
+        if session is not None:
+            try:
+                # Verify session is still valid
+                await session.execute(text("SELECT 1"))
+                yield session
+                return
+            except Exception:
+                # Session is invalid, remove it and create new one
+                await session.close()
+                del task_local[task_id]
+
+        # Create new session
+        session = self._async_session_factory()
+        task_local[task_id] = session
+        get_db_logger().setup_session_logging(session)
+
         try:
-            # Try to get or create session with timeout
-            try:
-                async with asyncio.timeout(2):
-                    session_info = (
-                        await self.connection_manager.async_connections.get_session(
-                            task_id
-                        )
-                    )
-                    if session_info is None:
-                        session = self.async_session_factory()
-                        if self.sync_manager is not None:
-                            session._sync_manager = self.sync_manager
-                        await self.connection_manager.async_connections.add_session(
-                            task_id, session
-                        )
-                    else:
-                        session, _ = session_info
-                        await self.connection_manager.async_connections.increment_ref_count(
-                            task_id
-                        )
-            except TimeoutError:
-                print_error("Timeout getting/creating session")
-                raise
-
-            # Verify session health with timeout
-            try:
-                async with asyncio.timeout(1):
-                    await session.execute(text("SELECT 1"))
-            except TimeoutError:
-                print_error("Timeout verifying session health")
-                raise
-            except Exception as e:
-                if "database disk image is malformed" in str(e):
-                    raise DatabaseError("Corruption detected during session creation")
-                raise
-
+            # Let the caller manage transactions
             yield session
-
-            # Commit if active with timeout
-            if session.is_active:
-                try:
-                    async with asyncio.timeout(1):
-                        await session.commit()
-                except TimeoutError:
-                    print_error("Timeout committing session")
-                    raise
-                except Exception as e:
-                    if "database disk image is malformed" in str(e):
-                        print_error("Database corruption detected during commit")
-                        raise DatabaseError("Corruption detected during commit")
-                    raise
-
+            # Only commit if there are changes and no active transaction
+            if session.in_transaction() and session.is_active:
+                await session.commit()
+                self._commit_count += 1
         except Exception as e:
-            # Handle rollback with timeout
-            if session and session.is_active:
-                try:
-                    async with asyncio.timeout(1):
-                        await session.rollback()
-                except Exception as rollback_error:
-                    print_error(f"Error during rollback: {rollback_error}")
-
-            # Check for corruption
-            if isinstance(e, DatabaseError):
-                raise  # Already a DatabaseError
-            if "database disk image is malformed" in str(e):
-                print_error("Database corruption detected during operation")
-                raise DatabaseError("Corruption detected during operation")
-            raise  # Re-raise original error
-
+            print_error(f"Error in async session: {e}")
+            # Rollback if in transaction
+            if session.in_transaction():
+                await session.rollback()
+            raise
         finally:
-            # Always try to clean up session
-            if session:
-                try:
-                    # Close session with timeout
-                    async with asyncio.timeout(1):
-                        await session.close()
-                except Exception as e:
-                    print_error(f"Error closing session: {e}")
-
-                try:
-                    # Decrement ref count with timeout
-                    async with asyncio.timeout(2):
-                        await self.connection_manager.async_connections.decrement_ref_count(
-                            task_id
-                        )
-                except (TimeoutError, Exception) as e:
-                    print_error(f"Error decrementing ref count: {e}")
-                    # Force cleanup on timeout/error
-                    if (
-                        task_id
-                        in self.connection_manager.async_connections._connections
-                    ):
-                        try:
-                            session, _ = self.connection_manager.async_connections._connections[task_id]  # type: ignore
-                            del self.connection_manager.async_connections._connections[
-                                task_id
-                            ]
-                            # Try to close session with short timeout
-                            try:
-                                async with asyncio.timeout(0.5):
-                                    await session.close()
-                            except Exception:
-                                pass  # Ignore close errors on force cleanup
-                        except Exception as cleanup_error:
-                            print_error(f"Error during force cleanup: {cleanup_error}")
+            # Only close session if it's not being reused
+            if task_id in task_local:
+                del task_local[task_id]
+                await session.close()
 
     async def cleanup(self) -> None:
-        """Clean up all database resources.
+        """Clean up all database connections."""
+        if hasattr(self, "_stop_sync"):  # Check if init completed
+            # Stop sync thread
+            self._stop_sync.set()
+            if self._sync_thread is not None:
+                self._sync_thread.join(timeout=5)
 
-        This method ensures proper cleanup of:
-        - OptimizedSQLiteMemory
-        - DatabaseSyncManager
-        - SQLAlchemy engines and sessions
-        """
-        try:
-            # 1. Stop sync manager if active
-            if self.sync_manager is not None:
-                self.sync_manager.stop_sync_thread()
+            # Final sync
+            self._sync_to_disk()
 
-            # 2. Clean up SQLAlchemy resources
-            if hasattr(self, "async_engine"):
-                await self.async_engine.dispose()
-            if hasattr(self, "sync_engine"):
-                self.sync_engine.dispose()
-
-            # 3. Clean up optimized storage
-            if hasattr(self, "optimized_storage"):
-                self.optimized_storage.cleanup()
-
-        except Exception as e:
-            print_error(f"Error during database cleanup: {e}")
-            raise
-
-    def close(self) -> None:
-        """Close all database connections and cleanup resources.
-
-        This method will:
-        1. Use async cleanup if in an async context
-        2. Fall back to sync cleanup if needed
-        3. Ensure proper cleanup even on errors
-        """
-        try:
-            # Try to get the current event loop
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    print_info("Using async cleanup")
-
-                    async def _cleanup():
-                        try:
-                            # Ensure final sync before cleanup
-                            if (
-                                hasattr(self, "sync_manager")
-                                and self.sync_manager is not None
-                            ):
-                                print_info("Performing final sync before cleanup...")
-                                self.sync_manager.sync_now()
-
-                                # Verify sync was successful
-                                if not self._verify_sync():
-                                    print_error("Initial sync verification failed")
-                                    # Try one more time
-                                    print_info("Retrying final sync...")
-                                    self.sync_manager.sync_now()
-                                    if not self._verify_sync():
-                                        print_error(
-                                            "Final sync verification failed - data may be lost!"
-                                        )
-                                        raise RuntimeError(
-                                            "Failed to verify final sync"
-                                        )
-                                else:
-                                    print_info("Final sync verified successfully")
-
-                            # Now do the cleanup
-                            await self.cleanup()
-                        except Exception as e:
-                            print_error(f"Error during async cleanup: {e}")
-                            raise
-
-                    # Create and wait for cleanup task
-                    cleanup_task = loop.create_task(_cleanup())
-                    try:
-                        # Add task to pending tasks so it's not destroyed
-                        self.config._background_tasks.append(cleanup_task)
-                        # Wait for cleanup to complete
-                        loop.run_until_complete(cleanup_task)
-                    except Exception as e:
-                        print_error(f"Error waiting for cleanup: {e}")
-                        # Try to cancel task if it's still running
-                        if not cleanup_task.done():
-                            cleanup_task.cancel()
-                            try:
-                                loop.run_until_complete(cleanup_task)
-                            except asyncio.CancelledError:
-                                pass
-                    finally:
-                        # Remove task from pending tasks
-                        if cleanup_task in self.config._background_tasks:
-                            self.config._background_tasks.remove(cleanup_task)
-                    return
-            except RuntimeError:
-                print_info("No event loop - using sync cleanup")
-
-            # If we get here, use sync cleanup
-            try:
-                # Ensure final sync before cleanup
-                if hasattr(self, "sync_manager") and self.sync_manager is not None:
-                    print_info("Performing final sync before cleanup...")
-                    self.sync_manager.sync_now()
-
-                    # Verify sync was successful
-                    if not self._verify_sync():
-                        print_error("Initial sync verification failed")
-                        # Try one more time
-                        print_info("Retrying final sync...")
-                        self.sync_manager.sync_now()
-                        if not self._verify_sync():
-                            print_error(
-                                "Final sync verification failed - data may be lost!"
-                            )
-                            raise RuntimeError("Failed to verify final sync")
-                    else:
-                        print_info("Final sync verified successfully")
-
-                    self.sync_manager.stop_sync_thread()
-
-                # Now do the cleanup
-                if hasattr(self, "sync_engine"):
-                    self.sync_engine.dispose()
-
-                if hasattr(self, "optimized_storage"):
-                    self.optimized_storage.cleanup()
-            except Exception as e:
-                print_error(f"Error during sync cleanup: {e}")
-                raise
-
-        except Exception as e:
-            print_error(f"Error during database close: {e}")
-            raise
-
-    def _stop_background_sync(self) -> None:
-        """Stop background sync if enabled."""
-        if (
-            hasattr(self, "optimized_storage")
-            and hasattr(self.optimized_storage, "sync_manager")
-            and self.optimized_storage.sync_manager is not None
-        ):
-            self.optimized_storage.sync_manager.stop_sync_thread()
-
-    def _cleanup_thread_connections(self) -> None:
-        """Clean up all thread-local connections."""
-        if hasattr(self, "connection_manager"):
-            thread_ids = self.connection_manager.thread_connections._get_ids()
-            for thread_id in thread_ids:
+            # Close shared connection first to properly close in-memory database
+            if (
+                hasattr(self, "_shared_connection")
+                and self._shared_connection is not None
+            ):
                 try:
-                    self.connection_manager.thread_connections.remove_connection(
-                        thread_id
-                    )
+                    self._shared_connection.close()
                 except Exception as e:
-                    print_error(f"Error closing thread connection {thread_id}: {e}")
+                    print_error(f"Error closing shared connection: {e}")
 
-    def _cleanup_storage(self) -> None:
-        """Clean up optimized storage."""
-        if hasattr(self, "optimized_storage"):
-            try:
-                self.optimized_storage.close_sync()
-            except Exception as e:
-                print_error(f"Error closing optimized storage: {e}")
+            # Then close engines
+            if hasattr(self, "_sync_engine") and self._sync_engine is not None:
+                try:
+                    self._sync_engine.dispose()
+                except Exception as e:
+                    print_error(f"Error disposing sync engine: {e}")
 
-    def _cleanup_engines(self) -> None:
-        """Clean up database engines."""
-        if hasattr(self, "sync_engine"):
-            try:
-                self.sync_engine.dispose()
-            except Exception as e:
-                print_error(f"Error disposing sync engine: {e}")
-        if hasattr(self, "async_engine"):
-            try:
-                self.async_engine.sync_engine.dispose()
-            except Exception as e:
-                print_error(f"Error disposing async engine: {e}")
-
-    def _verify_sync(self) -> bool:
-        """Verify that sync was successful by comparing tables and data.
-
-        Returns:
-            True if sync was successful, False otherwise
-        """
-        if not hasattr(self, "optimized_storage"):
-            return False
-
-        try:
-            # Get memory connection
-            memory_conn = self.optimized_storage.get_shared_connection()
-            if memory_conn is None:
-                print_error("Could not get memory connection for verification")
-                return False
-
-            # Get disk connection
-            disk_conn = sqlite3.connect(self.db_file)
-
-            try:
-                # Get memory tables
-                memory_tables = memory_conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-                memory_tables = [t[0] for t in memory_tables]
-
-                # Get disk tables
-                disk_tables = disk_conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-                disk_tables = [t[0] for t in disk_tables]
-
-                # Compare tables
-                if set(memory_tables) != set(disk_tables):
-                    print_error("Memory and disk tables don't match!")
-                    print_info(f"Memory tables: {memory_tables}")
-                    print_info(f"Disk tables: {disk_tables}")
-                    return False
-
-                # Compare row counts for each table
-                for table in memory_tables:
-                    memory_count = memory_conn.execute(
-                        f"SELECT COUNT(*) FROM {table}"
-                    ).fetchone()[0]
-                    disk_count = disk_conn.execute(
-                        f"SELECT COUNT(*) FROM {table}"
-                    ).fetchone()[0]
-                    if memory_count != disk_count:
-                        print_error(f"Row count mismatch for table {table}!")
-                        print_info(f"Memory rows: {memory_count}")
-                        print_info(f"Disk rows: {disk_count}")
-                        return False
-
-                print_info("Sync verification successful")
-                return True
-
-            finally:
-                disk_conn.close()
-
-        except Exception as e:
-            print_error(f"Error during sync verification: {e}")
-            return False
-
-    def _final_sync_attempt(self) -> None:
-        """Attempt one final sync if possible."""
-        if hasattr(self, "optimized_storage"):
-            try:
-                print_info("Attempting final sync...")
-                self.optimized_storage.force_sync()
-                if not self._verify_sync():
-                    print_error("Final sync verification failed")
-                    # Try one more time
-                    print_info("Retrying final sync...")
-                    self.optimized_storage.force_sync()
-                    if not self._verify_sync():
-                        print_error("Final sync retry failed")
-            except Exception as sync_error:
-                print_error(f"Error during final sync attempt: {sync_error}")
+            if hasattr(self, "_async_engine") and self._async_engine is not None:
+                try:
+                    await self._async_engine.dispose()
+                except Exception as e:
+                    print_error(f"Error disposing async engine: {e}")
 
     def close_sync(self) -> None:
-        """Synchronous cleanup for shutdown.
+        """Synchronous cleanup for atexit handler."""
+        if hasattr(self, "_stop_sync"):  # Check if init completed
+            # Stop sync thread
+            self._stop_sync.set()
+            if self._sync_thread is not None:
+                self._sync_thread.join(timeout=5)
 
-        This method ensures proper cleanup by:
-        1. Stopping background sync
-        2. Performing final sync with verification
-        3. Closing connections only after successful sync
-        4. Cleaning up temp files
-        """
+            # Final sync
+            self._sync_to_disk()
+
+            # Check for leaked semaphores
+            monitor_semaphores(threshold=20)  # Warn if too many semaphores
+
+            # Close shared connection first to properly close in-memory database
+            if (
+                hasattr(self, "_shared_connection")
+                and self._shared_connection is not None
+            ):
+                try:
+                    self._shared_connection.close()
+                except Exception as e:
+                    print_error(f"Error closing shared connection: {e}")
+
+            # Then close engines
+            if hasattr(self, "_sync_engine") and self._sync_engine is not None:
+                try:
+                    self._sync_engine.dispose()
+                except Exception as e:
+                    print_error(f"Error disposing sync engine: {e}")
+
+            # Don't try to dispose async engine in sync context
+            # It will be cleaned up by Python's GC
+
+    def __del__(self) -> None:
+        """Ensure cleanup on deletion."""
         try:
-            print_info("Starting sync cleanup")
+            self.close_sync()
+        except Exception:
+            # Ignore errors during shutdown
+            pass
 
-            # Stop background sync first
-            self._stop_background_sync()
-
-            # Ensure final sync before any cleanup
-            if hasattr(self, "sync_manager") and self.sync_manager is not None:
-                print_info("Performing final sync before cleanup...")
-                self.sync_manager.sync_now()
-
-                # Verify sync was successful
-                if not self._verify_sync():
-                    print_error("Initial sync verification failed")
-                    # Try one more time
-                    print_info("Retrying final sync...")
-                    self.sync_manager.sync_now()
-                    if not self._verify_sync():
-                        print_error(
-                            "Final sync verification failed - data may be lost!"
-                        )
-                else:
-                    print_info("Final sync verified successfully")
-
-            # Only clean up after successful sync
-            self._cleanup_thread_connections()
-            self._cleanup_storage()
-            self._cleanup_engines()
-
-            print_info("Database cleanup completed")
-        except Exception as e:
-            print_error(f"Error during database cleanup: {e}")
-            # Try one last sync
-            self._final_sync_attempt()
-
-    def find_hashtag(self, value: str) -> tuple | None:
-        """Find hashtag by value (case-insensitive)."""
-        conn = self.optimized_storage.get_shared_connection()
-        if not conn:
-            return None
-        return self.optimized_storage.execute_prepared(
-            conn, "find_hashtag", (value,), fetch="one"
-        )
-
-    def find_hashtags_batch(self, values: list[str]) -> list[tuple]:
-        """Find multiple hashtags by value (case-insensitive)."""
-        conn = self.optimized_storage.get_shared_connection()
-        if not conn:
-            return []
-        return self.optimized_storage.execute_prepared(
-            conn, "find_hashtags_batch", (json.dumps(values),), fetch="all"
-        )
-
-    def find_post_mentions(
+    @contextmanager
+    def batch_sync_settings(
         self,
-        post_id: int,
-        account_id: int | None = None,
-        handle: str | None = None,
-    ) -> list[tuple]:
-        """Find mentions for a post."""
-        conn = self.optimized_storage.get_shared_connection()
-        if not conn:
-            return []
-        return self.optimized_storage.execute_prepared(
-            conn, "find_post_mentions", (post_id, account_id, handle), fetch="all"
-        )
-
-    def find_media_by_hash(self, content_hash: str) -> tuple | None:
-        """Find media by content hash."""
-        conn = self.optimized_storage.get_shared_connection()
-        if not conn:
-            return None
-        return self.optimized_storage.execute_prepared(
-            conn, "find_media_by_hash", (content_hash,), fetch="one"
-        )
-
-
-class OptimizedSQLiteMemory:
-    """SQLite database that operates entirely in memory.
-
-    This class manages a SQLite database that exists only in memory,
-    optionally loading initial data from a disk file. It uses
-    ConnectionManager to handle thread and async access safely.
-
-    The database can be accessed both synchronously and asynchronously
-    through the connection_manager, which handles proper thread/task
-    safety and connection sharing.
-
-    Features:
-    1. In-memory operation for speed
-    2. Connection pooling and sharing
-    3. Prepared statements for common queries
-    4. Optimized indexes for frequent lookups
-    5. Automatic query optimization
-
-    Attributes:
-        remote_path: Path to source database file (for initial loading)
-        connection_manager: Manager for database connections
-    """
-
-    _shared_uri: str
-    remote_path: Path | None
-    connection_manager: ConnectionManager
-    sync_manager: DatabaseSyncManager | None
-
-    def __init__(self, db_path: str | Path | None, shared_uri: str):
-        """Initialize the in-memory database.
+        commit_threshold: int | None = None,
+        interval: int | None = None,
+    ) -> Generator[None]:
+        """Temporarily adjust sync settings for batch operations.
 
         Args:
-            db_path: Path to the database file to load initially, or None for empty
-            shared_uri: URI for shared memory database (e.g., 'file:global_db?mode=memory&cache=shared')
+            commit_threshold: Number of commits between syncs
+            interval: Seconds between syncs
 
-        Raises:
-            sqlite3.DatabaseError: If database cannot be loaded
+        Example:
+            with db.batch_sync_settings(commit_threshold=1000, interval=60):
+                # Perform batch operations
+                ...
         """
-        self._shared_uri = shared_uri  # Store the URI for later use
-        self._prepared_statements = {}
-        self.remote_path = Path(db_path) if db_path else None
-        self.connection_manager = ConnectionManager(optimized_storage=self)
-        self.sync_manager = None
+        old_commits = self._sync_commits
+        old_interval = self._sync_interval
 
-        # Create initial in-memory database
-        temp_conn = None
+        if commit_threshold is not None:
+            self._sync_commits = commit_threshold
+        if interval is not None:
+            self._sync_interval = interval
+
         try:
-            # Create and configure in-memory database with shared URI
-            temp_conn = sqlite3.connect(shared_uri, uri=True)
-            self._configure_memory_settings(temp_conn)
+            yield
+        finally:
+            self._sync_commits = old_commits
+            self._sync_interval = old_interval
 
-            # Load existing database if path provided
-            if self.remote_path and self.remote_path.exists():
-                disk_conn = sqlite3.connect(str(self.remote_path))
-                disk_conn.backup(temp_conn)
-                disk_conn.close()
+    # region Database Methods
+    def _run_migrations_if_needed(self, alembic_cfg: AlembicConfig) -> None:
+        """Run database migrations if needed.
 
-            # Store as initial connection
-            self.connection_manager.set_thread_connection(
-                str(threading.get_ident()), temp_conn
+        Args:
+            alembic_cfg: Alembic configuration for migrations
+        """
+        # Set the correct shared memory URI in Alembic config
+        alembic_cfg.set_main_option("sqlalchemy.url", self.sqlalchemy_uri)
+        print_info(
+            f"Running migrations on shared memory database: {self.sqlalchemy_uri}"
+        )
+
+        # Create persistent connection for migrations
+        connection = self._sync_engine.connect()
+        connection = connection.execution_options(
+            isolation_level="AUTOCOMMIT",
+            expire_on_commit=False,
+            autocommit=True,
+            preserve_session=True,
+            keep_transaction=True,
+            close_with_result=False,
+        )
+
+        try:
+            # Start a transaction to keep the connection open
+            with connection.begin():
+                # Check if alembic_version table exists
+                result = connection.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+                    )
+                )
+                alembic_version_exists = result.scalar() is not None
+
+                if not alembic_version_exists:
+                    print_info(
+                        "No alembic_version table found. Initializing migrations..."
+                    )
+                    alembic_cfg.attributes["connection"] = connection
+                    alembic_upgrade(alembic_cfg, "head")  # Run all migrations
+                    print_info("Migrations applied successfully.")
+                else:
+                    print_info(
+                        "Database is already initialized. Running migrations to latest version..."
+                    )
+                    alembic_cfg.attributes["connection"] = connection
+                    alembic_upgrade(alembic_cfg, "head")
+                    print_info("Migrations applied successfully.")
+
+            # Create a new connection for validation
+            validation_connection = self._sync_engine.connect().execution_options(
+                isolation_level="AUTOCOMMIT",
+                expire_on_commit=False,
+                autocommit=True,
+                preserve_session=True,
+                keep_transaction=True,
+                close_with_result=False,
             )
+            # Get raw SQLite connection and validate prepared statements
+            raw_conn = validation_connection.connection
+            self._validate_prepared_statements(raw_conn)
 
-            # Now validate prepared statements since tables exist
-            self._validate_prepared_statements(temp_conn)
-        except Exception:
-            if temp_conn:
-                temp_conn.close()
+            # Keep the validation connection for later use
+            self._sqlalchemy_connection = validation_connection
+        except Exception as e:
+            print_error(f"Error running migrations: {e}")
+            connection.close()
             raise
 
-        # Enable URI connections for shared cache
-        sqlite3.enable_callback_tracebacks(True)
-
-    def execute_prepared(
-        self,
-        conn: sqlite3.Connection,
-        stmt_name: str,
-        params: tuple | list | dict = (),
-        fetch: str | None = None,
-    ) -> sqlite3.Cursor | list[tuple] | tuple | None:
-        """Execute a prepared statement by name.
-
-        Args:
-            conn: Database connection to use
-            stmt_name: Name of the prepared statement
-            params: Parameters for the statement
-            fetch: How to fetch results:
-                  - None: Return cursor
-                  - 'one': Return single row or None
-                  - 'all': Return all rows
-                  - 'scalar': Return first column of first row or None
-
-        Returns:
-            Query results based on fetch parameter
-
-        Raises:
-            ValueError: If statement name not found
-            sqlite3.Error: If execution fails
-        """
-        if stmt_name not in self._prepared_statements:
-            raise ValueError(f"Prepared statement '{stmt_name}' not found")
-
-        stmt = self._prepared_statements[stmt_name]
-        cursor = conn.execute(stmt["sql"], params)
-
-        if fetch == "one":
-            return cursor.fetchone()
-        elif fetch == "all":
-            return cursor.fetchall()
-        elif fetch == "scalar":
-            row = cursor.fetchone()
-            return row[0] if row else None
-        else:
-            return cursor
-
-    def _prepare_statements(self, conn: sqlite3.Connection) -> None:
-        """Prepare commonly used SQL statements.
-
-        This method prepares statements that are frequently used to improve performance
-        by avoiding repeated parsing and query planning.
-
-        Args:
-            conn: SQLite connection to prepare statements on
-        """
-        # Define statements with their SQL
-        statements = {
-            "find_hashtag": {
-                "sql": (
-                    "SELECT id, value " "FROM hashtags " "WHERE lower(value) = lower(?)"
-                ),
-                "doc": "Case-insensitive hashtag lookup by value",
-            },
-            "find_hashtags_batch": {
-                "sql": (
-                    "SELECT id, value "
-                    "FROM hashtags "
-                    "WHERE lower(value) IN ("
-                    "    SELECT lower(value) "
-                    "    FROM json_each(?)"
-                    ")"
-                ),
-                "doc": "Batch hashtag lookup using JSON array parameter",
-            },
-            "find_post_mentions": {
-                "sql": (
-                    "SELECT * "
-                    "FROM post_mentions "
-                    "WHERE postId = ? "
-                    "AND ("
-                    "    (accountId = ? AND accountId IS NOT NULL) "
-                    "    OR "
-                    "    (handle = ? AND handle IS NOT NULL)"
-                    ")"
-                ),
-                "doc": "Find post mentions by postId and either accountId or handle",
-            },
-            "find_media_by_hash": {
-                "sql": ("SELECT * " "FROM media " "WHERE content_hash = ?"),
-                "doc": "Find media by content hash",
-            },
-            "find_wall_posts": {
-                "sql": (
-                    "SELECT p.* "
-                    "FROM posts p "
-                    "JOIN wall_posts wp ON p.id = wp.postId "
-                    "WHERE wp.wallId = ? "
-                    "ORDER BY p.createdAt DESC "
-                    "LIMIT ? OFFSET ?"
-                ),
-                "doc": "Find posts in a wall with pagination",
-            },
-            "find_post_attachments": {
-                "sql": (
-                    "SELECT a.* "
-                    "FROM attachments a "
-                    "WHERE a.postId = ? "
-                    "ORDER BY a.pos"
-                ),
-                "doc": "Find attachments for a post ordered by position",
-            },
-        }
-
-        # Store prepared statements in the class
-        self._prepared_statements = {}
-
-        # Prepare each statement
-        for name, info in statements.items():
-            try:
-                # Store the statement without trying to EXPLAIN yet
-                self._prepared_statements[name] = {
-                    "sql": info["sql"],
-                    "doc": info["doc"],
-                }
-            except sqlite3.Error as e:
-                print_error(f"Error preparing statement '{name}': {e}")
-                print_error(f"SQL: {info['sql']}")
-                # Don't raise - we'll validate when tables exist
-
-        # Statements are now prepared and stored in self._prepared_statements
-
     def _validate_prepared_statements(self, conn: sqlite3.Connection) -> None:
-        """Validate prepared statements now that tables exist.
+        """Validate prepared statements using SQLAlchemy.
 
         This runs EXPLAIN QUERY PLAN on each statement to:
         1. Verify the SQL is valid
         2. Cache the query plan
         3. Catch any table/schema issues
         """
-        for name, info in self._prepared_statements.items():
-            try:
-                # Count number of parameters (? marks) in the SQL
-                param_count = info["sql"].count("?")
-                # Create dummy parameters for EXPLAIN
-                dummy_params = tuple("1" for _ in range(param_count))
-                stmt = conn.cursor().execute(
-                    f"EXPLAIN QUERY PLAN {info['sql']}", dummy_params
-                )
-                stmt.close()  # Force SQLite to cache the query plan
-            except sqlite3.Error as e:
-                print_error(f"Error validating statement '{name}': {e}")
-                print_error(f"SQL: {info['sql']}")
-                raise
+        # Create a temporary SQLAlchemy engine for validation
+        from sqlalchemy import create_engine
+
+        engine = create_engine(
+            "sqlite://",
+            creator=lambda: conn,
+        )
+
+        # Validate each statement
+        with engine.connect() as connection:
+            for name, stmt in self._prepared_statements.items():
+                try:
+                    bind_params = [
+                        p for p in stmt.get_children() if isinstance(p, BindParameter)
+                    ]
+                    # Create dummy parameters
+                    params = {param.key: "1" for param in bind_params}
+                    # Execute EXPLAIN QUERY PLAN
+                    connection.execute(
+                        text(f"EXPLAIN QUERY PLAN {stmt.text}"),
+                        params,
+                    )
+                except Exception as e:
+                    print_error(f"Error validating statement '{name}': {e}")
+                    print_error(f"SQL: {stmt.text}")
+                    raise
+
+    def _prepare_statements(self) -> None:
+        """Prepare commonly used SQL statements.
+
+        This method creates SQLAlchemy text() objects with named parameters
+        for better performance and safety.
+        """
+        from sqlalchemy.sql import bindparam
+
+        # Define statements with their SQL
+        self._prepared_statements = {
+            "find_hashtag": text(
+                "SELECT id, value FROM hashtags WHERE lower(value) = lower(:value)"
+            ).bindparams(bindparam("value")),
+            "find_hashtags_batch": text(
+                "SELECT id, value FROM hashtags WHERE lower(value) IN ("
+                "    SELECT lower(value) FROM json_each(:values)"
+                ")"
+            ).bindparams(bindparam("values")),
+            "find_post_mentions": text(
+                "SELECT * FROM post_mentions "
+                "WHERE postId = :post_id "
+                "AND (:account_id IS NULL OR accountId = :account_id) "
+                "AND (:handle IS NULL OR handle = :handle)"
+            ).bindparams(
+                bindparam("post_id"),
+                bindparam("account_id"),
+                bindparam("handle"),
+            ),
+            "find_media_by_hash": text(
+                "SELECT * FROM media WHERE content_hash = :content_hash"
+            ).bindparams(bindparam("content_hash")),
+            "find_wall_posts": text(
+                "SELECT p.* "
+                "FROM posts p "
+                "JOIN wall_posts wp ON p.id = wp.postId "
+                "WHERE wp.wallId = :wall_id "
+                "ORDER BY p.createdAt DESC "
+                "LIMIT :limit OFFSET :offset"
+            ).bindparams(
+                bindparam("wall_id"),
+                bindparam("limit"),
+                bindparam("offset"),
+            ),
+            "find_post_attachments": text(
+                "SELECT a.* "
+                "FROM attachments a "
+                "WHERE a.postId = :post_id "
+                "ORDER BY a.pos"
+            ).bindparams(bindparam("post_id")),
+        }
 
     def _configure_memory_settings(self, conn: sqlite3.Connection) -> None:
         """Configure SQLite connection for optimal memory performance.
@@ -1672,538 +900,84 @@ class OptimizedSQLiteMemory:
         conn.execute("PRAGMA locking_mode=NORMAL")  # Better concurrency
         conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
 
-        # Prepare statements
-        self._prepare_statements(conn)
-
     def get_shared_connection(self) -> sqlite3.Connection | None:
-        """Get a shared connection to the in-memory database.
+        """Get the shared connection to the in-memory database.
 
-        This method returns a connection that can be used by multiple threads.
-        The connection uses SQLite's shared cache mode for thread safety.
-
-        Returns:
-            SQLite connection or None if no connections available
+        Returns the single shared connection that is kept alive
+        for the lifetime of the database.
         """
-        # Try to get any existing connection first
-        thread_ids = self.connection_manager.thread_connections._get_ids()
-        for thread_id in thread_ids:
-            conn = self.connection_manager.get_thread_connection(thread_id)
-            if conn is not None:
-                return conn
+        return self._shared_connection
 
-        # Create a new shared connection if none exists
-        try:
-            conn = sqlite3.connect(
-                self.shared_uri,  # Use the creator-specific URI
-                uri=True,
-                isolation_level=None,  # For explicit transaction control
-                check_same_thread=False,  # Allow multi-threading
+    def find_hashtag(self, value: str) -> tuple | None:
+        """Find hashtag by value (case-insensitive)."""
+        with self.session_scope() as session:
+            result = session.execute(
+                self._prepared_statements["find_hashtag"],
+                {"value": value},
             )
-            self._configure_memory_settings(conn)
+            return result.fetchone()
 
-            # Store in connection manager
-            thread_id = str(threading.get_ident())
-            self.connection_manager.set_thread_connection(thread_id, conn)
-            return conn
-        except Exception as e:
-            print_error(f"Error creating shared connection: {e}")
-            return None
+    def find_hashtags_batch(self, values: list[str]) -> list[tuple]:
+        """Find multiple hashtags by value (case-insensitive)."""
+        with self.session_scope() as session:
+            result = session.execute(
+                self._prepared_statements["find_hashtags_batch"],
+                {"values": json.dumps(values)},
+            )
+            return result.fetchall()
 
-    def _setup_connection_optimizations(self) -> None:
-        """Set up optimizations for all connections.
-
-        This method:
-        1. Gets all current connections
-        2. Applies memory optimizations to each
-        3. Handles missing connections gracefully
-        """
-        # Get all current connections
-        thread_ids = self.connection_manager.thread_connections._get_ids()
-        for thread_id in thread_ids:
-            conn = self.connection_manager.get_thread_connection(thread_id)
-            if conn is not None:
-                self._configure_memory_settings(conn)
-
-    @retry_on_locked_db
-    def execute(self, query: str, params=()) -> sqlite3.Cursor:
-        """Execute a query synchronously.
-
-        Args:
-            query: SQL query to execute
-            params: Query parameters
-
-        Returns:
-            SQLite cursor with query results
-        """
-        thread_id = str(threading.get_ident())
-        conn = self.connection_manager.get_thread_connection(thread_id)
-        if conn is None:
-            conn = self.get_shared_connection()
-        return conn.execute(query, params)
-
-    @retry_on_locked_db
-    async def execute_async(self, query: str, params=()) -> Any:
-        """Execute a query asynchronously.
-
-        Uses asyncio.to_thread to run the SQLite operation in a thread pool,
-        preventing blocking of the event loop while maintaining proper locking.
-
-        Args:
-            query: SQL query to execute
-            params: Query parameters
-
-        Returns:
-            Query result
-        """
-        task_id = id(asyncio.current_task())
-        query_lock = self.connection_manager.async_connections._get_query_lock(task_id)
-        async with query_lock:
-            session = self.connection_manager.async_connections._connections[task_id][0]  # type: ignore
-            return await asyncio.to_thread(session.execute, query, params)
-
-    @retry_on_locked_db
-    async def executemany_async(self, query: str, params_seq) -> Any:
-        """Execute multiple queries asynchronously.
-
-        Uses asyncio.to_thread to run the SQLite operation in a thread pool,
-        preventing blocking of the event loop while maintaining proper locking.
-
-        Args:
-            query: SQL query to execute
-            params_seq: Sequence of query parameters
-
-        Returns:
-            Query result
-        """
-        task_id = id(asyncio.current_task())
-        query_lock = self.connection_manager.async_connections._get_query_lock(task_id)
-        async with query_lock:
-            session = self.connection_manager.async_connections._connections[task_id][0]  # type: ignore
-            return await asyncio.to_thread(session.executemany, query, params_seq)
-
-    def cleanup(self) -> None:
-        """Clean up resources asynchronously."""
-        try:
-            self.connection_manager.cleanup_sync()
-        except Exception as e:
-            print_error(f"Error cleaning up connections: {e}")
-
-    def close_sync(self) -> None:
-        """Clean up resources synchronously."""
-        try:
-            self.connection_manager.cleanup_sync()
-        except Exception as e:
-            print_error(f"Error cleaning up connections: {e}")
-
-    @property
-    def shared_uri(self) -> str:
-        """Get the shared memory URI being used by this database."""
-        return self._shared_uri
-
-
-class DatabaseSyncManager:
-    """Manage synchronization between in-memory and disk databases.
-
-    This class handles the background synchronization of the in-memory
-    database with its on-disk copy, particularly important for network
-    storage locations.
-
-    The manager provides:
-    1. Time-based sync (from config.db_sync_seconds)
-    2. Commit-based sync (from config.db_sync_commits)
-    3. Progress tracking and error handling
-    4. Network-aware sync optimization
-    5. Network path detection
-    6. Atomic disk writes using SQLite's backup API
-
-    The manager uses OptimizedSQLiteMemory's shared connection feature
-    to access the in-memory database, and SQLite's backup API to perform
-    atomic writes to disk.
-
-    Attributes:
-        remote_path: Path to actual database file
-        sync_interval: Seconds between syncs (from config)
-        sync_commits: Number of commits between syncs (from config)
-        _stop_event: Event to signal sync thread to stop
-        _sync_thread: Background thread for syncing
-        commit_count: Number of commits since last sync
-        _sync_stats: Dictionary tracking sync statistics
-        _is_network: Whether remote_path is on network drive
-        optimized_storage: OptimizedSQLiteMemory instance for in-memory access
-    """
-
-    def __init__(
+    def find_post_mentions(
         self,
-        remote_path: Path,
-        config: FanslyConfig,
-        optimized_storage: OptimizedSQLiteMemory,
-    ) -> None:
-        """Initialize sync manager.
-
-        Args:
-            remote_path: Path to actual database file
-            config: FanslyConfig containing sync settings
-            optimized_storage: OptimizedSQLiteMemory instance to sync from
-
-        The manager will use the optimized_storage's shared connection feature
-        to access the in-memory database, and SQLite's backup API to perform
-        atomic writes to disk.
-        """
-        self.remote_path = remote_path
-        self._is_network = is_network_path(remote_path)
-        self._stop_event = threading.Event()
-        self._sync_thread = None
-        self.commit_count = 0
-        # Locks for different purposes
-        self._sync_lock = threading.Lock()  # Lock to coordinate syncs with transactions
-        self._thread_lock = threading.Lock()  # Lock for thread management
-        self._transaction_lock = threading.Lock()  # Lock for transaction counter
-
-        # State tracking
-        self._active_transactions = 0  # Count of active transactions
-        self.optimized_storage = optimized_storage
-
-        # Initialize sync statistics
-        self._sync_stats = {
-            "total_syncs": 0,
-            "failed_syncs": 0,
-            "last_sync_time": None,
-            "last_sync_duration": None,
-            "last_error": None,
-            "errors": [],  # List of error messages
-            "network_errors": 0,
-            "bytes_synced": 0,
-            "is_network": self._is_network,
-        }
-
-        # Set sync settings based on path type and config
-        if self._is_network:
-            # Network paths need more frequent syncs
-            # Network paths need more frequent syncs
-            self.sync_interval = 30
-            if (
-                hasattr(config, "db_sync_seconds")
-                and config.db_sync_seconds is not None
-            ):
-                self.sync_interval = config.db_sync_seconds
-
-            self.sync_commits = 100
-            if (
-                hasattr(config, "db_sync_commits")
-                and config.db_sync_commits is not None
-            ):
-                self.sync_commits = config.db_sync_commits
-        else:
-            # Local paths can use longer intervals
-            self.sync_interval = 60
-            if (
-                hasattr(config, "db_sync_seconds")
-                and config.db_sync_seconds is not None
-            ):
-                self.sync_interval = config.db_sync_seconds
-
-            self.sync_commits = 1000
-            if (
-                hasattr(config, "db_sync_commits")
-                and config.db_sync_commits is not None
-            ):
-                self.sync_commits = config.db_sync_commits
-
-        if self._is_network:
-            print_info(
-                f"Network path detected for {remote_path}, using optimized sync settings "
-                f"(interval: {self.sync_interval}s, commits: {self.sync_commits})"
+        post_id: int,
+        account_id: int | None = None,
+        handle: str | None = None,
+    ) -> list[tuple]:
+        """Find mentions for a post."""
+        with self.session_scope() as session:
+            result = session.execute(
+                self._prepared_statements["find_post_mentions"],
+                {
+                    "post_id": post_id,
+                    "account_id": account_id,
+                    "handle": handle,
+                },
             )
+            return result.fetchall()
 
-    def stop_sync_thread(self) -> None:
-        """Stop the background sync thread safely.
+    def find_media_by_hash(self, content_hash: str) -> tuple | None:
+        """Find media by content hash."""
+        with self.session_scope() as session:
+            result = session.execute(
+                self._prepared_statements["find_media_by_hash"],
+                {"content_hash": content_hash},
+            )
+            return result.fetchone()
 
-        This method:
-        1. Signals the thread to stop
-        2. Waits for it to finish (with timeout)
-        3. Cleans up thread resources
-        """
-        if self._sync_thread is not None and self._sync_thread.is_alive():
-            print_debug("Stopping sync thread...")
-            self._stop_event.set()
-            self._sync_thread.join(timeout=5.0)  # Wait up to 5 seconds
-            if self._sync_thread.is_alive():
-                print_warning("Sync thread did not stop gracefully")
-            self._sync_thread = None
-            print_debug("Sync thread stopped")
+    def find_wall_posts(
+        self,
+        wall_id: int,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[tuple]:
+        """Find posts in a wall with pagination."""
+        with self.session_scope() as session:
+            result = session.execute(
+                self._prepared_statements["find_wall_posts"],
+                {
+                    "wall_id": wall_id,
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+            return result.fetchall()
 
-    def start_sync_thread(self) -> None:
-        """Start the background sync thread.
+    def find_post_attachments(self, post_id: int) -> list[tuple]:
+        """Find attachments for a post ordered by position."""
+        with self.session_scope() as session:
+            result = session.execute(
+                self._prepared_statements["find_post_attachments"],
+                {"post_id": post_id},
+            )
+            return result.fetchall()
 
-        This should be called after any initial sync operations are complete.
-        The method is safe to call multiple times - it will only start one thread.
-        """
-        with self._thread_lock:  # Use dedicated lock for thread management
-            # First, stop any existing thread
-            self.stop_sync_thread()
-
-            # Now start a new thread
-            self._stop_event.clear()  # Clear any previous stop signal
-            self._sync_thread = Thread(target=self._sync_loop, daemon=True)
-            self._sync_thread.start()
-            print_debug("Started sync thread")
-
-    def _sync_loop(self) -> None:
-        """Background sync loop maintaining accurate intervals using monotonic time."""
-        last_sync_attempt = monotonic()  # Time of last sync attempt
-        last_sync_success = last_sync_attempt  # Time of last successful sync
-        last_status = last_sync_attempt  # Time of last status message
-
-        print_info(
-            f"Starting sync thread (interval: {self.sync_interval}s, commits: {self.sync_commits})"
-        )
-
-        while not self._stop_event.is_set():
-            try:
-                current_time = monotonic()
-
-                # Log status every 30 seconds
-                if current_time - last_status >= 30:
-                    # Only log if there are pending commits or significant time has passed
-                    if (
-                        self.commit_count > 0
-                        or current_time - last_sync_success >= self.sync_interval / 2
-                    ):
-                        print_info(
-                            f"Sync status: {current_time - last_sync_success:.1f}s since last sync, "
-                            f"{self.commit_count} commits pending"
-                        )
-                    last_status = current_time
-
-                # Only attempt sync if enough time has passed since last attempt
-                time_since_attempt = current_time - last_sync_attempt
-                if time_since_attempt < 1.0:  # Minimum 1 second between attempts
-                    self._stop_event.wait(1.0 - time_since_attempt)
-                    continue
-
-                should_sync = False
-                sync_reason = None
-
-                # Check time-based sync
-                time_since_sync = current_time - last_sync_success
-                if self.sync_interval and time_since_sync >= self.sync_interval:
-                    should_sync = True
-                    sync_reason = f"time-based sync after {time_since_sync:.1f}s"
-
-                # Check commit-based sync
-                elif self.sync_commits and self.commit_count >= self.sync_commits:
-                    should_sync = True
-                    sync_reason = f"commit-based sync after {self.commit_count} commits"
-
-                # Attempt sync if needed
-                if should_sync:
-                    print_debug(f"Triggering {sync_reason}")
-                    last_sync_attempt = current_time
-                    try:
-                        self.sync_now()
-                        last_sync_success = current_time
-                        if "commits" in sync_reason:
-                            self.commit_count = 0
-                    except Exception:
-                        # Error already logged in sync_now
-                        pass
-
-                # Short sleep to prevent CPU spin
-                time_sleep(0.1)
-
-            except Exception as e:
-                print_error(f"Error in sync thread: {e}")
-                self._sync_stats["errors"].append(str(e))
-
-    def begin_transaction(self) -> None:
-        """Track start of a transaction."""
-        with self._transaction_lock:
-            self._active_transactions += 1
-
-    def end_transaction(self) -> None:
-        """Track end of a transaction."""
-        with self._transaction_lock:
-            self._active_transactions = max(0, self._active_transactions - 1)
-
-    def notify_commit(self) -> None:
-        """Notify of a new commit."""
-        if self.sync_commits:
-            self.commit_count += 1
-            if self.commit_count % 10 == 0:  # Log every 10 commits
-                print_info(f"Database commits: {self.commit_count}/{self.sync_commits}")
-
-    def get_sync_stats(self) -> dict[str, Any]:
-        """Get current sync statistics.
-
-        Returns:
-            Dictionary with sync statistics
-        """
-        return self._sync_stats.copy()
-
-    def _wait_for_transactions(self, max_wait: int = 5) -> bool:
-        """Wait for active transactions to complete.
-
-        Args:
-            max_wait: Maximum time to wait in seconds
-
-        Returns:
-            True if no active transactions, False if timed out
-        """
-        wait_start = monotonic()
-        while self._active_transactions > 0:
-            if monotonic() - wait_start > max_wait:
-                print_info("Transactions still active after wait, skipping sync")
-                return False
-            time_sleep(0.1)  # Short sleep to prevent CPU spin
-        return True
-
-    def sync_now(self) -> None:
-        """Synchronize in-memory database to disk now.
-
-        This method:
-        1. Gets a shared connection from OptimizedSQLiteMemory
-        2. Uses SQLite's backup API for atomic writes
-        3. Tracks sync timing and progress
-        4. Handles network errors
-        5. Reports sync status
-        6. Verifies sync success
-
-        Note: Uses a lock to coordinate with active transactions.
-        If the database is busy, will skip this sync attempt.
-        """
-        # Try to acquire sync lock with timeout
-        try:
-            if not self._sync_lock.acquire(blocking=False):
-                print_info("Another sync in progress, skipping")
-                return
-        except KeyboardInterrupt:
-            print_info("Sync interrupted by Ctrl+C")
-            if self._sync_lock.locked():
-                self._sync_lock.release()
-            raise
-
-        try:
-            # Get memory connection first to check tables
-            memory_conn = self.optimized_storage.get_shared_connection()
-            if memory_conn is None:
-                print_error("Could not get memory connection for table check")
-                return
-
-            # Check if there are any tables to sync
-            memory_tables = memory_conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-            if not memory_tables:
-                print_info("No tables in memory database, skipping sync")
-                return
-            print_debug(f"Found tables to sync: {[t[0] for t in memory_tables]}")
-
-            # Wait for active transactions to complete
-            if not self._wait_for_transactions():
-                return
-
-            start_time = monotonic()
-            print_debug("Starting database sync...")
-
-            # Get a shared connection to the in-memory database
-            memory_conn = self.optimized_storage.get_shared_connection()
-            if memory_conn is None:
-                print_error("Could not get memory connection")
-                return
-
-            # Create remote directory if it doesn't exist
-            self.remote_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Perform sync with retries
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    # Create a new disk database connection
-                    disk_conn = sqlite3.connect(self.remote_path)
-
-                    try:
-                        # Configure disk connection for sync
-                        disk_conn.execute(
-                            "PRAGMA journal_mode=DELETE"
-                        )  # Simpler journal for sync
-                        disk_conn.execute(
-                            "PRAGMA synchronous=FULL"
-                        )  # Full sync for safety
-
-                        # Get memory tables before backup
-                        print_debug("Checking memory tables...")
-                        memory_tables = memory_conn.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        ).fetchall()
-                        memory_tables = [t[0] for t in memory_tables]
-                        print_debug(f"Memory tables: {memory_tables}")
-
-                        # Backup in-memory to disk atomically
-                        print_debug("Starting memory to disk backup...")
-                        memory_conn.backup(disk_conn)
-
-                        # Ensure data is written to disk
-                        print_debug("Committing disk changes...")
-                        disk_conn.commit()
-
-                        # Verify tables exist
-                        print_debug("Verifying disk tables...")
-                        disk_tables = disk_conn.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        ).fetchall()
-                        disk_tables = [t[0] for t in disk_tables]
-                        print_debug(f"Disk tables: {disk_tables}")
-
-                        # Get final size for stats
-                        final_size = self.remote_path.stat().st_size
-                        print_debug(f"Final file size: {final_size} bytes")
-
-                        # Verify backup
-                        if final_size == 0 or set(disk_tables) != set(memory_tables):
-                            if attempt < max_retries - 1:
-                                print_error(
-                                    f"Sync verification failed (attempt {attempt + 1}/{max_retries}), retrying..."
-                                )
-                                continue
-                            raise OSError(
-                                "Failed to verify sync - remote file is empty"
-                            )
-
-                        # Update sync stats
-                        self._sync_stats["total_syncs"] += 1
-                        self._sync_stats["last_sync_time"] = start_time
-                        self._sync_stats["last_sync_duration"] = (
-                            monotonic() - start_time
-                        )
-                        self._sync_stats["bytes_synced"] += final_size
-
-                        print_debug(
-                            f"Database sync completed in {self._sync_stats['last_sync_duration']:.1f}s"
-                        )
-                        break
-
-                    finally:
-                        disk_conn.close()
-
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        print_error(
-                            f"Sync attempt {attempt + 1} failed: {e}, retrying..."
-                        )
-                        time_sleep(1)  # Wait before retry
-                        continue
-                    raise
-
-        except OSError as e:
-            print_error(f"Network error during sync: {e}")
-            self._sync_stats["network_errors"] += 1
-            self._sync_stats["failed_syncs"] += 1
-            self._sync_stats["last_error"] = str(e)
-            raise
-        except Exception as e:
-            print_error(f"Error syncing database: {e}")
-            self._sync_stats["failed_syncs"] += 1
-            self._sync_stats["last_error"] = str(e)
-            raise
-        finally:
-            self._sync_lock.release()
+    # endregion

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import DeclarativeBase, Mapper, Session
 
-from textio.logging import json_output
+from textio import json_output
 
 from .decorators import retry_on_locked_db
 

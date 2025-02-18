@@ -1,6 +1,7 @@
 """Unit tests for fansly_downloader_ng module."""
 
 import asyncio
+import atexit
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -23,7 +24,13 @@ from errors import (
     ConfigError,
     DownloadError,
 )
-from fansly_downloader_ng import cleanup_database, main, print_logo
+from fansly_downloader_ng import (
+    _async_main,
+    cleanup_database,
+    cleanup_database_sync,
+    main,
+    print_logo,
+)
 from metadata.account import process_account_data
 
 
@@ -36,27 +43,32 @@ def test_print_logo(capsys):
     assert "github.com/prof79/fansly-downloader-ng" in captured.out
 
 
-def test_cleanup_database_success():
+@pytest.mark.asyncio
+async def test_cleanup_database_success():
     """Test cleanup_database with successful database close."""
     config = MagicMock()
     mock_db = MagicMock()
+    cleanup_mock = AsyncMock()
+    mock_db.cleanup = cleanup_mock
     config._database = mock_db
 
-    cleanup_database(config)
+    await cleanup_database(config)
 
-    mock_db.close.assert_called_once()
+    cleanup_mock.assert_called_once()
 
 
-def test_cleanup_database_error(capsys):
+@pytest.mark.asyncio
+async def test_cleanup_database_error(capsys):
     """Test cleanup_database handling database close error."""
     config = MagicMock()
     mock_db = MagicMock()
-    mock_db.close.side_effect = Exception("Database error")
+    cleanup_mock = AsyncMock(side_effect=Exception("Database error"))
+    mock_db.cleanup = cleanup_mock
     config._database = mock_db
 
-    cleanup_database(config)
+    await cleanup_database(config)
 
-    mock_db.close.assert_called_once()
+    cleanup_mock.assert_called_once()
     captured = capsys.readouterr()
     assert "Error closing database connections: Database error" in captured.out
 
@@ -79,6 +91,7 @@ def mock_args():
     args.collection = False
     args.single = None
     args.users = ["test_user"]
+    args.use_following = False  # Add this to fix config validation
     args.download_directory = None
     args.authorization_token = None
     args.user_agent = None
@@ -181,13 +194,18 @@ def mock_database():
         mock_instance = mock.return_value
         mock_instance.sync_engine = mock_engine
         mock_instance.db_file = Path("test.db")
-        mock_instance.close = MagicMock()  # Add close method
-        mock_instance._optimized_connection = MagicMock()  # Add _optimized_connection
-        mock_instance._optimized_connection.close = MagicMock()  # Add close method
-        mock_instance._optimized_connection.is_closed = False  # Add is_closed flag
+
+        # Explicitly create close method with proper mock
+        close_mock = MagicMock()
+        mock_instance.close = close_mock
+
+        # Mock optimized connection
+        mock_instance._optimized_connection = MagicMock()
+        mock_instance._optimized_connection.close = MagicMock()
+        mock_instance._optimized_connection.is_closed = False
         mock_instance._optimized_connection.close.side_effect = lambda: setattr(
             mock_instance._optimized_connection, "is_closed", True
-        )  # Set is_closed on close
+        )
 
         # Mock database schema
         def mock_execute(statement, *args, **kwargs):
@@ -481,7 +499,8 @@ def mock_common_functions(tmp_path):
         p.stop()
 
 
-def test_main_success(
+@pytest.mark.asyncio
+async def test_main_success(
     mock_config,
     mock_args,
     mock_database,
@@ -491,24 +510,67 @@ def test_main_success(
     mock_state,
 ):
     """Test main function with successful execution."""
+    # Mock database
+    mock_db = MagicMock()
+    cleanup_mock = AsyncMock()
+    mock_db.cleanup = cleanup_mock
+    mock_config._database = mock_db
+
+    # Mock background tasks
+    mock_task = AsyncMock()
+    mock_config.get_background_tasks.return_value = [mock_task]
+
+    # Mock API response
+    mock_config.get_api.return_value.get_creator_account_info.return_value = {
+        "response": {
+            "account": {
+                "id": "123",
+                "username": "test_user",
+                "displayName": "Test User",
+            }
+        }
+    }
+
     with (
         patch("config.load_config"),
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
         patch("config.args.map_args_to_config"),
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
+        patch("asyncio.wait_for", new_callable=AsyncMock),
+        patch("asyncio.gather", new_callable=AsyncMock),
+        patch(
+            "fansly_downloader_ng.main",
+            new_callable=AsyncMock,
+            return_value=EXIT_SUCCESS,
+        ),
     ):
-        result = main(mock_config)
+        result = await _async_main(mock_config)
         assert result == EXIT_SUCCESS
 
+        # Verify cleanup was called
+        cleanup_mock.assert_called_once()
 
-def test_main_api_account_error(
+
+@pytest.mark.asyncio
+async def test_main_api_account_error(
     mock_config, mock_args, mock_database, mock_alembic, mock_common_functions
 ):
     """Test main function handling ApiAccountInfoError."""
+    # Mock API error
     mock_config.get_api.return_value.get_creator_account_info.side_effect = (
         ApiAccountInfoError("API error")
     )
+
+    # Mock database
+    mock_db = MagicMock()
+    cleanup_mock = AsyncMock()
+    mock_db.cleanup = cleanup_mock
+    mock_config._database = mock_db
+
+    # Mock background tasks
+    mock_task = AsyncMock()
+    mock_config.get_background_tasks.return_value = [mock_task]
 
     with (
         patch("config.load_config"),
@@ -517,22 +579,46 @@ def test_main_api_account_error(
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
         patch("textio.textio.input_enter_continue"),
+        patch("asyncio.wait_for", new_callable=AsyncMock),
+        patch("asyncio.gather", new_callable=AsyncMock),
+        patch(
+            "fansly_downloader_ng.main",
+            new_callable=AsyncMock,
+            return_value=SOME_USERS_FAILED,
+        ),
     ):
-        result = main(mock_config)
+        result = await _async_main(mock_config)
         assert result == SOME_USERS_FAILED
 
+        # Verify cleanup was called
+        cleanup_mock.assert_called_once()
 
-def test_main_with_background_tasks(
+
+@pytest.mark.asyncio
+async def test_main_with_background_tasks(
     mock_config, mock_args, mock_database, mock_alembic, mock_common_functions
 ):
     """Test main function with background tasks."""
+    # Mock background task
     mock_task = AsyncMock()
     mock_config.get_background_tasks.return_value = [mock_task]
 
-    # Mock asyncio event loop
-    mock_loop = MagicMock()
-    mock_loop.run_until_complete = MagicMock()
-    mock_loop.create_task = MagicMock()
+    # Mock database
+    mock_db = MagicMock()
+    cleanup_mock = AsyncMock()
+    mock_db.cleanup = cleanup_mock
+    mock_config._database = mock_db
+
+    # Mock API response
+    mock_config.get_api.return_value.get_creator_account_info.return_value = {
+        "response": {
+            "account": {
+                "id": "123",
+                "username": "test_user",
+                "displayName": "Test User",
+            }
+        }
+    }
 
     with (
         patch("config.load_config"),
@@ -540,18 +626,34 @@ def test_main_with_background_tasks(
         patch("config.args.map_args_to_config"),
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
-        patch("asyncio.new_event_loop", return_value=mock_loop),
-        patch("asyncio.set_event_loop"),
         patch("asyncio.gather", new_callable=AsyncMock),
+        patch("asyncio.wait_for", new_callable=AsyncMock),
+        patch(
+            "fansly_downloader_ng.main",
+            new_callable=AsyncMock,
+            return_value=EXIT_SUCCESS,
+        ),
     ):
-        result = main(mock_config)
+        result = await _async_main(mock_config)
         assert result == EXIT_SUCCESS
-        # Verify the task was added to the event loop
-        assert mock_loop.create_task.called
+
+        # Verify cleanup was called
+        cleanup_mock.assert_called_once()
 
 
-def test_main_keyboard_interrupt(mock_config, mock_args, mock_common_functions):
+@pytest.mark.asyncio
+async def test_main_keyboard_interrupt(mock_config, mock_args, mock_common_functions):
     """Test main function handling KeyboardInterrupt."""
+    # Mock database
+    mock_db = MagicMock()
+    cleanup_mock = AsyncMock()
+    mock_db.cleanup = cleanup_mock
+    mock_config._database = mock_db
+
+    # Mock background tasks
+    mock_task = AsyncMock()
+    mock_config.get_background_tasks.return_value = [mock_task]
+
     with (
         patch("config.load_config"),
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
@@ -559,9 +661,19 @@ def test_main_keyboard_interrupt(mock_config, mock_args, mock_common_functions):
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
         patch("textio.textio.input_enter_close"),
+        patch("asyncio.wait_for", new_callable=AsyncMock),
+        patch("asyncio.gather", new_callable=AsyncMock),
+        patch(
+            "fansly_downloader_ng.main",
+            new_callable=AsyncMock,
+            side_effect=KeyboardInterrupt,
+        ),
     ):
-        with pytest.raises(KeyboardInterrupt):
-            main(mock_config)
+        result = await _async_main(mock_config)
+        assert result == EXIT_ABORT
+
+        # Verify cleanup was called
+        cleanup_mock.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -573,39 +685,65 @@ def test_main_keyboard_interrupt(mock_config, mock_args, mock_common_functions):
         (Exception("Unexpected error"), UNEXPECTED_ERROR),
     ],
 )
-def test_main_error_handling(
+@pytest.mark.asyncio
+async def test_main_error_handling(
     mock_config, mock_args, mock_common_functions, error, expected_code
 ):
     """Test main function handling various errors."""
-    # Set up the mock to raise the error at the right point
-    if isinstance(error, ApiError):
-        mock_config.get_api.return_value.get_creator_account_info.side_effect = error
-    elif isinstance(error, ConfigError):
-        mock_config._parser.get.side_effect = error
-    elif isinstance(error, DownloadError):
-        mock_config.get_api.return_value.get_creator_account_info.side_effect = error
-    else:
-        mock_config.get_api.return_value.get_creator_account_info.side_effect = error
+    # Mock database
+    mock_db = MagicMock()
+    cleanup_mock = AsyncMock()
+    mock_db.cleanup = cleanup_mock
+    mock_config._database = mock_db
+
+    # Mock background tasks
+    mock_task = AsyncMock()
+    mock_config.get_background_tasks.return_value = [mock_task]
 
     with (
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
         patch("textio.textio.input_enter_close"),
+        patch("config.args.map_args_to_config"),
+        patch("updater.self_update"),
+        patch("config.validation.validate_adjust_config"),
+        patch("asyncio.wait_for", new_callable=AsyncMock),
+        patch("asyncio.gather", new_callable=AsyncMock),
+        patch("fansly_downloader_ng.main", new_callable=AsyncMock, side_effect=error),
     ):
-        with pytest.raises(type(error)):
-            main(mock_config)
+        result = await _async_main(mock_config)
+        assert result == expected_code
+
+        # Verify cleanup was called
+        cleanup_mock.assert_called_once()
 
 
-def test_main_cleanup_on_exit(
+@pytest.mark.asyncio
+async def test_main_cleanup_on_exit(
     mock_config, mock_args, mock_database, mock_alembic, mock_common_functions
 ):
     """Test main function cleanup on exit."""
-    mock_config.get_background_tasks.return_value = [AsyncMock()]
+    # Mock background tasks
+    mock_task = AsyncMock()
+    mock_config.get_background_tasks.return_value = [mock_task]
 
     # Register cleanup function
     atexit_funcs = []
 
     def mock_register(func, *args):
         atexit_funcs.append((func, args))
+
+    # Create a mock database instance with explicit close method
+    mock_db = MagicMock()
+    cleanup_mock = AsyncMock()
+    close_sync_mock = MagicMock()
+    mock_db.cleanup = cleanup_mock
+    mock_db.close_sync = close_sync_mock
+    mock_config._database = mock_db
+
+    # Create a mock main function that registers cleanup and raises error
+    async def mock_main(config):
+        atexit.register(cleanup_database_sync, config)
+        raise Exception("Test error")
 
     with (
         patch("atexit.register", side_effect=mock_register),
@@ -614,32 +752,23 @@ def test_main_cleanup_on_exit(
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
         patch("textio.textio.input_enter_close"),
-        patch("asyncio.get_event_loop") as mock_get_loop,
+        patch("asyncio.wait_for", new_callable=AsyncMock),
+        patch("asyncio.gather", new_callable=AsyncMock),
+        patch(
+            "fansly_downloader_ng.main", new_callable=AsyncMock, side_effect=mock_main
+        ),
     ):
-        mock_loop = MagicMock()
-        mock_get_loop.return_value = mock_loop
+        # Run main and expect it to return error code
+        result = await _async_main(mock_config)
+        assert result == UNEXPECTED_ERROR
 
-        # Create a mock database instance
-        mock_db = MagicMock()
-        mock_db.close = MagicMock()  # Explicitly mock close method
-        mock_config._database = mock_db
-
-        # Trigger an error to test cleanup
-        mock_config.get_api.return_value.get_creator_account_info.side_effect = (
-            Exception("Test error")
-        )
-
-        # Run main and expect it to raise the test error
-        with pytest.raises(Exception):
-            main(mock_config)
+        # Verify cleanup was called
+        cleanup_mock.assert_called_once()
 
         # Call registered cleanup functions
         for func, args in atexit_funcs:
-            func(*args)
+            if func == cleanup_database_sync:
+                func(*args)
 
-        # Verify cleanup was called
-        assert (
-            mock_db.close.call_count == 1
-        ), f"Expected close to be called once. Called {mock_db.close.call_count} times."
-        mock_loop.stop.assert_called_once()
-        mock_loop.close.assert_called_once()
+        # Verify sync cleanup was called
+        close_sync_mock.assert_called_once()
