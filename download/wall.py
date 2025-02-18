@@ -93,9 +93,8 @@ async def download_wall(
 
             if wall_response.status_code == 200:
                 wall_data = wall_response.json()["response"]
-                await process_wall_posts(config, state, wall_id, wall_data)
 
-                # Check for duplicates if enabled
+                # Check for duplicates before processing posts
                 await check_page_duplicates(
                     config=config,
                     page_data=wall_data,
@@ -104,6 +103,9 @@ async def download_wall(
                     cursor=before_cursor if before_cursor != "0" else None,
                     session=session,
                 )
+
+                # Only process posts if no duplicates found
+                await process_wall_posts(config, state, wall_id, wall_data)
 
                 if config.debug:
                     print_debug(f"Wall data object: {wall_data}")

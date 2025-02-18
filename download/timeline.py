@@ -88,9 +88,8 @@ async def download_timeline(
 
             if timeline_response.status_code == 200:
                 timeline = timeline_response.json()["response"]
-                await process_timeline_posts(config, state, timeline, session=session)
 
-                # Check for duplicates if enabled
+                # Check for duplicates before processing posts
                 await check_page_duplicates(
                     config=config,
                     page_data=timeline,
@@ -98,6 +97,9 @@ async def download_timeline(
                     cursor=timeline_cursor if timeline_cursor != 0 else None,
                     session=session,
                 )
+
+                # Only process posts if no duplicates found
+                await process_timeline_posts(config, state, timeline, session=session)
 
                 if config.debug:
                     print_debug(f"Timeline object: {timeline}")
