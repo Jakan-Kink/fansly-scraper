@@ -4,7 +4,6 @@ This module provides user-facing output functions that use the centralized
 logging configuration from config/logging.py.
 
 Functions:
-- output() - Base function for all output
 - print_* - Convenience functions for different message types
 - json_output - For structured JSON logging
 
@@ -18,94 +17,99 @@ import subprocess
 import sys
 from time import sleep
 
-# Note: Logger imports are inside functions to avoid circular imports
-
-
-# most of the time, we utilize this to display colored output rather than logging or prints
-def output(level: int, log_type: str, color: str, message: str) -> None:
-    """Output a message with color and level.
-
-    Args:
-        level: Log level number (1-7)
-        log_type: Type/category of log message
-        color: Color for the message (used in format string)
-        message: The message to log
-    """
-    # Import here to avoid circular imports
-    from config import textio_logger
-    from config.logging import _LEVEL_MAP, _LEVEL_VALUES
-
-    # Convert level 1-7 to loguru level name
-    if 1 <= level <= 7:
-        level = _LEVEL_MAP[level]  # Maps to loguru's levels (10, 20, 30, etc)
-
-    # Convert level number to name
-    for name, value in _LEVEL_VALUES.items():
-        if value == level:
-            level = name
-            break
-
-    # Log using the centralized textio logger
-    # Level filtering is handled by loguru based on handler's level setting
-    textio_logger.log(level, message)
+from config.logging import json_logger, textio_logger
 
 
 def json_output(level: int, log_type: str, message: str) -> None:
     """Output JSON-formatted log messages.
 
     Args:
-        level: Log level number (1-7)
+        level: Log level number (1=INFO, 2=DEBUG)
         log_type: Type/category of log message
         message: The message to log
     """
-    # Import here to avoid circular imports
-    from config import json_logger
-    from config.logging import _LEVEL_MAP, _LEVEL_VALUES
+    # Map old levels to loguru levels
+    level_map = {
+        1: "INFO",  # Most common, used for normal logging
+        2: "DEBUG",  # Used for detailed info like unknown attributes
+    }
 
-    # Convert level 1-7 to loguru level name
-    if 1 <= level <= 7:
-        level = _LEVEL_MAP[level]  # Maps to loguru's levels (10, 20, 30, etc)
+    # Default to INFO if level not in map
+    loguru_level = level_map.get(level, "INFO")
 
-    # Convert level number to name
-    for name, value in _LEVEL_VALUES.items():
-        if value == level:
-            level = name
-            break
+    # Format the message with log_type on first line and message on next
+    formatted_message = f"[{log_type}]\n{message}"
 
-    # Log using the centralized json logger
-    # Level filtering is handled by loguru based on handler's level setting
-    json_logger.log(level, message)
+    # Use the centralized json logger with mapped level
+    json_logger.log(loguru_level, formatted_message)
 
 
 def print_config(message: str) -> None:
-    output(5, " Config", "<light-magenta>", message)
+    """Print a configuration message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.log("CONFIG", message)
 
 
 def print_debug(message: str) -> None:
-    output(7, " DEBUG", "<light-red>", message)
+    """Print a debug message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.log("DEBUG", message)
 
 
 def print_error(message: str, number: int = -1) -> None:
+    """Print an error message.
+
+    Args:
+        message: The message to print.
+        number: Optional error number to display.
+    """
     if number >= 0:
-        output(2, f" [{number}]ERROR", "<red>", message)
+        # Use loguru's color markup to add the error number in red
+        textio_logger.log("ERROR", f"<red>[{number}]</red> {message}")
     else:
-        output(2, " ERROR", "<red>", message)
+        textio_logger.log("ERROR", message)
 
 
 def print_info(message: str) -> None:
-    output(1, " Info", "<light-blue>", message)
+    """Print an info message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.log("INFO", message)
 
 
 def print_info_highlight(message: str) -> None:
-    output(4, " lnfo", "<light-red>", message)
+    """Print a highlighted info message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.log("-INFO-", message)
 
 
 def print_update(message: str) -> None:
-    output(6, " Updater", "<light-green>", message)
+    """Print an update message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.log("UPDATE", message)
 
 
 def print_warning(message: str) -> None:
-    output(3, " WARNING", "<yellow>", message)
+    """Print a warning message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.log("WARNING", message)
 
 
 def input_enter_close(interactive: bool) -> None:

@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from pprint import pformat
 
 from loguru import logger
 
@@ -62,19 +63,7 @@ class InterceptHandler(logging.Handler):
         )
 
 
-# Level mappings
-_LEVEL_MAP = {
-    # Custom levels (1-7) to loguru levels
-    1: 20,  # print_info -> INFO (20)
-    2: 40,  # print_error -> ERROR (40)
-    3: 30,  # print_warning -> WARNING (30)
-    4: 20,  # print_info_highlight -> INFO (20)
-    5: 20,  # print_config -> INFO (20)
-    6: 20,  # print_update -> INFO (20)
-    7: 10,  # print_debug -> DEBUG (10)
-}
-
-# Level values for comparison (using loguru's levels)
+# Standard level values (loguru's default scale)
 _LEVEL_VALUES = {
     "TRACE": 5,  # Detailed information for diagnostics
     "DEBUG": 10,  # Debug information
@@ -84,8 +73,69 @@ _LEVEL_VALUES = {
     "ERROR": 40,  # Error messages
     "CRITICAL": 50,  # Critical errors
 }
+
+# Custom level definitions with colors, mapped to standard level numbers
+_CUSTOM_LEVELS = {
+    "CONFIG": {
+        "name": "CONFIG",
+        "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
+        "color": "<light-magenta>",
+        "icon": "🔧",
+    },
+    "DEBUG": {
+        "name": "DEBUG",
+        "no": _LEVEL_VALUES["DEBUG"],  # 10 (DEBUG)
+        "color": "<light-red>",
+        "icon": "🔍",
+    },
+    "INFO": {
+        "name": "INFO",
+        "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
+        "color": "<light-blue>",
+        "icon": "ℹ️",
+    },
+    "ERROR": {
+        "name": "ERROR",
+        "no": _LEVEL_VALUES["ERROR"],  # 40 (ERROR)
+        "color": "<red><bold>",
+        "icon": "❌",
+    },
+    "WARNING": {
+        "name": "WARNING",
+        "no": _LEVEL_VALUES["WARNING"],  # 30 (WARNING)
+        "color": "<yellow>",
+        "icon": "⚠️",
+    },
+    "INFO_HIGHLIGHT": {
+        "name": "-INFO-",
+        "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
+        "color": "<light-cyan><bold>",
+        "icon": "✨",
+    },
+    "UPDATE": {
+        "name": "UPDATE",
+        "no": _LEVEL_VALUES["SUCCESS"],  # 25 (SUCCESS)
+        "color": "<green>",
+        "icon": "📦",
+    },
+}
+
 # Remove default handler
 logger.remove()
+
+# Register custom levels with loguru
+for level_name, level_data in _CUSTOM_LEVELS.items():
+    try:
+        logger.level(
+            level_data["name"],
+            no=level_data["no"],
+            color=level_data["color"],
+            icon=level_data["icon"],
+        )
+    except (TypeError, ValueError):
+        # Failsafe for level/color registration
+        pass
+
 
 # Pre-configured loggers with extra fields
 textio_logger = logger.bind(textio=True)
@@ -107,7 +157,7 @@ def _trace_level_only(record):
 trace_logger = logger.bind(trace=True).patch(_trace_level_only)
 
 # Handler IDs for cleanup
-_handler_ids = []
+_handler_ids = {}  # {id: (handler, file_handler)}
 
 
 def setup_handlers() -> None:
@@ -119,14 +169,21 @@ def setup_handlers() -> None:
     3. stash_logger - Stash-specific logs
     4. db_logger - Database operation logs
     """
-    global _handler_ids
+    global _handler_ids, _debug_enabled
 
     # Remove any existing handlers
-    for handler_id in list(_handler_ids):  # Copy list since we're modifying it
+    for handler_id, (handler, file_handler) in list(_handler_ids.items()):
         try:
             logger.remove(handler_id)
+            if file_handler:
+                try:
+                    file_handler.close()
+                except Exception:
+                    pass  # Ignore errors during cleanup
         except ValueError:
             pass  # Handler already removed
+
+    # Clear all handlers
     _handler_ids.clear()
 
     # Create logs directory
@@ -136,15 +193,21 @@ def setup_handlers() -> None:
     # Import handler here to avoid circular imports
     from textio.logging import SizeTimeRotatingHandler
 
+    # Common enqueue settings for all handlers
+    enqueue_args = {
+        "enqueue": True,  # Use loguru's built-in queue management
+    }
+
     # 1. TextIO Console Handler
     handler_id = logger.add(
         sys.stdout,
-        format="<level>{level.name}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>",
+        format="<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>",
         level=get_log_level("textio", "INFO"),
         filter=lambda record: record["extra"].get("textio", False),
-        enqueue=True,
+        colorize=True,
+        **enqueue_args,
     )
-    _handler_ids.append(handler_id)
+    _handler_ids[handler_id] = (None, None)  # No file handler for stdout
 
     # 2. TextIO File Handler
     textio_file = log_dir / DEFAULT_LOG_FILE
@@ -161,14 +224,14 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         textio_handler.write,
-        format="[{level.name} ] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]: {message}",
+        format="[{level.name}] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]: {message}",
         level=get_log_level("textio", "INFO"),
         filter=lambda record: record["extra"].get("textio", False),
-        enqueue=True,
         backtrace=True,
         diagnose=True,
+        **enqueue_args,
     )
-    _handler_ids.append(handler_id)
+    _handler_ids[handler_id] = (textio_handler, None)
 
     # 3. JSON File Handler
     json_file = log_dir / os.getenv("LOGURU_JSON_LOG_FILE", DEFAULT_JSON_LOG_FILE)
@@ -185,24 +248,25 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         json_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {message}",
+        format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} {message}",
         level=get_log_level("json", "INFO"),
         filter=lambda record: record["extra"].get("json", False),
-        enqueue=True,
         backtrace=True,
         diagnose=True,
+        **enqueue_args,
     )
-    _handler_ids.append(handler_id)
+    _handler_ids[handler_id] = (json_handler, None)
 
     # 4. Stash Console Handler
     handler_id = logger.add(
         sys.stdout,
         format="<level>{level.name}</level>: {message}",
         level=get_log_level("stash_console", "INFO"),
+        colorize=True,
         filter=lambda record: record["extra"].get("stash", False),
-        enqueue=True,
+        **enqueue_args,
     )
-    _handler_ids.append(handler_id)
+    _handler_ids[handler_id] = (None, None)  # No file handler for stdout
 
     # 5. Stash File Handler
     stash_file = log_dir / DEFAULT_STASH_LOG_FILE
@@ -221,9 +285,9 @@ def setup_handlers() -> None:
         format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {name} - {message}",
         level=get_log_level("stash_file", "INFO"),
         filter=lambda record: record["extra"].get("stash", False),
-        enqueue=True,
+        **enqueue_args,
     )
-    _handler_ids.append(handler_id)
+    _handler_ids[handler_id] = (stash_handler, None)
 
     # 6. Database File Handler
     db_file = log_dir / DEFAULT_DB_LOG_FILE
@@ -242,9 +306,9 @@ def setup_handlers() -> None:
         format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {message}",
         level=get_log_level("sqlalchemy", "INFO"),
         filter=lambda record: record["extra"].get("db", False),
-        enqueue=True,
+        **enqueue_args,
     )
-    _handler_ids.append(handler_id)
+    _handler_ids[handler_id] = (db_handler, None)
 
     # 7. Trace File Handler (for very detailed logging)
     trace_file = log_dir / "trace.log"
@@ -263,9 +327,9 @@ def setup_handlers() -> None:
         format="[{time:YYYY-MM-DD HH:mm:ss.SSSSSS}] {level.name} - {message}",
         level=get_log_level("trace", "TRACE"),  # Default to TRACE level
         filter=lambda record: record["extra"].get("trace", False),
-        enqueue=True,
+        **enqueue_args,
     )
-    _handler_ids.append(handler_id)
+    _handler_ids[handler_id] = (trace_handler, None)
 
 
 def init_logging_config(config) -> None:
@@ -273,8 +337,8 @@ def init_logging_config(config) -> None:
     global _config
     _config = config
 
-    # Set up all handlers
-    setup_handlers()
+    # Initial setup of handlers
+    setup_handlers()  # Always do initial setup
 
 
 def set_debug_enabled(enabled: bool) -> None:
@@ -334,5 +398,5 @@ def update_logging_config(config, enabled: bool) -> None:
     _config = config  # Update config reference
     _debug_enabled = enabled  # Update debug flag
 
-    # Reconfigure all handlers with new levels
+    # Update handlers with new configuration
     setup_handlers()

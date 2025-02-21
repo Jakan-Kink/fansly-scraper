@@ -3,7 +3,7 @@ import json
 import re
 import string
 
-from .logging import debug_print
+from .logging import client_logger, debug_print, processing_logger, stash_logger
 
 
 def normalize_str(string_in):
@@ -82,7 +82,8 @@ def async_lru_cache(maxsize=128, exclude_arg_indices=None):
                         "func": func.__name__,
                         "args": args,
                         "kwargs": kwargs,
-                    }
+                    },
+                    "processing",
                 )
                 return cache[key]
 
@@ -102,7 +103,8 @@ def async_lru_cache(maxsize=128, exclude_arg_indices=None):
                     "func": func.__name__,
                     "args": args,
                     "kwargs": kwargs,
-                }
+                },
+                "processing",
             )
             return result
 

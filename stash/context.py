@@ -81,6 +81,9 @@ class StashContext:
         Raises:
             RuntimeError: If client initialization fails
         """
+        logger.debug(
+            f"get_client called on {id(self)}, current _client: {self._client}"
+        )
         if self._client is None:
             self._client = StashClient(
                 conn=self.conn,
@@ -88,7 +91,9 @@ class StashContext:
             )
             try:
                 await self._client.initialize()
-                logger.debug("Client initialization complete")
+                logger.debug(
+                    f"Client initialization complete, _client set to {self._client}"
+                )
             except Exception as e:
                 logger.error(f"Client initialization failed: {e}")
                 self._client = None
@@ -101,12 +106,16 @@ class StashContext:
 
         Returns:
             StashClient instance
+
+        Raises:
+            RuntimeError: If client is not initialized
         """
+        logger.debug(
+            f"client property accessed on {id(self)}, current _client: {self._client}"
+        )
         if self._client is None:
-            self._client = StashClient(
-                conn=self.conn,
-                verify_ssl=self.verify_ssl,
-            )
+            logger.error("Client not initialized - use get_client() first")
+            raise RuntimeError("Client not initialized - use get_client() first")
         return self._client
 
     async def close(self) -> None:

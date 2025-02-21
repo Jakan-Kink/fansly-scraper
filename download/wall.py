@@ -16,7 +16,7 @@ from textio import (
     print_debug,
     print_error,
     print_info,
-    print_warning,
+    print_info_highlight,
 )
 
 from .common import (
@@ -184,7 +184,7 @@ async def download_wall(
             input_enter_continue(config.interactive)
 
         except DuplicatePageError as e:
-            print_warning(str(e))
+            print_info_highlight(str(e))
             print()
             break  # Break out of the loop to stop processing this wall
 

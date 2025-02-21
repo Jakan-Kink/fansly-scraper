@@ -7,9 +7,11 @@ import contextlib
 import functools
 import json
 import logging
+import os
 import re
 import sys
 import traceback
+from asyncio import Queue
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import func, select
+from tqdm import tqdm
 
 from metadata import (
     Account,
@@ -226,6 +229,7 @@ class StashProcessing:
             return account, performer
         except Exception as e:
             print_error(f"Failed to process creator: {e}")
+            logger.exception("Failed to process creator", exc_info=e)
             debug_print(
                 {
                     "method": "StashProcessing - process_creator",
@@ -298,6 +302,7 @@ class StashProcessing:
                 )
             except Exception as e:
                 print_error(f"Failed to update performer avatar: {e}")
+                logger.exception("Failed to update performer avatar", exc_info=e)
                 debug_print(
                     {
                         "method": "StashProcessing - _update_performer_avatar",
@@ -374,7 +379,9 @@ class StashProcessing:
             return
 
         # Initialize Stash client
+        logger.debug(f"Initializing client on context {id(self.context)}")
         await self.context.get_client()
+        logger.debug("Client initialized, proceeding with scan")
 
         await self.scan_creator_folder()
         account, performer = await self.process_creator()
@@ -439,10 +446,17 @@ class StashProcessing:
         try:
             await self.continue_stash_processing(account, performer)
         except asyncio.CancelledError:
+            logger.debug("Background task cancelled")
             # Handle task cancellation
             debug_print({"status": "background_task_cancelled"})
             raise
         except Exception as e:
+            logger.exception(
+                f"Background task failed: {e}",
+                traceback=True,
+                exc_info=e,
+                stack_info=True,
+            )
             debug_print(
                 {
                     "error": f"background_task_failed: {e}",
@@ -531,6 +545,7 @@ class StashProcessing:
         # 3. Process media to images
         except Exception as e:
             print_error(f"Error in Stash processing: {e}")
+            logger.exception("Error in Stash processing", exc_info=e)
             debug_print(
                 {
                     "method": "StashProcessing - continue_stash_processing",
@@ -610,6 +625,11 @@ class StashProcessing:
                     print_error(
                         f"Failed to process message batch starting with {first_id}: {e}"
                     )
+                    logger.exception(
+                        f"Failed to process message batch starting with {first_id}",
+                        exc_info=e,
+                        traceback=True,
+                    )
                     debug_print(
                         {
                             "method": "StashProcessing - process_creator_messages",
@@ -650,14 +670,11 @@ class StashProcessing:
         account = result.scalar_one()
 
         # Now get posts with proper eager loading
+        # Get all posts with attachments - we only need IDs for batching
         stmt = (
             select(Post)
-            .join(Post.attachments)
+            .join(Post.attachments)  # Join to filter posts with attachments
             .where(Post.accountId == account.id)
-            .options(
-                selectinload(Post.attachments),
-                selectinload(Post.accountMentions),
-            )
         )
         debug_print({"status": "building_post_query", "account_id": account.id})
 
@@ -677,34 +694,42 @@ class StashProcessing:
         # Process posts in batches
         print_info(f"Processing {len(posts)} posts...")
         debug_print({"status": "processing_posts", "count": len(posts)})
-        batch_size = 50  # Adjust based on testing
-        for i in range(0, len(posts), batch_size):
-            batch = posts[i : i + batch_size]
-            try:
-                print_info(f"Processing posts {i+1}-{i+len(batch)}/{len(posts)}...")
-                # Get fresh batch with all needed relationships
-                batch_ids = [post.id for post in batch]
-                stmt = (
-                    select(Post)
-                    .options(
-                        selectinload(Post.attachments)
-                        .selectinload(Attachment.media)
-                        .selectinload(AccountMedia.media),
-                        selectinload(Post.attachments)
-                        .selectinload(Attachment.bundle)
-                        .selectinload(AccountMediaBundle.accountMedia)
-                        .selectinload(AccountMedia.media),
-                        selectinload(Post.accountMentions),
-                    )
-                    .where(Post.id.in_(batch_ids))
-                )
-                result = await session.execute(stmt)
-                fresh_batch = result.unique().scalars().all()
 
-                # Ensure all objects are bound to the session
-                for post in fresh_batch:
-                    session.add(post)
-                    for attachment in post.attachments:
+        pbar = tqdm(
+            total=len(posts),
+            desc=f"Processing {len(posts)} posts",
+            unit="post",
+        )
+
+        # Create semaphore to limit concurrent tasks
+        max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
+        semaphore = asyncio.Semaphore(max_concurrent)
+        queue = Queue(maxsize=max_concurrent * 2)  # Double buffer
+
+        async def process_post(post: Post) -> None:
+            async with semaphore:
+                try:
+                    # Get fresh post with all needed relationships
+                    stmt = (
+                        select(Post)
+                        .options(
+                            selectinload(Post.attachments)
+                            .selectinload(Attachment.media)
+                            .selectinload(AccountMedia.media),
+                            selectinload(Post.attachments)
+                            .selectinload(Attachment.bundle)
+                            .selectinload(AccountMediaBundle.accountMedia)
+                            .selectinload(AccountMedia.media),
+                            selectinload(Post.accountMentions),
+                        )
+                        .where(Post.id == post.id)
+                    )
+                    result = await session.execute(stmt)
+                    fresh_post = result.scalar_one()
+
+                    # Ensure all objects are bound to the session
+                    session.add(fresh_post)
+                    for attachment in fresh_post.attachments:
                         session.add(attachment)
                         if attachment.media:
                             session.add(attachment.media)
@@ -717,36 +742,67 @@ class StashProcessing:
                                 if account_media.media:
                                     session.add(account_media.media)
 
-                # Refresh account before processing
-                await session.refresh(account)
+                    # Refresh account before processing
+                    await session.refresh(account)
 
-                await self._process_items_with_gallery(
-                    account=account,
-                    performer=performer,
-                    studio=studio,
-                    item_type="post",
-                    items=fresh_batch,
-                    url_pattern_func=get_post_url,
-                    session=session,
-                )
-                print_info(f"Completed posts {i+1}-{i+len(batch)}/{len(posts)}")
-            except Exception as e:
-                first_id = batch_ids[0] if batch_ids else "unknown"
-                print_error(
-                    f"Error processing post batch {i+1}-{i+len(batch)}/{len(posts)} starting with {first_id}: {e}"
-                )
-                debug_print(
-                    {
-                        "method": "StashProcessing - process_creator_posts",
-                        "status": "post_processing_failed",
-                        "batch_start_id": first_id,
-                        "batch_size": len(batch) if batch else 0,
-                        "batch_ids": batch_ids,
-                        "batch_range": f"{i+1}-{i+len(batch)}/{len(posts)}",
-                        "error": str(e),
-                        "traceback": traceback.format_exc(),
-                    }
-                )
+                    await self._process_items_with_gallery(
+                        account=account,
+                        performer=performer,
+                        studio=studio,
+                        item_type="post",
+                        items=[fresh_post],
+                        url_pattern_func=get_post_url,
+                        session=session,
+                    )
+                except Exception as e:
+                    print_error(f"Error processing post {post.id}: {e}")
+                    logger.exception(
+                        f"Error processing post {post.id}",
+                        exc_info=e,
+                        traceback=True,
+                        stack_info=True,
+                    )
+                    debug_print(
+                        {
+                            "method": "StashProcessing - process_creator_posts",
+                            "status": "post_processing_failed",
+                            "post_id": post.id,
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                        }
+                    )
+                finally:
+                    pbar.update(1)
+
+        async def producer():
+            for post in posts:
+                await queue.put(post)
+            # Signal consumers we're done
+            for _ in range(max_concurrent):
+                await queue.put(None)
+
+        async def consumer():
+            while True:
+                post = await queue.get()
+                if post is None:  # Sentinel value
+                    queue.task_done()
+                    break
+                try:
+                    await process_post(post)
+                finally:
+                    queue.task_done()
+
+        try:
+            # Start consumers
+            consumers = [asyncio.create_task(consumer()) for _ in range(max_concurrent)]
+            # Start producer
+            producer_task = asyncio.create_task(producer())
+            # Wait for all work to complete
+            await queue.join()
+            await producer_task
+            await asyncio.gather(*consumers, return_exceptions=True)
+        finally:
+            pbar.close()
 
     @with_session()
     async def _process_items_with_gallery(
@@ -818,6 +874,7 @@ class StashProcessing:
                 )
             except Exception as e:
                 print_error(f"Failed to process {item_type} {item.id}: {e}")
+                logger.exception(f"Failed to process {item_type} {item.id}", exc_info=e)
                 debug_print(
                     {
                         "method": f"StashProcessing - process_creator_{item_type}s",
@@ -975,21 +1032,7 @@ class StashProcessing:
                                 "attachment_id": attachment.id,
                                 "progress": f"{i}/{len(attachments)}",
                                 "files_added": len(attachment_files),
-                                "file_details": [
-                                    {
-                                        "id": f.id,
-                                        "stash_id": (
-                                            f.stash_ids[0].stash_id
-                                            if hasattr(f, "stash_ids") and f.stash_ids
-                                            else getattr(f, "stash_id", None)
-                                        ),
-                                        "type": f.__class__.__name__,
-                                        "path": (
-                                            str(f.path) if hasattr(f, "path") else None
-                                        ),
-                                    }
-                                    for f in attachment_files
-                                ],
+                                "file_details": [f for f in attachment_files],
                             }
                         )
                     else:
@@ -1032,20 +1075,22 @@ class StashProcessing:
             # Create GalleryFile objects for each file
             gallery_files = []
             for file in files:
-                if isinstance(file, (ImageFile, VideoFile)):
+                if not isinstance(file, (ImageFile, VideoFile)):
                     # Create GalleryFile from BaseFile
                     gallery_file = GalleryFile(
-                        id=file.id,
-                        path=file.path,
-                        basename=file.basename,
-                        parent_folder_id=file.parent_folder_id,
-                        zip_file_id=file.zip_file_id,
-                        mod_time=file.mod_time,
-                        size=file.size,
-                        fingerprints=file.fingerprints,
+                        id=file.get("id", None),
+                        path=file.get("path", None),
+                        basename=file.get("basename", None),
+                        parent_folder_id=file.get("parent_folder_id", None),
+                        zip_file_id=file.get("zip_file_id", None),
+                        mod_time=file.get("mod_time", None),
+                        size=file.get("size", None),
+                        fingerprints=file.get("fingerprints", None),
                         # created_at and updated_at handled by Stash
                     )
                     gallery_files.append(gallery_file)
+                else:
+                    gallery_files.append(file)
 
             debug_print(
                 {
@@ -1055,14 +1100,7 @@ class StashProcessing:
                     "gallery_id": gallery.id,
                     "total_files": len(files),
                     "gallery_files": len(gallery_files),
-                    "file_details": [
-                        {
-                            "id": f.id,
-                            "path": str(f.path),
-                            "type": f.__class__.__name__,
-                        }
-                        for f in gallery_files
-                    ],
+                    "file_details": [f for f in gallery_files],
                 }
             )
 
@@ -1112,6 +1150,10 @@ class StashProcessing:
                                             2**attempt
                                         )  # Exponential backoff
                             except Exception as e:
+                                logger.exception(
+                                    f"Failed to add gallery images for {item_type} {item.id}",
+                                    exc_info=e,
+                                )
                                 debug_print(
                                     {
                                         "method": "StashProcessing - _process_item_gallery",
@@ -1128,6 +1170,10 @@ class StashProcessing:
                                         2**attempt
                                     )  # Exponential backoff
                 except Exception as e:
+                    logger.exception(
+                        f"Failed to save gallery files for {item_type} {item.id}",
+                        exc_info=e,
+                    )
                     debug_print(
                         {
                             "method": "StashProcessing - _process_item_gallery",
@@ -1558,6 +1604,7 @@ class StashProcessing:
             media = attachment.media.media
             if hasattr(media, "awaitable_attrs"):
                 await media.awaitable_attrs.variants
+                await media.awaitable_attrs.mimetype  # Load mimetype like we do for bundle media
 
             debug_print(
                 {
@@ -2180,7 +2227,8 @@ class StashProcessing:
                         tag_filter={"name": {"value": tag_name, "modifier": "EQUALS"}},
                     )
                     if name_results.count > 0:
-                        found_tag = name_results.tags[0]
+                        # Convert dict to Tag object using unpacking
+                        found_tag = Tag(**name_results.tags[0])
                         debug_print(
                             {
                                 "method": "StashProcessing - _update_stash_metadata",
@@ -2197,7 +2245,8 @@ class StashProcessing:
                             },
                         )
                         if alias_results.count > 0:
-                            found_tag = alias_results.tags[0]
+                            # Convert dict to Tag object using unpacking
+                            found_tag = Tag(**alias_results.tags[0])
                             debug_print(
                                 {
                                     "method": "StashProcessing - _update_stash_metadata",

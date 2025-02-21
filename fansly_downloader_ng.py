@@ -148,6 +148,43 @@ def increase_file_descriptor_limit() -> None:
         print_warning(f"Could not increase file descriptor limit: {e}")
 
 
+async def load_client_account_into_db(
+    config: FanslyConfig,
+    state: DownloadState,
+    client_user_name: str,
+) -> None:
+    """Load the client account information into the database.
+
+    Args:
+        config: The program configuration
+        state: Current download state
+        client_user_name: Username of the client account
+    """
+    await asyncio.sleep(random.uniform(0.4, 0.75))
+
+    try:
+        response = config.get_api().get_creator_account_info(
+            creator_name=client_user_name
+        )
+        json = response.json()
+        json_output(
+            1,
+            "main - client-account-data",
+            (json),
+        )
+        creator_dict = json["response"][0]
+    except Exception as e:
+        print_error(f"Error getting client account info: {e}")
+        print_error(f"Error getting client account info: {traceback.format_exc()}")
+        raise
+
+    await process_account_data(
+        config=config,
+        state=state,
+        data=creator_dict,
+    )
+
+
 # @profile(precision=2, stream=open('memory_use.log', 'w', encoding='utf-8'))
 async def main(config: FanslyConfig) -> int:
     """The main logic of the downloader program.
@@ -226,6 +263,11 @@ async def main(config: FanslyConfig) -> int:
     client_user_name = api.get_client_user_name()
     print_info(f"User ID: {client_user_name}")
 
+    # Load client account into global database if not using separate metadata
+    if not config.separate_metadata:
+        state = DownloadState()
+        await load_client_account_into_db(config, state, client_user_name)
+
     global_download_state = GlobalState()
 
     print()
@@ -284,42 +326,11 @@ async def main(config: FanslyConfig) -> int:
                     config.metadata_db_file = db_path
                     creator_database = Database(config, creator_name=creator_name)
                     config._database = creator_database
+                    # Load client account into separate database
+                    await load_client_account_into_db(config, state, client_user_name)
 
                 try:
-
-                    # Load client account into the database
-                    await asyncio.sleep(random.uniform(0.4, 0.75))
                     creator_start_monotonic = monotonic()
-
-                    try:
-                        response = config.get_api().get_creator_account_info(
-                            creator_name=client_user_name
-                        )
-                        json = response.json()
-                        json_output(
-                            1,
-                            "main - client-account-data",
-                            (json),
-                        )
-                        creator_dict = json["response"][0]
-                    except Exception as e:
-                        print_error(f"Error getting client account info: {e}")
-                        print_error(
-                            f"Error getting client account info: {traceback.format_exc()}"
-                        )
-                        raise
-
-                    json_output(
-                        1,
-                        "main - client-account-data",
-                        (creator_dict),
-                    )
-
-                    await process_account_data(
-                        config=config,
-                        state=state,
-                        data=creator_dict,
-                    )
 
                     print_download_info(config)
 

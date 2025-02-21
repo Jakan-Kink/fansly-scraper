@@ -654,12 +654,6 @@ class Database:
             if self._sync_thread is not None:
                 self._sync_thread.join(timeout=5)
 
-            # Final sync
-            self._sync_to_disk()
-
-            # Check for leaked semaphores
-            monitor_semaphores(threshold=20)  # Warn if too many semaphores
-
             # Close shared connection first to properly close in-memory database
             if (
                 hasattr(self, "_shared_connection")
@@ -676,6 +670,9 @@ class Database:
                     self._sync_engine.dispose()
                 except Exception as e:
                     print_error(f"Error disposing sync engine: {e}")
+
+            # Check for leaked semaphores
+            monitor_semaphores(threshold=20)  # Warn if too many semaphores
 
             # Don't try to dispose async engine in sync context
             # It will be cleaned up by Python's GC

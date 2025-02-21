@@ -95,7 +95,7 @@ def cleanup_semaphores(pattern: str | None = None) -> None:
             print_warning(f"Failed to clean up semaphore {sem.name}: {e}")
 
 
-def monitor_semaphores(threshold: int = 20) -> None:
+def monitor_semaphores(threshold: int = 60) -> None:
     """Monitor number of POSIX semaphores and warn if above threshold.
 
     Args:

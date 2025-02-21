@@ -229,7 +229,7 @@ async def process_timeline_posts(
         post_start = time.time()
         await _process_timeline_post(config, post, session=session)
         json_output(
-            1,
+            2,
             "meta/post - timing - single_post",
             {"post_id": post.get("id"), "time_taken": time.time() - post_start},
         )
@@ -256,7 +256,7 @@ async def process_timeline_posts(
         await process_media_info(config, {"batch": batch}, session=session)
 
         json_output(
-            1,
+            2,
             "meta/post - timing - media_batch",
             {
                 "batch_start": i + 1,
@@ -286,7 +286,7 @@ async def process_timeline_posts(
         account_start = time.time()
         await process_account_data(config, data=account, session=session)
         json_output(
-            1,
+            2,
             "meta/post - timing - single_account",
             {
                 "account_id": account.get("id"),
@@ -297,7 +297,7 @@ async def process_timeline_posts(
 
     total_time = time.time() - start_time
     json_output(
-        1,
+        2,
         "meta/post - timing - timeline_breakdown",
         {
             "total_time": total_time,
@@ -819,7 +819,7 @@ async def _process_timeline_post(
 
     total_time = time.time() - start_time
     json_output(
-        1,
+        2,
         "meta/post - timing - post_breakdown",
         {
             "post_id": post_id,
