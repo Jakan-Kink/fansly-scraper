@@ -40,13 +40,6 @@ from .logging_config import DatabaseLogger
 if TYPE_CHECKING:
     from config import FanslyConfig
 
-# Ensure proper UTF-8 encoding for logging on Windows
-if sys.platform == "win32":
-    import codecs
-
-    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
-    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
-
 # Set up database logging
 logs_dir = Path("logs")
 logs_dir.mkdir(exist_ok=True)

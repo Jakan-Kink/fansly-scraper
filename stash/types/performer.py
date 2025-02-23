@@ -29,6 +29,37 @@ class Performer(StashObject):
 
     __type_name__ = "Performer"
 
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "name",
+        "disambiguation",
+        "urls",
+        "gender",
+        "birthdate",
+        "ethnicity",
+        "country",
+        "eye_color",
+        "height_cm",
+        "measurements",
+        "fake_tits",
+        "penis_length",
+        "circumcised",
+        "career_length",
+        "tattoos",
+        "piercings",
+        "alias_list",
+        "favorite",
+        "tags",
+        "rating100",
+        "details",
+        "death_date",
+        "hair_color",
+        "weight",
+        "ignore_auto_tag",
+        "stash_ids",
+        "custom_fields",
+    }
+
     # Required fields from schema
     name: str  # String!
     alias_list: list[str] = strawberry.field(default_factory=list)  # [String!]!
@@ -75,7 +106,7 @@ class Performer(StashObject):
     weight: int | None = None  # Int
     groups: list["Group"] = strawberry.field(default_factory=list)  # [Group!]!
 
-    # Custom fields (Map type in schema)
+    # # Custom fields (Map type in schema)
     custom_fields: dict[str, Any] = strawberry.field(default_factory=dict)  # Map!
 
     async def update_avatar(
@@ -175,81 +206,103 @@ class Performer(StashObject):
             scenes=[],
         )
 
-    def to_input(self) -> dict[str, Any]:
-        """Convert to GraphQL input.
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "name": str,
+        "disambiguation": str,
+        "urls": list,
+        "gender": lambda g: g.value if g else None,
+        "birthdate": str,
+        "ethnicity": str,
+        "country": str,
+        "eye_color": str,
+        "height_cm": int,
+        "measurements": str,
+        "fake_tits": str,
+        "penis_length": float,
+        "circumcised": lambda c: c.value if c else None,
+        "career_length": str,
+        "tattoos": str,
+        "piercings": str,
+        "alias_list": list,
+        "favorite": bool,
+        "rating100": int,
+        "details": str,
+        "death_date": str,
+        "hair_color": str,
+        "weight": int,
+        "ignore_auto_tag": bool,
+    }
+
+    async def _to_input_all(self) -> dict[str, Any]:
+        """Convert all fields to input type.
 
         Returns:
-            Dictionary of input fields for create/update
+            Dictionary of all input fields
         """
-        if hasattr(self, "id") and self.id != "new":
-            # Update existing
-            return PerformerUpdateInput(
-                id=self.id,
-                name=self.name,
-                disambiguation=self.disambiguation,
-                urls=self.urls,
-                gender=self.gender,
-                birthdate=self.birthdate,
-                ethnicity=self.ethnicity,
-                country=self.country,
-                eye_color=self.eye_color,
-                height_cm=self.height_cm,
-                measurements=self.measurements,
-                fake_tits=self.fake_tits,
-                penis_length=self.penis_length,
-                circumcised=self.circumcised,
-                career_length=self.career_length,
-                tattoos=self.tattoos,
-                piercings=self.piercings,
-                alias_list=self.alias_list,
-                favorite=self.favorite,
-                tag_ids=[t.id for t in self.tags],
-                rating100=self.rating100,
-                details=self.details,
-                death_date=self.death_date,
-                hair_color=self.hair_color,
-                weight=self.weight,
-                ignore_auto_tag=self.ignore_auto_tag,
-                stash_ids=[
-                    StashID(endpoint=s.endpoint, stash_id=s.stash_id)
-                    for s in self.stash_ids
-                ],
-                custom_fields=self.custom_fields,
-            ).__dict__
-        else:
-            # Create new
-            return PerformerCreateInput(
-                name=self.name,
-                disambiguation=self.disambiguation,
-                urls=self.urls,
-                gender=self.gender,
-                birthdate=self.birthdate,
-                ethnicity=self.ethnicity,
-                country=self.country,
-                eye_color=self.eye_color,
-                height_cm=self.height_cm,
-                measurements=self.measurements,
-                fake_tits=self.fake_tits,
-                penis_length=self.penis_length,
-                circumcised=self.circumcised,
-                career_length=self.career_length,
-                tattoos=self.tattoos,
-                piercings=self.piercings,
-                alias_list=self.alias_list,
-                favorite=self.favorite,
-                tag_ids=[t.id for t in self.tags],
-                rating100=self.rating100,
-                details=self.details,
-                death_date=self.death_date,
-                hair_color=self.hair_color,
-                weight=self.weight,
-                ignore_auto_tag=self.ignore_auto_tag,
-                stash_ids=[
-                    StashID(endpoint=s.endpoint, stash_id=s.stash_id)
-                    for s in self.stash_ids
-                ],
-                custom_fields=self.custom_fields,
-            ).__dict__
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Convert to create input and dict
+        input_class = (
+            PerformerCreateInput
+            if not hasattr(self, "id") or self.id == "new"
+            else PerformerUpdateInput
+        )
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    async def _to_input_dirty(self) -> dict[str, Any]:
+        """Convert only dirty fields to input type.
+
+        Returns:
+            Dictionary of dirty input fields plus ID
+        """
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
+
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field in self.__original_values__
+            and getattr(self, field) != self.__original_values__[field]
+        }
+
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
+
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
+
+        # Convert to update input and dict
+        input_obj = PerformerUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    __relationships__ = {
+        # Standard ID relationships
+        "tags": ("tag_ids", True),  # (target_field, is_list)
+        # Special case with custom transform
+        "stash_ids": (
+            "stash_ids",
+            True,
+            lambda s: StashIDInput(endpoint=s.endpoint, stash_id=s.stash_id),
+        ),
+    }
 
 
 @strawberry.input

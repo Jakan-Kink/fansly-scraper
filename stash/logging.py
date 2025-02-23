@@ -27,7 +27,7 @@ def debug_print(obj, logger_name: str | None = None):
                     If None, uses root stash logger
     """
     try:
-        formatted = pformat(obj, indent=2)
+        formatted = pformat(obj, indent=2).strip()
         if logger_name:
             # Use specialized logger if name matches
             if logger_name == "client":

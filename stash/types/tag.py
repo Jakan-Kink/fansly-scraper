@@ -17,6 +17,17 @@ class Tag(StashObject):
 
     __type_name__ = "Tag"
 
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "name",
+        "aliases",
+        "ignore_auto_tag",
+        "favorite",
+        "parents",
+        "children",
+        "description",
+    }
+
     # Required fields
     name: str  # String!
     aliases: list[str] = strawberry.field(default_factory=list)  # [String!]!
@@ -68,35 +79,79 @@ class Tag(StashObject):
             child_count=0,
         )
 
-    def to_input(self) -> dict[str, Any]:
-        """Convert to GraphQL input.
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "name": str,
+        "description": str,
+        "aliases": list,
+        "ignore_auto_tag": bool,
+        "favorite": bool,
+    }
+
+    async def _to_input_all(self) -> dict[str, Any]:
+        """Convert all fields to input type.
 
         Returns:
-            Dictionary of input fields for create/update
+            Dictionary of all input fields
         """
-        if hasattr(self, "id") and self.id != "new":
-            # Update existing
-            return TagUpdateInput(
-                id=self.id,
-                name=self.name,
-                description=self.description,
-                aliases=self.aliases,
-                ignore_auto_tag=self.ignore_auto_tag,
-                image=None,  # Set if needed
-                parent_ids=[p.id for p in self.parents],
-                child_ids=[c.id for c in self.children],
-            ).__dict__
-        else:
-            # Create new
-            return TagCreateInput(
-                name=self.name,
-                description=self.description,
-                aliases=self.aliases,
-                ignore_auto_tag=self.ignore_auto_tag,
-                image=None,  # Set if needed
-                parent_ids=[p.id for p in self.parents],
-                child_ids=[c.id for c in self.children],
-            ).__dict__
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Convert to create input and dict
+        input_class = (
+            TagCreateInput
+            if not hasattr(self, "id") or self.id == "new"
+            else TagUpdateInput
+        )
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    async def _to_input_dirty(self) -> dict[str, Any]:
+        """Convert only dirty fields to input type.
+
+        Returns:
+            Dictionary of dirty input fields plus ID
+        """
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
+
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field in self.__original_values__
+            and getattr(self, field) != self.__original_values__[field]
+        }
+
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
+
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
+
+        # Convert to update input and dict
+        input_obj = TagUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    __relationships__ = {
+        # Standard ID relationships
+        "parents": ("parent_ids", True),  # (target_field, is_list)
+        "children": ("child_ids", True),
+    }
 
 
 @strawberry.input

@@ -33,6 +33,16 @@ class SceneMarker(StashObject):
 
     __type_name__ = "SceneMarker"
 
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "title",
+        "seconds",
+        "end_seconds",
+        "scene",
+        "primary_tag",
+        "tags",
+    }
+
     # Required fields
     scene: Annotated["Scene", lazy("stash.types.scene.Scene")]  # Scene!
     title: str  # String!
@@ -52,33 +62,78 @@ class SceneMarker(StashObject):
         None  # Float (The optional end time of the marker (in seconds). Supports decimals.)
     )
 
-    def to_input(self) -> dict[str, Any]:
-        """Convert to GraphQL input.
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "title": str,
+        "seconds": float,
+        "end_seconds": float,
+    }
+
+    async def _to_input_all(self) -> dict[str, Any]:
+        """Convert all fields to input type.
 
         Returns:
-            Dictionary of input fields for create/update
+            Dictionary of all input fields
         """
-        if hasattr(self, "id") and self.id != "new":
-            # Update existing
-            return SceneMarkerUpdateInput(
-                id=self.id,
-                title=self.title,
-                seconds=self.seconds,
-                end_seconds=self.end_seconds,
-                scene_id=self.scene.id,
-                primary_tag_id=self.primary_tag.id,
-                tag_ids=[t.id for t in self.tags],
-            ).__dict__
-        else:
-            # Create new
-            return SceneMarkerCreateInput(
-                title=self.title,
-                seconds=self.seconds,
-                end_seconds=self.end_seconds,
-                scene_id=self.scene.id,
-                primary_tag_id=self.primary_tag.id,
-                tag_ids=[t.id for t in self.tags],
-            ).__dict__
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Convert to create input and dict
+        input_class = (
+            SceneMarkerCreateInput
+            if not hasattr(self, "id") or self.id == "new"
+            else SceneMarkerUpdateInput
+        )
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    async def _to_input_dirty(self) -> dict[str, Any]:
+        """Convert only dirty fields to input type.
+
+        Returns:
+            Dictionary of dirty input fields plus ID
+        """
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
+
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field in self.__original_values__
+            and getattr(self, field) != self.__original_values__[field]
+        }
+
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
+
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
+
+        # Convert to update input and dict
+        input_obj = SceneMarkerUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    __relationships__ = {
+        # Standard ID relationships
+        "scene": ("scene_id", False),  # (target_field, is_list)
+        "primary_tag": ("primary_tag_id", False),
+        "tags": ("tag_ids", True),
+    }
 
 
 @strawberry.input

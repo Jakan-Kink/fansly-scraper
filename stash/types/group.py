@@ -29,6 +29,23 @@ class Group(StashObject):
 
     __type_name__ = "Group"
 
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "name",
+        "urls",
+        "tags",
+        "containing_groups",
+        "sub_groups",
+        "scenes",
+        "aliases",
+        "duration",
+        "date",
+        "rating100",
+        "studio",
+        "director",
+        "synopsis",
+    }
+
     # Required fields
     name: str  # String!
     urls: list[str] = strawberry.field(default_factory=list)  # [String!]!
@@ -69,6 +86,100 @@ class Group(StashObject):
         """Get sub group count at given depth."""
         # TODO: Implement this resolver
         raise NotImplementedError("sub_group_count resolver not implemented")
+
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "name": str,
+        "urls": list,
+        "aliases": str,
+        "duration": int,
+        "date": str,
+        "rating100": int,
+        "director": str,
+        "synopsis": str,
+    }
+
+    async def _to_input_all(self) -> dict[str, Any]:
+        """Convert all fields to input type.
+
+        Returns:
+            Dictionary of all input fields
+        """
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Convert to create input and dict
+        input_class = (
+            GroupCreateInput
+            if not hasattr(self, "id") or self.id == "new"
+            else GroupUpdateInput
+        )
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    async def _to_input_dirty(self) -> dict[str, Any]:
+        """Convert only dirty fields to input type.
+
+        Returns:
+            Dictionary of dirty input fields plus ID
+        """
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
+
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field in self.__original_values__
+            and getattr(self, field) != self.__original_values__[field]
+        }
+
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
+
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
+
+        # Convert to update input and dict
+        input_obj = GroupUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    __relationships__ = {
+        # Standard ID relationships
+        "studio": ("studio_id", False),  # (target_field, is_list)
+        "tags": ("tag_ids", True),
+        # Special case with custom transform for group descriptions
+        "containing_groups": (
+            "containing_groups",
+            True,
+            lambda g: GroupDescriptionInput(
+                group_id=g.group.id,
+                description=g.description,
+            ),
+        ),
+        "sub_groups": (
+            "sub_groups",
+            True,
+            lambda g: GroupDescriptionInput(
+                group_id=g.group.id,
+                description=g.description,
+            ),
+        ),
+    }
 
 
 @strawberry.input

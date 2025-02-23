@@ -589,58 +589,123 @@ class StashProcessing:
         result = await session.execute(stmt)
         account = result.scalar_one()
 
-        # Process direct messages
+        # Get all messages with attachments in one query with relationships
         stmt = (
-            select(Group)
+            select(Message)
+            .join(Message.attachments)  # Join to filter messages with attachments
+            .join(Message.group)
             .join(Group.users)
-            .join(Group.messages)
-            .join(Message.attachments)
             .where(Group.users.any(Account.id == account.id))
+            .options(
+                selectinload(Message.attachments)
+                .selectinload(Attachment.media)
+                .selectinload(AccountMedia.media),
+                selectinload(Message.attachments)
+                .selectinload(Attachment.bundle)
+                .selectinload(AccountMediaBundle.accountMedia)
+                .selectinload(AccountMedia.media),
+                selectinload(Message.group),
+            )
         )
-        groups = await session.execute(stmt)
-        groups = groups.scalars().all()
+        debug_print(
+            {
+                "status": "building_message_query",
+                "account_id": account.id,
+                "statement": stmt,
+            }
+        )
 
-        # Process messages in batches
-        batch_size = 15  # Process one timeline page worth of messages at a time
-        for group in groups:
-            messages = await group.awaitable_attrs.messages
-            # Filter messages with attachments
-            messages_with_attachments = [m for m in messages if m.attachments]
+        result = await session.execute(stmt)
+        messages = result.unique().scalars().all()
+        print_info(f"Processing {len(messages)} messages...")
 
-            # Process in batches
-            for i in range(0, len(messages_with_attachments), batch_size):
-                batch = messages_with_attachments[i : i + batch_size]
+        # Set up batch processing
+        task_pbar, process_pbar, semaphore, queue = await self._setup_batch_processing(
+            messages, "message"
+        )
+
+        batch_size = 25
+
+        async def process_batch(batch: list[Message]) -> None:
+            async with semaphore:
                 try:
-                    await self._process_items_with_gallery(
-                        account=account,
-                        performer=performer,
-                        studio=studio,
-                        item_type="message",
-                        items=batch,
-                        url_pattern_func=get_message_url,
-                        session=session,
-                    )
+                    # Ensure all objects are bound to the session
+                    for message in batch:
+                        session.add(message)
+                        for attachment in message.attachments:
+                            session.add(attachment)
+                            if attachment.media:
+                                session.add(attachment.media)
+                                if attachment.media.media:
+                                    session.add(attachment.media.media)
+                            if attachment.bundle:
+                                session.add(attachment.bundle)
+                                for account_media in attachment.bundle.accountMedia:
+                                    session.add(account_media)
+                                    if account_media.media:
+                                        session.add(account_media.media)
+
+                    # Refresh account before processing
+                    await session.refresh(account)
+
+                    # Process each message in the batch
+                    for message in batch:
+                        try:
+                            await self._process_items_with_gallery(
+                                account=account,
+                                performer=performer,
+                                studio=studio,
+                                item_type="message",
+                                items=[message],
+                                url_pattern_func=get_message_url,
+                                session=session,
+                            )
+                        except Exception as e:
+                            print_error(f"Error processing message {message.id}: {e}")
+                            logger.exception(
+                                f"Error processing message {message.id}",
+                                exc_info=e,
+                                traceback=True,
+                                stack_info=True,
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - process_creator_messages",
+                                    "status": "message_processing_failed",
+                                    "message_id": message.id,
+                                    "error": str(e),
+                                    "traceback": traceback.format_exc(),
+                                }
+                            )
+                        finally:
+                            process_pbar.update(1)
                 except Exception as e:
-                    first_id = batch[0].id if batch else "unknown"
-                    print_error(
-                        f"Failed to process message batch starting with {first_id}: {e}"
-                    )
+                    print_error(f"Error processing batch: {e}")
                     logger.exception(
-                        f"Failed to process message batch starting with {first_id}",
+                        "Error processing batch",
                         exc_info=e,
                         traceback=True,
+                        stack_info=True,
                     )
                     debug_print(
                         {
                             "method": "StashProcessing - process_creator_messages",
-                            "status": "message_processing_failed",
-                            "batch_start_id": first_id,
-                            "batch_size": len(batch) if batch else 0,
+                            "status": "batch_processing_failed",
                             "error": str(e),
                             "traceback": traceback.format_exc(),
                         }
                     )
-                    continue
+
+        # Run the batch processor
+        await self._run_batch_processor(
+            items=messages,
+            batch_size=batch_size,
+            task_pbar=task_pbar,
+            process_pbar=process_pbar,
+            semaphore=semaphore,
+            queue=queue,
+            process_batch=process_batch,
+        )
 
     @with_session()
     async def process_creator_posts(
@@ -675,89 +740,96 @@ class StashProcessing:
             select(Post)
             .join(Post.attachments)  # Join to filter posts with attachments
             .where(Post.accountId == account.id)
+            .options(
+                selectinload(Post.attachments)
+                .selectinload(Attachment.media)
+                .selectinload(AccountMedia.media),
+                selectinload(Post.attachments)
+                .selectinload(Attachment.bundle)
+                .selectinload(AccountMediaBundle.accountMedia)
+                .selectinload(AccountMedia.media),
+                selectinload(Post.accountMentions),
+            )
         )
-        debug_print({"status": "building_post_query", "account_id": account.id})
+        debug_print(
+            {
+                "status": "building_post_query",
+                "account_id": account.id,
+                "statement": stmt,
+            }
+        )
 
         def get_post_url(post: Post) -> str:
             return f"https://fansly.com/post/{post.id}"
 
         result = await session.execute(stmt)
         posts = result.unique().scalars().all()
-        debug_print(
-            {
-                "status": "got_posts",
-                "count": len(posts),
-                "account_id": account.id,
-                "posts_with_attachments": [p.id for p in posts],
-            }
-        )
-        # Process posts in batches
         print_info(f"Processing {len(posts)} posts...")
-        debug_print({"status": "processing_posts", "count": len(posts)})
 
-        pbar = tqdm(
-            total=len(posts),
-            desc=f"Processing {len(posts)} posts",
-            unit="post",
+        # Set up batch processing
+        task_pbar, process_pbar, semaphore, queue = await self._setup_batch_processing(
+            posts, "post"
         )
 
-        # Create semaphore to limit concurrent tasks
-        max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
-        semaphore = asyncio.Semaphore(max_concurrent)
-        queue = Queue(maxsize=max_concurrent * 2)  # Double buffer
+        batch_size = 25
 
-        async def process_post(post: Post) -> None:
+        async def process_batch(batch: list[Post]) -> None:
             async with semaphore:
                 try:
-                    # Get fresh post with all needed relationships
-                    stmt = (
-                        select(Post)
-                        .options(
-                            selectinload(Post.attachments)
-                            .selectinload(Attachment.media)
-                            .selectinload(AccountMedia.media),
-                            selectinload(Post.attachments)
-                            .selectinload(Attachment.bundle)
-                            .selectinload(AccountMediaBundle.accountMedia)
-                            .selectinload(AccountMedia.media),
-                            selectinload(Post.accountMentions),
-                        )
-                        .where(Post.id == post.id)
-                    )
-                    result = await session.execute(stmt)
-                    fresh_post = result.scalar_one()
-
                     # Ensure all objects are bound to the session
-                    session.add(fresh_post)
-                    for attachment in fresh_post.attachments:
-                        session.add(attachment)
-                        if attachment.media:
-                            session.add(attachment.media)
-                            if attachment.media.media:
-                                session.add(attachment.media.media)
-                        if attachment.bundle:
-                            session.add(attachment.bundle)
-                            for account_media in attachment.bundle.accountMedia:
-                                session.add(account_media)
-                                if account_media.media:
-                                    session.add(account_media.media)
+                    for post in batch:
+                        session.add(post)
+                        for attachment in post.attachments:
+                            session.add(attachment)
+                            if attachment.media:
+                                session.add(attachment.media)
+                                if attachment.media.media:
+                                    session.add(attachment.media.media)
+                            if attachment.bundle:
+                                session.add(attachment.bundle)
+                                for account_media in attachment.bundle.accountMedia:
+                                    session.add(account_media)
+                                    if account_media.media:
+                                        session.add(account_media.media)
 
                     # Refresh account before processing
                     await session.refresh(account)
 
-                    await self._process_items_with_gallery(
-                        account=account,
-                        performer=performer,
-                        studio=studio,
-                        item_type="post",
-                        items=[fresh_post],
-                        url_pattern_func=get_post_url,
-                        session=session,
-                    )
+                    # Process each post in the batch
+                    for post in batch:
+                        try:
+                            await self._process_items_with_gallery(
+                                account=account,
+                                performer=performer,
+                                studio=studio,
+                                item_type="post",
+                                items=[post],
+                                url_pattern_func=get_post_url,
+                                session=session,
+                            )
+                        except Exception as e:
+                            print_error(f"Error processing post {post.id}: {e}")
+                            logger.exception(
+                                f"Error processing post {post.id}",
+                                exc_info=e,
+                                traceback=True,
+                                stack_info=True,
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - process_creator_posts",
+                                    "status": "post_processing_failed",
+                                    "post_id": post.id,
+                                    "error": str(e),
+                                    "traceback": traceback.format_exc(),
+                                }
+                            )
+                        finally:
+                            process_pbar.update(1)
                 except Exception as e:
-                    print_error(f"Error processing post {post.id}: {e}")
+                    print_error(f"Error processing batch: {e}")
                     logger.exception(
-                        f"Error processing post {post.id}",
+                        "Error processing batch",
                         exc_info=e,
                         traceback=True,
                         stack_info=True,
@@ -765,30 +837,102 @@ class StashProcessing:
                     debug_print(
                         {
                             "method": "StashProcessing - process_creator_posts",
-                            "status": "post_processing_failed",
-                            "post_id": post.id,
+                            "status": "batch_processing_failed",
                             "error": str(e),
                             "traceback": traceback.format_exc(),
                         }
                     )
-                finally:
-                    pbar.update(1)
+
+        # Run the batch processor
+        await self._run_batch_processor(
+            items=posts,
+            batch_size=batch_size,
+            task_pbar=task_pbar,
+            process_pbar=process_pbar,
+            semaphore=semaphore,
+            queue=queue,
+            process_batch=process_batch,
+        )
+
+    async def _setup_batch_processing(
+        self,
+        items: list[Any],
+        item_type: str,
+    ) -> tuple[tqdm, tqdm, asyncio.Semaphore, Queue]:
+        """Set up common batch processing infrastructure.
+
+        Args:
+            items: List of items to process
+            item_type: Type of items ("post" or "message")
+
+        Returns:
+            Tuple of (task_pbar, process_pbar, semaphore, queue)
+        """
+        # Create progress bars
+        task_pbar = tqdm(
+            total=len(items),
+            desc=f"Adding {len(items)} {item_type} tasks",
+            position=0,
+            unit="task",
+        )
+        process_pbar = tqdm(
+            total=len(items),
+            desc=f"Processing {len(items)} {item_type}s",
+            position=1,
+            unit=item_type,
+        )
+
+        # Create semaphore and queue for concurrent processing
+        max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
+        semaphore = asyncio.Semaphore(max_concurrent)
+        queue = Queue(
+            maxsize=max_concurrent * 4
+        )  # Quadruple buffer for more throughput
+
+        return task_pbar, process_pbar, semaphore, queue
+
+    async def _run_batch_processor(
+        self,
+        items: list[Any],
+        batch_size: int,
+        task_pbar: tqdm,
+        process_pbar: tqdm,
+        semaphore: asyncio.Semaphore,
+        queue: Queue,
+        process_batch: callable,
+    ) -> None:
+        """Run batch processing with producer/consumer pattern.
+
+        Args:
+            items: List of items to process
+            batch_size: Size of each batch
+            task_pbar: Progress bar for task creation
+            process_pbar: Progress bar for processing
+            semaphore: Semaphore for concurrency control
+            queue: Queue for producer/consumer pattern
+            process_batch: Callback function to process each batch
+        """
+        max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
 
         async def producer():
-            for post in posts:
-                await queue.put(post)
+            # Process in batches
+            for i in range(0, len(items), batch_size):
+                batch = items[i : i + batch_size]
+                await queue.put(batch)
+                task_pbar.update(len(batch))
             # Signal consumers we're done
             for _ in range(max_concurrent):
                 await queue.put(None)
+            task_pbar.close()
 
         async def consumer():
             while True:
-                post = await queue.get()
-                if post is None:  # Sentinel value
+                batch = await queue.get()
+                if batch is None:  # Sentinel value
                     queue.task_done()
                     break
                 try:
-                    await process_post(post)
+                    await process_batch(batch)
                 finally:
                     queue.task_done()
 
@@ -802,7 +946,7 @@ class StashProcessing:
             await producer_task
             await asyncio.gather(*consumers, return_exceptions=True)
         finally:
-            pbar.close()
+            process_pbar.close()
 
     @with_session()
     async def _process_items_with_gallery(
@@ -1652,6 +1796,66 @@ class StashProcessing:
                     media_id=str(media.id),
                 )
                 files.append(file)
+        # Handle preview media
+        if attachment.media and attachment.media.preview:
+            preview_media = attachment.media.preview
+            if hasattr(preview_media, "awaitable_attrs"):
+                await preview_media.awaitable_attrs.variants
+                await preview_media.awaitable_attrs.mimetype
+
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator_attachment",
+                    "status": "processing_preview_media",
+                    "attachment_id": attachment.id,
+                    "preview_media_id": preview_media.id,
+                    "variant_count": (
+                        len(preview_media.variants)
+                        if hasattr(preview_media, "variants")
+                        else 0
+                    ),
+                    "variants": (
+                        [v.id for v in preview_media.variants]
+                        if hasattr(preview_media, "variants")
+                        else []
+                    ),
+                }
+            )
+
+            # Find in Stash by path and update metadata for preview
+            preview_result = None
+            if preview_media.stash_id:
+                preview_result = await self._find_stash_files_by_id(
+                    [(preview_media.stash_id, preview_media.mimetype)]
+                )
+            else:
+                # Collect all preview media IDs (original + variants)
+                preview_media_files = [(str(preview_media.id), preview_media.mimetype)]
+                if hasattr(preview_media, "variants") and preview_media.variants:
+                    preview_media_files.extend(
+                        (str(v.id), v.mimetype) for v in preview_media.variants
+                    )
+                debug_print(
+                    {
+                        "method": "StashProcessing - process_creator_attachment",
+                        "status": "searching_preview_media_files",
+                        "preview_media_files": preview_media_files,
+                    }
+                )
+                preview_result = await self._find_stash_files_by_path(
+                    preview_media_files
+                )
+
+            # Update metadata and collect files for preview
+            for stash_obj, file in preview_result:
+                await self._update_stash_metadata(
+                    stash_obj=stash_obj,
+                    item=item,
+                    account=account,
+                    media_id=str(preview_media.id),
+                )
+                files.append(file)
+
         # Handle media bundles
         debug_print(
             {
@@ -1748,6 +1952,133 @@ class StashProcessing:
                             media_id=str(account_media.media.id),
                         )
                         files.append(file)
+
+                # Handle preview media for each AccountMedia in the bundle
+                if account_media.preview:
+                    preview_media = account_media.preview
+                    if hasattr(preview_media, "awaitable_attrs"):
+                        await preview_media.awaitable_attrs.variants
+                        await preview_media.awaitable_attrs.mimetype
+
+                    debug_print(
+                        {
+                            "method": "StashProcessing - process_creator_attachment",
+                            "status": "processing_account_media_preview",
+                            "bundle_id": bundle.id,
+                            "account_media_id": account_media.id,
+                            "preview_media_id": preview_media.id,
+                            "variant_count": (
+                                len(preview_media.variants)
+                                if hasattr(preview_media, "variants")
+                                else 0
+                            ),
+                            "variants": (
+                                [v.id for v in preview_media.variants]
+                                if hasattr(preview_media, "variants")
+                                else []
+                            ),
+                        }
+                    )
+
+                    # Find in Stash by path and update metadata for preview
+                    preview_result = None
+                    if preview_media.stash_id:
+                        preview_result = await self._find_stash_files_by_id(
+                            [(preview_media.stash_id, preview_media.mimetype)]
+                        )
+                    else:
+                        # Collect all preview media IDs (original + variants)
+                        preview_media_files = [
+                            (str(preview_media.id), preview_media.mimetype)
+                        ]
+                        if (
+                            hasattr(preview_media, "variants")
+                            and preview_media.variants
+                        ):
+                            preview_media_files.extend(
+                                (str(v.id), v.mimetype) for v in preview_media.variants
+                            )
+                        debug_print(
+                            {
+                                "method": "StashProcessing - process_creator_attachment",
+                                "status": "searching_account_media_preview_files",
+                                "preview_media_files": preview_media_files,
+                            }
+                        )
+                        preview_result = await self._find_stash_files_by_path(
+                            preview_media_files
+                        )
+
+                    # Update metadata and collect files for preview
+                    for stash_obj, file in preview_result:
+                        await self._update_stash_metadata(
+                            stash_obj=stash_obj,
+                            item=item,
+                            account=account,
+                            media_id=str(preview_media.id),
+                        )
+                        files.append(file)
+
+            if bundle.preview:
+                preview_media = bundle.preview
+                if hasattr(preview_media, "awaitable_attrs"):
+                    await preview_media.awaitable_attrs.variants
+                    await preview_media.awaitable_attrs.mimetype
+
+                debug_print(
+                    {
+                        "method": "StashProcessing - process_creator_attachment",
+                        "status": "processing_bundle_preview_media",
+                        "bundle_id": bundle.id,
+                        "preview_media_id": preview_media.id,
+                        "variant_count": (
+                            len(preview_media.variants)
+                            if hasattr(preview_media, "variants")
+                            else 0
+                        ),
+                        "variants": (
+                            [v.id for v in preview_media.variants]
+                            if hasattr(preview_media, "variants")
+                            else []
+                        ),
+                    }
+                )
+
+                # Find in Stash by path and update metadata for bundle preview
+                preview_result = None
+                if preview_media.stash_id:
+                    preview_result = await self._find_stash_files_by_id(
+                        [(preview_media.stash_id, preview_media.mimetype)]
+                    )
+                else:
+                    # Collect all preview media IDs (original + variants)
+                    preview_media_files = [
+                        (str(preview_media.id), preview_media.mimetype)
+                    ]
+                    if hasattr(preview_media, "variants") and preview_media.variants:
+                        preview_media_files.extend(
+                            (str(v.id), v.mimetype) for v in preview_media.variants
+                        )
+                    debug_print(
+                        {
+                            "method": "StashProcessing - process_creator_attachment",
+                            "status": "searching_bundle_preview_media_files",
+                            "preview_media_files": preview_media_files,
+                        }
+                    )
+                    preview_result = await self._find_stash_files_by_path(
+                        preview_media_files
+                    )
+
+                # Update metadata and collect files for bundle preview
+                for stash_obj, file in preview_result:
+                    await self._update_stash_metadata(
+                        stash_obj=stash_obj,
+                        item=item,
+                        account=account,
+                        media_id=str(preview_media.id),
+                    )
+                    files.append(file)
 
         # Handle aggregated posts
         debug_print(
@@ -2040,6 +2371,14 @@ class StashProcessing:
                         }
                     )
 
+        logger.debug(
+            {
+                "method": "StashProcessing - _find_stash_files_by_id",
+                "status": "found_files",
+                "found_count": len(found),
+                "found_files": [f[0] for f in found],
+            }
+        )
         return found
 
     async def _find_stash_files_by_path(
@@ -2140,6 +2479,14 @@ class StashProcessing:
                     }
                 )
 
+        logger.debug(
+            {
+                "method": "StashProcessing - _find_stash_files_by_path",
+                "status": "found_files",
+                "found_count": len(found),
+                "found_files": [f[0] for f in found],
+            }
+        )
         return found
 
     async def _update_stash_metadata(
@@ -2189,18 +2536,46 @@ class StashProcessing:
                             "username": mention.username,
                         }
                     )
-                    mention_performer = await Performer.from_account(mention)
-                    if mention_performer:
-                        await mention_performer.save(self.context.client)
-                        await self._update_account_stash_id(mention, mention_performer)
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _update_stash_metadata",
-                                "status": "performer_created",
-                                "username": mention.username,
-                                "stash_id": mention_performer.id,
-                            }
-                        )
+                    try:
+                        mention_performer = await Performer.from_account(mention)
+                        if mention_performer:
+                            await mention_performer.save(self.context.client)
+                            await self._update_account_stash_id(
+                                mention, mention_performer
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _update_stash_metadata",
+                                    "status": "performer_created",
+                                    "username": mention.username,
+                                    "stash_id": mention_performer.id,
+                                }
+                            )
+                    except Exception as e:
+                        error_message = str(e)
+                        if (
+                            "performer with name" in error_message
+                            and "already exists" in error_message
+                        ):
+                            # Try to find the performer again - it may have been created by another thread
+                            mention_performer = await self._find_existing_performer(
+                                mention
+                            )
+                            if mention_performer:
+                                debug_print(
+                                    {
+                                        "method": "StashProcessing - _update_stash_metadata",
+                                        "status": "performer_found_after_create_failed",
+                                        "username": mention.username,
+                                        "stash_id": mention_performer.id,
+                                    }
+                                )
+                            else:
+                                # If we still can't find it, something is wrong
+                                raise
+                        else:
+                            # Re-raise if it's not a "performer already exists" error
+                            raise
 
                 if mention_performer:
                     performers.append(mention_performer)
@@ -2224,7 +2599,9 @@ class StashProcessing:
 
                     # First try exact name match
                     name_results = await self.context.client.find_tags(
-                        tag_filter={"name": {"value": tag_name, "modifier": "EQUALS"}},
+                        tag_filter={
+                            "name": {"value": tag_name, "modifier": "INCLUDES"}
+                        },
                     )
                     if name_results.count > 0:
                         # Convert dict to Tag object using unpacking
@@ -2241,7 +2618,7 @@ class StashProcessing:
                         # Then try alias match
                         alias_results = await self.context.client.find_tags(
                             tag_filter={
-                                "aliases": {"value": tag_name, "modifier": "EQUALS"}
+                                "aliases": {"value": tag_name, "modifier": "INCLUDES"}
                             },
                         )
                         if alias_results.count > 0:
@@ -2260,16 +2637,41 @@ class StashProcessing:
                         tags.append(found_tag)
                     else:
                         # Create new tag if not found
-                        new_tag = Tag(name=hashtag.value)
-                        if created_tag := await self.context.client.create_tag(new_tag):
-                            tags.append(created_tag)
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _update_stash_metadata",
-                                    "status": "tag_created",
-                                    "tag_name": hashtag.value,
-                                }
-                            )
+                        new_tag = Tag(name=tag_name, id="new")
+                        try:
+                            if created_tag := await self.context.client.create_tag(
+                                new_tag
+                            ):
+                                tags.append(created_tag)
+                                debug_print(
+                                    {
+                                        "method": "StashProcessing - _update_stash_metadata",
+                                        "status": "tag_created",
+                                        "tag_name": hashtag.value,
+                                    }
+                                )
+                        except Exception as e:
+                            error_message = str(e)
+                            # If tag already exists, it will be handled by create_tag
+                            if (
+                                "tag with name" in error_message
+                                and "already exists" in error_message
+                            ):
+                                if found_tag := await self.context.client.create_tag(
+                                    new_tag
+                                ):
+                                    tags.append(found_tag)
+                                    debug_print(
+                                        {
+                                            "method": "StashProcessing - _update_stash_metadata",
+                                            "status": "tag_found_after_create_failed",
+                                            "tag_name": tag_name,
+                                            "found_tag": found_tag.name,
+                                        }
+                                    )
+                            else:
+                                # Re-raise if it's not a "tag already exists" error
+                                raise
 
                 if tags:
                     # TODO: Re-enable this code after testing
@@ -2288,8 +2690,18 @@ class StashProcessing:
         if is_preview:
             await self._add_preview_tag(stash_obj)
 
-        # Save changes to Stash
-        await stash_obj.save(self.context.client)
+        # Save changes to Stash only if object is dirty
+        if stash_obj.is_dirty():
+            await stash_obj.save(self.context.client)
+        else:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_stash_metadata",
+                    "status": "no_changes",
+                    "object_type": stash_obj.__type_name__,
+                    "object_id": stash_obj.id,
+                }
+            )
 
     async def _update_file_metadata(
         self,
@@ -2514,11 +2926,37 @@ class StashProcessing:
                 existing_galleries.add(media_obj.gallery)
                 file.galleries = list(existing_galleries)
 
-        # Save all changes to Stash
-        await file.save(self.context.client)
+        # Save changes to Stash only if object is dirty
+        if file.is_dirty():
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "saving_changes",
+                    "file_id": file.id,
+                    "file_type": file.__type_name__,
+                }
+            )
+            await file.save(self.context.client)
+        else:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "no_changes",
+                    "file_id": file.id,
+                    "file_type": file.__type_name__,
+                }
+            )
 
-        # Write back stash_id to media object
+        # Write back stash_id to media object if needed
         if not media_obj.stash_id:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_file_metadata",
+                    "status": "updating_stash_id",
+                    "file_id": file.id,
+                    "media_id": media_obj.id,
+                }
+            )
             media_obj.stash_id = file.id
             session.add(media_obj)
             await session.flush()
@@ -2557,32 +2995,64 @@ class StashProcessing:
         # Get username for title
         username = account.username
 
-        # Generate title using same method as gallery titles
-        file.title = self._generate_title_from_content(
+        # Generate new title
+        new_title = self._generate_title_from_content(
             content=content.content,
             username=username,
             created_at=content.createdAt,
         )
-        file.details = content.content
+        if file.title != new_title:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_content_metadata",
+                    "status": "updating_title",
+                    "file_id": file.id,
+                    "old_title": file.title,
+                    "new_title": new_title,
+                }
+            )
+            file.title = new_title
 
-        # Update date
-        file.date = content.createdAt.strftime("%Y-%m-%d")  # Stash expects YYYY-MM-DD
+        # Update details if changed
+        if file.details != content.content:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_content_metadata",
+                    "status": "updating_details",
+                    "file_id": file.id,
+                }
+            )
+            file.details = content.content
 
-        # Start with empty performers list
-        performers = []
+        # Update date if changed
+        new_date = content.createdAt.strftime("%Y-%m-%d")  # Stash expects YYYY-MM-DD
+        if file.date != new_date:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_content_metadata",
+                    "status": "updating_date",
+                    "file_id": file.id,
+                    "old_date": file.date,
+                    "new_date": new_date,
+                }
+            )
+            file.date = new_date
+
+        # Build new performers list
+        new_performers = []
 
         # Add main account as performer
         if main_performer := await self._find_existing_performer(account):
             debug_print(
                 {
-                    "method": "StashProcessing - _update_file_metadata",
+                    "method": "StashProcessing - _update_content_metadata",
                     "status": "adding_main_performer",
                     "file_id": file.id,
                     "performer_id": main_performer.id,
                     "performer_name": main_performer.name,
                 }
             )
-            performers.append(main_performer)
+            new_performers.append(main_performer)
 
         # Add account mentions as performers
         if hasattr(content, "accountMentions") and content.accountMentions:
@@ -2590,46 +3060,63 @@ class StashProcessing:
                 if mention_performer := await self._find_existing_performer(mention):
                     debug_print(
                         {
-                            "method": "StashProcessing - _update_file_metadata",
+                            "method": "StashProcessing - _update_content_metadata",
                             "status": "adding_mention_performer",
                             "file_id": file.id,
                             "performer_id": mention_performer.id,
                             "performer_name": mention_performer.name,
                         }
                     )
-                    performers.append(mention_performer)
+                    new_performers.append(mention_performer)
 
-        # Set performers if we have any
-        if performers:
+        # Update performers if changed
+        current_performers = (
+            {p.id for p in file.performers} if hasattr(file, "performers") else set()
+        )
+        new_performer_ids = {p.id for p in new_performers}
+        if current_performers != new_performer_ids:
             debug_print(
                 {
-                    "method": "StashProcessing - _update_file_metadata",
-                    "status": "setting_performers",
+                    "method": "StashProcessing - _update_content_metadata",
+                    "status": "updating_performers",
                     "file_id": file.id,
-                    "performer_count": len(performers),
-                    "performer_names": [p.name for p in performers],
+                    "old_performers": sorted(current_performers),
+                    "new_performers": sorted(new_performer_ids),
                 }
             )
-            file.performers = performers
+            file.performers = new_performers
 
-        # Set studio if available
+        # Update studio if needed
         studio = await self._find_existing_studio(account)
-        if studio:
+        current_studio_id = file.studio.id if file.studio else None
+        new_studio_id = studio.id if studio else None
+        if current_studio_id != new_studio_id:
             debug_print(
                 {
-                    "method": "StashProcessing - _update_file_metadata",
-                    "status": "setting_studio",
+                    "method": "StashProcessing - _update_content_metadata",
+                    "status": "updating_studio",
                     "file_id": file.id,
-                    "studio_id": studio.id,
-                    "studio_name": studio.name,
+                    "old_studio": current_studio_id,
+                    "new_studio": new_studio_id,
                 }
             )
             file.studio = studio
-            # Set code based on content type
-            if isinstance(file, Scene) or isinstance(file, Image):
-                file.code = str(media_obj.id)  # Media ID for Image/Scene
-            else:
-                file.code = str(content.id)  # Post/Message ID for Gallery
+
+        # Update code if needed
+        new_code = (
+            str(media_obj.id) if isinstance(file, (Scene, Image)) else str(content.id)
+        )
+        if file.code != new_code:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_content_metadata",
+                    "status": "updating_code",
+                    "file_id": file.id,
+                    "old_code": file.code,
+                    "new_code": new_code,
+                }
+            )
+            file.code = new_code
 
         # Set organized flag since we have metadata
         # file.organized = True
@@ -2648,7 +3135,30 @@ class StashProcessing:
             q="Trailer",
         )
         if tag_data.count > 0:
-            file.tags.append(tag_data.tags[0])
+            preview_tag = tag_data.tags[0]
+            # Check if tag already exists
+            current_tag_ids = (
+                {t.id for t in file.tags} if hasattr(file, "tags") else set()
+            )
+            if preview_tag.id not in current_tag_ids:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _add_preview_tag",
+                        "status": "adding_preview_tag",
+                        "file_id": file.id,
+                        "tag_id": preview_tag.id,
+                    }
+                )
+                file.tags.append(preview_tag)
+            else:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _add_preview_tag",
+                        "status": "preview_tag_exists",
+                        "file_id": file.id,
+                        "tag_id": preview_tag.id,
+                    }
+                )
 
     def _generate_title_from_content(
         self,

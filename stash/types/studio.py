@@ -22,6 +22,22 @@ class Studio(StashObject):
 
     __type_name__ = "Studio"
 
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "name",
+        "aliases",
+        "tags",
+        "ignore_auto_tag",
+        "child_studios",
+        "stash_ids",
+        "favorite",
+        "groups",
+        "url",
+        "parent_studio",
+        "rating100",
+        "details",
+    }
+
     # Required fields
     name: str  # String!
     aliases: list[str] = strawberry.field(default_factory=list)  # [String!]!
@@ -78,45 +94,87 @@ class Studio(StashObject):
             group_count=0,
         )
 
-    def to_input(self) -> dict[str, Any]:
-        """Convert to GraphQL input.
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "name": str,
+        "url": str,
+        "aliases": list,
+        "ignore_auto_tag": bool,
+        "favorite": bool,
+        "rating100": int,
+        "details": str,
+    }
+
+    async def _to_input_all(self) -> dict[str, Any]:
+        """Convert all fields to input type.
 
         Returns:
-            Dictionary of input fields for create/update
+            Dictionary of all input fields
         """
-        if hasattr(self, "id") and self.id != "new":
-            # Update existing
-            return StudioUpdateInput(
-                id=self.id,
-                name=self.name,
-                url=self.url,
-                parent_id=self.parent_studio.id if self.parent_studio else None,
-                aliases=self.aliases,
-                ignore_auto_tag=self.ignore_auto_tag,
-                image=None,  # Set if needed
-                stash_ids=[
-                    StashID(endpoint=s.endpoint, stash_id=s.stash_id)
-                    for s in self.stash_ids
-                ],
-                rating100=self.rating100,
-                details=self.details,
-            ).__dict__
-        else:
-            # Create new
-            return StudioCreateInput(
-                name=self.name,
-                url=self.url,
-                parent_id=self.parent_studio.id if self.parent_studio else None,
-                aliases=self.aliases,
-                ignore_auto_tag=self.ignore_auto_tag,
-                image=None,  # Set if needed
-                stash_ids=[
-                    StashID(endpoint=s.endpoint, stash_id=s.stash_id)
-                    for s in self.stash_ids
-                ],
-                rating100=self.rating100,
-                details=self.details,
-            ).__dict__
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Convert to create input and dict
+        input_class = (
+            StudioCreateInput
+            if not hasattr(self, "id") or self.id == "new"
+            else StudioUpdateInput
+        )
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    async def _to_input_dirty(self) -> dict[str, Any]:
+        """Convert only dirty fields to input type.
+
+        Returns:
+            Dictionary of dirty input fields plus ID
+        """
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
+
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field in self.__original_values__
+            and getattr(self, field) != self.__original_values__[field]
+        }
+
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
+
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
+
+        # Convert to update input and dict
+        input_obj = StudioUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    __relationships__ = {
+        # Standard ID relationships
+        "parent_studio": ("parent_id", False),  # (target_field, is_list)
+        "tags": ("tag_ids", True),
+        # Special case with custom transform
+        "stash_ids": (
+            "stash_ids",
+            True,
+            lambda s: StashIDInput(endpoint=s.endpoint, stash_id=s.stash_id),
+        ),
+    }
 
 
 @strawberry.input

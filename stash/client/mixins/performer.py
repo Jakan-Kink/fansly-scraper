@@ -3,6 +3,7 @@
 from typing import Any
 
 from ... import fragments
+from ...client_helpers import async_lru_cache
 from ...types import FindPerformersResultType, Performer
 from ..protocols import StashClientProtocol
 
@@ -10,6 +11,7 @@ from ..protocols import StashClientProtocol
 class PerformerClientMixin(StashClientProtocol):
     """Mixin for performer-related client methods."""
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_performer(
         self,
         performer: int | str | dict,
@@ -97,6 +99,7 @@ class PerformerClientMixin(StashClientProtocol):
             self.log.error(f"Failed to find performer {performer}: {e}")
             return None
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_performers(
         self,
         filter_: dict[str, Any] = {"per_page": -1},
@@ -269,6 +272,27 @@ class PerformerClientMixin(StashClientProtocol):
             )
             return Performer(**result["performerCreate"])
         except Exception as e:
+            error_message = str(e)
+            if (
+                "performer with name" in error_message
+                and "already exists" in error_message
+            ):
+                self.log.info(
+                    f"Performer '{performer.name}' already exists. Fetching existing performer."
+                )
+                # Clear both performer caches since we have a new performer
+                self.find_performer.cache_clear()
+                self.find_performers.cache_clear()
+                # Try to find the existing performer with exact name match
+                result = await self.find_performers(
+                    performer_filter={
+                        "name": {"value": performer.name, "modifier": "EQUALS"}
+                    },
+                )
+                if result.count > 0:
+                    return result.performers[0]
+                raise  # Re-raise if we couldn't find the performer
+
             self.log.error(f"Failed to create performer: {e}")
             raise
 

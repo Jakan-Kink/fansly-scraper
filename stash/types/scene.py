@@ -101,6 +101,35 @@ class Scene(StashObject):
 
     __type_name__ = "Scene"
 
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "title",
+        "code",
+        "details",
+        "director",
+        "date",
+        "rating100",
+        "o_counter",
+        "interactive_speed",
+        "last_played_at",
+        "resume_time",
+        "play_duration",
+        "play_count",
+        "urls",
+        "organized",
+        "interactive",
+        "play_history",
+        "o_history",
+        "files",
+        "scene_markers",
+        "galleries",
+        "groups",
+        "tags",
+        "performers",
+        "stash_ids",
+        "captions",
+    }
+
     # Optional fields
     title: str | None = None  # String
     code: str | None = None  # String
@@ -201,101 +230,91 @@ class Scene(StashObject):
 
         return scene
 
-    async def to_input(self) -> dict[str, Any]:
-        """Convert to GraphQL input.
+    # Relationship definitions with their mappings
+    __relationships__ = {
+        # Standard ID relationships
+        "studio": ("studio_id", False),  # (target_field, is_list)
+        "performers": ("performer_ids", True),
+        "tags": ("tag_ids", True),
+        "galleries": ("gallery_ids", True),
+        # Special case with custom transform
+        "stash_ids": (
+            "stash_ids",
+            True,
+            lambda s: StashID(endpoint=s.endpoint, stash_id=s.stash_id),
+        ),
+    }
+
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "title": str,
+        "code": str,
+        "details": str,
+        "director": str,
+        "urls": list,
+        "rating100": int,
+        "organized": bool,
+        "date": lambda d: (
+            d.strftime("%Y-%m-%d")
+            if isinstance(d, datetime)
+            else (
+                datetime.fromisoformat(d).strftime("%Y-%m-%d")
+                if isinstance(d, str)
+                else None
+            )
+        ),
+    }
+
+    async def _to_input_all(self) -> dict[str, Any]:
+        """Convert all fields to input type.
 
         Returns:
-            Dictionary of input fields for create/update
+            Dictionary of all input fields
         """
-        # Field definitions with their conversion functions
-        field_conversions = {
-            "title": str,
-            "code": str,
-            "details": str,
-            "director": str,
-            "urls": list,
-            "rating100": int,
-            "organized": bool,
-            "date": lambda d: (
-                d.strftime("%Y-%m-%d")
-                if isinstance(d, datetime)
-                else (
-                    datetime.fromisoformat(d).strftime("%Y-%m-%d")
-                    if isinstance(d, str)
-                    else None
-                )
-            ),
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Convert to create input and dict
+        input_class = (
+            SceneCreateInput
+            if not hasattr(self, "id") or self.id == "new"
+            else SceneUpdateInput
+        )
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
         }
 
-        # Process regular fields
-        data = {}
-        for field, converter in field_conversions.items():
-            if hasattr(self, field):
-                value = getattr(self, field)
-                if value is not None:
-                    try:
-                        converted = converter(value)
-                        if converted is not None:
-                            data[field] = converted
-                    except (ValueError, TypeError):
-                        pass
+    async def _to_input_dirty(self) -> dict[str, Any]:
+        """Convert only dirty fields to input type.
 
-        # ID is required - we only update existing objects
-        if not hasattr(self, "id") or self.id == "new":
-            raise ValueError(
-                f"Scene must have an ID for updates, got: {getattr(self, 'id', None)}"
-            )
-        data["id"] = self.id
+        Returns:
+            Dictionary of dirty input fields plus ID
+        """
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
 
-        # Helper function to get ID from object or dict
-        async def get_id(obj: Any) -> str | None:
-            if isinstance(obj, dict):
-                return obj.get("id")
-            if hasattr(obj, "awaitable_attrs"):
-                await obj.awaitable_attrs.id
-            return getattr(obj, "id", None)
-
-        # Process relationships
-        relationships = {
-            # Standard ID relationships
-            "studio": ("studio_id", False),  # (target_field, is_list)
-            "performers": ("performer_ids", True),
-            "tags": ("tag_ids", True),
-            "galleries": ("gallery_ids", True),
-            # Special case with custom transform
-            "stash_ids": (
-                "stash_ids",
-                True,
-                lambda s: StashID(endpoint=s.endpoint, stash_id=s.stash_id),
-            ),
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field in self.__original_values__
+            and getattr(self, field) != self.__original_values__[field]
         }
 
-        for rel_field, mapping in relationships.items():
-            if hasattr(self, rel_field):
-                value = getattr(self, rel_field)
-                if not value:
-                    continue
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
 
-                if len(mapping) == 3:
-                    # Custom transform
-                    target_field, is_list, transform = mapping
-                else:
-                    # Standard ID extraction
-                    target_field, is_list = mapping
-                    transform = get_id
-
-                if is_list:
-                    # Handle list relationships
-                    items = []
-                    for item in value:
-                        if transformed := await transform(item):
-                            items.append(transformed)
-                    if items:
-                        data[target_field] = items
-                else:
-                    # Handle single relationships
-                    if transformed := await transform(value):
-                        data[target_field] = transformed
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
 
         # Convert to update input and dict
         input_obj = SceneUpdateInput(**data)
@@ -311,10 +330,10 @@ class FindScenesResultType:
     """Result type for finding scenes from schema/types/scene.graphql.
 
     Fields:
-        count: Total number of scenes
-        duration: Total duration in seconds
-        filesize: Total file size in bytes
-        scenes: List of scenes
+    count: Total number of scenes
+    duration: Total duration in seconds
+    filesize: Total file size in bytes
+    scenes: List of scenes
     """
 
     count: int  # Int!

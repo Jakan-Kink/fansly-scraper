@@ -97,6 +97,21 @@ class TagClientMixin(StashClientProtocol):
             )
             return Tag(**result["tagCreate"])
         except Exception as e:
+            error_message = str(e)
+            if "tag with name" in error_message and "already exists" in error_message:
+                self.log.info(
+                    f"Tag '{tag.name}' already exists. Fetching existing tag."
+                )
+                # Clear both tag caches since we have a new tag
+                self.find_tag.cache_clear()
+                self.find_tags.cache_clear()
+                # Try to find the existing tag with exact name match
+                results = await self.find_tags(
+                    tag_filter={"name": {"value": tag.name, "modifier": "EQUALS"}},
+                )
+                if results.count > 0:
+                    return Tag(**results.tags[0])
+                raise  # Re-raise if we couldn't find the tag
             self.log.error(f"Failed to create tag: {e}")
             raise
 

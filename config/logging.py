@@ -20,10 +20,31 @@ from pprint import pformat
 
 from loguru import logger
 
-# Ensure proper UTF-8 encoding for logging on Windows
 if sys.platform == "win32":
-    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
-    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
+    # Set console mode to handle UTF-8
+    try:
+        import ctypes
+
+        # Enable VIRTUAL_TERMINAL_PROCESSING for ANSI support
+        kernel32 = ctypes.WinDLL("kernel32")
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_ulong()
+        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+        # Enable VIRTUAL_TERMINAL_PROCESSING (0x0004)
+        kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+
+        # Set UTF-8 codepage
+        kernel32.SetConsoleCP(65001)  # CP_UTF8
+        kernel32.SetConsoleOutputCP(65001)  # CP_UTF8
+
+        # Configure stdout/stderr
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        # Fallback for older Python versions or if Windows API calls fail
+        if hasattr(sys.stdout, "buffer"):
+            sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, errors="replace")
+            sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, errors="replace")
 
 # Global configuration
 _config = None
@@ -282,7 +303,7 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         stash_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {name} - {message}",
+        format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {name}\n{message}",
         level=get_log_level("stash_file", "INFO"),
         filter=lambda record: record["extra"].get("stash", False),
         **enqueue_args,
