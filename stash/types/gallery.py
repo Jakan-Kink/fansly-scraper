@@ -41,32 +41,87 @@ class GalleryChapter(StashObject):
 
     __type_name__ = "GalleryChapter"
 
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "gallery",
+        "title",
+        "image_index",
+    }
+
     # Required fields
     gallery: Annotated["Gallery", lazy("stash.types.gallery.Gallery")]  # Gallery!
     title: str  # String!
     image_index: int  # Int!
 
-    def to_input(self) -> dict[str, Any]:
-        """Convert to GraphQL input.
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "title": str,
+        "image_index": int,
+    }
+
+    async def _to_input_all(self) -> dict[str, Any]:
+        """Convert all fields to input type.
 
         Returns:
-            Dictionary of input fields for create/update
+            Dictionary of all input fields
         """
-        if hasattr(self, "id") and self.id != "new":
-            # Update existing
-            return GalleryChapterUpdateInput(
-                id=self.id,
-                gallery_id=self.gallery.id,
-                title=self.title,
-                image_index=self.image_index,
-            ).__dict__
-        else:
-            # Create new
-            return GalleryChapterCreateInput(
-                gallery_id=self.gallery.id,
-                title=self.title,
-                image_index=self.image_index,
-            ).__dict__
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Convert to create input and dict
+        input_class = (
+            GalleryChapterCreateInput
+            if not hasattr(self, "id") or self.id == "new"
+            else GalleryChapterUpdateInput
+        )
+        input_obj = input_class(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    async def _to_input_dirty(self) -> dict[str, Any]:
+        """Convert only dirty fields to input type.
+
+        Returns:
+            Dictionary of dirty input fields plus ID
+        """
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
+
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field in self.__original_values__
+            and getattr(self, field) != self.__original_values__[field]
+        }
+
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
+
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
+
+        # Convert to update input and dict
+        input_obj = GalleryChapterUpdateInput(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
+
+    __relationships__ = {
+        # Standard ID relationships
+        "gallery": ("gallery_id", False),  # (target_field, is_list)
+    }
 
 
 @strawberry.input

@@ -2516,6 +2516,14 @@ class StashProcessing:
         stash_obj.date = item.createdAt.strftime("%Y-%m-%d")
         stash_obj.code = str(media_id)
 
+        # Add URL only for posts since message URLs won't work for other users
+        if isinstance(item, Post):
+            if not hasattr(stash_obj, "urls"):
+                stash_obj.urls = []
+            post_url = f"https://fansly.com/post/{item.id}"
+            if post_url not in stash_obj.urls:
+                stash_obj.urls.append(post_url)
+
         # Add performers (we already have the account)
         performers = []
         if main_performer := await self._find_existing_performer(account):

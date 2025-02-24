@@ -21,8 +21,6 @@ class Tag(StashObject):
     __tracked_fields__ = {
         "name",
         "aliases",
-        "ignore_auto_tag",
-        "favorite",
         "parents",
         "children",
         "description",

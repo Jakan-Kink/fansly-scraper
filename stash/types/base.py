@@ -184,6 +184,31 @@ class StashObject:
         if not self.is_dirty() and hasattr(self, "id") and self.id != "new":
             return
 
+        # Get input data
+        try:
+            input_data = self.to_input()
+            # If it's a coroutine, await it
+            if hasattr(input_data, "__await__"):
+                input_data = await input_data
+
+            # Ensure input_data is a plain dict
+            if not isinstance(input_data, dict):
+                raise ValueError(
+                    f"to_input() must return a dict, got {type(input_data)}"
+                )
+
+            # For existing objects, if only ID is present, no actual changes to save
+            if (
+                hasattr(self, "id")
+                and self.id != "new"
+                and set(input_data.keys()) <= {"id"}
+            ):
+                log.debug(f"No changes to save for {self.__type_name__} {self.id}")
+                self.mark_clean()  # Mark as clean since there are no changes
+                return
+        except Exception as e:
+            raise ValueError(f"Failed to prepare input data: {e}") from e
+
         if hasattr(self, "id") and self.id != "new":
             # Update existing
             mutation = f"""
@@ -205,31 +230,19 @@ class StashObject:
 
         # Get input data
         try:
-            # Get input data
-            input_data = self.to_input()
-            # If it's a coroutine, await it
-            if hasattr(input_data, "__await__"):
-                input_data = await input_data
-
-            # Ensure input_data is a plain dict
-            if not isinstance(input_data, dict):
-                raise ValueError(
-                    f"to_input() must return a dict, got {type(input_data)}"
-                )
-
             # Ensure all values are JSON serializable
             for key, value in list(
                 input_data.items()
             ):  # Use list to allow modification during iteration
                 if hasattr(value, "__await__"):
-                    print(f"Found coroutine in {key}: {value}")
+                    log.debug(f"Found coroutine in {key}: {value}")
                     input_data[key] = await value
                 elif isinstance(value, (list, tuple)):
                     # Check for coroutines in lists/tuples
                     new_value = []
                     for item in value:
                         if hasattr(item, "__await__"):
-                            print(f"Found coroutine in {key} list: {item}")
+                            log.debug(f"Found coroutine in {key} list: {item}")
                             new_value.append(await item)
                         else:
                             new_value.append(item)

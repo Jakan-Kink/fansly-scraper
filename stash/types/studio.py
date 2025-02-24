@@ -27,14 +27,10 @@ class Studio(StashObject):
         "name",
         "aliases",
         "tags",
-        "ignore_auto_tag",
         "child_studios",
         "stash_ids",
-        "favorite",
-        "groups",
         "url",
         "parent_studio",
-        "rating100",
         "details",
     }
 
