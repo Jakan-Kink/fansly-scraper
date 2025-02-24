@@ -84,9 +84,10 @@ class StudioClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await studio.to_input()
             result = await self.execute(
                 fragments.CREATE_STUDIO_MUTATION,
-                {"input": studio.to_input()},
+                {"input": input_data},
             )
             return Studio(**result["studioCreate"])
         except Exception as e:
@@ -110,9 +111,10 @@ class StudioClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await studio.to_input()
             result = await self.execute(
                 fragments.UPDATE_STUDIO_MUTATION,
-                {"input": studio.to_input()},
+                {"input": input_data},
             )
             return Studio(**result["studioUpdate"])
         except Exception as e:

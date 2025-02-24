@@ -84,9 +84,10 @@ class GalleryClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await gallery.to_input()
             result = await self.execute(
                 fragments.CREATE_GALLERY_MUTATION,
-                {"input": gallery.to_input()},
+                {"input": input_data},
             )
             return Gallery(**result["galleryCreate"])
         except Exception as e:
@@ -110,9 +111,10 @@ class GalleryClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await gallery.to_input()
             result = await self.execute(
                 fragments.UPDATE_GALLERY_MUTATION,
-                {"input": gallery.to_input()},
+                {"input": input_data},
             )
             return Gallery(**result["galleryUpdate"])
         except Exception as e:
@@ -131,7 +133,7 @@ class GalleryClientMixin(StashClientProtocol):
         try:
             result = await self.execute(
                 fragments.GALLERIES_UPDATE_MUTATION,
-                {"input": [gallery.to_input() for gallery in galleries]},
+                {"input": [await gallery.to_input() for gallery in galleries]},
             )
             return [Gallery(**gallery) for gallery in result["galleriesUpdate"]]
         except Exception as e:

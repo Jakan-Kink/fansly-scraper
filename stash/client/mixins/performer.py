@@ -266,9 +266,10 @@ class PerformerClientMixin(StashClientProtocol):
             ```
         """
         try:
+            input_data = await performer.to_input()
             result = await self.execute(
                 fragments.CREATE_PERFORMER_MUTATION,
-                {"input": performer.to_input()},
+                {"input": input_data},
             )
             return Performer(**result["performerCreate"])
         except Exception as e:
@@ -358,9 +359,10 @@ class PerformerClientMixin(StashClientProtocol):
             ```
         """
         try:
+            input_data = await performer.to_input()
             result = await self.execute(
                 fragments.UPDATE_PERFORMER_MUTATION,
-                {"input": performer.to_input()},
+                {"input": input_data},
             )
             return Performer(**result["performerUpdate"])
         except Exception as e:

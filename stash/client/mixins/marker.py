@@ -86,9 +86,10 @@ class MarkerClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await marker.to_input()
             result = await self.execute(
                 fragments.CREATE_MARKER_MUTATION,
-                {"input": marker.to_input()},
+                {"input": input_data},
             )
             return SceneMarker(**result["sceneMarkerCreate"])
         except Exception as e:
@@ -133,9 +134,10 @@ class MarkerClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await marker.to_input()
             result = await self.execute(
                 fragments.UPDATE_MARKER_MUTATION,
-                {"input": marker.to_input()},
+                {"input": input_data},
             )
             return SceneMarker(**result["sceneMarkerUpdate"])
         except Exception as e:

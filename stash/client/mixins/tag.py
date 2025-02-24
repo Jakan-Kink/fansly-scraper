@@ -91,9 +91,10 @@ class TagClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await tag.to_input()
             result = await self.execute(
                 fragments.CREATE_TAG_MUTATION,
-                {"input": tag.to_input()},
+                {"input": input_data},
             )
             return Tag(**result["tagCreate"])
         except Exception as e:
@@ -212,9 +213,10 @@ class TagClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await tag.to_input()
             result = await self.execute(
                 fragments.UPDATE_TAG_MUTATION,
-                {"input": tag.to_input()},
+                {"input": input_data},
             )
             return Tag(**result["tagUpdate"])
         except Exception as e:

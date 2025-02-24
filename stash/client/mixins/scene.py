@@ -223,9 +223,10 @@ class SceneClientMixin(StashClientProtocol):
             ```
         """
         try:
+            input_data = await scene.to_input()
             result = await self.execute(
                 fragments.CREATE_SCENE_MUTATION,
-                {"input": scene.to_input()},
+                {"input": input_data},
             )
             return Scene(**result["sceneCreate"])
         except Exception as e:
@@ -307,9 +308,10 @@ class SceneClientMixin(StashClientProtocol):
             ```
         """
         try:
+            input_data = await scene.to_input()
             result = await self.execute(
                 fragments.UPDATE_SCENE_MUTATION,
-                {"input": scene.to_input()},
+                {"input": input_data},
             )
             return Scene(**result["sceneUpdate"])
         except Exception as e:
@@ -428,7 +430,7 @@ class SceneClientMixin(StashClientProtocol):
         try:
             result = await self.execute(
                 fragments.SCENES_UPDATE_MUTATION,
-                {"input": [scene.to_input() for scene in scenes]},
+                {"input": [await scene.to_input() for scene in scenes]},
             )
             return [Scene(**scene) for scene in result["scenesUpdate"]]
         except Exception as e:

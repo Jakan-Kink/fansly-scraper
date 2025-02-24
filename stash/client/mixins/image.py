@@ -84,9 +84,10 @@ class ImageClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await image.to_input()
             result = await self.execute(
                 fragments.CREATE_IMAGE_MUTATION,
-                {"input": image.to_input()},
+                {"input": input_data},
             )
             return Image(**result["imageCreate"])
         except Exception as e:
@@ -110,9 +111,10 @@ class ImageClientMixin(StashClientProtocol):
             httpx.HTTPError: If the request fails
         """
         try:
+            input_data = await image.to_input()
             result = await self.execute(
                 fragments.UPDATE_IMAGE_MUTATION,
-                {"input": image.to_input()},
+                {"input": input_data},
             )
             return Image(**result["imageUpdate"])
         except Exception as e:
