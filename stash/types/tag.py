@@ -83,7 +83,6 @@ class Tag(StashObject):
         "description": str,
         "aliases": list,
         "ignore_auto_tag": bool,
-        "favorite": bool,
     }
 
     async def _to_input_all(self) -> dict[str, Any]:
