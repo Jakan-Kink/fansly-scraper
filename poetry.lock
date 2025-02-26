@@ -2236,7 +2236,7 @@ version = "6.0.2"
 description = "YAML parser and emitter for Python"
 optional = false
 python-versions = ">=3.8"
-groups = ["main", "dev"]
+groups = ["dev"]
 files = [
     {file = "PyYAML-6.0.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:0a9a2848a5b7feac301353437eb7d5957887edbf81d56e903999a75a3d743086"},
     {file = "PyYAML-6.0.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:29717114e51c84ddfba879543fb232a6ed60086602313ca38cce623c1d62cfbf"},
@@ -2541,21 +2541,6 @@ postgresql-psycopg2cffi = ["psycopg2cffi"]
 postgresql-psycopgbinary = ["psycopg[binary] (>=3.0.7)"]
 pymysql = ["pymysql"]
 sqlcipher = ["sqlcipher3_binary"]
-
-[[package]]
-name = "stashapp-tools"
-version = "0.2.57"
-description = "A python library for interfacing with a stashapp's API"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "stashapp-tools-0.2.57.tar.gz", hash = "sha256:d302d6c2f666bafbace5e93290b40b3ec01c99df1aff5dec57584e8fbf09186e"},
-    {file = "stashapp_tools-0.2.57-py3-none-any.whl", hash = "sha256:0d51b70c38de3ce40df0e9795c3fca66245bd5fd7c628959fc96726c39df8544"},
-]
-
-[package.dependencies]
-requests = "*"
 
 [[package]]
 name = "stevedore"
@@ -3009,4 +2994,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "bebd42e9ccd0267311dd67e2894c9bc8099e79417e18bddd60e29e14f1009e2f"
+content-hash = "b666e27baf68356b1379f839ecac778c3f555332ba2d6d1683982d93829b6c81"
