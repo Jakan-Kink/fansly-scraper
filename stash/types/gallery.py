@@ -11,6 +11,7 @@ from metadata import Media, Message, Post
 from .base import StashObject
 from .enums import BulkUpdateIdMode
 from .files import Folder, GalleryFile
+from .image import Image
 
 if TYPE_CHECKING:
     from .performer import Performer
@@ -30,98 +31,6 @@ class GalleryPathsType:
     def create_default(cls) -> "GalleryPathsType":
         """Create a default instance with empty strings."""
         return cls(cover="", preview="")
-
-
-@strawberry.type
-class GalleryChapter(StashObject):
-    """Gallery chapter type from schema/types/gallery-chapter.graphql.
-
-    Note: Inherits from StashObject since it has id, created_at, and updated_at
-    fields in the schema, matching the common pattern."""
-
-    __type_name__ = "GalleryChapter"
-
-    # Fields to track for changes
-    __tracked_fields__ = {
-        "gallery",
-        "title",
-        "image_index",
-    }
-
-    # Required fields
-    gallery: Annotated["Gallery", lazy("stash.types.gallery.Gallery")]  # Gallery!
-    title: str  # String!
-    image_index: int  # Int!
-
-    # Field definitions with their conversion functions
-    __field_conversions__ = {
-        "title": str,
-        "image_index": int,
-    }
-
-    async def _to_input_all(self) -> dict[str, Any]:
-        """Convert all fields to input type.
-
-        Returns:
-            Dictionary of all input fields
-        """
-        # Process all fields
-        data = await self._process_fields(set(self.__field_conversions__.keys()))
-
-        # Process all relationships
-        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
-        data.update(rel_data)
-
-        # Convert to create input and dict
-        input_class = (
-            GalleryChapterCreateInput
-            if not hasattr(self, "id") or self.id == "new"
-            else GalleryChapterUpdateInput
-        )
-        input_obj = input_class(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
-    async def _to_input_dirty(self) -> dict[str, Any]:
-        """Convert only dirty fields to input type.
-
-        Returns:
-            Dictionary of dirty input fields plus ID
-        """
-        # Start with ID which is always required for updates
-        data = {"id": self.id}
-
-        # Get set of dirty fields (fields whose values have changed)
-        dirty_fields = {
-            field
-            for field in self.__tracked_fields__
-            if field in self.__original_values__
-            and getattr(self, field) != self.__original_values__[field]
-        }
-
-        # Process dirty regular fields
-        field_data = await self._process_fields(dirty_fields)
-        data.update(field_data)
-
-        # Process dirty relationships
-        rel_data = await self._process_relationships(dirty_fields)
-        data.update(rel_data)
-
-        # Convert to update input and dict
-        input_obj = GalleryChapterUpdateInput(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
-    __relationships__ = {
-        # Standard ID relationships
-        "gallery": ("gallery_id", False),  # (target_field, is_list)
-    }
 
 
 @strawberry.input
@@ -144,6 +53,41 @@ class GalleryChapterUpdateInput:
 
 
 @strawberry.type
+class GalleryChapter(StashObject):
+    """Gallery chapter type from schema/types/gallery-chapter.graphql.
+
+    Note: Inherits from StashObject since it has id, created_at, and updated_at
+    fields in the schema, matching the common pattern."""
+
+    __type_name__ = "GalleryChapter"
+    __update_input_type__ = GalleryChapterUpdateInput
+    __create_input_type__ = GalleryChapterCreateInput
+
+    # Fields to track for changes
+    __tracked_fields__ = {
+        "gallery",
+        "title",
+        "image_index",
+    }
+
+    # Required fields
+    gallery: Annotated["Gallery", lazy("stash.types.gallery.Gallery")]  # Gallery!
+    title: str  # String!
+    image_index: int  # Int!
+
+    # Field definitions with their conversion functions
+    __field_conversions__ = {
+        "title": str,
+        "image_index": int,
+    }
+
+    __relationships__ = {
+        # Standard ID relationships
+        "gallery": ("gallery_id", False),  # (target_field, is_list)
+    }
+
+
+@strawberry.type
 class FindGalleryChaptersResultType:
     """Result type for finding gallery chapters."""
 
@@ -151,17 +95,51 @@ class FindGalleryChaptersResultType:
     chapters: list[GalleryChapter]  # [GalleryChapter!]!
 
 
-@strawberry.type
-class Image:
-    """Image type from schema."""
+@strawberry.input
+class GalleryCreateInput:
+    """Input for creating galleries."""
 
-    id: str  # String!
-    title: str | None = None  # String
-    url: str | None = None  # String
+    # Required fields
+    title: str  # String!
+
+    # Optional fields
+    code: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
     date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
     rating100: int | None = None  # Int
-    organized: bool = False  # Boolean!
-    # created_at and updated_at handled by Stash
+    organized: bool | None = None  # Boolean
+    scene_ids: list[ID] | None = None  # [ID!]
+    studio_id: ID | None = None  # ID
+    tag_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+
+
+@strawberry.input
+class GalleryUpdateInput:
+    """Input for updating galleries."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    title: str | None = None  # String
+    code: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
+    rating100: int | None = None  # Int
+    organized: bool | None = None  # Boolean
+    scene_ids: list[ID] | None = None  # [ID!]
+    studio_id: ID | None = None  # ID
+    tag_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+    primary_file_id: ID | None = None  # ID
 
 
 @strawberry.type
@@ -169,6 +147,8 @@ class Gallery(StashObject):
     """Gallery type from schema/types/gallery.graphql."""
 
     __type_name__ = "Gallery"
+    __update_input_type__ = GalleryUpdateInput
+    __create_input_type__ = GalleryCreateInput
 
     # Fields to track for changes
     __tracked_fields__ = {
@@ -296,65 +276,6 @@ class Gallery(StashObject):
         ),
     }
 
-    async def _to_input_all(self) -> dict[str, Any]:
-        """Convert all fields to input type.
-
-        Returns:
-            Dictionary of all input fields
-        """
-        # Process all fields
-        data = await self._process_fields(set(self.__field_conversions__.keys()))
-
-        # Process all relationships
-        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
-        data.update(rel_data)
-
-        # Convert to create input and dict
-        input_class = (
-            GalleryCreateInput
-            if not hasattr(self, "id") or self.id == "new"
-            else GalleryUpdateInput
-        )
-        input_obj = input_class(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
-    async def _to_input_dirty(self) -> dict[str, Any]:
-        """Convert only dirty fields to input type.
-
-        Returns:
-            Dictionary of dirty input fields plus ID
-        """
-        # Start with ID which is always required for updates
-        data = {"id": self.id}
-
-        # Get set of dirty fields (fields whose values have changed)
-        dirty_fields = {
-            field
-            for field in self.__tracked_fields__
-            if field in self.__original_values__
-            and getattr(self, field) != self.__original_values__[field]
-        }
-
-        # Process dirty regular fields
-        field_data = await self._process_fields(dirty_fields)
-        data.update(field_data)
-
-        # Process dirty relationships
-        rel_data = await self._process_relationships(dirty_fields)
-        data.update(rel_data)
-
-        # Convert to update input and dict
-        input_obj = GalleryUpdateInput(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
     __relationships__ = {
         # Standard ID relationships
         "studio": ("studio_id", False),  # (target_field, is_list)
@@ -378,53 +299,6 @@ class BulkUpdateIds:
 
     ids: list[ID]  # [ID!]!
     mode: BulkUpdateIdMode  # BulkUpdateIdMode!
-
-
-@strawberry.input
-class GalleryCreateInput:
-    """Input for creating galleries."""
-
-    # Required fields
-    title: str  # String!
-
-    # Optional fields
-    code: str | None = None  # String
-    url: str | None = None  # String @deprecated
-    urls: list[str] | None = None  # [String!]
-    date: str | None = None  # String
-    details: str | None = None  # String
-    photographer: str | None = None  # String
-    rating100: int | None = None  # Int
-    organized: bool | None = None  # Boolean
-    scene_ids: list[ID] | None = None  # [ID!]
-    studio_id: ID | None = None  # ID
-    tag_ids: list[ID] | None = None  # [ID!]
-    performer_ids: list[ID] | None = None  # [ID!]
-
-
-@strawberry.input
-class GalleryUpdateInput:
-    """Input for updating galleries."""
-
-    # Required fields
-    id: ID  # ID!
-
-    # Optional fields
-    client_mutation_id: str | None = None  # String
-    title: str | None = None  # String
-    code: str | None = None  # String
-    url: str | None = None  # String @deprecated
-    urls: list[str] | None = None  # [String!]
-    date: str | None = None  # String
-    details: str | None = None  # String
-    photographer: str | None = None  # String
-    rating100: int | None = None  # Int
-    organized: bool | None = None  # Boolean
-    scene_ids: list[ID] | None = None  # [ID!]
-    studio_id: ID | None = None  # ID
-    tag_ids: list[ID] | None = None  # [ID!]
-    performer_ids: list[ID] | None = None  # [ID!]
-    primary_file_id: ID | None = None  # ID
 
 
 @strawberry.input

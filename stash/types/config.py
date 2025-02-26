@@ -1,5 +1,7 @@
 """Configuration types from schema/types/config.graphql."""
 
+from __future__ import annotations
+
 from typing import Any, List, Optional
 
 import strawberry
@@ -28,7 +30,7 @@ class SetupInput:
     """Input for initial setup."""
 
     config_location: str  # String!
-    stashes: list["StashConfigInput"]  # [StashConfigInput!]!
+    stashes: list[StashConfigInput]  # [StashConfigInput!]!
     database_file: str  # String!
     generated_location: str  # String!
     cache_location: str  # String!
@@ -40,7 +42,7 @@ class SetupInput:
 class ConfigGeneralInput:
     """Input for general configuration."""
 
-    stashes: list["StashConfigInput"] | None = None  # [StashConfigInput!]
+    stashes: list[StashConfigInput] | None = None  # [StashConfigInput!]
     database_path: str | None = None  # String
     backup_directory_path: str | None = None  # String
     generated_path: str | None = None  # String
@@ -92,7 +94,7 @@ class ConfigGeneralInput:
 class ConfigGeneralResult:
     """Result type for general configuration."""
 
-    stashes: list["StashConfig"]  # [StashConfig!]!
+    stashes: list[StashConfig]  # [StashConfig!]!
     database_path: str  # String!
     backup_directory_path: str  # String!
     generated_path: str  # String!

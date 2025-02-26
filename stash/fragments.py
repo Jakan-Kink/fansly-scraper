@@ -91,12 +91,7 @@ FILE_FIELDS = """fragment FileFields on BaseFile {
     basename
     parent_folder_id
     zip_file_id
-    mod_time
     size
-    fingerprints {
-        type
-        value
-    }
 }"""
 
 VIDEO_FILE_FIELDS = """fragment VideoFileFields on VideoFile {
@@ -127,78 +122,28 @@ SCENE_FIELDS = """
     title
     code
     details
-    director
     urls
     date
-    rating100
     organized
-    o_counter
-    interactive
-    interactive_speed
     captions {
         language_code
         caption_type
     }
-    last_played_at
-    resume_time
-    play_duration
-    play_count
-    play_history
-    o_history
     files {
         ...VideoFileFields
     }
     paths {
         screenshot
         preview
-        stream
-        webp
-        vtt
-        sprite
-        funscript
-        interactive_heatmap
-        caption
     }
     studio {
         id
-        name
-        url
-        image_path
-        rating100
-        favorite
-        details
     }
     performers {
         id
-        name
-        gender
-        url
-        urls
-        birthdate
-        ethnicity
-        country
-        eye_color
-        height_cm
-        measurements
-        fake_tits
-        career_length
-        tattoos
-        piercings
-        alias_list
-        favorite
-        image_path
-        rating100
-        details
-        death_date
-        hair_color
-        weight
     }
     tags {
         id
-        name
-        description
-        aliases
-        image_path
     }
     stash_ids {
         endpoint
@@ -222,41 +167,23 @@ PERFORMER_FIELDS = """
     ethnicity
     country
     eye_color
-    height_cm
     measurements
     fake_tits
     penis_length
     circumcised
-    career_length
     tattoos
     piercings
     alias_list
-    favorite
-    ignore_auto_tag
     image_path
-    scene_count
-    image_count
-    gallery_count
-    group_count
-    performer_count
-    o_counter
-    rating100
     details
-    death_date
     hair_color
-    weight
     stash_ids {
         endpoint
         stash_id
     }
     tags {
         id
-        name
-        description
-        aliases
-        image_path
     }
-    custom_fields
 """
 
 # Studio fragments
@@ -266,31 +193,12 @@ STUDIO_FIELDS = """
     url
     image_path
     aliases
-    ignore_auto_tag
-    scene_count
-    image_count
-    gallery_count
-    performer_count
-    group_count
-    rating100
-    favorite
     details
-    stash_ids {
-        endpoint
-        stash_id
-    }
     tags {
         id
-        name
-        description
-        aliases
-        image_path
     }
     parent_studio {
         id
-        name
-        url
-        image_path
     }
 """
 
@@ -300,29 +208,12 @@ TAG_FIELDS = """
     name
     description
     aliases
-    ignore_auto_tag
-    favorite
     image_path
-    scene_count
-    scene_marker_count
-    image_count
-    gallery_count
-    performer_count
-    studio_count
-    group_count
-    parent_count
-    child_count
     parents {
         id
-        name
-        description
-        aliases
     }
     children {
         id
-        name
-        description
-        aliases
     }
 """
 
@@ -541,43 +432,20 @@ GALLERY_FIELDS = """
     urls
     details
     photographer
-    rating100
     organized
-    image_count
     studio {
         id
-        name
-        url
-        image_path
-        rating100
-        favorite
-        details
     }
     scenes {
         id
-        title
-        code
-        paths {
-            screenshot
-            preview
-        }
     }
     performers {
         id
         name
-        gender
-        url
-        urls
-        image_path
-        favorite
-        rating100
     }
     tags {
         id
         name
-        description
-        aliases
-        image_path
     }
     files {
         ...GalleryFileFields
@@ -710,44 +578,25 @@ IMAGE_FIELDS = """
     id
     title
     code
-    rating100
     organized
-    o_counter
     date
     urls
     details
     photographer
     studio {
         id
-        name
-        url
-        image_path
-        rating100
-        favorite
-        details
     }
     performers {
         id
-        name
-        gender
-        url
-        urls
-        image_path
-        favorite
-        rating100
     }
     tags {
         id
         name
-        description
-        aliases
-        image_path
     }
     galleries {
         id
-        title
     }
-    files {
+    visual_files {
         ...ImageFileFields
     }
     paths {
@@ -814,30 +663,13 @@ MARKER_FIELDS = """
     seconds
     scene {
         id
-        title
-        paths {
-            screenshot
-            preview
-            stream
-        }
     }
     primary_tag {
         id
-        name
-        description
-        aliases
-        image_path
     }
     tags {
         id
-        name
-        description
-        aliases
-        image_path
     }
-    stream
-    preview
-    screenshot
 """
 
 # Marker query templates

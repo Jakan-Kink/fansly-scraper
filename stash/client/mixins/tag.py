@@ -149,7 +149,6 @@ class TagClientMixin(StashClientProtocol):
         ids: list[str],
         description: str | None = None,
         aliases: list[str] | None = None,
-        ignore_auto_tag: bool | None = None,
         favorite: bool | None = None,
         parent_ids: list[str] | None = None,
         child_ids: list[str] | None = None,
@@ -160,7 +159,6 @@ class TagClientMixin(StashClientProtocol):
             ids: List of tag IDs to update
             description: Optional description to set
             aliases: Optional list of aliases to set
-            ignore_auto_tag: Optional ignore_auto_tag flag to set
             favorite: Optional favorite flag to set
             parent_ids: Optional list of parent tag IDs to set
             child_ids: Optional list of child tag IDs to set
@@ -178,8 +176,6 @@ class TagClientMixin(StashClientProtocol):
                 input_data["description"] = description
             if aliases is not None:
                 input_data["aliases"] = aliases
-            if ignore_auto_tag is not None:
-                input_data["ignore_auto_tag"] = ignore_auto_tag
             if favorite is not None:
                 input_data["favorite"] = favorite
             if parent_ids is not None:

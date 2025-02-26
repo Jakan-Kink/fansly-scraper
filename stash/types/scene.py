@@ -91,6 +91,48 @@ class SceneMarker:
     # created_at and updated_at handled by Stash
 
 
+@strawberry.input
+class SceneGroupInput:
+    """Input for scene group from schema/types/scene.graphql."""
+
+    group_id: ID  # ID!
+    scene_index: int | None = None  # Int
+
+
+@strawberry.input
+class SceneUpdateInput:
+    """Input for updating scenes."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    title: str | None = None  # String
+    code: str | None = None  # String
+    details: str | None = None  # String
+    director: str | None = None  # String
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    rating100: int | None = None  # Int
+    organized: bool | None = None  # Boolean
+    studio_id: ID | None = None  # ID
+    gallery_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+    groups: list[SceneGroupInput] | None = None  # [SceneGroupInput!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    cover_image: str | None = None  # String (URL or base64)
+    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
+    resume_time: float | None = None  # Float
+    play_duration: float | None = None  # Float
+    primary_file_id: ID | None = None  # ID
+
+    # Deprecated fields
+    o_counter: int | None = None  # Int @deprecated
+    play_count: int | None = None  # Int @deprecated
+
+
 @strawberry.type
 class Scene(StashObject):
     """Scene type from schema/types/scene.graphql.
@@ -100,25 +142,24 @@ class Scene(StashObject):
     functionality like find_by_id, save, and to_input methods."""
 
     __type_name__ = "Scene"
+    __update_input_type__ = SceneUpdateInput
+    # No __create_input_type__ - scenes can only be updated
 
-    # Fields to track for changes
+    # Fields to track for changes - only fields that can be written via input types
     __tracked_fields__ = {
-        "title",
-        "code",
-        "details",
-        "director",
-        "date",
-        "studio",
-        "urls",
-        "organized",
-        "files",
-        "scene_markers",
-        "galleries",
-        "groups",
-        "tags",
-        "performers",
-        "stash_ids",
-        "captions",
+        "title",  # SceneCreateInput/SceneUpdateInput
+        "code",  # SceneCreateInput/SceneUpdateInput
+        "details",  # SceneCreateInput/SceneUpdateInput
+        "director",  # SceneCreateInput/SceneUpdateInput
+        "date",  # SceneCreateInput/SceneUpdateInput
+        "studio",  # mapped to studio_id
+        "urls",  # SceneCreateInput/SceneUpdateInput
+        "organized",  # SceneCreateInput/SceneUpdateInput
+        "files",  # mapped to file_ids
+        "galleries",  # mapped to gallery_ids
+        "groups",  # SceneCreateInput/SceneUpdateInput
+        "tags",  # mapped to tag_ids
+        "performers",  # mapped to performer_ids
     }
 
     # Optional fields
@@ -127,17 +168,6 @@ class Scene(StashObject):
     details: str | None = None  # String
     director: str | None = None  # String
     date: str | None = None  # String
-    rating100: int | None = None  # Int (1-100)
-    o_counter: int | None = None  # Int
-    interactive_speed: int | None = None  # Int
-    last_played_at: datetime | None = (
-        None  # Time (The last time play count was updated)
-    )
-    resume_time: float | None = None  # Float (The time index a scene was left at)
-    play_duration: float | None = (
-        None  # Float (The total time a scene has spent playing)
-    )
-    play_count: int | None = None  # Int (The number of times a scene has been played)
     studio: Annotated["Studio", lazy("stash.types.studio.Studio")] | None = (
         None  # Studio
     )
@@ -145,14 +175,6 @@ class Scene(StashObject):
     # Required fields
     urls: list[str] = strawberry.field(default_factory=list)  # [String!]!
     organized: bool = False  # Boolean!
-    interactive: bool = False  # Boolean!
-    # created_at and updated_at handled by Stash
-    play_history: list[datetime] = strawberry.field(
-        default_factory=list
-    )  # [Time!]! (Times a scene was played)
-    o_history: list[datetime] = strawberry.field(
-        default_factory=list
-    )  # [Time!]! (Times the o counter was incremented)
     files: list[Annotated["VideoFile", lazy("stash.types.files.VideoFile")]] = (
         strawberry.field(default_factory=list)
     )  # [VideoFile!]!
@@ -198,7 +220,14 @@ class Scene(StashObject):
 
         Returns:
             New scene instance
+
+        Raises:
+            ValueError: If data does not contain an ID field
         """
+        # Ensure ID is present since we only update existing scenes
+        if "id" not in data:
+            raise ValueError("Scene data must contain an ID field")
+
         # No field mapping needed - using exact GraphQL names
 
         # Filter out fields that aren't part of our class
@@ -256,65 +285,6 @@ class Scene(StashObject):
         ),
     }
 
-    async def _to_input_all(self) -> dict[str, Any]:
-        """Convert all fields to input type.
-
-        Returns:
-            Dictionary of all input fields
-        """
-        # Process all fields
-        data = await self._process_fields(set(self.__field_conversions__.keys()))
-
-        # Process all relationships
-        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
-        data.update(rel_data)
-
-        # Convert to create input and dict
-        input_class = (
-            SceneCreateInput
-            if not hasattr(self, "id") or self.id == "new"
-            else SceneUpdateInput
-        )
-        input_obj = input_class(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
-    async def _to_input_dirty(self) -> dict[str, Any]:
-        """Convert only dirty fields to input type.
-
-        Returns:
-            Dictionary of dirty input fields plus ID
-        """
-        # Start with ID which is always required for updates
-        data = {"id": self.id}
-
-        # Get set of dirty fields (fields whose values have changed)
-        dirty_fields = {
-            field
-            for field in self.__tracked_fields__
-            if field in self.__original_values__
-            and getattr(self, field) != self.__original_values__[field]
-        }
-
-        # Process dirty regular fields
-        field_data = await self._process_fields(dirty_fields)
-        data.update(field_data)
-
-        # Process dirty relationships
-        rel_data = await self._process_relationships(dirty_fields)
-        data.update(rel_data)
-
-        # Convert to update input and dict
-        input_obj = SceneUpdateInput(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
 
 @strawberry.type
 class FindScenesResultType:
@@ -352,14 +322,6 @@ class SceneParserResult:
     performer_ids: list[ID] | None = None  # [ID!]
 
     tag_ids: list[ID] | None = None  # [ID!]
-
-
-@strawberry.input
-class SceneGroupInput:
-    """Input for scene group from schema/types/scene.graphql."""
-
-    group_id: ID  # ID!
-    scene_index: int | None = None  # Int
 
 
 @strawberry.input
@@ -410,40 +372,6 @@ class BulkSceneUpdateInput:
     movie_ids: BulkUpdateIds | None = (
         None  # BulkUpdateIds @deprecated(reason: "Use group_ids")
     )
-
-
-@strawberry.input
-class SceneUpdateInput:
-    """Input for updating scenes."""
-
-    # Required fields
-    id: ID  # ID!
-
-    # Optional fields
-    client_mutation_id: str | None = None  # String
-    title: str | None = None  # String
-    code: str | None = None  # String
-    details: str | None = None  # String
-    director: str | None = None  # String
-    url: str | None = None  # String @deprecated
-    urls: list[str] | None = None  # [String!]
-    date: str | None = None  # String
-    rating100: int | None = None  # Int
-    organized: bool | None = None  # Boolean
-    studio_id: ID | None = None  # ID
-    gallery_ids: list[ID] | None = None  # [ID!]
-    performer_ids: list[ID] | None = None  # [ID!]
-    groups: list[SceneGroupInput] | None = None  # [SceneGroupInput!]
-    tag_ids: list[ID] | None = None  # [ID!]
-    cover_image: str | None = None  # String (URL or base64)
-    stash_ids: list[StashIDInput] | None = None  # [StashIDInput!]
-    resume_time: float | None = None  # Float
-    play_duration: float | None = None  # Float
-    primary_file_id: ID | None = None  # ID
-
-    # Deprecated fields
-    o_counter: int | None = None  # Int @deprecated
-    play_count: int | None = None  # Int @deprecated
 
 
 @strawberry.type

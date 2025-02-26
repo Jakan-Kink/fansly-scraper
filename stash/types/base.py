@@ -12,6 +12,8 @@ Note: created_at and updated_at are handled by Stash internally and not
 included in this interface.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Type, TypeVar
 
@@ -68,6 +70,13 @@ class StashObject:
     # GraphQL type name (e.g., "Scene", "Performer")
     __type_name__: ClassVar[str]
 
+    # Input type for updates (e.g., SceneUpdateInput, PerformerUpdateInput)
+    __update_input_type__: ClassVar[type]
+
+    # Input type for creation (e.g., SceneCreateInput, PerformerCreateInput)
+    # Optional - if not set, the type doesn't support creation
+    __create_input_type__: ClassVar[type | None] = None
+
     # Fields to include in queries
     __field_names__: ClassVar[set[str]]
 
@@ -82,8 +91,34 @@ class StashObject:
 
     id: str  # Only required field - Stash handles created_at/updated_at internally
 
+    @classmethod
+    def _filter_init_args(cls, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Filter out unknown fields from __init__ kwargs.
+
+        Args:
+            kwargs: Dictionary of keyword arguments
+
+        Returns:
+            Dictionary with only valid fields for this class
+        """
+        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
+        return {k: v for k, v in kwargs.items() if k in valid_fields}
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize object with filtered keyword arguments.
+
+        Note: We don't call mark_clean() here because strawberry hasn't initialized
+        the fields yet. That happens in __post_init__.
+        """
+        filtered_kwargs = self._filter_init_args(kwargs)
+        super().__init__(**filtered_kwargs)
+
     def __post_init__(self) -> None:
-        """Initialize object and store original values after dataclass init."""
+        """Initialize object and store original values after dataclass init.
+
+        This is called by strawberry after all fields are initialized, so it's
+        the right place to mark the object as clean and store original values.
+        """
         self.mark_clean()
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -143,7 +178,7 @@ class StashObject:
     @classmethod
     async def find_by_id(
         cls: type[T],
-        client: "StashClient",
+        client: StashClient,
         id: str,
     ) -> T | None:
         """Find object by ID.
@@ -171,7 +206,7 @@ class StashObject:
         except Exception:
             return None
 
-    async def save(self, client: "StashClient") -> None:
+    async def save(self, client: StashClient) -> None:
         """Save object to Stash.
 
         Args:
@@ -404,8 +439,38 @@ class StashObject:
 
         Returns:
             Dictionary of all input fields
+
+        Raises:
+            ValueError: If creation is not supported and object has no ID
         """
-        raise NotImplementedError("Subclasses must implement _to_input_all()")
+        # Process all fields
+        data = await self._process_fields(set(self.__field_conversions__.keys()))
+
+        # Process all relationships
+        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
+        data.update(rel_data)
+
+        # Determine if this is a create or update operation
+        is_new = not hasattr(self, "id") or self.id == "new"
+
+        # If this is a create operation but creation isn't supported, raise an error
+        if is_new and not self.__create_input_type__:
+            raise ValueError(
+                f"{self.__type_name__} objects cannot be created, only updated"
+            )
+
+        # Use the appropriate input type
+        input_type = (
+            self.__create_input_type__ if is_new else self.__update_input_type__
+        )
+        input_obj = input_type(**data)
+
+        # Convert to dict and filter out None values and internal fields
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
 
     async def _to_input_dirty(self) -> dict[str, Any]:
         """Convert only dirty fields to input type.
@@ -413,7 +478,36 @@ class StashObject:
         Returns:
             Dictionary of dirty input fields plus ID
         """
-        raise NotImplementedError("Subclasses must implement _to_input_dirty()")
+        if not hasattr(self, "__update_input_type__"):
+            raise NotImplementedError("Subclass must define __update_input_type__")
+
+        # Start with ID which is always required for updates
+        data = {"id": self.id}
+
+        # Get set of dirty fields (fields whose values have changed)
+        dirty_fields = {
+            field
+            for field in self.__tracked_fields__
+            if field not in self.__original_values__  # Field was added after creation
+            or getattr(self, field)
+            != self.__original_values__[field]  # Field was modified
+        }
+
+        # Process dirty regular fields
+        field_data = await self._process_fields(dirty_fields)
+        data.update(field_data)
+
+        # Process dirty relationships
+        rel_data = await self._process_relationships(dirty_fields)
+        data.update(rel_data)
+
+        # Convert to update input and dict
+        input_obj = self.__update_input_type__(**data)
+        return {
+            k: v
+            for k, v in vars(input_obj).items()
+            if not k.startswith("_") and v is not None and k != "client_mutation_id"
+        }
 
     def __hash__(self) -> int:
         """Make object hashable based on type and ID.

@@ -37,38 +37,61 @@ class ImagePathsType:
     image: str | None = None  # String (Resolver)
 
 
+@strawberry.input
+class ImageUpdateInput:
+    """Input for updating images."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    client_mutation_id: str | None = None  # String
+    title: str | None = None  # String
+    code: str | None = None  # String
+    rating100: int | None = None  # Int (1-100)
+    organized: bool | None = None  # Boolean
+    url: str | None = None  # String @deprecated
+    urls: list[str] | None = None  # [String!]
+    date: str | None = None  # String
+    details: str | None = None  # String
+    photographer: str | None = None  # String
+    studio_id: ID | None = None  # ID
+    performer_ids: list[ID] | None = None  # [ID!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    gallery_ids: list[ID] | None = None  # [ID!]
+    primary_file_id: ID | None = None  # ID
+
+
 @strawberry.type
 class Image(StashObject):
     """Image type from schema."""
 
     __type_name__ = "Image"
+    __update_input_type__ = ImageUpdateInput
+    # No __create_input_type__ - images can only be updated
 
-    # Fields to track for changes
+    # Fields to track for changes - only fields that can be written via input types
     __tracked_fields__ = {
-        "title",
-        "code",
-        "urls",
-        "date",
-        "details",
-        "photographer",
-        "organized",
-        "visual_files",
-        "paths",
-        "galleries",
-        "tags",
-        "performers",
-        "files",  # Deprecated but still tracked
+        "title",  # ImageUpdateInput
+        "code",  # ImageUpdateInput
+        "urls",  # ImageUpdateInput
+        "date",  # ImageUpdateInput
+        "details",  # ImageUpdateInput
+        "photographer",  # ImageUpdateInput
+        "studio",  # mapped to studio_id
+        "organized",  # ImageUpdateInput
+        "galleries",  # mapped to gallery_ids
+        "tags",  # mapped to tag_ids
+        "performers",  # mapped to performer_ids
     }
 
     # Optional fields
     title: str | None = None  # String
     code: str | None = None  # String
     urls: list[str] = strawberry.field(default_factory=list)  # [String!]
-    rating100: int | None = None  # Int (1-100)
     date: str | None = None  # String
     details: str | None = None  # String
     photographer: str | None = None  # String
-    o_counter: int | None = None  # Int
     studio: Annotated["Studio", lazy("stash.types.studio.Studio")] | None = (
         None  # Studio
     )
@@ -78,7 +101,7 @@ class Image(StashObject):
     organized: bool = False  # Boolean!
     visual_files: list[VisualFile] = strawberry.field(
         default_factory=list
-    )  # [VisualFile!]!
+    )  # [VisualFile!]! - The image files (replaces deprecated 'files' field)
     paths: ImagePathsType = strawberry.field(
         default_factory=lambda: ImagePathsType(thumbnail="", preview="", image="")
     )  # ImagePathsType! (Resolver)
@@ -94,9 +117,6 @@ class Image(StashObject):
         default_factory=list
     )  # [Performer!]!
 
-    # Deprecated fields (use visual_files instead)
-    files: list[ImageFile] = strawberry.field(default_factory=list)  # [ImageFile!]!
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Image":
         """Create image from dictionary.
@@ -106,7 +126,14 @@ class Image(StashObject):
 
         Returns:
             New image instance
+
+        Raises:
+            ValueError: If data does not contain an ID field
         """
+        # Ensure ID is present since we only update existing images
+        if "id" not in data:
+            raise ValueError("Image data must contain an ID field")
+
         # Filter out fields that aren't part of our class
         valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
@@ -118,8 +145,14 @@ class Image(StashObject):
 
         # Convert lists
         if "files" in filtered_data:
-            image.files = [ImageFile(**f) for f in filtered_data["files"]]
+            # Handle deprecated 'files' field by mapping to visual_files
+            image.visual_files = [VisualFile(**f) for f in filtered_data["files"]]
+            del filtered_data[
+                "files"
+            ]  # Remove so it doesn't try to set files attribute
+
         if "visual_files" in filtered_data:
+            # Handle visual_files field (preferred over deprecated 'files')
             image.visual_files = [
                 VisualFile(**f) for f in filtered_data["visual_files"]
             ]
@@ -154,60 +187,6 @@ class Image(StashObject):
         ),
     }
 
-    async def _to_input_all(self) -> dict[str, Any]:
-        """Convert all fields to input type.
-
-        Returns:
-            Dictionary of all input fields
-        """
-        # Process all fields
-        data = await self._process_fields(set(self.__field_conversions__.keys()))
-
-        # Process all relationships
-        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
-        data.update(rel_data)
-
-        # Convert to create input and dict
-        input_obj = ImageUpdateInput(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
-    async def _to_input_dirty(self) -> dict[str, Any]:
-        """Convert only dirty fields to input type.
-
-        Returns:
-            Dictionary of dirty input fields plus ID
-        """
-        # Start with ID which is always required for updates
-        data = {"id": self.id}
-
-        # Get set of dirty fields (fields whose values have changed)
-        dirty_fields = {
-            field
-            for field in self.__tracked_fields__
-            if field in self.__original_values__
-            and getattr(self, field) != self.__original_values__[field]
-        }
-
-        # Process dirty regular fields
-        field_data = await self._process_fields(dirty_fields)
-        data.update(field_data)
-
-        # Process dirty relationships
-        rel_data = await self._process_relationships(dirty_fields)
-        data.update(rel_data)
-
-        # Convert to update input and dict
-        input_obj = ImageUpdateInput(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
 
 @strawberry.input
 class ImageDestroyInput:
@@ -225,31 +204,6 @@ class ImagesDestroyInput:
     ids: list[ID]  # [ID!]!
     delete_file: bool | None = None  # Boolean
     delete_generated: bool | None = None  # Boolean
-
-
-@strawberry.input
-class ImageUpdateInput:
-    """Input for updating images."""
-
-    # Required fields
-    id: ID  # ID!
-
-    # Optional fields
-    client_mutation_id: str | None = None  # String
-    title: str | None = None  # String
-    code: str | None = None  # String
-    rating100: int | None = None  # Int (1-100)
-    organized: bool | None = None  # Boolean
-    url: str | None = None  # String @deprecated
-    urls: list[str] | None = None  # [String!]
-    date: str | None = None  # String
-    details: str | None = None  # String
-    photographer: str | None = None  # String
-    studio_id: ID | None = None  # ID
-    performer_ids: list[ID] | None = None  # [ID!]
-    tag_ids: list[ID] | None = None  # [ID!]
-    gallery_ids: list[ID] | None = None  # [ID!]
-    primary_file_id: ID | None = None  # ID
 
 
 @strawberry.input

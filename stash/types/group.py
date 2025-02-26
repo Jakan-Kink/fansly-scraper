@@ -23,27 +23,78 @@ class GroupDescription:
     description: str | None = None  # String
 
 
+@strawberry.input
+class GroupCreateInput:
+    """Input for creating groups from schema/types/group.graphql."""
+
+    # Required fields
+    name: str  # String!
+
+    # Optional fields
+    aliases: str | None = None  # String
+    duration: int | None = None  # Int (in seconds)
+    date: str | None = None  # String
+    rating100: int | None = None  # Int (1-100)
+    studio_id: ID | None = None  # ID
+    director: str | None = None  # String
+    synopsis: str | None = None  # String
+    urls: list[str] | None = None  # [String!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    containing_groups: list["GroupDescriptionInput"] | None = (
+        None  # [GroupDescriptionInput!]
+    )
+    sub_groups: list["GroupDescriptionInput"] | None = None  # [GroupDescriptionInput!]
+    front_image: str | None = None  # String (URL or base64 encoded data URL)
+    back_image: str | None = None  # String (URL or base64)
+
+
+@strawberry.input
+class GroupUpdateInput:
+    """Input for updating groups from schema/types/group.graphql."""
+
+    # Required fields
+    id: ID  # ID!
+
+    # Optional fields
+    name: str | None = None  # String
+    aliases: str | None = None  # String
+    duration: int | None = None  # Int (in seconds)
+    date: str | None = None  # String
+    rating100: int | None = None  # Int (1-100)
+    studio_id: ID | None = None  # ID
+    director: str | None = None  # String
+    synopsis: str | None = None  # String
+    urls: list[str] | None = None  # [String!]
+    tag_ids: list[ID] | None = None  # [ID!]
+    containing_groups: list["GroupDescriptionInput"] | None = (
+        None  # [GroupDescriptionInput!]
+    )
+    sub_groups: list["GroupDescriptionInput"] | None = None  # [GroupDescriptionInput!]
+    front_image: str | None = None  # String (URL or base64 encoded data URL)
+    back_image: str | None = None  # String (URL or base64 encoded data URL)
+
+
 @strawberry.type
 class Group(StashObject):
     """Group type from schema."""
 
     __type_name__ = "Group"
+    __update_input_type__ = GroupUpdateInput
+    __create_input_type__ = GroupCreateInput
 
-    # Fields to track for changes
+    # Fields to track for changes - only fields that can be written via input types
     __tracked_fields__ = {
-        "name",
-        "urls",
-        "tags",
-        "containing_groups",
-        "sub_groups",
-        "scenes",
-        "aliases",
-        "duration",
-        "date",
-        "rating100",
-        "studio",
-        "director",
-        "synopsis",
+        "name",  # GroupCreateInput/GroupUpdateInput
+        "urls",  # GroupCreateInput/GroupUpdateInput
+        "tags",  # mapped to tag_ids
+        "containing_groups",  # GroupCreateInput/GroupUpdateInput
+        "sub_groups",  # GroupCreateInput/GroupUpdateInput
+        "aliases",  # GroupCreateInput/GroupUpdateInput
+        "duration",  # GroupCreateInput/GroupUpdateInput
+        "date",  # GroupCreateInput/GroupUpdateInput
+        "studio",  # mapped to studio_id
+        "director",  # GroupCreateInput/GroupUpdateInput
+        "synopsis",  # GroupCreateInput/GroupUpdateInput
     }
 
     # Required fields
@@ -66,7 +117,6 @@ class Group(StashObject):
     aliases: str | None = None  # String
     duration: int | None = None  # Int (in seconds)
     date: str | None = None  # String
-    rating100: int | None = None  # Int (1-100)
     studio: Annotated["Studio", lazy("stash.types.studio.Studio")] | None = (
         None  # Studio
     )
@@ -74,18 +124,6 @@ class Group(StashObject):
     synopsis: str | None = None  # String
     front_image_path: str | None = None  # String (Resolver)
     back_image_path: str | None = None  # String (Resolver)
-
-    @strawberry.field
-    def scene_count(self, depth: int | None = None) -> int:
-        """Get scene count at given depth."""
-        # TODO: Implement this resolver
-        raise NotImplementedError("scene_count resolver not implemented")
-
-    @strawberry.field
-    def sub_group_count(self, depth: int | None = None) -> int:
-        """Get sub group count at given depth."""
-        # TODO: Implement this resolver
-        raise NotImplementedError("sub_group_count resolver not implemented")
 
     # Field definitions with their conversion functions
     __field_conversions__ = {
@@ -98,65 +136,6 @@ class Group(StashObject):
         "director": str,
         "synopsis": str,
     }
-
-    async def _to_input_all(self) -> dict[str, Any]:
-        """Convert all fields to input type.
-
-        Returns:
-            Dictionary of all input fields
-        """
-        # Process all fields
-        data = await self._process_fields(set(self.__field_conversions__.keys()))
-
-        # Process all relationships
-        rel_data = await self._process_relationships(set(self.__relationships__.keys()))
-        data.update(rel_data)
-
-        # Convert to create input and dict
-        input_class = (
-            GroupCreateInput
-            if not hasattr(self, "id") or self.id == "new"
-            else GroupUpdateInput
-        )
-        input_obj = input_class(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
-
-    async def _to_input_dirty(self) -> dict[str, Any]:
-        """Convert only dirty fields to input type.
-
-        Returns:
-            Dictionary of dirty input fields plus ID
-        """
-        # Start with ID which is always required for updates
-        data = {"id": self.id}
-
-        # Get set of dirty fields (fields whose values have changed)
-        dirty_fields = {
-            field
-            for field in self.__tracked_fields__
-            if field in self.__original_values__
-            and getattr(self, field) != self.__original_values__[field]
-        }
-
-        # Process dirty regular fields
-        field_data = await self._process_fields(dirty_fields)
-        data.update(field_data)
-
-        # Process dirty relationships
-        rel_data = await self._process_relationships(dirty_fields)
-        data.update(rel_data)
-
-        # Convert to update input and dict
-        input_obj = GroupUpdateInput(**data)
-        return {
-            k: v
-            for k, v in vars(input_obj).items()
-            if not k.startswith("_") and v is not None and k != "client_mutation_id"
-        }
 
     __relationships__ = {
         # Standard ID relationships
@@ -188,57 +167,6 @@ class GroupDescriptionInput:
 
     group_id: ID  # ID!
     description: str | None = None  # String
-
-
-@strawberry.input
-class GroupCreateInput:
-    """Input for creating groups from schema/types/group.graphql."""
-
-    # Required fields
-    name: str  # String!
-
-    # Optional fields
-    aliases: str | None = None  # String
-    duration: int | None = None  # Int (in seconds)
-    date: str | None = None  # String
-    rating100: int | None = None  # Int (1-100)
-    studio_id: ID | None = None  # ID
-    director: str | None = None  # String
-    synopsis: str | None = None  # String
-    urls: list[str] | None = None  # [String!]
-    tag_ids: list[ID] | None = None  # [ID!]
-    containing_groups: list[GroupDescriptionInput] | None = (
-        None  # [GroupDescriptionInput!]
-    )
-    sub_groups: list[GroupDescriptionInput] | None = None  # [GroupDescriptionInput!]
-    front_image: str | None = None  # String (URL or base64 encoded data URL)
-    back_image: str | None = None  # String (URL or base64)
-
-
-@strawberry.input
-class GroupUpdateInput:
-    """Input for updating groups from schema/types/group.graphql."""
-
-    # Required fields
-    id: ID  # ID!
-
-    # Optional fields
-    name: str | None = None  # String
-    aliases: str | None = None  # String
-    duration: int | None = None  # Int (in seconds)
-    date: str | None = None  # String
-    rating100: int | None = None  # Int (1-100)
-    studio_id: ID | None = None  # ID
-    director: str | None = None  # String
-    synopsis: str | None = None  # String
-    urls: list[str] | None = None  # [String!]
-    tag_ids: list[ID] | None = None  # [ID!]
-    containing_groups: list[GroupDescriptionInput] | None = (
-        None  # [GroupDescriptionInput!]
-    )
-    sub_groups: list[GroupDescriptionInput] | None = None  # [GroupDescriptionInput!]
-    front_image: str | None = None  # String (URL or base64 encoded data URL)
-    back_image: str | None = None  # String (URL or base64 encoded data URL)
 
 
 @strawberry.input
