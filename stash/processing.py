@@ -2195,15 +2195,53 @@ class StashProcessing:
             media_id: ID to use for code field
             is_preview: Whether this is a preview file
         """
-        # Update basic metadata
+        # Only update metadata if this is the earliest instance we've seen
+        item_date = item.createdAt.date()  # Get date part of datetime
+        current_date_str = getattr(stash_obj, "date", None)
+
+        # Parse current date if we have one
+        current_date = None
+        if current_date_str:
+            try:
+                current_date = datetime.strptime(current_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                logger.warning(
+                    f"Invalid date format in stash object: {current_date_str}"
+                )
+
+        # If we have a valid current date and this item is from later, skip the update
+        if current_date and item_date >= current_date:
+            debug_print(
+                {
+                    "method": "StashProcessing - _update_stash_metadata",
+                    "status": "skipping_metadata",
+                    "reason": "later_date",
+                    "current_date": current_date.isoformat(),
+                    "new_date": item_date.isoformat(),
+                    "media_id": media_id,
+                }
+            )
+            return
+
+        # This is either the first instance or an earlier one - update the metadata
         stash_obj.title = self._generate_title_from_content(
             content=item.content,
             username=account.username,
             created_at=item.createdAt,
         )
         stash_obj.details = item.content
-        stash_obj.date = item.createdAt.strftime("%Y-%m-%d")
+        stash_obj.date = item_date.strftime("%Y-%m-%d")
         stash_obj.code = str(media_id)
+        debug_print(
+            {
+                "method": "StashProcessing - _update_stash_metadata",
+                "status": "updating_metadata",
+                "reason": "earlier_date",
+                "current_date": current_date.isoformat() if current_date else None,
+                "new_date": item_date.isoformat(),
+                "media_id": media_id,
+            }
+        )
 
         # Add URL only for posts since message URLs won't work for other users
         if isinstance(item, Post):
