@@ -92,6 +92,11 @@ FILE_FIELDS = """fragment FileFields on BaseFile {
     parent_folder_id
     zip_file_id
     size
+    mod_time
+    fingerprints {
+        type
+        value
+    }
 }"""
 
 VIDEO_FILE_FIELDS = """fragment VideoFileFields on VideoFile {

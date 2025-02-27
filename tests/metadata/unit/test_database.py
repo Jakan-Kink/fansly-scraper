@@ -21,10 +21,11 @@ from metadata.database import Database
 def config(tmp_path: Path) -> FanslyConfig:
     """Create test configuration."""
     config = MagicMock(spec=FanslyConfig)
-    config.metadata_db_file = str(tmp_path / "test.db")
+    config.metadata_db_file = tmp_path / "test.db"
     config.db_sync_seconds = None
     config.db_sync_commits = None
     config.memory_limit = 1024 * 1024 * 1024  # 1GB
+    config.log_levels = {"sqlalchemy": "INFO"}
     return config
 
 

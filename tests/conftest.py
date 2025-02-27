@@ -141,9 +141,7 @@ def temp_db_dir():
 def test_config():
     """Create a test configuration with in-memory database."""
     config = FanslyConfig(program_version="0.10.0")  # Version from pyproject.toml
-    config.metadata_db_file = Path(
-        "__memory__"
-    )  # Special marker for in-memory database
+    config.metadata_db_file = Path(":memory:")
     return config
 
 
@@ -151,12 +149,16 @@ def test_config():
 def test_database(test_config):
     """Create a test database instance."""
     # Use in-memory database for tests
-    test_config.metadata_db_file = ":memory:"
-    test_config.skip_migrations = True  # Skip migrations for base tests
-    test_config._database = Database(test_config, skip_migrations=True)
+    test_config.metadata_db_file = Path(":memory:")
+    test_config._database = Database(test_config)
 
     # Create engine and tables
     engine = create_engine("sqlite:///:memory:")
+
+    # Drop all tables and indexes first
+    Base.metadata.drop_all(engine)
+
+    # Create tables
     Base.metadata.create_all(engine)
 
     # Create session factory

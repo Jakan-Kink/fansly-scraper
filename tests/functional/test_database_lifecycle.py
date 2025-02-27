@@ -19,7 +19,7 @@ from metadata.database import Database
 def config(tmp_path: Path) -> FanslyConfig:
     """Create test configuration."""
     config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = str(tmp_path / "test.db")
+    config.metadata_db_file = tmp_path / "test.db"
     config.download_mode = DownloadMode.NORMAL
     config.user_names = ["test_user"]
     config.interactive = False

@@ -1139,6 +1139,24 @@ class StashProcessing:
                 }
             )
 
+            # Add hashtags as tags
+            if hasattr(item, "hashtags"):
+                await item.awaitable_attrs.hashtags
+                if item.hashtags:
+                    tags = await self._process_hashtags_to_tags(item.hashtags)
+                    if tags:
+                        # TODO: Re-enable this code after testing
+                        # This code will update tags instead of overwriting them
+                        # For now, we overwrite to test tag matching behavior
+                        #
+                        # # Preserve existing tags
+                        # existing_tags = set(stash_obj.tags) if hasattr(stash_obj, "tags") else set()
+                        # existing_tags.update(tags)
+                        # stash_obj.tags = list(existing_tags)
+
+                        # Temporarily overwrite tags for testing
+                        gallery.tags = tags
+
             # Process attachments and collect images/scenes
             all_images = []
             all_scenes = []
@@ -1292,7 +1310,6 @@ class StashProcessing:
                 # Link scenes using the standard gallery update
                 if all_scenes:
                     gallery.scenes = all_scenes
-                    await gallery.save(self.context.client)
                     debug_print(
                         {
                             "method": "StashProcessing - _process_item_gallery",
@@ -1303,7 +1320,7 @@ class StashProcessing:
                             "scenes": pformat(all_scenes),
                         }
                     )
-
+                await gallery.save(self.context.client)
             except Exception as e:
                 logger.exception(
                     f"Failed to link content to gallery for {item_type} {item.id}",
@@ -1941,10 +1958,28 @@ class StashProcessing:
         """
         if isinstance(stash_obj, Image):
             # Get the primary ImageFile
+            logger.debug(f"Getting file from Image object: {stash_obj}")
             if stash_obj.visual_files:
-                for file in stash_obj.visual_files:
+                logger.debug(f"Image has {len(stash_obj.visual_files)} visual files")
+                for file_data in stash_obj.visual_files:
+                    logger.debug(f"Checking visual file: {file_data}")
+                    # Convert dict to ImageFile if needed
+                    if isinstance(file_data, dict):
+                        # Ensure fingerprints exists
+                        if "fingerprints" not in file_data:
+                            file_data["fingerprints"] = []
+                        # Ensure mod_time exists
+                        if "mod_time" not in file_data:
+                            file_data["mod_time"] = None
+                        file = ImageFile(**file_data)
+                    else:
+                        file = file_data
+                    logger.debug(f"Converted to file object: {file}")
                     if isinstance(file, ImageFile):
+                        logger.debug(f"Found ImageFile: {file}")
                         return file
+            else:
+                logger.debug("Image has no visual_files")
         elif isinstance(stash_obj, Scene):
             # Get the primary VideoFile
             if stash_obj.files:
@@ -2116,15 +2151,21 @@ class StashProcessing:
                     image_filter=path_filter,
                     filter_=filter_params,
                 )
+                logger.info(f"Raw find_images results: {results}")
                 if results.count > 0:
                     for image_data in results.images:
+                        logger.info(f"Processing image data: {image_data}")
                         image = (
                             Image(**image_data)
                             if isinstance(image_data, dict)
                             else image_data
                         )
+                        logger.info(f"Created image object: {image}")
                         if file := self._get_file_from_stash_obj(image):
+                            logger.info(f"Found file in image: {file}")
                             found.append((image, file))
+                        else:
+                            logger.info("No file found in image object")
             except Exception as e:
                 debug_print(
                     {
@@ -2328,86 +2369,7 @@ class StashProcessing:
         if hasattr(item, "hashtags"):
             await item.awaitable_attrs.hashtags
             if item.hashtags:
-                tags = []
-                for hashtag in item.hashtags:
-                    # Try to find existing tag by exact name or alias
-                    tag_name = hashtag.value.lower()  # Case-insensitive comparison
-                    found_tag = None
-
-                    # First try exact name match
-                    name_results = await self.context.client.find_tags(
-                        tag_filter={"name": {"value": tag_name, "modifier": "EQUALS"}},
-                    )
-                    if name_results.count > 0:
-                        # Convert dict to Tag object using unpacking
-                        found_tag = Tag(**name_results.tags[0])
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _update_stash_metadata",
-                                "status": "tag_found_by_name",
-                                "tag_name": tag_name,
-                                "found_tag": found_tag.name,
-                            }
-                        )
-                    else:
-                        # Then try alias match
-                        alias_results = await self.context.client.find_tags(
-                            tag_filter={
-                                "aliases": {"value": tag_name, "modifier": "INCLUDES"}
-                            },
-                        )
-                        if alias_results.count > 0:
-                            # Convert dict to Tag object using unpacking
-                            found_tag = Tag(**alias_results.tags[0])
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _update_stash_metadata",
-                                    "status": "tag_found_by_alias",
-                                    "tag_name": tag_name,
-                                    "found_tag": found_tag.name,
-                                }
-                            )
-
-                    if found_tag:
-                        tags.append(found_tag)
-                    else:
-                        # Create new tag if not found
-                        new_tag = Tag(name=tag_name, id="new")
-                        try:
-                            if created_tag := await self.context.client.create_tag(
-                                new_tag
-                            ):
-                                tags.append(created_tag)
-                                debug_print(
-                                    {
-                                        "method": "StashProcessing - _update_stash_metadata",
-                                        "status": "tag_created",
-                                        "tag_name": hashtag.value,
-                                    }
-                                )
-                        except Exception as e:
-                            error_message = str(e)
-                            # If tag already exists, it will be handled by create_tag
-                            if (
-                                "tag with name" in error_message
-                                and "already exists" in error_message
-                            ):
-                                if found_tag := await self.context.client.create_tag(
-                                    new_tag
-                                ):
-                                    tags.append(found_tag)
-                                    debug_print(
-                                        {
-                                            "method": "StashProcessing - _update_stash_metadata",
-                                            "status": "tag_found_after_create_failed",
-                                            "tag_name": tag_name,
-                                            "found_tag": found_tag.name,
-                                        }
-                                    )
-                            else:
-                                # Re-raise if it's not a "tag already exists" error
-                                raise
-
+                tags = await self._process_hashtags_to_tags(item.hashtags)
                 if tags:
                     # TODO: Re-enable this code after testing
                     # This code will update tags instead of overwriting them
@@ -2449,6 +2411,94 @@ class StashProcessing:
                     "object_id": stash_obj.id,
                 }
             )
+
+    async def _process_hashtags_to_tags(
+        self,
+        hashtags: list[Any],
+    ) -> list[Tag]:
+        """Process hashtags into Stash tags.
+
+        Args:
+            hashtags: List of hashtag objects with value attribute
+
+        Returns:
+            List of Tag objects
+        """
+        tags = []
+        for hashtag in hashtags:
+            # Try to find existing tag by exact name or alias
+            tag_name = hashtag.value.lower()  # Case-insensitive comparison
+            found_tag = None
+
+            # First try exact name match
+            name_results = await self.context.client.find_tags(
+                tag_filter={"name": {"value": tag_name, "modifier": "EQUALS"}},
+            )
+            if name_results.count > 0:
+                # Convert dict to Tag object using unpacking
+                found_tag = Tag(**name_results.tags[0])
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_hashtags_to_tags",
+                        "status": "tag_found_by_name",
+                        "tag_name": tag_name,
+                        "found_tag": found_tag.name,
+                    }
+                )
+            else:
+                # Then try alias match
+                alias_results = await self.context.client.find_tags(
+                    tag_filter={"aliases": {"value": tag_name, "modifier": "INCLUDES"}},
+                )
+                if alias_results.count > 0:
+                    # Convert dict to Tag object using unpacking
+                    found_tag = Tag(**alias_results.tags[0])
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_hashtags_to_tags",
+                            "status": "tag_found_by_alias",
+                            "tag_name": tag_name,
+                            "found_tag": found_tag.name,
+                        }
+                    )
+
+            if found_tag:
+                tags.append(found_tag)
+            else:
+                # Create new tag if not found
+                new_tag = Tag(name=tag_name, id="new")
+                try:
+                    if created_tag := await self.context.client.create_tag(new_tag):
+                        tags.append(created_tag)
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _process_hashtags_to_tags",
+                                "status": "tag_created",
+                                "tag_name": hashtag.value,
+                            }
+                        )
+                except Exception as e:
+                    error_message = str(e)
+                    # If tag already exists, it will be handled by create_tag
+                    if (
+                        "tag with name" in error_message
+                        and "already exists" in error_message
+                    ):
+                        if found_tag := await self.context.client.create_tag(new_tag):
+                            tags.append(found_tag)
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _process_hashtags_to_tags",
+                                    "status": "tag_found_after_create_failed",
+                                    "tag_name": tag_name,
+                                    "found_tag": found_tag.name,
+                                }
+                            )
+                    else:
+                        # Re-raise if it's not a "tag already exists" error
+                        raise
+
+        return tags
 
     async def _add_preview_tag(
         self,

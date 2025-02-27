@@ -10,7 +10,7 @@ from config import FanslyConfig
 from download.common import check_page_duplicates
 from errors import DuplicatePageError
 from metadata import Post, Wall
-from tests.conftest import create_test_config
+from tests.conftest import test_config
 
 
 @pytest.fixture
@@ -24,11 +24,10 @@ def timeline_data():
 
 
 @pytest.fixture
-def config():
+def config(test_config_factory):
     """Create test config with pagination duplication enabled."""
-    config = create_test_config()
-    config.use_pagination_duplication = True
-    return config
+    test_config_factory.use_pagination_duplication = True
+    return test_config_factory
 
 
 async def test_check_page_duplicates_no_posts(config, session):

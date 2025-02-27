@@ -25,8 +25,6 @@ class TestMetadataPackage(TestCase):
 
     @pytest.fixture(autouse=True)
     def setup_database(self, temp_db_path, database, timeline_data):
-        from tests.metadata.conftest import temp_db_path
-
         """Set up test environment with database."""
         self.db_path = temp_db_path
         self.database = database

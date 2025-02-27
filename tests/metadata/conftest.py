@@ -192,9 +192,7 @@ def temp_db_path(request) -> Generator[str, None, None]:
 def config(temp_db_path) -> FanslyConfig:
     """Create a test configuration."""
     config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = temp_db_path.replace(
-        "/workspace/",
-    )
+    config.metadata_db_file = temp_db_path
     config.db_sync_min_size = 50  # Add required database sync settings
     config.db_sync_commits = 1000
     config.db_sync_seconds = 60

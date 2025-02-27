@@ -18,7 +18,7 @@ from metadata.database import Database
 def config(tmp_path: Path) -> FanslyConfig:
     """Create test configuration."""
     config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = str(tmp_path / "test.db")
+    config.metadata_db_file = tmp_path / "test.db"
     config.download_mode = DownloadMode.NORMAL
     config.user_names = ["test_user"]
     return config
@@ -28,9 +28,7 @@ def config(tmp_path: Path) -> FanslyConfig:
 def database(tmp_path: Path) -> Database:
     """Create test database."""
     return Database(
-        FanslyConfig(
-            program_version="0.10.0", metadata_db_file=str(tmp_path / "test.db")
-        )
+        FanslyConfig(program_version="0.10.0", metadata_db_file=tmp_path / "test.db")
     )
 
 
@@ -91,7 +89,7 @@ class TestPerCreatorDatabase:
 
         # Create creator database
         creator_db_path = tmp_path / "metadata" / "test_user.db"
-        config.metadata_db_file = str(creator_db_path)
+        config.metadata_db_file = creator_db_path
         creator_database = Database(config)
 
         # Create some test data
@@ -113,7 +111,7 @@ class TestDatabaseMigrations:
         """Test migrations are run automatically."""
         # Create database with migrations
         db_path = tmp_path / "test.db"
-        database = Database(FanslyConfig(metadata_db_file=str(db_path)))
+        database = Database(FanslyConfig(metadata_db_file=db_path))
 
         # Verify alembic_version table exists
         with database.session_scope() as session:
@@ -135,7 +133,7 @@ class TestDatabaseMigrations:
 
         # Should handle invalid database gracefully
         with pytest.raises(Exception):
-            Database(FanslyConfig(metadata_db_file=str(db_path)))
+            Database(FanslyConfig(metadata_db_file=db_path))
 
 
 class TestDatabaseThreading:
