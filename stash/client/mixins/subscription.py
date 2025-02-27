@@ -4,9 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from gql import Client, gql
-from gql.transport.aiohttp import AIOHTTPTransport
-from gql.transport.websockets import WebsocketsTransport
+from gql import gql
 
 from ...types import JobStatus, JobStatusUpdate, LogEntry
 
@@ -14,16 +12,12 @@ from ...types import JobStatus, JobStatusUpdate, LogEntry
 class SubscriptionClientMixin:
     """Mixin for subscription-related client methods."""
 
-    def _get_ws_url(self) -> str:
-        """Get WebSocket URL from HTTP URL."""
-        return self.url.replace("http", "ws")
-
     @asynccontextmanager
     async def _subscription_client(self):
-        """Create a GQL client for subscriptions.
+        """Get a client configured for subscriptions.
 
-        This is a context manager that creates a websocket client
-        and ensures it's properly closed when done.
+        This is a context manager that switches the client to WebSocket transport
+        and switches it back when done.
 
         Example:
             ```python
@@ -32,16 +26,16 @@ class SubscriptionClientMixin:
                     ...
             ```
         """
-        transport = WebsocketsTransport(
-            url=self._get_ws_url(),
-            headers=self.client.headers,
-            ssl=not self.client.verify,
-        )
-        async with Client(
-            transport=transport,
-            fetch_schema_from_transport=True,
-        ) as session:
-            yield session
+        # Store original transport
+        original_transport = self.client.transport
+
+        # Switch to WebSocket transport
+        self.client.transport = self.ws_transport
+        try:
+            yield self.client
+        finally:
+            # Switch back to HTTP transport
+            self.client.transport = original_transport
 
     async def subscribe_to_jobs(self) -> AsyncIterator[JobStatusUpdate]:
         """Subscribe to job status updates.

@@ -882,8 +882,9 @@ class StashProcessing:
             unit=item_type,
         )
 
-        # Create semaphore and queue for concurrent processing
-        max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
+        # Use reasonable default concurrency limit
+        # Limited to avoid overwhelming Stash server
+        max_concurrent = min(10, os.cpu_count() or 1)
         semaphore = asyncio.Semaphore(max_concurrent)
         queue = Queue(
             maxsize=max_concurrent * 4
@@ -912,7 +913,8 @@ class StashProcessing:
             queue: Queue for producer/consumer pattern
             process_batch: Callback function to process each batch
         """
-        max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
+        # Use same concurrency as semaphore
+        max_concurrent = semaphore._value
 
         async def producer():
             # Process in batches

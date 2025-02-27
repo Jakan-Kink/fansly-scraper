@@ -62,7 +62,7 @@ class StashInterface:
             Performer if found, None otherwise
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If response contains errors
         """
         return await self.client.find_performer(id)
@@ -77,7 +77,7 @@ class StashInterface:
             Created Performer object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         performer = Performer(**data)
@@ -94,7 +94,7 @@ class StashInterface:
             Updated Performer object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         # First get existing performer
@@ -118,7 +118,7 @@ class StashInterface:
             Scene if found, None otherwise
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If response contains errors
         """
         return await self.client.find_scene(id)
@@ -133,7 +133,7 @@ class StashInterface:
             Created Scene object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         scene = Scene(**data)
@@ -150,7 +150,7 @@ class StashInterface:
             Updated Scene object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         # First get existing scene
@@ -174,7 +174,7 @@ class StashInterface:
             Gallery if found, None otherwise
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If response contains errors
         """
         return await self.client.find_gallery(id)
@@ -189,7 +189,7 @@ class StashInterface:
             Created Gallery object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         gallery = Gallery(**data)
@@ -206,7 +206,7 @@ class StashInterface:
             Updated Gallery object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         # First get existing gallery
@@ -230,7 +230,7 @@ class StashInterface:
             Image if found, None otherwise
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If response contains errors
         """
         return await self.client.find_image(id)
@@ -245,7 +245,7 @@ class StashInterface:
             Created Image object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         image = Image(**data)
@@ -262,7 +262,7 @@ class StashInterface:
             Updated Image object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         # First get existing image
@@ -286,7 +286,7 @@ class StashInterface:
             Tag if found, None otherwise
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If response contains errors
         """
         return await self.client.find_tag(id)
@@ -301,7 +301,7 @@ class StashInterface:
             Created Tag object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         tag = Tag(**data)
@@ -318,7 +318,7 @@ class StashInterface:
             Updated Tag object
 
         Raises:
-            httpx.HTTPError: If request fails
+            gql.TransportError: If request fails
             ValueError: If data is invalid
         """
         # First get existing tag

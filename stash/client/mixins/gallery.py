@@ -81,7 +81,7 @@ class GalleryClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the gallery data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             input_data = await gallery.to_input()
@@ -108,7 +108,7 @@ class GalleryClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the gallery data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             input_data = await gallery.to_input()

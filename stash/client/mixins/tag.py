@@ -88,7 +88,7 @@ class TagClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the tag data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             input_data = await tag.to_input()
@@ -132,7 +132,7 @@ class TagClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the tag data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             result = await self.execute(
@@ -168,7 +168,7 @@ class TagClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the tag data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             input_data = {"ids": ids}
@@ -206,7 +206,7 @@ class TagClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the tag data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             input_data = await tag.to_input()

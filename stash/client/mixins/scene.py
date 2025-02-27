@@ -179,7 +179,7 @@ class SceneClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the scene data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
 
         Examples:
             Create a basic scene:
@@ -247,7 +247,7 @@ class SceneClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the scene data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
 
         Examples:
             Update scene title and rating:
@@ -453,7 +453,7 @@ class SceneClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the scene is not found
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             result = await self.execute(

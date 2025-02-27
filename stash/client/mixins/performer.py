@@ -217,7 +217,7 @@ class PerformerClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the performer data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
 
         Examples:
             Create a basic performer:
@@ -311,7 +311,7 @@ class PerformerClientMixin(StashClientProtocol):
 
         Raises:
             ValueError: If the performer data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
 
         Examples:
             Update performer name and metadata:

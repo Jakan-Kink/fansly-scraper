@@ -6,8 +6,17 @@ import time
 from datetime import datetime
 from typing import Any, TypeVar
 
-import httpx
-import strawberry
+from gql import Client, gql
+from gql.dsl import DSLSchema
+from gql.transport.aiohttp import AIOHTTPTransport
+from gql.transport.exceptions import (
+    TransportError,
+    TransportQueryError,
+    TransportServerError,
+)
+from gql.transport.websockets import WebsocketsTransport
+from graphql import parse as parse_graphql
+from graphql import validate as validate_graphql
 
 from .. import fragments
 from ..client_helpers import str_compare
@@ -85,15 +94,18 @@ class StashClientBase:
 
         self.log = conn.get("Logger", client_logger)
 
-        # Build URL
+        # Build URLs
         scheme = conn.get("Scheme", "http")
+        ws_scheme = "ws" if scheme == "http" else "wss"
         host = conn.get("Host", "localhost")
         if host == "0.0.0.0":  # nosec B104 - Converting all-interfaces to localhost
             host = "127.0.0.1"
         port = conn.get("Port", 9999)
-        self.url = f"{scheme}://{host}:{port}/graphql"
 
-        # Set up HTTP client
+        self.url = f"{scheme}://{host}:{port}/graphql"
+        self.ws_url = f"{ws_scheme}://{host}:{port}/graphql"
+
+        # Set up headers
         headers = {}
         if api_key := conn.get("ApiKey"):
             self.log.debug("Using API key authentication")
@@ -101,29 +113,48 @@ class StashClientBase:
         else:
             self.log.warning("No API key provided")
 
-        self.client = httpx.AsyncClient(
-            verify=verify_ssl,
+        # Set up transports
+        self.http_transport = AIOHTTPTransport(
+            url=self.url,
             headers=headers,
-            timeout=30.0,  # 30 second timeout
+            ssl=verify_ssl,
+            timeout=30.0,
+        )
+        self.ws_transport = WebsocketsTransport(
+            url=self.ws_url,
+            headers=headers,
+            ssl=verify_ssl,
         )
 
+        # Store transport configuration for creating clients
+        self.transport_config = {
+            "url": self.url,
+            "headers": headers,
+            "ssl": verify_ssl,
+            "timeout": 30.0,
+        }
+
         self.log.debug(f"Using Stash endpoint at {self.url}")
+        self.log.debug(f"Using WebSocket endpoint at {self.ws_url}")
         self.log.debug(f"Client headers: {headers}")
         self.log.debug(f"SSL verification: {verify_ssl}")
 
-        # Test connection
+        # Test connection and fetch schema
         try:
-            self.log.debug("Testing connection...")
-            # Use a simple introspection query to test the connection
-            response = await self.client.post(
-                self.url,
-                json={"query": "query { __schema { queryType { name } } }"},
-            )
-            response.raise_for_status()
-            self.log.debug(f"Response status: {response.status_code}")
-            self.log.debug(f"Response headers: {response.headers}")
-            self.log.debug(f"Response text: {response.text}")
-            self.log.debug("Connection test successful")
+            self.log.debug("Testing connection and fetching schema...")
+            test_query = gql("query { __schema { queryType { name } } }")
+
+            # Create a client just for schema fetching
+            transport = AIOHTTPTransport(**self.transport_config)
+            async with Client(
+                transport=transport,
+                fetch_schema_from_transport=True,
+            ) as session:
+                result = await session.execute(test_query)
+                self.schema = session.client.schema  # Store schema for validation
+                self.log.debug("Schema fetched successfully")
+                self.log.debug(f"Test query result: {result}")
+                self.log.debug("Connection test successful")
         except Exception as e:
             self.log.error(f"Connection test failed: {e}")
             raise ValueError(f"Failed to connect to Stash at {self.url}: {e}")
@@ -131,7 +162,7 @@ class StashClientBase:
         self._initialized = True
 
     def _ensure_initialized(self) -> None:
-        """Ensure client is properly initialized."""
+        """Ensure transport configuration is properly initialized."""
         if not hasattr(self, "log"):
             from ..logging import client_logger
 
@@ -140,62 +171,92 @@ class StashClientBase:
         if not hasattr(self, "_initialized") or not self._initialized:
             raise RuntimeError("Client not initialized - use get_client() first")
 
-        if not hasattr(self, "client"):
-            raise RuntimeError("HTTP client not initialized")
+        if not hasattr(self, "transport_config"):
+            raise RuntimeError("Transport configuration not initialized")
 
         if not hasattr(self, "url"):
             raise RuntimeError("URL not initialized")
 
-    def _validate_response(self, result: dict[str, Any]) -> dict[str, Any]:
-        """Validate and extract data from GraphQL response."""
-        if not result:
-            raise ValueError("No response from server")
-
-        if "errors" in result:
-            raise ValueError(f"GraphQL errors: {result['errors']}")
-
-        if "data" not in result:
-            raise ValueError("Invalid GraphQL response format - missing 'data'")
-
-        return result["data"]
-
-    def _handle_request_error(self, e: Exception) -> None:
-        """Handle request errors with appropriate error messages."""
-        error_type = type(e).__name__
-        if error_type == "ConnectError":
+    def _handle_gql_error(self, e: Exception) -> None:
+        """Handle gql errors with appropriate error messages."""
+        if isinstance(e, TransportQueryError):
+            # GraphQL query error (e.g. validation error)
+            raise ValueError(f"GraphQL query error: {e.errors}")
+        elif isinstance(e, TransportServerError):
+            # Server error (e.g. 500)
+            raise ValueError(f"GraphQL server error: {e}")
+        elif isinstance(e, TransportError):
+            # Network/connection error
             raise ValueError(f"Failed to connect to {self.url}: {e}")
-        elif error_type == "TimeoutError":
-            raise ValueError(f"Request to {self.url} timed out: {e}")
-        elif error_type == "HTTPStatusError":
-            error_json = e.response.json()  # Already parsed by httpx
-            raise ValueError(
-                f"GraphQL request failed with status {e.response.status_code}: {error_json}"
-            )
+        elif isinstance(e, asyncio.TimeoutError):
+            raise ValueError(f"Request to {self.url} timed out")
         else:
-            raise ValueError(f"Unexpected error during request ({error_type}): {e}")
+            raise ValueError(
+                f"Unexpected error during request ({type(e).__name__}): {e}"
+            )
 
     async def execute(
         self,
         query: str,
         variables: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Execute a GraphQL query or mutation."""
+        """Execute a GraphQL query or mutation.
+
+        Args:
+            query: GraphQL query string
+            variables: Optional variables for the query
+
+        Returns:
+            Query result as a dictionary
+
+        Raises:
+            ValueError: If query validation fails or execution fails
+        """
         self._ensure_initialized()
 
         try:
-            request_data = {
-                "query": query,
-                "variables": self._convert_datetime(variables or {}),
-            }
+            # Parse and validate query
+            try:
+                # First parse the query string into an AST
+                operation = gql(query)
 
-            response = await self.client.post(self.url, json=request_data)
-            response.raise_for_status()
-            result = response.json()  # Already parsed by httpx
+                # Then validate against schema if available
+                if hasattr(self, "schema") and self.schema:
+                    # Parse into raw GraphQL AST for validation
+                    ast = parse_graphql(query)
+                    # Validate against schema
+                    validation_errors = validate_graphql(self.schema, ast)
+                    if validation_errors:
+                        raise ValueError(
+                            f"Schema validation errors: {validation_errors}"
+                        )
+                    self.log.debug("Query validated against schema")
+            except Exception as e:
+                self.log.error(f"Query validation failed: {e}")
+                raise ValueError(f"Invalid GraphQL query: {e}")
 
-            return self._validate_response(result)
+            # Process variables
+            processed_vars = self._convert_datetime(variables or {})
+
+            # Execute with fresh client and transport
+            self.log.debug(f"Executing query with variables: {processed_vars}")
+            transport = AIOHTTPTransport(**self.transport_config)
+            try:
+                async with Client(
+                    transport=transport,
+                    fetch_schema_from_transport=False,  # Already have schema
+                ) as session:
+                    result = await session.execute(
+                        operation, variable_values=processed_vars
+                    )
+                    self.log.debug("Query executed successfully")
+                    return result
+            finally:
+                # Ensure transport is cleaned up
+                await transport.close()
 
         except Exception as e:
-            self._handle_request_error(e)
+            self._handle_gql_error(e)
 
     def _convert_datetime(self, obj: Any) -> Any:
         """Convert datetime objects to ISO format strings."""
@@ -313,7 +374,7 @@ class StashClientBase:
 
         Raises:
             ValueError: If the input data is invalid
-            httpx.HTTPError: If the request fails
+            gql.TransportError: If the request fails
         """
         try:
             # Convert GenerateMetadataOptions to dict if needed
@@ -515,7 +576,11 @@ class StashClientBase:
                 scene = await client.find_scene("123")
             ```
         """
-        await self.client.aclose()
+        # gql Client doesn't have a close method, but its transports do
+        if hasattr(self.http_transport, "close"):
+            await self.http_transport.close()
+        if hasattr(self.ws_transport, "close"):
+            await self.ws_transport.close()
 
     async def __aenter__(self) -> "StashClientBase":
         """Enter async context manager."""
