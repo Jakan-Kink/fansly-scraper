@@ -884,7 +884,7 @@ class StashProcessing:
 
         # Use reasonable default concurrency limit
         # Limited to avoid overwhelming Stash server
-        max_concurrent = min(10, os.cpu_count() or 1)
+        max_concurrent = min(10, (os.cpu_count() // 2) or 1)
         semaphore = asyncio.Semaphore(max_concurrent)
         queue = Queue(
             maxsize=max_concurrent * 4
@@ -2011,20 +2011,19 @@ class StashProcessing:
 
         if len(conditions) == 1:
             return conditions[0]
-        if len(conditions) == 2:
-            return {
+
+        # Build nested OR conditions from right to left
+        result = conditions[-1]  # Start with the last condition
+        for condition in reversed(
+            conditions[:-1]
+        ):  # Process remaining conditions right to left
+            result = {
                 "OR": {
-                    "path": conditions[0]["path"],
-                    "OR": conditions[1],
+                    "path": condition["path"],
+                    "OR": result,
                 }
             }
-        else:
-            return {
-                "OR": {
-                    "path": conditions[0]["path"],
-                    "OR": self._create_nested_path_or_conditions(media_ids[1:])["OR"],
-                }
-            }
+        return result
 
     async def _find_stash_files_by_id(
         self,

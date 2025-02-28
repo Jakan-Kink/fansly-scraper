@@ -240,6 +240,7 @@ class StashClientBase:
 
             # Execute with fresh client and transport
             self.log.debug(f"Executing query with variables: {processed_vars}")
+            self.log.debug(f"Query: {query}")
             transport = AIOHTTPTransport(**self.transport_config)
             try:
                 async with Client(
@@ -250,6 +251,7 @@ class StashClientBase:
                         operation, variable_values=processed_vars
                     )
                     self.log.debug("Query executed successfully")
+                    self.log.debug(f"Result: {result}")
                     return result
             finally:
                 # Ensure transport is cleaned up
