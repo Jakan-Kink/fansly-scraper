@@ -70,6 +70,7 @@ if TYPE_CHECKING:
 class HasMetadata(Protocol):
     """Protocol for models that have metadata for Stash."""
 
+    id: int
     content: str | None
     createdAt: datetime
     attachments: list[Attachment]
@@ -2240,6 +2241,19 @@ class StashProcessing:
         # Only update metadata if this is the earliest instance we've seen
         item_date = item.createdAt.date()  # Get date part of datetime
         current_date_str = getattr(stash_obj, "date", None)
+        is_organized = getattr(stash_obj, "organized", False)
+        if is_organized:
+            logger.debug(
+                {
+                    "method": "StashProcessing - _update_stash_metadata",
+                    "status": "skipping_metadata",
+                    "reason": "already_organized",
+                    "media_id": media_id,
+                    "item_id": item.id,
+                    "stash_id": stash_obj.id,
+                }
+            )
+            return
 
         # Parse current date if we have one
         current_date = None
