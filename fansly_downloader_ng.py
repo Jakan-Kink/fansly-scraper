@@ -357,10 +357,10 @@ async def main(config: FanslyConfig) -> int:
                     # STASH_ONLY: Only process Stash metadata, skip downloading media.
 
                     if config.download_mode == DownloadMode.SINGLE:
-                        download_single_post(config, state)
+                        await download_single_post(config, state)
 
                     elif config.download_mode == DownloadMode.COLLECTION:
-                        download_collections(config, state)
+                        await download_collections(config, state)
 
                     elif config.download_mode != DownloadMode.STASH_ONLY:
                         if any(
