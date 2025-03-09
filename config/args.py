@@ -29,7 +29,17 @@ def parse_args() -> argparse.Namespace:
         "-uf",
         "--use-following",
         action="store_true",
+        default=False,
         help="Process following list instead of targeted creators",
+        required=False,
+    )
+
+    parser.add_argument(
+        "-ufp",
+        "--use-following-with-pagination",
+        action="store_true",
+        default=False,
+        help="Process following list with pagination duplication enabled",
         required=False,
     )
 
@@ -264,6 +274,15 @@ def parse_args() -> argparse.Namespace:
         "already downloaded media again.",
     )
     parser.add_argument(
+        "-upd",
+        "--use-pagination-duplication",
+        required=False,
+        default=False,
+        action="store_true",
+        dest="use_pagination_duplication",
+        help="Check each page for duplicates during pagination.",
+    )
+    parser.add_argument(
         "-mh",
         "--metadata-handling",
         required=False,
@@ -467,6 +486,16 @@ def _handle_debug_settings(args: argparse.Namespace, config: FanslyConfig) -> No
 
 def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
     """Handle user settings and return if config was overridden."""
+    config_overridden = False
+
+    # Handle use_following_with_pagination (combined option)
+    if args.use_following_with_pagination:
+        config.use_following = True
+        config.use_pagination_duplication = True
+        config_overridden = True
+        # If this combined option is used, we don't need to check the individual options
+        return config_overridden
+
     # Check for conflicting arguments
     if args.use_following and args.users is not None:
         raise ConfigError(
@@ -475,11 +504,17 @@ def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> boo
             "or --user to specify target creators."
         )
 
+    # Handle use_following
+    if args.use_following:
+        config.use_following = True
+        config_overridden = True
+
     if args.users is None:
-        return False
+        return config_overridden
 
     users_line = " ".join(args.users)
     config.user_names = sanitize_creator_names(parse_items_from_line(users_line))
+    config_overridden = True
 
     if config.debug:
         print_debug(f"Value of `args.users` is: {args.users}")
@@ -487,7 +522,7 @@ def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> boo
         print_debug(f"`config.username` is: {config.user_names}")
         print()
 
-    return True
+    return config_overridden
 
 
 def _handle_download_mode(
@@ -596,9 +631,9 @@ def _handle_boolean_settings(args: argparse.Namespace, config: FanslyConfig) -> 
 
     # Handle positive boolean flags
     positive_bools = [
-        "use_following",
         "separate_previews",
         "use_duplicate_threshold",
+        "use_pagination_duplication",
         "separate_metadata",
     ]
 

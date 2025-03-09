@@ -156,6 +156,11 @@ def _handle_creator_section(config: FanslyConfig, replace_me_str: str) -> None:
         )
         config.user_names = sanitize_creator_names(parse_items_from_line(user_names))
 
+    # Handle use_following option
+    config.use_following = config._parser.getboolean(
+        creator_section, "use_following", fallback=False
+    )
+
 
 def _handle_account_section(config: FanslyConfig, replace_me_str: str) -> None:
     """Handle MyAccount section configuration."""

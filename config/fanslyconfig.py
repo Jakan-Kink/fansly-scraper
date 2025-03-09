@@ -202,6 +202,11 @@ class FanslyConfig(PathConfig):
                 self._parser.add_section(section)
 
         self._parser.set("TargetedCreator", "username", self.user_names_str())
+        # Only save use_following if it already exists in the config file
+        if self._parser.has_option("TargetedCreator", "use_following"):
+            self._parser.set(
+                "TargetedCreator", "use_following", str(self.use_following)
+            )
 
         self._parser.set(
             "MyAccount",
@@ -260,10 +265,10 @@ class FanslyConfig(PathConfig):
         self._parser.set("Options", "interactive", str(self.interactive))
         self._parser.set("Options", "prompt_on_exit", str(self.prompt_on_exit))
 
-        # Only save debug/trace if explicitly set (advanced features)
-        if self.debug:
+        # Only save debug/trace if they already exist in the config file
+        if self._parser.has_option("Options", "debug"):
             self._parser.set("Options", "debug", str(self.debug))
-        if self.trace:
+        if self._parser.has_option("Options", "trace"):
             self._parser.set("Options", "trace", str(self.trace))
 
         # Unsigned ints
