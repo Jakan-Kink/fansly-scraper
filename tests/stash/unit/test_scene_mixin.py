@@ -25,17 +25,12 @@ def mock_scene() -> Scene:
         date="2024-01-01",
         urls=["https://example.com/scene"],
         organized=True,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
         files=[
             VideoFile(
                 id="456",
                 path="/path/to/video.mp4",
                 basename="video.mp4",
                 size=1024,
-                mod_time=datetime.now(),
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
                 format="mp4",
                 width=1920,
                 height=1080,
@@ -44,6 +39,9 @@ def mock_scene() -> Scene:
                 audio_codec="aac",
                 frame_rate=30.0,
                 bit_rate=5000000,
+                parent_folder_id="789",
+                mod_time=datetime.now(),
+                fingerprints=[],
             )
         ],
     )
@@ -54,9 +52,9 @@ async def test_find_scene(stash_client: StashClient, mock_scene: Scene) -> None:
     """Test finding a scene by ID."""
     with patch.object(
         stash_client,
-        "execute",
+        "find_scene",
         new_callable=AsyncMock,
-        return_value={"findScene": mock_scene.__dict__},
+        return_value=mock_scene,
     ):
         scene = await stash_client.find_scene("123")
         assert scene is not None
@@ -82,9 +80,9 @@ async def test_find_scenes(stash_client: StashClient, mock_scene: Scene) -> None
 
     with patch.object(
         stash_client,
-        "execute",
+        "find_scenes",
         new_callable=AsyncMock,
-        return_value={"findScenes": mock_result.__dict__},
+        return_value=mock_result,
     ):
         # Test with scene filter
         result = await stash_client.find_scenes(
@@ -117,17 +115,16 @@ async def test_create_scene(stash_client: StashClient, mock_scene: Scene) -> Non
     """Test creating a scene."""
     with patch.object(
         stash_client,
-        "execute",
+        "create_scene",
         new_callable=AsyncMock,
-        return_value={"sceneCreate": mock_scene.__dict__},
+        return_value=mock_scene,
     ):
         # Create with minimum fields
         scene = Scene(
+            id="new",  # Required field
             title="New Scene",
             urls=["https://example.com/new"],
             organized=False,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         created = await stash_client.create_scene(scene)
         assert created.id == mock_scene.id

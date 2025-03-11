@@ -176,12 +176,15 @@ class Performer(StashObject):
 
     async def update_avatar(
         self, client: "StashClient", image_path: str | Path
-    ) -> None:
+    ) -> "Performer":
         """Update performer's avatar image.
 
         Args:
             client: StashClient instance to use for update
             image_path: Path to image file to use as avatar
+
+        Returns:
+            Updated Performer object with the new image
 
         Raises:
             FileNotFoundError: If image file doesn't exist
@@ -200,11 +203,8 @@ class Performer(StashObject):
             mime = mimetypes.types_map.get(path.suffix, "image/jpeg")
             image_url = f"data:{mime};base64,{image_b64}"
 
-            # Create update input with just ID and image
-            update_input = {"id": self.id, "image": image_url}
-
-            # Update performer
-            await client.update_performer(self.__class__(**update_input))
+            # Use client's direct method for updating image
+            return await client.update_performer_image(self, image_url)
 
         except Exception as e:
             raise ValueError(f"Failed to update avatar: {e}") from e
@@ -235,7 +235,7 @@ class Performer(StashObject):
         return performer
 
     @classmethod
-    async def from_account(cls, account: Account) -> "Performer":
+    def from_account(cls, account: Account) -> "Performer":
         """Create performer from account.
 
         Args:
@@ -258,7 +258,6 @@ class Performer(StashObject):
             urls=[f"https://fansly.com/{account.username}/posts"],
             country=account.location,
             details=account.about,
-            # created_at and updated_at handled by Stash
             # Required fields with defaults
             tags=[],  # Empty list of tags to start
             scenes=[],

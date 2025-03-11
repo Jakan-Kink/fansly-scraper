@@ -17,14 +17,7 @@ def mock_tag() -> Tag:
         name="Test Tag",
         description="Test tag description",
         aliases=["alias1", "alias2"],
-        ignore_auto_tag=False,
-        favorite=True,
         image_path="/path/to/image.jpg",
-        scene_count=10,
-        scene_marker_count=5,
-        image_count=20,
-        gallery_count=3,
-        performer_count=2,
         parents=[
             Tag(
                 id="456",
@@ -56,8 +49,8 @@ async def test_find_tag(stash_client: StashClient, mock_tag: Tag) -> None:
         assert tag.name == mock_tag.name
         assert tag.description == mock_tag.description
         assert tag.aliases == mock_tag.aliases
-        assert tag.favorite == mock_tag.favorite
-        assert tag.scene_count == mock_tag.scene_count
+        # favorite is not in the client model
+        # scene_count is not in the client model
         assert len(tag.parents) == 1
         assert len(tag.children) == 1
         assert tag.parents[0].id == mock_tag.parents[0].id
@@ -83,7 +76,7 @@ async def test_find_tags(stash_client: StashClient, mock_tag: Tag) -> None:
             tag_filter={
                 "name": {"modifier": "EQUALS", "value": "Test Tag"},
                 "description": {"modifier": "INCLUDES", "value": "test"},
-                "favorite": True,
+                # favorite is not in the client model
             }
         )
         assert result.count == 1
@@ -129,7 +122,7 @@ async def test_create_tag(stash_client: StashClient, mock_tag: Tag) -> None:
         assert created.name == mock_tag.name
         assert created.description == mock_tag.description
         assert created.aliases == mock_tag.aliases
-        assert created.favorite == mock_tag.favorite
+        # favorite is not in the client model
         assert len(created.parents) == 1
         assert len(created.children) == 1
 
@@ -152,12 +145,12 @@ async def test_update_tag(stash_client: StashClient, mock_tag: Tag) -> None:
 
         # Update multiple fields
         tag.description = "Updated description"
-        tag.favorite = False
+        # favorite is not in the client model
         tag.aliases = ["new_alias1", "new_alias2"]
         updated = await stash_client.update_tag(tag)
         assert updated.id == mock_tag.id
         assert updated.description == mock_tag.description
-        assert updated.favorite == mock_tag.favorite
+        # favorite is not in the client model
         assert updated.aliases == mock_tag.aliases
 
         # Update relationships
@@ -199,8 +192,7 @@ async def test_merge_tags(stash_client: StashClient, mock_tag: Tag) -> None:
         )
         assert merged.id == mock_tag.id
         assert merged.name == mock_tag.name
-        # Scene count should be sum of all tags
-        assert merged.scene_count == mock_tag.scene_count
+        # scene_count is not in the client model
 
 
 @pytest.mark.asyncio
@@ -218,16 +210,12 @@ async def test_bulk_tag_update(stash_client: StashClient, mock_tag: Tag) -> None
             ids=[t.id for t in tags],
             description="Bulk updated description",
             aliases=["bulk_alias1", "bulk_alias2"],
-            ignore_auto_tag=True,
-            favorite=True,
         )
         assert len(updated) == len(tags)
         for tag in updated:
             assert tag.id in [t.id for t in tags]
             assert tag.description == "Bulk updated description"
             assert tag.aliases == ["bulk_alias1", "bulk_alias2"]
-            assert tag.ignore_auto_tag is True
-            assert tag.favorite is True
 
 
 @pytest.mark.asyncio

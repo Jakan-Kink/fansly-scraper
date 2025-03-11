@@ -32,7 +32,39 @@ def config(tmp_path: Path) -> FanslyConfig:
 @pytest.fixture
 def database(config: FanslyConfig) -> Database:
     """Create test database instance."""
-    return Database(config)
+    db = Database(config)
+
+    # Mock optimized_storage
+    db.optimized_storage = MagicMock()
+    db.optimized_storage.local_path = config.metadata_db_file
+    db.optimized_storage.remote_path = config.metadata_db_file
+    db.optimized_storage._check_database_integrity.return_value = True
+    db.optimized_storage._run_integrity_check.return_value = (True, [])
+    db.optimized_storage._attempt_recovery.return_value = True
+    db.optimized_storage._try_remote_recovery.return_value = True
+    db.optimized_storage.handle_corruption.return_value = True
+    db.optimized_storage._handle_wal_files.return_value = None
+    db.optimized_storage._get_thread_connection.return_value = sqlite3.connect(
+        ":memory:"
+    )
+    db.optimized_storage.execute.return_value = MagicMock()
+    db.optimized_storage.executemany.return_value = MagicMock()
+    db.optimized_storage.cleanup.return_value = None
+
+    # Mock connection_manager
+    db.connection_manager = MagicMock()
+
+    # Mock migration_manager
+    db.migration_manager = MagicMock()
+    db.migration_manager.db_path = config.metadata_db_file
+    db.migration_manager.migrations_path = Path("alembic")
+
+    # Mock other missing attributes
+    db._close_all_connections = MagicMock()
+    db._recreate_connections = MagicMock()
+    db._sync_to_remote = AsyncMock(return_value=True)
+
+    return db
 
 
 class TestDatabaseIntegrity:

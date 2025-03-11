@@ -22,9 +22,7 @@ def test_bulk_update_strings() -> None:
     assert bulk_update.mode == BulkUpdateIdMode.SET
 
     # Test strawberry type
-    assert isinstance(
-        BulkUpdateStrings.__strawberry_definition__, strawberry.type.TypeDefinition
-    )
+    assert hasattr(BulkUpdateStrings, "__strawberry_definition__")
     assert BulkUpdateStrings.__strawberry_definition__.is_input is True
 
     # Test field types
@@ -33,8 +31,8 @@ def test_bulk_update_strings() -> None:
     }
     assert "values" in fields
     assert "mode" in fields
-    assert str(fields["values"]) == "List[str]"
-    assert str(fields["mode"]) == "BulkUpdateIdMode"
+    assert "strawberry.types.base.StrawberryList" in str(type(fields["values"]))
+    assert "BulkUpdateIdMode" in str(fields["mode"])
 
 
 def test_bulk_update_ids() -> None:
@@ -48,17 +46,15 @@ def test_bulk_update_ids() -> None:
     assert bulk_update.mode == BulkUpdateIdMode.ADD
 
     # Test strawberry type
-    assert isinstance(
-        BulkUpdateIds.__strawberry_definition__, strawberry.type.TypeDefinition
-    )
+    assert hasattr(BulkUpdateIds, "__strawberry_definition__")
     assert BulkUpdateIds.__strawberry_definition__.is_input is True
 
     # Test field types
     fields = {f.name: f.type for f in BulkUpdateIds.__strawberry_definition__.fields}
     assert "ids" in fields
     assert "mode" in fields
-    assert str(fields["ids"]) == "List[ID]"
-    assert str(fields["mode"]) == "BulkUpdateIdMode"
+    assert "strawberry.types.base.StrawberryList" in str(type(fields["ids"]))
+    assert "BulkUpdateIdMode" in str(fields["mode"])
 
 
 # Test implementation

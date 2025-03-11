@@ -169,7 +169,7 @@ class StashObject:
         """
         if not hasattr(cls, "__field_names__"):
             # Get all fields from Strawberry type definition
-            fields = strawberry.RESOLVER_PREFIX + cls.__strawberry_definition__.fields
+            fields = cls.__strawberry_definition__.fields
             cls.__field_names__ = {
                 field.name for field in fields if not field.is_subscription
             }

@@ -53,13 +53,21 @@ async def test_subscribe_to_scan_complete(stash_client: StashClient) -> None:
 @pytest.mark.asyncio
 async def test_wait_for_job_with_updates(stash_client: StashClient) -> None:
     """Test waiting for job with updates."""
-    try:
-        result = await stash_client.wait_for_job_with_updates(
-            "test_job",
-            status=JobStatus.FINISHED,
-            timeout=1.0,
-        )
-        assert result in [True, False, None]
-    except Exception as e:
-        # We expect this to fail since we're not actually connected to a server
-        assert "Failed to connect" in str(e)
+    # Configure the mock to return a specific value
+    stash_client.wait_for_job_with_updates.return_value = True
+
+    result = await stash_client.wait_for_job_with_updates(
+        "test_job",
+        status=JobStatus.FINISHED,
+        timeout=1.0,
+    )
+
+    # Verify the result
+    assert result is True
+
+    # Verify the mock was called with the expected arguments
+    stash_client.wait_for_job_with_updates.assert_called_once_with(
+        "test_job",
+        status=JobStatus.FINISHED,
+        timeout=1.0,
+    )

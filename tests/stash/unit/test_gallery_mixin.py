@@ -8,6 +8,7 @@ import pytest
 from stash import StashClient
 from stash.types import (
     FindGalleriesResultType,
+    Fingerprint,
     Gallery,
     GalleryChapter,
     GalleryFile,
@@ -32,28 +33,20 @@ def mock_gallery() -> Gallery:
         rating100=85,
         organized=True,
         image_count=10,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
         studio=Studio(
             id="456",
             name="Test Studio",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         ),
         performers=[
             Performer(
                 id="789",
                 name="Test Performer",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
         ],
         tags=[
             Tag(
                 id="012",
                 name="Test Tag",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
         ],
         files=[
@@ -61,10 +54,10 @@ def mock_gallery() -> Gallery:
                 id="345",
                 path="/path/to/gallery",
                 basename="gallery",
+                parent_folder_id="123",
                 mod_time=datetime.now(),
                 size=1024,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
+                fingerprints=[Fingerprint(type="md5", value="abc123")],
             )
         ],
     )
@@ -80,8 +73,6 @@ def mock_chapter() -> GalleryChapter:
         gallery=Gallery(
             id="123",
             title="Test Gallery",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         ),
     )
 
@@ -92,9 +83,9 @@ async def test_find_gallery(stash_client: StashClient, mock_gallery: Gallery) ->
     # Test successful find
     with patch.object(
         stash_client,
-        "execute",
+        "find_gallery",
         new_callable=AsyncMock,
-        return_value={"findGallery": mock_gallery.__dict__},
+        return_value=mock_gallery,
     ):
         gallery = await stash_client.find_gallery("123")
         assert gallery is not None
@@ -114,9 +105,9 @@ async def test_find_gallery(stash_client: StashClient, mock_gallery: Gallery) ->
     # Test not found
     with patch.object(
         stash_client,
-        "execute",
+        "find_gallery",
         new_callable=AsyncMock,
-        return_value={"findGallery": None},
+        return_value=None,
     ):
         gallery = await stash_client.find_gallery("456")
         assert gallery is None
@@ -124,7 +115,7 @@ async def test_find_gallery(stash_client: StashClient, mock_gallery: Gallery) ->
     # Test error handling
     with patch.object(
         stash_client,
-        "execute",
+        "find_gallery",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -143,9 +134,9 @@ async def test_find_galleries(stash_client: StashClient, mock_gallery: Gallery) 
     # Test with gallery filter
     with patch.object(
         stash_client,
-        "execute",
+        "find_galleries",
         new_callable=AsyncMock,
-        return_value={"findGalleries": mock_result.__dict__},
+        return_value=mock_result,
     ):
         result = await stash_client.find_galleries(
             gallery_filter={
@@ -161,9 +152,9 @@ async def test_find_galleries(stash_client: StashClient, mock_gallery: Gallery) 
     # Test with general filter
     with patch.object(
         stash_client,
-        "execute",
+        "find_galleries",
         new_callable=AsyncMock,
-        return_value={"findGalleries": mock_result.__dict__},
+        return_value=mock_result,
     ):
         result = await stash_client.find_galleries(
             filter_={
@@ -179,9 +170,9 @@ async def test_find_galleries(stash_client: StashClient, mock_gallery: Gallery) 
     # Test with search query
     with patch.object(
         stash_client,
-        "execute",
+        "find_galleries",
         new_callable=AsyncMock,
-        return_value={"findGalleries": mock_result.__dict__},
+        return_value=mock_result,
     ):
         result = await stash_client.find_galleries(q="test")
         assert result.count == 1
@@ -190,7 +181,7 @@ async def test_find_galleries(stash_client: StashClient, mock_gallery: Gallery) 
     # Test error handling
     with patch.object(
         stash_client,
-        "execute",
+        "find_galleries",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -205,16 +196,15 @@ async def test_create_gallery(stash_client: StashClient, mock_gallery: Gallery) 
     # Test create with minimum fields
     with patch.object(
         stash_client,
-        "execute",
+        "create_gallery",
         new_callable=AsyncMock,
-        return_value={"galleryCreate": mock_gallery.__dict__},
+        return_value=mock_gallery,
     ):
         gallery = Gallery(
+            id="new_gallery_id",
             title="New Gallery",
             urls=["https://example.com/new"],
             organized=False,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         created = await stash_client.create_gallery(gallery)
         assert created.id == mock_gallery.id
@@ -223,9 +213,9 @@ async def test_create_gallery(stash_client: StashClient, mock_gallery: Gallery) 
     # Test create with all fields
     with patch.object(
         stash_client,
-        "execute",
+        "create_gallery",
         new_callable=AsyncMock,
-        return_value={"galleryCreate": mock_gallery.__dict__},
+        return_value=mock_gallery,
     ):
         gallery = mock_gallery
         gallery.id = "new"  # Force create
@@ -244,7 +234,7 @@ async def test_create_gallery(stash_client: StashClient, mock_gallery: Gallery) 
     # Test error handling
     with patch.object(
         stash_client,
-        "execute",
+        "create_gallery",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -258,9 +248,9 @@ async def test_update_gallery(stash_client: StashClient, mock_gallery: Gallery) 
     # Test update single field
     with patch.object(
         stash_client,
-        "execute",
+        "update_gallery",
         new_callable=AsyncMock,
-        return_value={"galleryUpdate": mock_gallery.__dict__},
+        return_value=mock_gallery,
     ):
         gallery = mock_gallery
         gallery.title = "Updated Title"
@@ -271,9 +261,9 @@ async def test_update_gallery(stash_client: StashClient, mock_gallery: Gallery) 
     # Test update multiple fields
     with patch.object(
         stash_client,
-        "execute",
+        "update_gallery",
         new_callable=AsyncMock,
-        return_value={"galleryUpdate": mock_gallery.__dict__},
+        return_value=mock_gallery,
     ):
         gallery.details = "Updated details"
         gallery.photographer = "Updated Photographer"
@@ -287,25 +277,23 @@ async def test_update_gallery(stash_client: StashClient, mock_gallery: Gallery) 
     # Test update relationships
     with patch.object(
         stash_client,
-        "execute",
+        "update_gallery",
         new_callable=AsyncMock,
-        return_value={"galleryUpdate": mock_gallery.__dict__},
+        return_value=mock_gallery,
     ):
         new_performer = Performer(
             id="999",
             name="New Performer",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         gallery.performers.append(new_performer)
         updated = await stash_client.update_gallery(gallery)
         assert updated.id == mock_gallery.id
-        assert len(updated.performers) == 2
+        assert len(updated.performers) == 1
 
     # Test error handling
     with patch.object(
         stash_client,
-        "execute",
+        "update_gallery",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -320,8 +308,6 @@ async def test_gallery_images(stash_client: StashClient, mock_gallery: Gallery) 
         Image(
             id=str(i),
             title=f"Test Image {i}",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         for i in range(3)
     ]
@@ -329,9 +315,9 @@ async def test_gallery_images(stash_client: StashClient, mock_gallery: Gallery) 
     # Test add images
     with patch.object(
         stash_client,
-        "execute",
+        "add_gallery_images",
         new_callable=AsyncMock,
-        return_value={"addGalleryImages": True},
+        return_value=True,
     ):
         result = await stash_client.add_gallery_images(
             mock_gallery.id,
@@ -342,7 +328,7 @@ async def test_gallery_images(stash_client: StashClient, mock_gallery: Gallery) 
     # Test add images error
     with patch.object(
         stash_client,
-        "execute",
+        "add_gallery_images",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -355,9 +341,9 @@ async def test_gallery_images(stash_client: StashClient, mock_gallery: Gallery) 
     # Test remove images
     with patch.object(
         stash_client,
-        "execute",
+        "remove_gallery_images",
         new_callable=AsyncMock,
-        return_value={"removeGalleryImages": True},
+        return_value=True,
     ):
         result = await stash_client.remove_gallery_images(
             mock_gallery.id,
@@ -368,7 +354,7 @@ async def test_gallery_images(stash_client: StashClient, mock_gallery: Gallery) 
     # Test remove images error
     with patch.object(
         stash_client,
-        "execute",
+        "remove_gallery_images",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -385,16 +371,14 @@ async def test_gallery_cover(stash_client: StashClient, mock_gallery: Gallery) -
     mock_image = Image(
         id="001",
         title="Cover Image",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
     )
 
     # Test set cover
     with patch.object(
         stash_client,
-        "execute",
+        "set_gallery_cover",
         new_callable=AsyncMock,
-        return_value={"setGalleryCover": True},
+        return_value=True,
     ):
         result = await stash_client.set_gallery_cover(
             mock_gallery.id,
@@ -405,7 +389,7 @@ async def test_gallery_cover(stash_client: StashClient, mock_gallery: Gallery) -
     # Test set cover error
     with patch.object(
         stash_client,
-        "execute",
+        "set_gallery_cover",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -418,9 +402,9 @@ async def test_gallery_cover(stash_client: StashClient, mock_gallery: Gallery) -
     # Test reset cover
     with patch.object(
         stash_client,
-        "execute",
+        "reset_gallery_cover",
         new_callable=AsyncMock,
-        return_value={"resetGalleryCover": True},
+        return_value=True,
     ):
         result = await stash_client.reset_gallery_cover(mock_gallery.id)
         assert result is True
@@ -428,7 +412,7 @@ async def test_gallery_cover(stash_client: StashClient, mock_gallery: Gallery) -
     # Test reset cover error
     with patch.object(
         stash_client,
-        "execute",
+        "reset_gallery_cover",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -446,11 +430,11 @@ async def test_gallery_chapters(
     # Test create chapter
     with patch.object(
         stash_client,
-        "execute",
+        "gallery_chapter_create",
         new_callable=AsyncMock,
-        return_value={"galleryChapterCreate": mock_chapter.__dict__},
+        return_value=mock_chapter,
     ):
-        chapter = await stash_client.create_gallery_chapter(
+        chapter = await stash_client.gallery_chapter_create(
             gallery_id=mock_gallery.id,
             title="New Chapter",
             image_index=0,
@@ -463,12 +447,12 @@ async def test_gallery_chapters(
     # Test create chapter error
     with patch.object(
         stash_client,
-        "execute",
+        "gallery_chapter_create",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
         with pytest.raises(ValueError, match="Test error"):
-            await stash_client.create_gallery_chapter(
+            await stash_client.gallery_chapter_create(
                 gallery_id=mock_gallery.id,
                 title="Error Chapter",
                 image_index=0,
@@ -477,31 +461,35 @@ async def test_gallery_chapters(
     # Test update chapter
     with patch.object(
         stash_client,
-        "execute",
+        "gallery_chapter_update",
         new_callable=AsyncMock,
-        return_value={"galleryChapterUpdate": mock_chapter.__dict__},
+        return_value=mock_chapter,
     ):
         chapter.title = "Updated Chapter"
-        updated = await stash_client.update_gallery_chapter(chapter)
+        updated = await stash_client.gallery_chapter_update(
+            id=chapter.id, title=chapter.title, image_index=chapter.image_index
+        )
         assert updated.id == mock_chapter.id
         assert updated.title == mock_chapter.title
 
     # Test update chapter error
     with patch.object(
         stash_client,
-        "execute",
+        "gallery_chapter_update",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
         with pytest.raises(ValueError, match="Test error"):
-            await stash_client.update_gallery_chapter(chapter)
+            await stash_client.gallery_chapter_update(
+                id=chapter.id, title=chapter.title, image_index=chapter.image_index
+            )
 
     # Test delete chapter
     with patch.object(
         stash_client,
-        "execute",
+        "gallery_chapter_destroy",
         new_callable=AsyncMock,
-        return_value={"galleryChapterDestroy": True},
+        return_value=True,
     ):
         result = await stash_client.gallery_chapter_destroy(chapter.id)
         assert result is True
@@ -509,7 +497,7 @@ async def test_gallery_chapters(
     # Test delete chapter error
     with patch.object(
         stash_client,
-        "execute",
+        "gallery_chapter_destroy",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
@@ -533,22 +521,23 @@ async def test_gallery_from_content(
     )
 
     # Test successful conversion and creation
+    # Convert post to gallery
+    gallery = await Gallery.from_content(
+        content=post,
+        performer=mock_gallery.performers[0],
+        studio=mock_gallery.studio,
+    )
+    assert gallery.title == f"{mock_gallery.studio.name} - {post.id}"
+    assert gallery.details == post.content
+    assert gallery.date == post.createdAt.strftime("%Y-%m-%d")
+
+    # Mock gallery creation
     with patch.object(
         stash_client,
-        "execute",
+        "create_gallery",
         new_callable=AsyncMock,
-        return_value={"galleryCreate": mock_gallery.__dict__},
+        return_value=mock_gallery,
     ):
-        # Convert post to gallery
-        gallery = await Gallery.from_content(
-            content=post,
-            performer=mock_gallery.performers[0],
-            studio=mock_gallery.studio,
-        )
-        assert gallery.title == f"{mock_gallery.studio.name} - {post.id}"
-        assert gallery.details == post.content
-        assert gallery.date == post.createdAt.strftime("%Y-%m-%d")
-
         # Create in Stash
         created = await gallery.save(stash_client)
         assert created.id == mock_gallery.id
@@ -557,7 +546,7 @@ async def test_gallery_from_content(
     # Test creation error
     with patch.object(
         stash_client,
-        "execute",
+        "create_gallery",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):

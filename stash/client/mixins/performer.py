@@ -368,3 +368,50 @@ class PerformerClientMixin(StashClientProtocol):
         except Exception as e:
             self.log.error(f"Failed to update performer: {e}")
             raise
+
+    async def update_performer_image(
+        self, performer: Performer, image_url: str
+    ) -> Performer:
+        """Update a performer's image.
+
+        Args:
+            performer: Performer object with at least the ID set
+            image_url: URL or data URI of the image to set
+
+        Returns:
+            Updated Performer object with the new image
+
+        Raises:
+            ValueError: If the performer data is invalid
+            gql.TransportError: If the request fails
+
+        Examples:
+            Update performer image with a data URI:
+            ```python
+            performer = await client.find_performer("123")
+            if performer:
+                # Update with data URI
+                image_url = "data:image/jpeg;base64,..."
+                updated = await client.update_performer_image(performer, image_url)
+            ```
+
+            Update performer image from a file:
+            ```python
+            performer = await client.find_performer("123")
+            if performer:
+                # Use the performer's update_avatar method
+                updated = await performer.update_avatar(client, "/path/to/image.jpg")
+            ```
+        """
+        try:
+            # Create a minimal input with just ID and image
+            input_data = {"id": performer.id, "image": image_url}
+
+            result = await self.execute(
+                fragments.UPDATE_PERFORMER_MUTATION,
+                {"input": input_data},
+            )
+            return Performer(**result["performerUpdate"])
+        except Exception as e:
+            self.log.error(f"Failed to update performer image: {e}")
+            raise

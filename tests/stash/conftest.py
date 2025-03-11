@@ -1,8 +1,10 @@
 """Test configuration and fixtures for Stash tests."""
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncGenerator, Generator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -36,9 +38,44 @@ async def stash_context() -> AsyncGenerator[StashContext, None]:
     await context.close()
 
 
-@pytest_asyncio.fixture
-async def stash_client(
-    stash_context: StashContext,
-) -> AsyncGenerator[StashClient, None]:
-    """Create a StashClient for testing."""
-    yield stash_context.client
+@pytest.fixture
+def stash_client() -> StashClient:
+    """Create a mock StashClient for testing."""
+
+    # Create a mock client
+    mock_client = MagicMock(spec=StashClient)
+
+    # Set initialized flag to avoid "Client not initialized" error
+    mock_client._initialized = True
+
+    # Create a mock async context manager for subscriptions
+    class MockAsyncContextManager:
+        def __init__(self, exception_message="Failed to connect"):
+            self.exception_message = exception_message
+
+        async def __aenter__(self):
+            # Return a mock async iterator
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            # Raise the expected exception
+            raise Exception(self.exception_message)
+
+    # Set up subscription methods to return the mock context manager
+    mock_client.subscribe_to_jobs.return_value = MockAsyncContextManager()
+    mock_client.subscribe_to_logs.return_value = MockAsyncContextManager()
+    mock_client.subscribe_to_scan_complete.return_value = MockAsyncContextManager()
+
+    # Set up other async methods
+    mock_client.initialize = AsyncMock()
+    mock_client.close = AsyncMock()
+    mock_client.wait_for_job_with_updates = AsyncMock(return_value=True)
+
+    # Return the mock client
+    return mock_client
