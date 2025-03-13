@@ -900,6 +900,7 @@ async def process_media_download(
     state: DownloadState,
     media: MediaItem | dict[str, any],
     session: AsyncSession | None = None,
+    is_preview: bool = False,
 ) -> Media | None:
     """Process a media item for download and return its Media record.
 
@@ -908,6 +909,7 @@ async def process_media_download(
         state: Current download state
         media: MediaItem to process
         session: Optional session to use, will create one if not provided
+        is_preview: If True, process as preview content
 
     Returns:
         Media record if found or created, None if media should be skipped
@@ -919,12 +921,20 @@ async def process_media_download(
     json_output(1, "meta/media - p_m_d", media)
     if isinstance(media, MediaItem):
         # Query first approach
+        media_id = media.media_id
+        mimetype = media.preview_mimetype if is_preview else media.mimetype
+        created_at = media.created_at
+
         existing_media = (
-            await session.execute(select(Media).where(Media.id == media.media_id))
+            await session.execute(select(Media).where(Media.id == media_id))
         ).scalar_one_or_none()
     else:
+        media_id = media.get("id", -1)
+        mimetype = media.get("mimetype")
+        created_at = media.get("createdAt")
+
         existing_media = (
-            await session.execute(select(Media).where(Media.id == media.get("id", -1)))
+            await session.execute(select(Media).where(Media.id == media_id))
         ).scalar_one_or_none()
     media_obj: Media | None = None if not existing_media else existing_media
 
@@ -932,13 +942,13 @@ async def process_media_download(
         # Get or create media record
         media_obj, created = await Media.async_get_or_create(
             session,
-            {"id": media["id"]},
+            {"id": media_id},
             {
                 "accountId": int(state.creator_id),
-                "mimetype": media["mimetype"],
+                "mimetype": mimetype,
                 "createdAt": (
-                    datetime.fromtimestamp(media["createdAt"], tz=timezone.utc)
-                    if media["createdAt"]
+                    datetime.fromtimestamp(created_at, tz=timezone.utc)
+                    if created_at
                     else None
                 ),
                 "updatedAt": (

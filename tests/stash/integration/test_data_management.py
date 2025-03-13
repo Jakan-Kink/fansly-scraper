@@ -32,18 +32,16 @@ async def create_test_data(
     """Create test data for cleanup."""
     # Create performer
     performer = Performer(
+        id="new",
         name=f"{prefix}_performer",
         gender="FEMALE",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
     )
     performer = await stash_client.create_performer(performer)
 
     # Create studio
     studio = Studio(
+        id="new",
         name=f"{prefix}_studio",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
     )
     studio = await stash_client.create_studio(studio)
 
@@ -51,9 +49,8 @@ async def create_test_data(
     tags = []
     for i in range(3):
         tag = Tag(
+            id="new",
             name=f"{prefix}_tag_{i}",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         tag = await stash_client.create_tag(tag)
         tags.append(tag)
@@ -62,6 +59,7 @@ async def create_test_data(
     scenes = []
     for i in range(2):
         scene = Scene(
+            id="new",
             title=f"{prefix}_scene_{i}",
             details=f"Test scene {i}",
             date=datetime.now().strftime("%Y-%m-%d"),
@@ -70,8 +68,6 @@ async def create_test_data(
             performers=[performer],
             studio=studio,
             tags=tags,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         scene = await stash_client.create_scene(scene)
         scenes.append(scene)
@@ -100,10 +96,9 @@ async def test_tag_cleanup_workflow(stash_client: StashClient) -> None:
         duplicate_tags = []
         for tag in tags:
             dup_tag = Tag(
+                id="new",
                 name=f"{tag.name}_duplicate",
                 description=tag.description,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             dup_tag = await stash_client.create_tag(dup_tag)
             duplicate_tags.append(dup_tag)
@@ -128,9 +123,8 @@ async def test_tag_cleanup_workflow(stash_client: StashClient) -> None:
 
         # Create tag hierarchy
         parent_tag = Tag(
+            id="new",
             name="tag_cleanup_parent",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         parent_tag = await stash_client.create_tag(parent_tag)
 
@@ -165,10 +159,9 @@ async def test_performer_merge_workflow(stash_client: StashClient) -> None:
         performers = []
         for i in range(2):
             performer = Performer(
+                id="new",
                 name=f"merge_performer_{i}",
                 gender="FEMALE",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             performer = await stash_client.create_performer(performer)
             performers.append(performer)
@@ -224,19 +217,17 @@ async def test_studio_hierarchy_workflow(stash_client: StashClient) -> None:
     try:
         # Create studio hierarchy
         parent_studio = Studio(
+            id="new",
             name="parent_studio",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         parent_studio = await stash_client.create_studio(parent_studio)
 
         child_studios = []
         for i in range(2):
             studio = Studio(
+                id="new",
                 name=f"child_studio_{i}",
                 parent_studio=parent_studio,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             studio = await stash_client.create_studio(studio)
             child_studios.append(studio)
@@ -312,6 +303,7 @@ async def test_duplicate_management_workflow(stash_client: StashClient) -> None:
         scenes = []
         for i in range(3):
             scene = Scene(
+                id="new",
                 title=f"duplicate_scene_{i}",
                 details="Same content, different title",
                 date=datetime.now().strftime("%Y-%m-%d"),
@@ -320,8 +312,6 @@ async def test_duplicate_management_workflow(stash_client: StashClient) -> None:
                 performers=[performer],
                 studio=studio,
                 tags=tags,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             scene = await stash_client.create_scene(scene)
             scenes.append(scene)

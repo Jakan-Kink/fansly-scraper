@@ -14,11 +14,18 @@ async def test_scene_workflow(stash_client: StashClient) -> None:
     """Test complete scene workflow."""
     # Create scene
     scene = Scene(
+        id="new",  # Required for initialization, will be replaced on create
         title="Test Scene",
         details="Test scene details",
         date="2024-01-01",
         urls=["https://example.com/scene"],
         organized=True,
+        # Required relationships
+        performers=[],
+        tags=[],
+        galleries=[],
+        studio=None,
+        stash_ids=[],
     )
 
     try:

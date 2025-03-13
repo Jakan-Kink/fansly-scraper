@@ -93,6 +93,8 @@ def args():
         timeline_retries=None,
         timeline_delay_seconds=None,
         use_following=None,
+        use_following_with_pagination=False,
+        use_pagination_duplication=False,
     )
 
 

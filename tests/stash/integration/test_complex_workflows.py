@@ -39,9 +39,10 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
     try:
         # Create performer
         performer = Performer(
+            id="new",  # New performer
             name="Test Performer",
             gender="FEMALE",
-            url="https://example.com/performer",
+            urls=["https://example.com/performer"],
             birthdate="1990-01-01",
             ethnicity="CAUCASIAN",
             country="US",
@@ -53,24 +54,17 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
             tattoos="None",
             piercings="None",
             alias_list=["Alias 1", "Alias 2"],
-            favorite=True,
-            rating100=85,
             details="Test performer details",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         performer = await stash_client.create_performer(performer)
         assert performer.id is not None
 
         # Create studio
         studio = Studio(
+            id="new",
             name="Test Studio",
             url="https://example.com/studio",
             details="Test studio details",
-            rating100=90,
-            favorite=True,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         studio = await stash_client.create_studio(studio)
         assert studio.id is not None
@@ -79,10 +73,9 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
         tags = []
         for name in ["Tag1", "Tag2", "Tag3"]:
             tag = Tag(
+                id="new",
                 name=name,
                 description=f"Test {name.lower()} description",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             tag = await stash_client.create_tag(tag)
             assert tag.id is not None
@@ -90,6 +83,7 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
 
         # Create scene with relationships
         scene = Scene(
+            id="new",  # New scene
             title="Test Scene",
             details="Test scene details",
             date="2024-01-01",
@@ -98,15 +92,13 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
             performers=[performer],
             studio=studio,
             tags=tags,
-            rating100=95,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         scene = await stash_client.create_scene(scene)
         assert scene.id is not None
 
         # Create gallery with relationships
         gallery = Gallery(
+            id="new",  # New gallery
             title="Test Gallery",
             details="Test gallery details",
             date="2024-01-01",
@@ -116,8 +108,6 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
             studio=studio,
             tags=tags,
             rating100=95,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         gallery = await stash_client.create_gallery(gallery)
         assert gallery.id is not None
@@ -127,12 +117,12 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
             covers=True,
             sprites=True,
             previews=True,
-            image_previews=True,
+            imagePreviews=True,
             markers=True,
             phashes=True,
         )
         input_data = GenerateMetadataInput(
-            scene_ids=[scene.id],
+            sceneIDs=[scene.id],
             overwrite=True,
         )
         job_id = await stash_client.metadata_generate(options, input_data)
@@ -181,13 +171,12 @@ async def test_concurrent_operations(stash_client: StashClient) -> None:
 
         async def create_scene(i: int) -> Scene:
             scene = Scene(
+                id="new",  # New scene
                 title=f"Test Scene {i}",
                 details=f"Test scene {i} details",
                 date="2024-01-01",
                 urls=[f"https://example.com/scene/{i}"],
                 organized=True,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             return await stash_client.create_scene(scene)
 
@@ -199,14 +188,12 @@ async def test_concurrent_operations(stash_client: StashClient) -> None:
         # Update scenes concurrently
         async def update_scene(scene: Scene) -> Scene:
             scene.title = f"Updated {scene.title}"
-            scene.rating100 = 85
             return await stash_client.update_scene(scene)
 
         tasks = [update_scene(s) for s in scenes]
         updated_scenes = await asyncio.gather(*tasks)
         assert len(updated_scenes) == 5
         assert all(s.title.startswith("Updated") for s in updated_scenes)
-        assert all(s.rating100 == 85 for s in updated_scenes)
 
         # Generate metadata concurrently
         options = GenerateMetadataOptions(
@@ -217,7 +204,7 @@ async def test_concurrent_operations(stash_client: StashClient) -> None:
 
         async def generate_metadata(scene: Scene) -> str:
             input_data = GenerateMetadataInput(
-                scene_ids=[scene.id],
+                sceneIDs=[scene.id],
                 overwrite=True,
             )
             return await stash_client.metadata_generate(options, input_data)
@@ -262,11 +249,10 @@ async def test_error_handling(stash_client: StashClient) -> None:
         # Test invalid scene creation
         with pytest.raises(ValueError):
             scene = Scene(
+                id="new",  # New scene
                 title="",  # Empty title
                 urls=[],  # No URLs
                 organized=True,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             await stash_client.create_scene(scene)
 
@@ -275,9 +261,7 @@ async def test_error_handling(stash_client: StashClient) -> None:
             title="Test Scene",
             urls=["https://example.com/scene"],
             organized=True,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
-            studio_id="invalid",  # Invalid studio ID
+            studio="invalid",  # Invalid studio ID
         )
         with pytest.raises(Exception):
             await stash_client.create_scene(scene)
@@ -285,12 +269,11 @@ async def test_error_handling(stash_client: StashClient) -> None:
         # Test concurrent error handling
         async def create_invalid_scene(i: int) -> None:
             scene = Scene(
+                id="new",  # New scene
                 title=f"Test Scene {i}",
                 urls=[f"https://example.com/scene/{i}"],
                 organized=True,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
-                studio_id=f"invalid_{i}",  # Invalid studio IDs
+                studio=f"invalid_{i}",  # Invalid studio IDs
             )
             try:
                 await stash_client.create_scene(scene)

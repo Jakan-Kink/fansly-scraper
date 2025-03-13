@@ -30,14 +30,14 @@ def config(test_config_factory):
     return test_config_factory
 
 
-async def test_check_page_duplicates_no_posts(config, session):
+async def test_check_page_duplicates_no_posts(config, test_async_session):
     """Test handling of page data without posts."""
     # Should not raise when no posts array
     await check_page_duplicates(
         config=config,
         page_data={},
         page_type="timeline",
-        session=session,
+        test_async_session=test_async_session,
     )
 
     # Should not raise when empty posts array
@@ -45,33 +45,37 @@ async def test_check_page_duplicates_no_posts(config, session):
         config=config,
         page_data={"posts": []},
         page_type="timeline",
-        session=session,
+        test_async_session=test_async_session,
     )
 
 
-async def test_check_page_duplicates_disabled(config, timeline_data, session):
+async def test_check_page_duplicates_disabled(
+    config, timeline_data, test_async_session
+):
     """Test that check is skipped when feature is disabled."""
     config.use_pagination_duplication = False
 
     # Add all posts to metadata
     for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"]))
-    await session.commit()
+        test_async_session.add(Post(id=post["id"]))
+    await test_async_session.commit()
 
     # Should not raise even though all posts are in metadata
     await check_page_duplicates(
         config=config,
         page_data=timeline_data,
         page_type="timeline",
-        session=session,
+        test_async_session=test_async_session,
     )
 
 
-async def test_check_page_duplicates_timeline_new_posts(config, timeline_data, session):
+async def test_check_page_duplicates_timeline_new_posts(
+    config, timeline_data, test_async_session
+):
     """Test that check passes when new posts are found."""
     # Add only first post to metadata
-    session.add(Post(id=timeline_data["posts"][0]["id"]))
-    await session.commit()
+    test_async_session.add(Post(id=timeline_data["posts"][0]["id"]))
+    await test_async_session.commit()
 
     # Should not raise since not all posts are in metadata
     await check_page_duplicates(
@@ -79,18 +83,18 @@ async def test_check_page_duplicates_timeline_new_posts(config, timeline_data, s
         page_data=timeline_data,
         page_type="timeline",
         cursor="123",
-        session=session,
+        test_async_session=test_async_session,
     )
 
 
 async def test_check_page_duplicates_timeline_all_existing(
-    config, timeline_data, session
+    config, timeline_data, test_async_session
 ):
     """Test detection of all posts already in metadata for timeline."""
     # Add all posts to metadata
     for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"]))
-    await session.commit()
+        test_async_session.add(Post(id=post["id"]))
+    await test_async_session.commit()
 
     # Should raise DuplicatePageError
     with pytest.raises(DuplicatePageError) as exc_info:
@@ -99,22 +103,24 @@ async def test_check_page_duplicates_timeline_all_existing(
             page_data=timeline_data,
             page_type="timeline",
             cursor="123",
-            session=session,
+            test_async_session=test_async_session,
         )
 
     assert "timeline" in str(exc_info.value)
     assert "123" in str(exc_info.value)
 
 
-async def test_check_page_duplicates_wall_new_posts(config, timeline_data, session):
+async def test_check_page_duplicates_wall_new_posts(
+    config, timeline_data, test_async_session
+):
     """Test that check passes when new posts are found on wall."""
     # Create wall
     wall = Wall(id="456", name="Test Wall")
-    session.add(wall)
+    test_async_session.add(wall)
 
     # Add only first post to metadata
-    session.add(Post(id=timeline_data["posts"][0]["id"]))
-    await session.commit()
+    test_async_session.add(Post(id=timeline_data["posts"][0]["id"]))
+    await test_async_session.commit()
 
     # Should not raise since not all posts are in metadata
     await check_page_duplicates(
@@ -123,20 +129,22 @@ async def test_check_page_duplicates_wall_new_posts(config, timeline_data, sessi
         page_type="wall",
         page_id="456",
         cursor="123",
-        session=session,
+        test_async_session=test_async_session,
     )
 
 
-async def test_check_page_duplicates_wall_all_existing(config, timeline_data, session):
+async def test_check_page_duplicates_wall_all_existing(
+    config, timeline_data, test_async_session
+):
     """Test detection of all posts already in metadata for wall."""
     # Create wall
     wall = Wall(id="456", name="Test Wall")
-    session.add(wall)
+    test_async_session.add(wall)
 
     # Add all posts to metadata
     for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"]))
-    await session.commit()
+        test_async_session.add(Post(id=post["id"]))
+    await test_async_session.commit()
 
     # Should raise DuplicatePageError
     with pytest.raises(DuplicatePageError) as exc_info:
@@ -146,7 +154,7 @@ async def test_check_page_duplicates_wall_all_existing(config, timeline_data, se
             page_type="wall",
             page_id="456",
             cursor="123",
-            session=session,
+            test_async_session=test_async_session,
         )
 
     assert "wall" in str(exc_info.value)
@@ -154,16 +162,18 @@ async def test_check_page_duplicates_wall_all_existing(config, timeline_data, se
     assert "123" in str(exc_info.value)
 
 
-async def test_check_page_duplicates_wall_no_name(config, timeline_data, session):
+async def test_check_page_duplicates_wall_no_name(
+    config, timeline_data, test_async_session
+):
     """Test wall duplicate detection when wall has no name."""
     # Create wall without name
     wall = Wall(id="456")
-    session.add(wall)
+    test_async_session.add(wall)
 
     # Add all posts to metadata
     for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"]))
-    await session.commit()
+        test_async_session.add(Post(id=post["id"]))
+    await test_async_session.commit()
 
     # Should raise DuplicatePageError with just ID
     with pytest.raises(DuplicatePageError) as exc_info:
@@ -173,7 +183,7 @@ async def test_check_page_duplicates_wall_no_name(config, timeline_data, session
             page_type="wall",
             page_id="456",
             cursor="123",
-            session=session,
+            test_async_session=test_async_session,
         )
 
     assert "wall" in str(exc_info.value)
@@ -181,12 +191,14 @@ async def test_check_page_duplicates_wall_no_name(config, timeline_data, session
     assert "123" in str(exc_info.value)
 
 
-async def test_check_page_duplicates_wall_nonexistent(config, timeline_data, session):
+async def test_check_page_duplicates_wall_nonexistent(
+    config, timeline_data, test_async_session
+):
     """Test wall duplicate detection for nonexistent wall."""
     # Add all posts to metadata
     for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"]))
-    await session.commit()
+        test_async_session.add(Post(id=post["id"]))
+    await test_async_session.commit()
 
     # Should raise DuplicatePageError with just ID
     with pytest.raises(DuplicatePageError) as exc_info:
@@ -196,7 +208,7 @@ async def test_check_page_duplicates_wall_nonexistent(config, timeline_data, ses
             page_type="wall",
             page_id="456",
             cursor="123",
-            session=session,
+            test_async_session=test_async_session,
         )
 
     assert "wall" in str(exc_info.value)

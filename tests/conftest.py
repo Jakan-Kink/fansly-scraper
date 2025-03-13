@@ -7,7 +7,8 @@ from tempfile import TemporaryDirectory
 
 import pytest
 from loguru import logger
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from alembic.config import Config as AlembicConfig
@@ -146,30 +147,45 @@ def test_config():
 
 
 @pytest.fixture
-def test_database(test_config):
+def test_config_factory():
+    """Create a test configuration factory that allows customizing settings."""
+    config = FanslyConfig(program_version="0.10.0")  # Version from pyproject.toml
+    config.metadata_db_file = Path(":memory:")
+    return config
+
+
+@pytest.fixture
+def test_database(test_config, tmp_path, request):
     """Create a test database instance."""
-    # Use in-memory database for tests
-    test_config.metadata_db_file = Path(":memory:")
-    test_config._database = Database(test_config)
+    # Create a unique in-memory database name for each test
+    test_name = request.node.name.replace("[", "_").replace("]", "_")
+    db_name = f"test_{test_name}"
 
-    # Create engine and tables
-    engine = create_engine("sqlite:///:memory:")
-
-    # Drop all tables and indexes first
-    Base.metadata.drop_all(engine)
-
-    # Create tables
-    Base.metadata.create_all(engine)
+    # Create engine with unique in-memory database
+    engine = create_engine(
+        f"sqlite:///file:{db_name}?mode=memory&cache=shared&uri=true"
+    )
 
     # Create session factory
     Session = sessionmaker(bind=engine)
-    test_config._database.Session = Session
 
+    # Create database instance without running migrations
+    test_config._database = Database(test_config)
+    test_config._database.Session = Session
+    test_config._database._sync_engine = engine
+    test_config._database._async_engine = create_async_engine(
+        f"sqlite+aiosqlite:///file:{db_name}?mode=memory&cache=shared&uri=true",
+        future=True,
+        echo=False,
+    )
+
+    # Let Database handle schema through alembic migrations
     yield test_config._database
 
     # Clean up
     try:
         test_config._database.close()
+        engine.dispose()
     except Exception:
         pass
 
@@ -177,14 +193,14 @@ def test_database(test_config):
 @pytest.fixture
 def test_session(test_database):
     """Create a test database session."""
-    with test_database.get_sync_session() as session:
+    with test_database.session_scope() as session:
         yield session
 
 
 @pytest.fixture
 async def test_async_session(test_database):
     """Create an async test database session."""
-    async with test_database.get_async_session() as session:
+    async with test_database.async_session_scope() as session:
         yield session
 
 

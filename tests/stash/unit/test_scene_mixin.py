@@ -19,7 +19,7 @@ from stash.types import (
 def mock_scene() -> Scene:
     """Create a mock scene for testing."""
     return Scene(
-        id="123",
+        id="123",  # Required field
         title="Test Scene",
         details="Test scene details",
         date="2024-01-01",
@@ -44,6 +44,15 @@ def mock_scene() -> Scene:
                 fingerprints=[],
             )
         ],
+        # Required fields with empty defaults
+        scene_markers=[],
+        galleries=[],
+        groups=[],
+        tags=[],
+        performers=[],
+        stash_ids=[],
+        sceneStreams=[],
+        captions=[],
     )
 
 
@@ -121,10 +130,20 @@ async def test_create_scene(stash_client: StashClient, mock_scene: Scene) -> Non
     ):
         # Create with minimum fields
         scene = Scene(
-            id="new",  # Required field
+            id="new",  # Required field for initialization
             title="New Scene",
             urls=["https://example.com/new"],
             organized=False,
+            # Required fields with empty defaults
+            files=[],
+            scene_markers=[],
+            galleries=[],
+            groups=[],
+            tags=[],
+            performers=[],
+            stash_ids=[],
+            sceneStreams=[],
+            captions=[],
         )
         created = await stash_client.create_scene(scene)
         assert created.id == mock_scene.id

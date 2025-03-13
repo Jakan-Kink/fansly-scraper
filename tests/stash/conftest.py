@@ -41,12 +41,25 @@ async def stash_context() -> AsyncGenerator[StashContext, None]:
 @pytest.fixture
 def stash_client() -> StashClient:
     """Create a mock StashClient for testing."""
-
     # Create a mock client
     mock_client = MagicMock(spec=StashClient)
-
-    # Set initialized flag to avoid "Client not initialized" error
     mock_client._initialized = True
+    mock_client.client = MagicMock()
+    mock_client.client.headers = {}
+
+    # Mock gql.Client async methods
+    mock_client.client.__aenter__ = AsyncMock(return_value=mock_client.client)
+    mock_client.client.connect_async = AsyncMock(return_value=mock_client.client)
+    mock_client.client.fetch_schema = AsyncMock()
+
+    # Mock transports
+    mock_client.http_transport = MagicMock()
+    mock_client.http_transport.connect = AsyncMock()
+    mock_client.http_transport.close = AsyncMock()
+
+    mock_client.ws_transport = MagicMock()
+    mock_client.ws_transport.connect = AsyncMock()
+    mock_client.ws_transport.close = AsyncMock()
 
     # Create a mock async context manager for subscriptions
     class MockAsyncContextManager:
@@ -76,6 +89,33 @@ def stash_client() -> StashClient:
     mock_client.initialize = AsyncMock()
     mock_client.close = AsyncMock()
     mock_client.wait_for_job_with_updates = AsyncMock(return_value=True)
+
+    # Set up mock responses for create methods
+    mock_client.execute = AsyncMock()
+    mock_client.execute.side_effect = lambda query, variables=None: (
+        {"performerCreate": {"id": "123", "name": "Test Account"}}
+        if "performerCreate" in query
+        else (
+            {
+                "galleryCreate": {
+                    "id": "123",
+                    "title": "Test Gallery",
+                    "details": "Test gallery details",
+                    "date": "2024-01-01",
+                    "urls": ["https://example.com/gallery"],
+                    "photographer": "Test Photographer",
+                    "rating100": 85,
+                    "organized": True,
+                    "image_count": 10,
+                    "studio": {"id": "456", "name": "Test Studio"},
+                    "performers": [{"id": "789", "name": "Test Performer"}],
+                    "tags": [{"id": "012", "name": "Test Tag"}],
+                }
+            }
+            if "galleryCreate" in query
+            else {}
+        )
+    )
 
     # Return the mock client
     return mock_client

@@ -146,10 +146,11 @@ class StashClientBase:
 
             # Create a client just for schema fetching
             transport = AIOHTTPTransport(**self.transport_config)
-            async with Client(
+            self.client = Client(
                 transport=transport,
                 fetch_schema_from_transport=True,
-            ) as session:
+            )
+            async with self.client as session:
                 result = await session.execute(test_query)
                 self.schema = session.client.schema  # Store schema for validation
                 self.log.debug("Schema fetched successfully")
@@ -242,23 +243,22 @@ class StashClientBase:
             self.log.debug(f"Executing query with variables: {processed_vars}")
             self.log.debug(f"Query: {query}")
             transport = AIOHTTPTransport(**self.transport_config)
-            try:
-                async with Client(
-                    transport=transport,
-                    fetch_schema_from_transport=False,  # Already have schema
-                ) as session:
-                    result = await session.execute(
-                        operation, variable_values=processed_vars
-                    )
-                    self.log.debug("Query executed successfully")
-                    self.log.debug(f"Result: {result}")
-                    return result
-            finally:
-                # Ensure transport is cleaned up
-                await transport.close()
+            async with Client(
+                transport=transport,
+                fetch_schema_from_transport=False,  # Already have schema
+            ) as session:
+                result = await session.execute(
+                    operation, variable_values=processed_vars
+                )
+                self.log.debug("Query executed successfully")
+                self.log.debug(f"Result: {result}")
+                return result
 
         except Exception as e:
-            self._handle_gql_error(e)
+            self._handle_gql_error(e)  # This will raise ValueError
+        finally:
+            # Ensure transport is cleaned up
+            await transport.close()
 
     def _convert_datetime(self, obj: Any) -> Any:
         """Convert datetime objects to ISO format strings."""
@@ -579,13 +579,17 @@ class StashClientBase:
             ```
         """
         # gql Client doesn't have a close method, but its transports do
-        if hasattr(self.http_transport, "close"):
+        if hasattr(self, "http_transport") and hasattr(self.http_transport, "close"):
             await self.http_transport.close()
-        if hasattr(self.ws_transport, "close"):
+        if hasattr(self, "ws_transport") and hasattr(self.ws_transport, "close"):
             await self.ws_transport.close()
+        if hasattr(self, "client") and hasattr(self.client, "close"):
+            await self.client.close()
 
     async def __aenter__(self) -> "StashClientBase":
         """Enter async context manager."""
+        if not self._initialized:
+            await self.initialize()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:

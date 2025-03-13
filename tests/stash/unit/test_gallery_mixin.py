@@ -119,8 +119,8 @@ async def test_find_gallery(stash_client: StashClient, mock_gallery: Gallery) ->
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
-        gallery = await stash_client.find_gallery("789")
-        assert gallery is None
+        with pytest.raises(ValueError, match="Test error"):
+            await stash_client.find_gallery("789")
 
 
 @pytest.mark.asyncio
@@ -185,9 +185,8 @@ async def test_find_galleries(stash_client: StashClient, mock_gallery: Gallery) 
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):
-        result = await stash_client.find_galleries()
-        assert result.count == 0
-        assert len(result.galleries) == 0
+        with pytest.raises(ValueError, match="Test error"):
+            await stash_client.find_galleries()
 
 
 @pytest.mark.asyncio
@@ -288,7 +287,7 @@ async def test_update_gallery(stash_client: StashClient, mock_gallery: Gallery) 
         gallery.performers.append(new_performer)
         updated = await stash_client.update_gallery(gallery)
         assert updated.id == mock_gallery.id
-        assert len(updated.performers) == 1
+        assert len(updated.performers) == 2  # Original + new performer
 
     # Test error handling
     with patch.object(
@@ -534,19 +533,18 @@ async def test_gallery_from_content(
     # Mock gallery creation
     with patch.object(
         stash_client,
-        "create_gallery",
+        "execute",
         new_callable=AsyncMock,
-        return_value=mock_gallery,
+        return_value={"galleryCreate": {"id": mock_gallery.id}},
     ):
         # Create in Stash
-        created = await gallery.save(stash_client)
-        assert created.id == mock_gallery.id
-        assert created.title == mock_gallery.title
+        await gallery.save(stash_client)
+        assert gallery.id == mock_gallery.id
 
     # Test creation error
     with patch.object(
         stash_client,
-        "create_gallery",
+        "execute",
         new_callable=AsyncMock,
         side_effect=ValueError("Test error"),
     ):

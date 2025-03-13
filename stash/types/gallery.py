@@ -239,6 +239,7 @@ class Gallery(StashObject):
         # Build gallery
         gallery = cls(
             id="new",  # Will be replaced on save
+            title=f"{studio.name} - {content.id}" if studio else str(content.id),
             details=content.content,
             urls=urls,
             date=content.createdAt.strftime(

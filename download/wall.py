@@ -54,6 +54,10 @@ async def download_wall(
     # Set download type for directory creation
     state.download_type = DownloadType.WALL
 
+    # Reset duplicate count for this wall
+    state.duplicate_count = 0
+    state.current_batch_duplicates = 0
+
     # Initialize pagination cursor
     before_cursor = "0"
     attempts = 0

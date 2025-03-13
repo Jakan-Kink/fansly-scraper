@@ -15,6 +15,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TypeVar
 
 import pytest
@@ -53,8 +54,8 @@ class TestDatabase(Database):
 
     def _setup_engine(self) -> None:
         """Set up database engine with enhanced configuration."""
-        self.sync_engine = create_engine(
-            self.config.metadata_db_file,  # Already includes sqlite:// prefix
+        self._sync_engine = create_engine(
+            "sqlite:///:memory:",  # Use in-memory database for tests
             isolation_level=self.isolation_level,
             poolclass=QueuePool,
             pool_size=5,
@@ -69,14 +70,14 @@ class TestDatabase(Database):
 
         # Add event listeners for debugging and monitoring
         event.listen(
-            self.sync_engine, "before_cursor_execute", self._before_cursor_execute
+            self._sync_engine, "before_cursor_execute", self._before_cursor_execute
         )
         event.listen(
-            self.sync_engine, "after_cursor_execute", self._after_cursor_execute
+            self._sync_engine, "after_cursor_execute", self._after_cursor_execute
         )
 
         # Configure database
-        with self.sync_engine.connect() as conn:
+        with self._sync_engine.connect() as conn:
             # Disable foreign keys for better performance
             conn.execute(text("PRAGMA foreign_keys=OFF"))
 
@@ -110,7 +111,7 @@ class TestDatabase(Database):
 
     def _make_session(self) -> Session:
         """Create a new session with proper typing."""
-        return sessionmaker(bind=self.sync_engine)()
+        return sessionmaker(bind=self._sync_engine)()
 
     @contextmanager
     def transaction(
@@ -137,18 +138,18 @@ class TestDatabase(Database):
 
     def close(self) -> None:
         """Close database connections."""
-        if hasattr(self, "sync_engine"):
-            self.sync_engine.dispose()
+        if hasattr(self, "_sync_engine"):
+            self._sync_engine.dispose()
 
     async def close_async(self) -> None:
         """Close database connections asynchronously."""
-        if hasattr(self, "sync_engine"):
-            self.sync_engine.dispose()
-        if hasattr(self, "async_engine"):
-            await self.async_engine.dispose()
+        if hasattr(self, "_sync_engine"):
+            self._sync_engine.dispose()
+        if hasattr(self, "_async_engine"):
+            await self._async_engine.dispose()
 
     @contextmanager
-    def get_sync_session(self) -> Generator[Session, None, None]:
+    def session_scope(self) -> Generator[Session, None, None]:
         """Get a sync session."""
         with self.transaction() as session:
             yield session
@@ -192,7 +193,7 @@ def temp_db_path(request) -> Generator[str, None, None]:
 def config(temp_db_path) -> FanslyConfig:
     """Create a test configuration."""
     config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = temp_db_path
+    config.metadata_db_file = Path(":memory:")  # Use Path object for in-memory database
     config.db_sync_min_size = 50  # Add required database sync settings
     config.db_sync_commits = 1000
     config.db_sync_seconds = 60
@@ -201,12 +202,10 @@ def config(temp_db_path) -> FanslyConfig:
     from metadata.base import Base
     from metadata.database import Database
 
-    # Skip migrations during tests
-    config.skip_migrations = True
+    # # Skip migrations during tests
+    # config.skip_migrations = True
 
     config._database = Database(config)
-    Base.metadata.create_all(config._database.sync_engine)
-
     return config
 
 
@@ -216,7 +215,7 @@ def database(config: FanslyConfig) -> Generator[TestDatabase, None, None]:
     db = TestDatabase(config)
     try:
         # Configure database
-        with db.sync_engine.connect() as conn:
+        with db._sync_engine.connect() as conn:
             # Disable foreign keys for better performance
             conn.execute(text("PRAGMA foreign_keys=OFF"))
 
@@ -233,11 +232,8 @@ def database(config: FanslyConfig) -> Generator[TestDatabase, None, None]:
             conn.execute(text("PRAGMA synchronous=OFF"))
             conn.execute(text("PRAGMA temp_store=MEMORY"))
 
-            # Create tables
-            Base.metadata.create_all(conn)
-
         # Verify database setup
-        inspector = inspect(db.sync_engine)
+        inspector = inspect(db._sync_engine)
         table_names = inspector.get_table_names()
         if not table_names:
             raise RuntimeError("Failed to create database tables")
@@ -270,7 +266,7 @@ def database(config: FanslyConfig) -> Generator[TestDatabase, None, None]:
 @pytest.fixture(scope="function")
 def engine(database: Database):
     """Get the database engine."""
-    return database.sync_engine
+    return database._sync_engine
 
 
 @pytest.fixture(scope="function")
@@ -280,9 +276,9 @@ def session_factory(engine) -> sessionmaker:
 
 
 @pytest.fixture(scope="function")
-def session(database: Database) -> Generator[Session, None, None]:
+def session(test_database: Database) -> Generator[Session, None, None]:
     """Create a database session."""
-    with database.get_sync_session() as session:
+    with test_database.session_scope() as session:
         try:
             yield session
             try:

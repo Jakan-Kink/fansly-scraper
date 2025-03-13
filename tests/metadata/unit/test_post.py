@@ -24,9 +24,9 @@ def test_post_model_basic(session, test_account):
     session.commit()
 
     # Query and verify
-    queried_post = session.execute(
-        select(Post).where(Post.id == 1)
-    ).scalar_one_or_none()
+    queried_post = (
+        session.execute(select(Post).where(Post.id == 1)).unique().scalar_one_or_none()
+    )
     assert queried_post is not None
     assert queried_post.content == "Test post content"
     assert queried_post.accountId == test_account.id
@@ -57,9 +57,9 @@ def test_post_with_attachments(session, test_account):
     session.commit()
 
     # Verify attachments
-    queried_post = session.execute(
-        select(Post).where(Post.id == 1)
-    ).scalar_one_or_none()
+    queried_post = (
+        session.execute(select(Post).where(Post.id == 1)).unique().scalar_one_or_none()
+    )
     assert len(queried_post.attachments) == 3
     assert all(isinstance(a, Attachment) for a in queried_post.attachments)
     assert [a.pos for a in queried_post.attachments] == [0, 1, 2]
@@ -87,14 +87,14 @@ def test_post_mentions(session, test_account):
     session.commit()
 
     # Verify mention
-    queried_post = session.execute(
-        select(Post).where(Post.id == 1)
-    ).scalar_one_or_none()
+    queried_post = (
+        session.execute(select(Post).where(Post.id == 1)).unique().scalar_one_or_none()
+    )
     assert len(queried_post.accountMentions) == 1
     assert queried_post.accountMentions[0].id == test_account.id
 
 
-def test_process_pinned_posts(session, test_account, config):
+async def test_process_pinned_posts(session, test_account, config):
     """Test processing pinned posts."""
     # Create a test post first
     post = Post(
@@ -116,7 +116,7 @@ def test_process_pinned_posts(session, test_account, config):
     ]
 
     # Process pinned posts
-    process_pinned_posts(config, test_account, pinned_data, session=session)
+    await process_pinned_posts(config, test_account, pinned_data, session=session)
 
     # Verify pinned post
     result = session.execute(
@@ -129,7 +129,7 @@ def test_process_pinned_posts(session, test_account, config):
     assert result.pos == 0
 
 
-def test_process_pinned_posts_nonexistent(session, test_account, config):
+async def test_process_pinned_posts_nonexistent(session, test_account, config):
     """Test processing pinned posts with nonexistent post."""
     with patch("metadata.post.json_output") as mock_json_output:
         pinned_data = [
@@ -140,7 +140,7 @@ def test_process_pinned_posts_nonexistent(session, test_account, config):
             }
         ]
 
-        process_pinned_posts(config, test_account, pinned_data, session=session)
+        await process_pinned_posts(config, test_account, pinned_data, session=session)
 
         # Verify logging
         mock_json_output.assert_any_call(
@@ -154,7 +154,7 @@ def test_process_pinned_posts_nonexistent(session, test_account, config):
         )
 
 
-def test_process_pinned_posts_update(session, test_account, config):
+async def test_process_pinned_posts_update(session, test_account, config):
     """Test updating existing pinned post."""
     # Create a test post
     post = Post(
@@ -174,7 +174,7 @@ def test_process_pinned_posts_update(session, test_account, config):
             "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
         }
     ]
-    process_pinned_posts(config, test_account, initial_data, session=session)
+    await process_pinned_posts(config, test_account, initial_data, session=session)
 
     # Update with new position
     updated_data = [
@@ -184,7 +184,7 @@ def test_process_pinned_posts_update(session, test_account, config):
             "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
         }
     ]
-    process_pinned_posts(config, test_account, updated_data, session=session)
+    await process_pinned_posts(config, test_account, updated_data, session=session)
 
     # Verify update
     result = session.execute(
@@ -221,9 +221,9 @@ def test_post_reply_fields(session, test_account):
     session.commit()
 
     # Verify reply relationships
-    queried_reply = session.execute(
-        select(Post).where(Post.id == 2)
-    ).scalar_one_or_none()
+    queried_reply = (
+        session.execute(select(Post).where(Post.id == 2)).unique().scalar_one_or_none()
+    )
     assert queried_reply.inReplyTo == parent_post.id
     assert queried_reply.inReplyToRoot == parent_post.id
 
@@ -247,10 +247,14 @@ def test_post_expiration(session, test_account, expires_at):
     session.add(post)
     session.commit()
 
-    queried_post = session.execute(
-        select(Post).where(Post.id == 1)
-    ).scalar_one_or_none()
-    assert queried_post.expiresAt == expires_at
+    queried_post = (
+        session.execute(select(Post).where(Post.id == 1)).unique().scalar_one_or_none()
+    )
+    # Compare timestamps in UTC
+    if expires_at is not None:
+        assert queried_post.expiresAt.replace(tzinfo=timezone.utc) == expires_at
+    else:
+        assert queried_post.expiresAt is None
 
 
 def test_post_cascade_delete(session, test_account):

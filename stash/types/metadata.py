@@ -39,27 +39,25 @@ class GeneratePreviewOptionsInput:
 class GenerateMetadataInput:
     """Input for metadata generation from schema/types/metadata.graphql."""
 
-    covers: bool | None = None  # Boolean
-    sprites: bool | None = None  # Boolean
-    previews: bool | None = None  # Boolean
-    imagePreviews: bool | None = None  # Boolean
+    covers: bool = False  # Boolean
+    sprites: bool = False  # Boolean
+    previews: bool = False  # Boolean
+    imagePreviews: bool = False  # Boolean
     previewOptions: GeneratePreviewOptionsInput | None = (
         None  # GeneratePreviewOptionsInput
     )
-    markers: bool | None = None  # Boolean
-    markerImagePreviews: bool | None = None  # Boolean
-    markerScreenshots: bool | None = None  # Boolean
-    transcodes: bool | None = None  # Boolean
-    forceTranscodes: bool | None = (
-        None  # Boolean (Generate transcodes even if not required)
-    )
-    phashes: bool | None = None  # Boolean
-    interactiveHeatmapsSpeeds: bool | None = None  # Boolean
-    imageThumbnails: bool | None = None  # Boolean
-    clipPreviews: bool | None = None  # Boolean
+    markers: bool = False  # Boolean
+    markerImagePreviews: bool = False  # Boolean
+    markerScreenshots: bool = False  # Boolean
+    transcodes: bool = False  # Boolean
+    forceTranscodes: bool = False  # Boolean
+    phashes: bool = False  # Boolean
+    interactiveHeatmapsSpeeds: bool = False  # Boolean
+    imageThumbnails: bool = False  # Boolean
+    clipPreviews: bool = False  # Boolean
     sceneIDs: list[ID] | None = None  # [ID!] (scene ids to generate for)
     markerIDs: list[ID] | None = None  # [ID!] (marker ids to generate for)
-    overwrite: bool | None = None  # Boolean (overwrite existing media)
+    overwrite: bool = False  # Boolean (overwrite existing media)
 
 
 @strawberry.type

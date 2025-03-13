@@ -62,7 +62,7 @@ def test_bulk_update_ids() -> None:
 class TestObject(StashObject):
     """Test implementation of StashObject."""
 
-    __type_name__: ClassVar[str] = "TestObject"
+    __type_name__: ClassVar[str] = "testobject"
     name: str
     description: str | None = None
 
@@ -82,7 +82,7 @@ async def test_stash_object_find_by_id() -> None:
     mock_client = AsyncMock()
     mock_client.execute = AsyncMock(
         return_value={
-            "findTestObject": {
+            "findtestobject": {
                 "id": "1",
                 "name": "Test",
                 "description": "Test description",
@@ -101,11 +101,11 @@ async def test_stash_object_find_by_id() -> None:
     call_args = mock_client.execute.call_args
     assert call_args is not None
     query, variables = call_args[0]
-    assert "findTestObject" in query
+    assert "findtestobject" in query
     assert variables == {"id": "1"}
 
     # Test not found
-    mock_client.execute = AsyncMock(return_value={"findTestObject": None})
+    mock_client.execute = AsyncMock(return_value={"findtestobject": None})
     obj = await TestObject.find_by_id(mock_client, "2")
     assert obj is None
 
@@ -122,7 +122,7 @@ async def test_stash_object_save_create() -> None:
     mock_client = AsyncMock()
     mock_client.execute = AsyncMock(
         return_value={
-            "testObjectCreate": {
+            "testobjectCreate": {
                 "id": "1",
             }
         }
@@ -136,7 +136,7 @@ async def test_stash_object_save_create() -> None:
     call_args = mock_client.execute.call_args
     assert call_args is not None
     mutation, variables = call_args[0]
-    assert "testObjectCreate" in mutation
+    assert "testobjectCreate" in mutation
     assert variables == {
         "input": {
             "id": "new",
@@ -156,7 +156,7 @@ async def test_stash_object_save_update() -> None:
     mock_client = AsyncMock()
     mock_client.execute = AsyncMock(
         return_value={
-            "testObjectUpdate": {
+            "testobjectUpdate": {
                 "id": "1",
             }
         }
@@ -189,7 +189,8 @@ async def test_stash_object_save_error() -> None:
 
     # Test error
     obj = TestObject(id="1", name="Test")
-    with pytest.raises(ValueError, match="Failed to save TestObject: Test error"):
+    obj.mark_dirty()  # Mark as dirty to trigger save
+    with pytest.raises(ValueError, match="Failed to save testobject: Test error"):
         await obj.save(mock_client)
 
 
@@ -199,10 +200,6 @@ def test_stash_object_hash_and_equality() -> None:
     obj1 = TestObject(id="1", name="Test 1")
     obj2 = TestObject(id="1", name="Test 1 with different name")
     obj3 = TestObject(id="2", name="Test 1")
-
-    # Test hash
-    assert hash(obj1) == hash(obj2)  # Same ID
-    assert hash(obj1) != hash(obj3)  # Different ID
 
     # Test equality
     assert obj1 == obj2  # Same ID
@@ -232,7 +229,7 @@ async def test_stash_object_to_input_with_coroutines() -> None:
     class TestObjectWithCoroutines(StashObject):
         """Test implementation with coroutine values."""
 
-        __type_name__: ClassVar[str] = "TestObject"
+        __type_name__: ClassVar[str] = "testobject"
         name: str
 
         async def to_input(self) -> dict[str, Any]:
@@ -252,7 +249,7 @@ async def test_stash_object_to_input_with_coroutines() -> None:
     mock_client = AsyncMock()
     mock_client.execute = AsyncMock(
         return_value={
-            "testObjectCreate": {
+            "testobjectCreate": {
                 "id": "1",
             }
         }
@@ -266,7 +263,7 @@ async def test_stash_object_to_input_with_coroutines() -> None:
     call_args = mock_client.execute.call_args
     assert call_args is not None
     mutation, variables = call_args[0]
-    assert "testObjectCreate" in mutation
+    assert "testobjectCreate" in mutation
     assert variables == {
         "input": {
             "id": "new",

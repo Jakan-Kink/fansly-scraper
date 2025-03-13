@@ -191,15 +191,17 @@ async def process_download_accessible_media(
         and (item.is_preview == config.download_media_previews or not item.is_preview)
     ]
 
-    # Special messages handling
+    # Special messages/wall handling
     original_duplicate_threshold = config.DUPLICATE_THRESHOLD
 
     if state.download_type == DownloadType.MESSAGES:
         state.total_message_items += len(accessible_media)
-
-        # Overwrite base dup threshold with 20% of total accessible content in messages.
-        # Don't forget to save/reset afterwards.
+        # Use 20% of total messages as threshold
         config.DUPLICATE_THRESHOLD = int(0.2 * state.total_message_items)
+    elif state.download_type == DownloadType.WALL:
+        # Use wall-specific threshold based on content size
+        # At least 50, or 30% of wall content
+        config.DUPLICATE_THRESHOLD = max(50, int(0.3 * len(accessible_media)))
 
     # at this point we have already parsed the whole post object and determined what is scrapable with the code above
     print_info(

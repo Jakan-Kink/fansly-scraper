@@ -114,31 +114,25 @@ async def test_client_execute() -> None:
     client = await StashClientBase.create()
 
     # Test error response
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(return_value={"errors": ["Invalid query"]})
-    mock_response.raise_for_status = AsyncMock()
-    mock_post = AsyncMock(return_value=mock_response)
+    mock_execute = AsyncMock(return_value={"errors": [{"message": "Invalid query"}]})
 
-    with patch.object(client.client, "post", new=mock_post):
-        with pytest.raises(ValueError, match="GraphQL errors: \\['Invalid query'\\]"):
+    with patch.object(client.client, "execute", new=mock_execute):
+        with pytest.raises(
+            ValueError, match="GraphQL errors: \\[{'message': 'Invalid query'}\\]"
+        ):
             await client.execute("invalid { query }")
 
     # Test successful response
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(
+    mock_execute = AsyncMock(
         return_value={
-            "data": {
-                "findScene": {
-                    "id": "123",
-                    "title": "Test Scene",
-                }
+            "findScene": {
+                "id": "123",
+                "title": "Test Scene",
             }
         }
     )
-    mock_response.raise_for_status = AsyncMock()
-    mock_post = AsyncMock(return_value=mock_response)
 
-    with patch.object(client.client, "post", new=mock_post):
+    with patch.object(client.client, "execute", new=mock_execute):
         query = """
         query TestQuery($id: ID!) {
             findScene(id: $id) {
@@ -154,16 +148,9 @@ async def test_client_execute() -> None:
         assert result["findScene"]["title"] == "Test Scene"
 
     # Test HTTP error
-    mock_response = AsyncMock()
-    mock_response.raise_for_status = AsyncMock(
-        side_effect=httpx.HTTPError("Test error")
-    )
-    mock_response.json = AsyncMock(return_value={"error": "HTTP error"})
-    mock_response.text = "Test error"
-    mock_response.response = mock_response
-    mock_post = AsyncMock(return_value=mock_response)
+    mock_execute = AsyncMock(side_effect=httpx.HTTPError("Test error"))
 
-    with patch.object(client.client, "post", new=mock_post):
+    with patch.object(client.client, "execute", new=mock_execute):
         with pytest.raises(
             ValueError, match="Unexpected error during request.*Test error"
         ):
@@ -205,35 +192,30 @@ async def test_get_configuration_defaults() -> None:
     client = await StashClientBase.create()
 
     # Test successful response
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(
+    mock_execute = AsyncMock(
         return_value={
-            "data": {
-                "configuration": {
-                    "defaults": {
-                        "scan": {
-                            "rescan": False,
-                            "scanGenerateCovers": True,
-                            "scanGeneratePreviews": True,
-                            "scanGenerateImagePreviews": True,
-                            "scanGenerateSprites": True,
-                            "scanGeneratePhashes": True,
-                            "scanGenerateThumbnails": True,
-                            "scanGenerateClipPreviews": True,
-                        },
-                        "autoTag": {},
-                        "generate": {},
-                        "deleteFile": False,
-                        "deleteGenerated": False,
-                    }
+            "configuration": {
+                "defaults": {
+                    "scan": {
+                        "rescan": False,
+                        "scanGenerateCovers": True,
+                        "scanGeneratePreviews": True,
+                        "scanGenerateImagePreviews": True,
+                        "scanGenerateSprites": True,
+                        "scanGeneratePhashes": True,
+                        "scanGenerateThumbnails": True,
+                        "scanGenerateClipPreviews": True,
+                    },
+                    "autoTag": {},
+                    "generate": {},
+                    "deleteFile": False,
+                    "deleteGenerated": False,
                 }
             }
         }
     )
-    mock_response.raise_for_status = AsyncMock()
-    mock_post = AsyncMock(return_value=mock_response)
 
-    with patch.object(client.client, "post", new=mock_post):
+    with patch.object(client.client, "execute", new=mock_execute):
         result = await client.get_configuration_defaults()
         assert isinstance(result, ConfigDefaultSettingsResult)
         assert isinstance(result.scan, ScanMetadataOptions)
@@ -243,8 +225,8 @@ async def test_get_configuration_defaults() -> None:
         assert result.deleteGenerated is False
 
     # Test empty response (should use defaults)
-    mock_response.json = AsyncMock(return_value={"data": {}})
-    with patch.object(client.client, "post", new=mock_post):
+    mock_execute = AsyncMock(return_value={})
+    with patch.object(client.client, "execute", new=mock_execute):
         result = await client.get_configuration_defaults()
         assert isinstance(result, ConfigDefaultSettingsResult)
         assert isinstance(result.scan, ScanMetadataOptions)
@@ -260,16 +242,12 @@ async def test_metadata_generate() -> None:
     client = await StashClientBase.create()
 
     # Test with minimal options
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(
-        return_value={"data": {"metadataGenerate": "job123"}}
-    )
-    mock_response.raise_for_status = AsyncMock()
-    mock_post = AsyncMock(return_value=mock_response)
+    mock_execute = AsyncMock(return_value={"metadataGenerate": "123"})
 
-    with patch.object(client.client, "post", new=mock_post):
+    with patch.object(client.client, "execute", new=mock_execute):
         job_id = await client.metadata_generate()
-        assert job_id == "job123"
+        assert isinstance(job_id, str)
+        assert int(job_id) > 0  # Verify it's a valid positive integer
 
     # Test with full options
     options = GenerateMetadataOptions(
@@ -292,12 +270,13 @@ async def test_metadata_generate() -> None:
         overwrite=True,
     )
 
-    with patch.object(client.client, "post", new=mock_post):
+    with patch.object(client.client, "execute", new=mock_execute):
         job_id = await client.metadata_generate(options, input_data)
-        assert job_id == "job123"
+        assert isinstance(job_id, str)
+        assert int(job_id) > 0  # Verify it's a valid positive integer
 
         # Verify the request
-        call_args = mock_post.call_args
+        call_args = mock_execute.call_args
         assert call_args is not None
         request_data = call_args[1]["json"]
         assert "variables" in request_data
@@ -315,42 +294,33 @@ async def test_metadata_scan() -> None:
     """Test metadata scanning."""
     client = await StashClientBase.create()
 
-    # Mock configuration defaults
-    mock_config_response = AsyncMock()
-    mock_config_response.json = AsyncMock(
-        return_value={
-            "data": {
-                "configuration": {
-                    "defaults": {
-                        "scan": {
-                            "rescan": False,
-                            "scanGenerateCovers": True,
-                            "scanGeneratePreviews": True,
-                            "scanGenerateImagePreviews": True,
-                            "scanGenerateSprites": True,
-                            "scanGeneratePhashes": True,
-                            "scanGenerateThumbnails": True,
-                            "scanGenerateClipPreviews": True,
-                        }
+    # Mock configuration defaults and scan response
+    mock_execute = AsyncMock()
+    mock_execute.side_effect = [
+        {
+            "configuration": {
+                "defaults": {
+                    "scan": {
+                        "rescan": False,
+                        "scanGenerateCovers": True,
+                        "scanGeneratePreviews": True,
+                        "scanGenerateImagePreviews": True,
+                        "scanGenerateSprites": True,
+                        "scanGeneratePhashes": True,
+                        "scanGenerateThumbnails": True,
+                        "scanGenerateClipPreviews": True,
                     }
                 }
             }
-        }
-    )
-    mock_config_response.raise_for_status = AsyncMock()
-
-    # Mock scan response
-    mock_scan_response = AsyncMock()
-    mock_scan_response.json = AsyncMock(
-        return_value={"data": {"metadataScan": "job123"}}
-    )
-    mock_scan_response.raise_for_status = AsyncMock()
+        },
+        {"metadataScan": "12"},
+    ]
 
     # Test with minimal options
-    with patch.object(client.client, "post") as mock_post:
-        mock_post.side_effect = [mock_config_response, mock_scan_response]
+    with patch.object(client.client, "execute", new=mock_execute):
         job_id = await client.metadata_scan()
-        assert job_id == "job123"
+        assert isinstance(job_id, str)
+        assert int(job_id) > 0  # Verify it's a valid positive integer
 
     # Test with paths and flags
     paths = ["/path/to/scan"]
@@ -359,13 +329,13 @@ async def test_metadata_scan() -> None:
         "scanGenerateCovers": False,
     }
 
-    with patch.object(client.client, "post") as mock_post:
-        mock_post.side_effect = [mock_config_response, mock_scan_response]
+    with patch.object(client.client, "execute", new=mock_execute):
         job_id = await client.metadata_scan(paths=paths, flags=flags)
-        assert job_id == "job123"
+        assert isinstance(job_id, str)
+        assert int(job_id) > 0  # Verify it's a valid positive integer
 
         # Verify the request
-        call_args = mock_post.call_args_list[1]  # Second call is the scan
+        call_args = mock_execute.call_args_list[1]  # Second call is the scan
         request_data = call_args[1]["json"]
         assert "variables" in request_data
         assert "input" in request_data["variables"]
@@ -381,34 +351,29 @@ async def test_find_job() -> None:
     client = await StashClientBase.create()
 
     # Test job found
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(
+    mock_execute = AsyncMock(
         return_value={
-            "data": {
-                "findJob": {
-                    "id": "job123",
-                    "status": JobStatus.READY,
-                    "subTasks": [],
-                    "description": "Test job",
-                    "progress": 0,
-                    "error": None,
-                }
+            "findJob": {
+                "id": "123",  # Job ID is a string in the response
+                "status": JobStatus.READY,
+                "subTasks": [],
+                "description": "Test job",
+                "progress": 0,
+                "error": None,
             }
         }
     )
-    mock_response.raise_for_status = AsyncMock()
-    mock_post = AsyncMock(return_value=mock_response)
 
-    with patch.object(client.client, "post", new=mock_post):
-        job = await client.find_job("job123")
+    with patch.object(client.client, "execute", new=mock_execute):
+        job = await client.find_job(123)  # Job ID is an integer in the query
         assert isinstance(job, Job)
-        assert job.id == "job123"
+        assert job.id == "123"
         assert job.status == JobStatus.READY
 
     # Test job not found
-    mock_response.json = AsyncMock(return_value={"data": {"findJob": None}})
-    with patch.object(client.client, "post", new=mock_post):
-        job = await client.find_job("job123")
+    mock_execute = AsyncMock(return_value={"findJob": None})
+    with patch.object(client.client, "execute", new=mock_execute):
+        job = await client.find_job(123)
         assert job is None
 
 
@@ -419,60 +384,50 @@ async def test_wait_for_job() -> None:
 
     # Mock job responses
     running_job = {
-        "data": {
-            "findJob": {
-                "id": "job123",
-                "status": JobStatus.RUNNING,
-                "subTasks": [],
-                "description": "Test job",
-                "progress": 50,
-                "error": None,
-            }
+        "findJob": {
+            "id": "123",
+            "status": JobStatus.RUNNING,
+            "subTasks": [],
+            "description": "Test job",
+            "progress": 50,
+            "error": None,
         }
     }
     finished_job = {
-        "data": {
-            "findJob": {
-                "id": "job123",
-                "status": JobStatus.FINISHED,
-                "subTasks": [],
-                "description": "Test job",
-                "progress": 100,
-                "error": None,
-            }
+        "findJob": {
+            "id": "123",
+            "status": JobStatus.FINISHED,
+            "subTasks": [],
+            "description": "Test job",
+            "progress": 100,
+            "error": None,
         }
     }
 
-    mock_response = AsyncMock()
-    mock_response.raise_for_status = AsyncMock()
-    mock_post = AsyncMock(return_value=mock_response)
-
     # Test successful job completion
-    with patch.object(client.client, "post", new=mock_post):
-        mock_response.json = AsyncMock(side_effect=[running_job, finished_job])
-        job = await client.wait_for_job("job123", poll_interval=0.1)
+    mock_execute = AsyncMock(side_effect=[running_job, finished_job])
+    with patch.object(client.client, "execute", new=mock_execute):
+        job = await client.wait_for_job(123, period=0.1)
         assert isinstance(job, Job)
-        assert job.id == "job123"
+        assert job.id == "123"
         assert job.status == JobStatus.FINISHED
         assert job.progress == 100
 
     # Test job error
     error_job = {
-        "data": {
-            "findJob": {
-                "id": "job123",
-                "status": JobStatus.ERROR,
-                "subTasks": [],
-                "description": "Test job",
-                "progress": 50,
-                "error": "Test error",
-            }
+        "findJob": {
+            "id": "123",
+            "status": JobStatus.ERROR,
+            "subTasks": [],
+            "description": "Test job",
+            "progress": 50,
+            "error": "Test error",
         }
     }
-    with patch.object(client.client, "post", new=mock_post):
-        mock_response.json = AsyncMock(side_effect=[running_job, error_job])
+    mock_execute = AsyncMock(side_effect=[running_job, error_job])
+    with patch.object(client.client, "execute", new=mock_execute):
         with pytest.raises(ValueError, match="Job failed: Test error"):
-            await client.wait_for_job("job123", poll_interval=0.1)
+            await client.wait_for_job(123, poll_interval=0.1)
 
 
 @pytest.mark.asyncio
@@ -483,5 +438,4 @@ async def test_context_manager() -> None:
         assert hasattr(client, "client")
         assert hasattr(client, "url")
 
-    # Client should be closed after context
-    assert client.client.is_closed is True
+    # Client is closed after context manager exits

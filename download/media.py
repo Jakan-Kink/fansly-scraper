@@ -111,6 +111,7 @@ async def _verify_existing_file(
     media_item: MediaItem,
     check_path: Path,
     media_record: Media,
+    is_preview: bool = False,
 ) -> bool:
     """Verify existing file hash and update database if needed.
     Returns True if file is verified and can be skipped.
@@ -121,25 +122,34 @@ async def _verify_existing_file(
         media_item: Media item to verify
         check_path: Path to existing file
         media_record: Media database record
+        is_preview: If True, verify preview content instead of regular content
 
     Returns:
         True if file is verified and can be skipped, False otherwise
     """
     from textio import print_debug
 
-    print_debug(f"Calculating hash for existing file: {check_path}")
+    print_debug(
+        f"Calculating hash for existing {'preview ' if is_preview else ''}file: {check_path}"
+    )
+
+    # Use appropriate mimetype based on content type
+    mimetype = media_item.preview_mimetype if is_preview else media_item.mimetype
+
     existing_hash = (
         get_hash_for_image(check_path)
-        if "image" in media_item.mimetype
+        if "image" in mimetype
         else get_hash_for_other_content(check_path)
     )
-    print_debug(f"Existing file hash: {existing_hash}")
+    print_debug(
+        f"Existing {'preview ' if is_preview else ''}file hash: {existing_hash}"
+    )
 
     # If we already have this hash in the database record, skip download
     if media_record.content_hash == existing_hash:
         if config.show_downloads and config.show_skipped_downloads:
             print_info(
-                f"Deduplication [Hash]: {media_item.mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
+                f"Deduplication [Hash]: {mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
             )
         state.add_duplicate()
         return True
@@ -156,6 +166,7 @@ async def _verify_temp_download(
     check_path: Path,
     media_record: Media,
     session: AsyncSession | None = None,
+    is_preview: bool = False,
 ) -> bool:
     """Download to temp file and verify hash.
     Returns True if file matches and can be skipped.
@@ -167,6 +178,7 @@ async def _verify_temp_download(
         check_path: Path to existing file
         media_record: Media database record
         session: Optional AsyncSession for database operations
+        is_preview: If True, verify preview content instead of regular content
 
     Returns:
         True if file matches and can be skipped, False otherwise
@@ -178,16 +190,34 @@ async def _verify_temp_download(
             kwargs["dir"] = config.temp_folder
         with tempfile.NamedTemporaryFile(**kwargs) as temp_file:
             temp_path = Path(temp_file.name)
-            _download_file(config, media_item, temp_file)
+
+            # Use appropriate URL and mimetype based on content type
+            url = media_item.preview_url if is_preview else media_item.download_url
+            mimetype = (
+                media_item.preview_mimetype if is_preview else media_item.mimetype
+            )
+
+            # Create temporary MediaItem for download
+            temp_item = MediaItem(
+                media_id=media_item.media_id,
+                download_url=url,
+                mimetype=mimetype,
+                is_preview=is_preview,
+            )
+            _download_file(config, temp_item, temp_file)
 
         # Calculate hash of downloaded file
-        print_debug(f"Calculating hash for downloaded file: {temp_path}")
+        print_debug(
+            f"Calculating hash for downloaded {'preview ' if is_preview else ''}file: {temp_path}"
+        )
         temp_hash = (
             get_hash_for_image(temp_path)
-            if "image" in media_item.mimetype
+            if "image" in mimetype
             else get_hash_for_other_content(temp_path)
         )
-        print_debug(f"Downloaded file hash: {temp_hash}")
+        print_debug(
+            f"Downloaded {'preview ' if is_preview else ''}file hash: {temp_hash}"
+        )
 
         # Compare hashes
         if temp_hash == media_record.content_hash:
@@ -200,7 +230,7 @@ async def _verify_temp_download(
 
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
-                    f"Deduplication [File]: {media_item.mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
+                    f"Deduplication [File]: {mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
                 )
             state.add_duplicate()
             return True
@@ -390,8 +420,16 @@ async def download_media(
         ):
             raise DuplicateCountError(state.duplicate_count)
 
+        # Skip if this is a preview and we don't want previews
+        if media_item.is_preview and not config.download_media_previews:
+            continue
+
         # Validate media item
-        _validate_media_item(media_item)
+        try:
+            _validate_media_item(media_item)
+        except MediaError as e:
+            print_warning(f"Skipping download: {e}")
+            continue
 
         try:
             # Process media in database and get Media record

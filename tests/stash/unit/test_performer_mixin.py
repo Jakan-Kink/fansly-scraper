@@ -28,6 +28,9 @@ def mock_performer() -> Performer:
         id="123",
         name="Test Performer",
         gender="FEMALE",
+        groups=[],  # Required relationship
+        scenes=[],  # Required relationship
+        stash_ids=[],  # Required relationship
         urls=["https://example.com/performer", "https://example.com/performer2"],
         birthdate="1990-01-01",
         ethnicity="CAUCASIAN",
@@ -36,9 +39,14 @@ def mock_performer() -> Performer:
         height_cm=170,
         measurements="34-24-36",
         fake_tits="NO",
+        penis_length=None,  # New field
+        circumcised=None,  # New field
         career_length="2020-",
         tattoos="None",
         piercings="None",
+        hair_color="BROWN",  # New field
+        weight=60,  # New field
+        death_date=None,  # New field
         alias_list=["Alias 1", "Alias 2"],
         details="Test performer details",
         tags=[
@@ -142,6 +150,10 @@ async def test_create_performer(
             id="new",  # Required for initialization
             name="New Performer",
             gender="FEMALE",
+            groups=[],  # Required relationship
+            tags=[],  # Required relationship
+            scenes=[],  # Required relationship
+            stash_ids=[],  # Required relationship
         )
         created = await stash_client.create_performer(performer)
         assert created.id == mock_performer.id
@@ -216,6 +228,10 @@ async def test_update_performer_avatar(
         name=mock_performer.name,
         gender=mock_performer.gender,
         image_path=mock_path,
+        groups=[],  # Required relationship
+        tags=[],  # Required relationship
+        scenes=[],  # Required relationship
+        stash_ids=[],  # Required relationship
     )
 
     # Mock the update_performer_image method directly

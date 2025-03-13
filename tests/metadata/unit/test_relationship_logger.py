@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import text
 
 from metadata.relationship_logger import (
@@ -13,8 +14,10 @@ from metadata.relationship_logger import (
     print_missing_relationships_summary,
 )
 
+pytestmark = pytest.mark.asyncio
 
-def test_log_missing_relationship_existing(session):
+
+async def test_log_missing_relationship_existing(session):
     """Test logging when relationship exists."""
     # Create test data
     session.execute(
@@ -23,8 +26,11 @@ def test_log_missing_relationship_existing(session):
     session.execute(text("INSERT INTO test_table (id) VALUES (1)"))
     session.commit()
 
+    # Clear any existing relationships
+    clear_missing_relationships()
+
     # Test logging existing relationship
-    exists = log_missing_relationship(
+    exists = await log_missing_relationship(
         session=session,
         table_name="referencing_table",
         field_name="test_field",
@@ -36,10 +42,19 @@ def test_log_missing_relationship_existing(session):
     assert not missing_relationships  # Should be empty since relationship exists
 
 
-def test_log_missing_relationship_nonexistent(session):
+async def test_log_missing_relationship_nonexistent(session):
     """Test logging when relationship doesn't exist."""
+    # Create test table
+    session.execute(
+        text("CREATE TABLE IF NOT EXISTS nonexistent_table (id INTEGER PRIMARY KEY)")
+    )
+    session.commit()
+
+    # Clear any existing relationships
+    clear_missing_relationships()
+
     with patch("metadata.relationship_logger.json_output") as mock_json_output:
-        exists = log_missing_relationship(
+        exists = await log_missing_relationship(
             session=session,
             table_name="referencing_table",
             field_name="test_field",
@@ -125,7 +140,7 @@ def test_clear_missing_relationships():
     assert len(missing_relationships) == 0
 
 
-def test_log_missing_relationship_with_none_id(session):
+async def test_log_missing_relationship_with_none_id(session):
     """Test logging with None ID."""
     # Create test table
     session.execute(
@@ -133,7 +148,7 @@ def test_log_missing_relationship_with_none_id(session):
     )
     session.commit()
 
-    exists = log_missing_relationship(
+    exists = await log_missing_relationship(
         session=session,
         table_name="test_table",
         field_name="test_field",
@@ -153,7 +168,7 @@ def session(test_session):
     return test_session
 
 
-def test_log_missing_relationship_multiple_times(session):
+async def test_log_missing_relationship_multiple_times(session):
     """Test logging same missing relationship multiple times."""
     # Create test table
     session.execute(
@@ -161,10 +176,13 @@ def test_log_missing_relationship_multiple_times(session):
     )
     session.commit()
 
+    # Clear any existing relationships
+    clear_missing_relationships()
+
     with patch("metadata.relationship_logger.json_output") as mock_json_output:
         # Log same relationship twice
         for _ in range(2):
-            log_missing_relationship(
+            await log_missing_relationship(
                 session=session,
                 table_name="test_table",
                 field_name="test_field",
@@ -188,7 +206,7 @@ def test_log_missing_relationship_multiple_times(session):
         True,  # Boolean
     ],
 )
-def test_log_missing_relationship_id_types(session, missing_id):
+async def test_log_missing_relationship_id_types(session, missing_id):
     """Test logging with different ID types."""
     # Create test table
     session.execute(
@@ -196,7 +214,7 @@ def test_log_missing_relationship_id_types(session, missing_id):
     )
     session.commit()
 
-    exists = log_missing_relationship(
+    exists = await log_missing_relationship(
         session=session,
         table_name="test_table",
         field_name="test_field",

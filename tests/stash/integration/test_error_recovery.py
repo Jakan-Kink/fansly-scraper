@@ -92,18 +92,16 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
         # Test invalid performer creation
         with pytest.raises(Exception):  # Specific exception type if known
             performer = Performer(
+                id="new",  # ID should not be set
                 name="",  # Empty name should fail
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             await stash_client.create_performer(performer)
 
         # Create valid performer
         performer = Performer(
+            id="new",
             name="Test Performer",
             gender="FEMALE",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
@@ -111,17 +109,15 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
         # Test invalid studio creation
         with pytest.raises(Exception):
             studio = Studio(
+                id="new",  # ID should not be set
                 name=" ",  # Whitespace name should fail
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             await stash_client.create_studio(studio)
 
         # Create valid studio
         studio = Studio(
+            id="new",
             name="Test Studio",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         studio = await stash_client.create_studio(studio)
         ctx.created_ids["studios"].append(studio.id)
@@ -129,23 +125,22 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
         # Test invalid tag creation
         with pytest.raises(Exception):
             tag = Tag(
+                id="new",  # ID should not be set
                 name="invalid/tag",  # Invalid characters should fail
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             await stash_client.create_tag(tag)
 
         # Create valid tag
         tag = Tag(
+            id="new",
             name="valid_tag",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         tag = await stash_client.create_tag(tag)
         ctx.created_ids["tags"].append(tag.id)
 
         # Test scene validation
         scene = Scene(
+            id="new",
             title="Test Scene",
             details="Test details",
             date="invalid_date",  # Invalid date should fail
@@ -154,8 +149,6 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
             performers=[performer],
             studio=studio,
             tags=[tag],
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         try:
             await stash_client.create_scene(scene)
@@ -168,6 +161,7 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
 
         # Test gallery validation
         gallery = Gallery(
+            id="new",
             title="Test Gallery",
             details="Test details",
             date="2024-01-01",
@@ -176,8 +170,6 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
             performers=[performer],
             studio=studio,
             tags=[tag],
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         try:
             await stash_client.create_gallery(gallery)
@@ -192,8 +184,6 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
         invalid_performer = Performer(
             id="999999",  # Non-existent ID
             name="Invalid",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         scene.performers.append(invalid_performer)
         try:
@@ -237,18 +227,16 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
     try:
         # Create base data
         performer = Performer(
+            id="new",
             name="Test Performer",
             gender="FEMALE",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
 
         studio = Studio(
+            id="new",
             name="Test Studio",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         studio = await stash_client.create_studio(studio)
         ctx.created_ids["studios"].append(studio.id)
@@ -257,6 +245,7 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
         async def create_scene(i: int, should_fail: bool = False) -> Scene | None:
             try:
                 scene = Scene(
+                    id="new",
                     title=f"Test Scene {i}",
                     details="Test details",
                     date="2024-01-01" if not should_fail else "invalid_date",
@@ -264,8 +253,6 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
                     organized=True,
                     performers=[performer],
                     studio=studio,
-                    created_at=datetime.now(),
-                    updated_at=datetime.now(),
                 )
                 created = await stash_client.create_scene(scene)
                 ctx.created_ids["scenes"].append(created.id)
@@ -290,6 +277,7 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
         async def create_gallery(i: int, should_fail: bool = False) -> Gallery | None:
             try:
                 gallery = Gallery(
+                    id="new",
                     title=f"Test Gallery {i}",
                     details="Test details",
                     date="2024-01-01",
@@ -303,8 +291,6 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
                     organized=True,
                     performers=[performer],
                     studio=studio,
-                    created_at=datetime.now(),
-                    updated_at=datetime.now(),
                 )
                 created = await stash_client.create_gallery(gallery)
                 ctx.created_ids["galleries"].append(created.id)
@@ -358,23 +344,21 @@ async def test_metadata_error_recovery(stash_client: StashClient) -> None:
     try:
         # Create test scene
         performer = Performer(
+            id="new",
             name="Test Performer",
             gender="FEMALE",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
 
         scene = Scene(
+            id="new",
             title="Test Scene",
             details="Test details",
             date="2024-01-01",
             urls=["https://example.com/scene"],
             organized=True,
             performers=[performer],
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         scene = await stash_client.create_scene(scene)
         ctx.created_ids["scenes"].append(scene.id)
@@ -383,12 +367,12 @@ async def test_metadata_error_recovery(stash_client: StashClient) -> None:
         try:
             options = GenerateMetadataOptions(
                 previews=True,
-                preview_options={
+                previewOptions={
                     "previewSegments": -1,  # Invalid segment count
                 },
             )
             input_data = GenerateMetadataInput(
-                scene_ids=[scene.id],
+                sceneIDs=[scene.id],
             )
             await stash_client.metadata_generate(options, input_data)
             pytest.fail("Should have failed with invalid options")
@@ -400,13 +384,13 @@ async def test_metadata_error_recovery(stash_client: StashClient) -> None:
             covers=True,
             sprites=True,
             previews=True,
-            preview_options={
+            previewOptions={
                 "previewSegments": 12,
                 "previewSegmentDuration": 0.5,
             },
         )
         input_data = GenerateMetadataInput(
-            scene_ids=[scene.id],
+            sceneIDs=[scene.id],
             overwrite=True,
         )
 
@@ -456,32 +440,30 @@ async def test_relationship_error_recovery(stash_client: StashClient) -> None:
     try:
         # Create test data
         performer = Performer(
+            id="new",
             name="Test Performer",
             gender="FEMALE",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
 
         studio = Studio(
+            id="new",
             name="Test Studio",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         studio = await stash_client.create_studio(studio)
         ctx.created_ids["studios"].append(studio.id)
 
         tag = Tag(
+            id="new",
             name="test_tag",
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         tag = await stash_client.create_tag(tag)
         ctx.created_ids["tags"].append(tag.id)
 
         # Create scene with relationships
         scene = Scene(
+            id="new",
             title="Test Scene",
             details="Test details",
             date="2024-01-01",
@@ -490,8 +472,6 @@ async def test_relationship_error_recovery(stash_client: StashClient) -> None:
             performers=[performer],
             studio=studio,
             tags=[tag],
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         scene = await stash_client.create_scene(scene)
         ctx.created_ids["scenes"].append(scene.id)
@@ -501,8 +481,6 @@ async def test_relationship_error_recovery(stash_client: StashClient) -> None:
             invalid_performer = Performer(
                 id="999999",
                 name="Invalid",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             scene.performers = [invalid_performer]
             await stash_client.update_scene(scene)
@@ -518,8 +496,6 @@ async def test_relationship_error_recovery(stash_client: StashClient) -> None:
             invalid_studio = Studio(
                 id="999999",
                 name="Invalid",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             scene.studio = invalid_studio
             await stash_client.update_scene(scene)
@@ -535,8 +511,6 @@ async def test_relationship_error_recovery(stash_client: StashClient) -> None:
             invalid_tag = Tag(
                 id="999999",
                 name="invalid",
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
             scene.tags = [invalid_tag]
             await stash_client.update_scene(scene)

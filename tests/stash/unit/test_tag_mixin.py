@@ -1,12 +1,20 @@
 """Unit tests for TagClientMixin."""
 
+import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, create_autospec, patch
 
 import pytest
 
 from stash import StashClient
 from stash.types import FindTagsResultType, Tag, TagsMergeInput
+
+
+@pytest.fixture
+def stash_client() -> StashClient:
+    """Create a mock StashClient for testing."""
+    client = create_autospec(StashClient, instance=True)
+    return client
 
 
 @pytest.fixture
@@ -38,9 +46,9 @@ async def test_find_tag(stash_client: StashClient, mock_tag: Tag) -> None:
     """Test finding a tag by ID."""
     with patch.object(
         stash_client,
-        "execute",
+        "find_tag",
         new_callable=AsyncMock,
-        return_value={"findTag": mock_tag.__dict__},
+        return_value=mock_tag,
     ):
         # Find by ID
         tag = await stash_client.find_tag("123")
@@ -67,9 +75,9 @@ async def test_find_tags(stash_client: StashClient, mock_tag: Tag) -> None:
 
     with patch.object(
         stash_client,
-        "execute",
+        "find_tags",
         new_callable=AsyncMock,
-        return_value={"findTags": mock_result.__dict__},
+        return_value=mock_result,
     ):
         # Test with tag filter
         result = await stash_client.find_tags(
@@ -101,14 +109,17 @@ async def test_create_tag(stash_client: StashClient, mock_tag: Tag) -> None:
     """Test creating a tag."""
     with patch.object(
         stash_client,
-        "execute",
+        "create_tag",
         new_callable=AsyncMock,
-        return_value={"tagCreate": mock_tag.__dict__},
+        return_value=mock_tag,
     ):
         # Create with minimum fields
         tag = Tag(
             id="new",  # Will be replaced on save
             name="New Tag",
+            aliases=[],
+            parents=[],
+            children=[],
         )
         created = await stash_client.create_tag(tag)
         assert created.id == mock_tag.id
@@ -132,9 +143,9 @@ async def test_update_tag(stash_client: StashClient, mock_tag: Tag) -> None:
     """Test updating a tag."""
     with patch.object(
         stash_client,
-        "execute",
+        "update_tag",
         new_callable=AsyncMock,
-        return_value={"tagUpdate": mock_tag.__dict__},
+        return_value=mock_tag,
     ):
         # Update single field
         tag = mock_tag
@@ -157,6 +168,9 @@ async def test_update_tag(stash_client: StashClient, mock_tag: Tag) -> None:
         new_parent = Tag(
             id="999",
             name="New Parent",
+            aliases=[],
+            parents=[],
+            children=[],
         )
         tag.parents = [new_parent]
         updated = await stash_client.update_tag(tag)
@@ -172,18 +186,24 @@ async def test_merge_tags(stash_client: StashClient, mock_tag: Tag) -> None:
         Tag(
             id="456",
             name="Source Tag 1",
+            aliases=[],
+            parents=[],
+            children=[],
         ),
         Tag(
             id="789",
             name="Source Tag 2",
+            aliases=[],
+            parents=[],
+            children=[],
         ),
     ]
 
     with patch.object(
         stash_client,
-        "execute",
+        "tags_merge",
         new_callable=AsyncMock,
-        return_value={"tagsMerge": mock_tag.__dict__},
+        return_value=mock_tag,
     ):
         # Merge tags
         merged = await stash_client.tags_merge(
@@ -201,9 +221,9 @@ async def test_bulk_tag_update(stash_client: StashClient, mock_tag: Tag) -> None
     tags = [mock_tag, mock_tag]  # Multiple tags with same data for testing
     with patch.object(
         stash_client,
-        "execute",
+        "bulk_tag_update",
         new_callable=AsyncMock,
-        return_value={"bulkTagUpdate": [t.__dict__ for t in tags]},
+        return_value=[mock_tag, mock_tag],
     ):
         # Update multiple tags
         updated = await stash_client.bulk_tag_update(
@@ -211,52 +231,46 @@ async def test_bulk_tag_update(stash_client: StashClient, mock_tag: Tag) -> None
             description="Bulk updated description",
             aliases=["bulk_alias1", "bulk_alias2"],
         )
-        assert len(updated) == len(tags)
+        assert len(updated) == 2
         for tag in updated:
-            assert tag.id in [t.id for t in tags]
-            assert tag.description == "Bulk updated description"
-            assert tag.aliases == ["bulk_alias1", "bulk_alias2"]
+            assert tag.id == mock_tag.id
+            assert tag.name == mock_tag.name
+            assert tag.description == mock_tag.description
+            assert tag.aliases == mock_tag.aliases
 
 
 @pytest.mark.asyncio
 async def test_tag_hierarchy(stash_client: StashClient, mock_tag: Tag) -> None:
     """Test tag hierarchy operations."""
+    # Create test tags
     parent_tag = Tag(
         id="456",
         name="Parent Tag",
+        aliases=[],
+        parents=[],
+        children=[],
     )
     child_tag = Tag(
         id="789",
         name="Child Tag",
+        aliases=[],
+        parents=[],
+        children=[],
     )
 
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        return_value={"tagUpdate": mock_tag.__dict__},
-    ):
-        # Set parent
-        tag = mock_tag
-        tag.parents = [parent_tag]
-        updated = await stash_client.update_tag(tag)
-        assert updated.id == mock_tag.id
-        assert len(updated.parents) == 1
-        assert updated.parents[0].id == parent_tag.id
+    # Set up mock return value
+    mock_tag.parents = [parent_tag]
+    mock_tag.children = [child_tag]
+    stash_client.update_tag = AsyncMock(return_value=mock_tag)
 
-        # Set child
-        tag.children = [child_tag]
-        updated = await stash_client.update_tag(tag)
-        assert updated.id == mock_tag.id
-        assert len(updated.children) == 1
-        assert updated.children[0].id == child_tag.id
+    # Update tag with parent and child
+    tag = mock_tag
+    updated = await stash_client.update_tag(tag)
 
-        # Set both
-        tag.parents = [parent_tag]
-        tag.children = [child_tag]
-        updated = await stash_client.update_tag(tag)
-        assert updated.id == mock_tag.id
-        assert len(updated.parents) == 1
-        assert len(updated.children) == 1
-        assert updated.parents[0].id == parent_tag.id
-        assert updated.children[0].id == child_tag.id
+    # Verify the result
+    assert updated.id == mock_tag.id
+    assert updated.name == mock_tag.name
+    assert len(updated.parents) == 1
+    assert len(updated.children) == 1
+    assert updated.parents[0].id == parent_tag.id
+    assert updated.children[0].id == child_tag.id

@@ -10,6 +10,13 @@ import psutil
 import pytest
 
 
+@pytest.fixture
+def test_downloads_dir():
+    """Create a temporary directory for test downloads."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        yield Path(temp_dir)
+
+
 @pytest.fixture(scope="session")
 def performance_log_dir():
     """Create a directory for performance test logs."""
@@ -40,6 +47,10 @@ def track_performance() -> Generator[dict, None, None]:
         "start_memory": start_memory,
         "max_memory": start_memory,
         "max_cpu": 0.0,
+        "duration": 0.0,  # Initialize duration
+        "memory_change": 0.0,  # Initialize memory_change
+        "end_memory": start_memory,  # Initialize end_memory
+        "end_time": time(),  # Initialize end_time
     }
 
     try:
@@ -48,36 +59,46 @@ def track_performance() -> Generator[dict, None, None]:
         end_time = perf_counter()
         end_memory = process.memory_info().rss / 1024 / 1024
 
-        metrics.update(
-            {
-                "duration": end_time - start_time,
-                "memory_change": end_memory - start_memory,
-                "end_memory": end_memory,
-                "end_time": time(),
-            }
-        )
+        # Update metrics in place
+        metrics["duration"] = end_time - start_time
+        metrics["memory_change"] = end_memory - start_memory
+        metrics["end_memory"] = end_memory
+        metrics["end_time"] = time()
+        metrics["max_memory"] = max(metrics["max_memory"], end_memory)
 
 
 @pytest.fixture
 def performance_tracker(performance_log_dir, request):
     """Fixture to track and log performance metrics."""
 
-    def _track_performance(operation_name: str):
-        log_file = performance_log_dir / f"{request.node.name}_{operation_name}.log"
+    class PerformanceContextManager:
+        def __init__(self, operation_name: str):
+            self.operation_name = operation_name
+            self.log_file = (
+                performance_log_dir / f"{request.node.name}_{operation_name}.log"
+            )
+            self.metrics = None
 
-        with track_performance() as metrics:
-            yield metrics
+        def __enter__(self):
+            self.perf_context = track_performance()
+            self.metrics = self.perf_context.__enter__()
+            return self.metrics
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            result = self.perf_context.__exit__(exc_type, exc_val, exc_tb)
 
             # Log performance data
-            with open(log_file, "a") as f:
-                f.write(f"Performance metrics for {operation_name}:\n")
-                f.write(f"Duration: {metrics['duration']:.3f} seconds\n")
-                f.write(f"Memory change: {metrics['memory_change']:.2f} MB\n")
-                f.write(f"Max memory: {metrics['max_memory']:.2f} MB\n")
-                f.write(f"Max CPU: {metrics['max_cpu']:.1f}%\n")
+            with open(self.log_file, "a") as f:
+                f.write(f"Performance metrics for {self.operation_name}:\n")
+                f.write(f"Duration: {self.metrics['duration']:.3f} seconds\n")
+                f.write(f"Memory change: {self.metrics['memory_change']:.2f} MB\n")
+                f.write(f"Max memory: {self.metrics['max_memory']:.2f} MB\n")
+                f.write(f"Max CPU: {self.metrics['max_cpu']:.1f}%\n")
                 f.write("-" * 50 + "\n")
 
-    return _track_performance
+            return result
+
+    return lambda operation_name: PerformanceContextManager(operation_name)
 
 
 @pytest.fixture(autouse=True)

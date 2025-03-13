@@ -5,6 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from gql.transport.exceptions import (
+    TransportError,
+    TransportQueryError,
+    TransportServerError,
+)
 
 from stash import StashClient
 
@@ -46,17 +51,20 @@ async def test_client_init() -> None:
 async def test_client_execute(stash_client: StashClient) -> None:
     """Test client execute method."""
     # Test error response
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(return_value={"errors": ["Invalid query"]})
-    mock_response.raise_for_status = AsyncMock()
-    mock_post = AsyncMock(return_value=mock_response)
+    mock_execute = AsyncMock(
+        side_effect=TransportQueryError(
+            msg="GraphQL query error", errors=[{"message": "Invalid query"}]
+        )
+    )
 
     with patch.object(
         stash_client.client,
-        "post",
-        new=mock_post,
+        "execute",
+        new=mock_execute,
     ):
-        with pytest.raises(ValueError, match="GraphQL errors: \\['Invalid query'\\]"):
+        with pytest.raises(
+            ValueError, match="GraphQL errors: \\[{'message': 'Invalid query'}\\]"
+        ):
             await stash_client.execute("invalid { query }")
 
     # Test successful response

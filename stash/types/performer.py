@@ -261,6 +261,8 @@ class Performer(StashObject):
             # Required fields with defaults
             tags=[],  # Empty list of tags to start
             scenes=[],
+            groups=[],  # Required relationship
+            stash_ids=[],  # Required relationship
         )
 
     # Field definitions with their conversion functions

@@ -52,26 +52,31 @@ async def log_missing_relationship(
     exists = (result.first()) is not None
 
     if not exists:
+        # Check if this relationship is already logged
+        was_logged = str_id in missing_relationships[referenced_table][table_name]
+
         # Add to missing relationships tracking
         missing_relationships[referenced_table][table_name].add(str_id)
 
-        # Prepare context for logging
-        log_context = {
-            "table": table_name,
-            "field": field_name,
-            "missing_id": str_id,
-            "referenced_table": referenced_table,
-            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-        }
-        if context:
-            log_context.update(context)
+        # Only log if this is a new missing relationship
+        if not was_logged:
+            # Prepare context for logging
+            log_context = {
+                "table": table_name,
+                "field": field_name,
+                "missing_id": str_id,
+                "referenced_table": referenced_table,
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            }
+            if context:
+                log_context.update(context)
 
-        # Log the missing relationship
-        json_output(
-            1,
-            f"meta/relationships/missing/{referenced_table}/{table_name}",
-            log_context,
-        )
+            # Log the missing relationship
+            json_output(
+                1,
+                f"meta/relationships/missing/{referenced_table}/{table_name}",
+                log_context,
+            )
 
     return exists
 
