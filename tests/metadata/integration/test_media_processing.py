@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 from unittest import TestCase
 
 from sqlalchemy import create_engine
@@ -22,7 +23,7 @@ class TestMediaProcessing(TestCase):
         """Set up test database and load test data."""
         # Create test database
         cls.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(cls.engine)
+        # Base.metadata.create_all(cls.engine)
         cls.Session = sessionmaker(bind=cls.engine)
 
         # Load test data
@@ -34,13 +35,13 @@ class TestMediaProcessing(TestCase):
         """Set up fresh session and config for each test."""
         self.session = self.Session()
         self.config = FanslyConfig(program_version="0.10.0")
-        self.config.metadata_db_file = ":memory:"
+        self.config.metadata_db_file = Path(":memory:")
         self.config._database = Database(self.config)
-        self.config._database.sync_engine = self.engine
+        self.config._database._sync_engine = self.engine
         self.config._database.session_scope = self.Session
 
         # Create tables
-        Base.metadata.create_all(self.engine)
+        # Base.metadata.create_all(self.engine)
 
         # Create test account
         self.account = self.session.query(Account).filter_by(id=1).first()

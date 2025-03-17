@@ -18,20 +18,13 @@ class TestMedia:
     """Test cases for Media class and related functions."""
 
     @pytest.fixture(autouse=True)
-    async def setup(self):
+    async def setup(self, test_database):
         """Set up test database and session."""
-        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-        self.Session = sessionmaker(
-            self.engine, class_=AsyncSession, expire_on_commit=False
-        )
-        self.session = self.Session()
-        yield
-        await self.session.close()
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
+        # Use the test_database fixture from conftest.py
+        async with test_database.async_session_scope() as session:
+            self.session = session
+            yield
+            await session.close()
 
     async def test_media_creation(self):
         """Test creating a Media object with basic attributes."""

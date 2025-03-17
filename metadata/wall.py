@@ -179,7 +179,7 @@ async def process_account_walls(
     if len(walls_data) > 0:  # Only if we have any walls data
         current_wall_ids = {wall_data["id"] for wall_data in walls_data}
         result = await session.execute(select(Wall).where(Wall.accountId == account.id))
-        existing_walls = result.scalars().all()
+        existing_walls = (await result.scalars()).all()
         json_output(
             1, "meta/wall - existing_walls", [wall.id for wall in existing_walls]
         )
@@ -187,8 +187,8 @@ async def process_account_walls(
         for wall in existing_walls:
             if wall.accountId != account.id:
                 continue
-            # if wall.id not in current_wall_ids:
-            #     session.delete(wall)
+            if wall.id not in current_wall_ids:
+                await session.delete(wall)
 
 
 @require_database_config
@@ -223,11 +223,13 @@ async def process_wall_posts(
         session.add(wall)
         await session.flush()
 
-    for post_data in posts_data["posts"]:
-        post_id = post_data["id"]
-        # Add wall-post association using upsert to avoid conflicts
-        await session.execute(
-            wall_posts.insert()
-            .values(wallId=wall_id, postId=post_id)
-            .prefix_with("OR IGNORE")
-        )
+    # Get all posts in a single query
+    post_ids = [post["id"] for post in posts_data["posts"]]
+    result = await session.execute(select(Post).where(Post.id.in_(post_ids)))
+    posts = result.scalars().all()
+
+    # Add new posts to wall's posts list without removing existing ones
+    for post in posts:
+        if post not in wall.posts:
+            wall.posts.append(post)
+    await session.flush()

@@ -15,6 +15,7 @@ import pytest_asyncio
 from stash import StashClient
 from stash.types import (
     Gallery,
+    GenderEnum,
     GenerateMetadataInput,
     GenerateMetadataOptions,
     Image,
@@ -23,6 +24,16 @@ from stash.types import (
     Studio,
     Tag,
 )
+
+
+def get_id(obj):
+    """Get ID from either a dict or an object with id attribute."""
+    return obj["id"] if isinstance(obj, dict) else obj.id
+
+
+def get_ids(objects):
+    """Get set of IDs from list of dicts or objects."""
+    return {get_id(obj) for obj in objects}
 
 
 class TestContext:
@@ -41,44 +52,67 @@ class TestContext:
     async def cleanup(self) -> None:
         """Clean up created test data."""
         # Clean up in reverse order of dependencies
-        for scene_id in self.created_ids["scenes"]:
-            try:
-                # Would use scene_destroy if available
-                pass
-            except Exception as e:
-                print(f"Failed to delete scene {scene_id}: {e}")
+        try:
+            # Delete scenes first (they depend on performers/studios/tags)
+            for scene_id in self.created_ids["scenes"]:
+                await self.client.execute(
+                    """
+                    mutation DeleteScene($id: ID!) {
+                        sceneDestroy(input: { id: $id })
+                    }
+                    """,
+                    {"id": scene_id},
+                )
 
-        for gallery_id in self.created_ids["galleries"]:
-            try:
-                # Would use gallery_destroy if available
-                pass
-            except Exception as e:
-                print(f"Failed to delete gallery {gallery_id}: {e}")
+            # Delete performers
+            for performer_id in self.created_ids["performers"]:
+                await self.client.execute(
+                    """
+                    mutation DeletePerformer($id: ID!) {
+                        performerDestroy(input: { id: $id })
+                    }
+                    """,
+                    {"id": performer_id},
+                )
 
-        for tag_id in self.created_ids["tags"]:
-            try:
-                # Would use tag_destroy if available
-                pass
-            except Exception as e:
-                print(f"Failed to delete tag {tag_id}: {e}")
+            # Delete studios
+            for studio_id in self.created_ids["studios"]:
+                await self.client.execute(
+                    """
+                    mutation DeleteStudio($id: ID!) {
+                        studioDestroy(input: { id: $id })
+                    }
+                    """,
+                    {"id": studio_id},
+                )
 
-        for studio_id in self.created_ids["studios"]:
-            try:
-                # Would use studio_destroy if available
-                pass
-            except Exception as e:
-                print(f"Failed to delete studio {studio_id}: {e}")
-
-        for performer_id in self.created_ids["performers"]:
-            try:
-                # Would use performer_destroy if available
-                pass
-            except Exception as e:
-                print(f"Failed to delete performer {performer_id}: {e}")
+            # Delete tags
+            for tag_id in self.created_ids["tags"]:
+                await self.client.execute(
+                    """
+                    mutation DeleteTag($id: ID!) {
+                        tagDestroy(input: { id: $id })
+                    }
+                    """,
+                    {"id": tag_id},
+                )
+            for gallery_id in self.created_ids["galleries"]:
+                await self.client.execute(
+                    """
+                    mutation DeleteGallery($id: [ID!]!) {
+                        galleryDestroy(input: { ids: $id })
+                    }
+                    """,
+                    {"id": gallery_id},
+                )
+        except Exception as e:
+            print(f"Warning: Cleanup failed: {e}")
 
 
 @pytest.mark.asyncio
-async def test_data_validation_workflow(stash_client: StashClient) -> None:
+async def test_data_validation_workflow(
+    stash_client: StashClient, enable_scene_creation
+) -> None:
     """Test data validation and error recovery.
 
     This test:
@@ -90,95 +124,115 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
     ctx = TestContext(stash_client)
     try:
         # Test invalid performer creation
-        with pytest.raises(Exception):  # Specific exception type if known
+        with pytest.raises(Exception) as exc_info:
             performer = Performer(
-                id="new",  # ID should not be set
-                name="",  # Empty name should fail
+                id="new",
+                name="Test Performer",
+                gender=GenderEnum.INVALID,  # Invalid gender should fail
             )
             await stash_client.create_performer(performer)
+        assert "INVALID" in str(exc_info.value)
 
         # Create valid performer
         performer = Performer(
             id="new",
-            name="Test Performer",
-            gender="FEMALE",
+            name="[TEST] Data Validation - Performer",
+            gender=GenderEnum.FEMALE,
+            details="Created by error recovery test",
+            country="Test Country",
+            measurements="90-60-90",  # Make it obviously test data
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
 
-        # Test invalid studio creation
-        with pytest.raises(Exception):
-            studio = Studio(
-                id="new",  # ID should not be set
-                name=" ",  # Whitespace name should fail
+        # Test duplicate studio creation
+        studio_name = "test_duplicate_studio"
+        studio1 = Studio(
+            id="new",
+            name=studio_name,
+        )
+        studio1 = await stash_client.create_studio(studio1)
+        ctx.created_ids["studios"].append(studio1.id)
+
+        # Try to create another studio with the same name
+        with pytest.raises(Exception) as exc_info:
+            studio2 = Studio(
+                id="new",
+                name=studio_name,  # Same name should fail
             )
-            await stash_client.create_studio(studio)
+            await stash_client.create_studio(studio2)
+        assert "already exists" in str(exc_info.value).lower()
 
         # Create valid studio
         studio = Studio(
             id="new",
-            name="Test Studio",
+            name="[TEST] Data Validation - Studio",
+            details="Created by error recovery test",
+            url="https://test.example.com/error-recovery",
         )
         studio = await stash_client.create_studio(studio)
         ctx.created_ids["studios"].append(studio.id)
 
-        # Test invalid tag creation
-        with pytest.raises(Exception):
-            tag = Tag(
-                id="new",  # ID should not be set
-                name="invalid/tag",  # Invalid characters should fail
-            )
-            await stash_client.create_tag(tag)
+        # Test duplicate tag creation - Stash returns existing tag
+        tag_name = "test_duplicate_tag"
+        tag1 = Tag(
+            id="new",
+            name=tag_name,
+            description="First tag",  # Add description to differentiate
+        )
+        tag1 = await stash_client.create_tag(tag1)
+        ctx.created_ids["tags"].append(tag1.id)
+
+        # Try to create another tag with the same name
+        tag2 = Tag(
+            id="new",
+            name=tag_name,  # Same name
+            description="Second tag",  # Different description
+        )
+        tag2 = await stash_client.create_tag(tag2)
+
+        # Should get back the first tag
+        assert tag2.id == tag1.id
+        assert tag2.description == tag1.description  # Description unchanged
 
         # Create valid tag
         tag = Tag(
             id="new",
-            name="valid_tag",
+            name="[TEST] Data Validation - Tag",
+            description="Created by error recovery test",
         )
         tag = await stash_client.create_tag(tag)
         ctx.created_ids["tags"].append(tag.id)
 
-        # Test scene validation
+        # Create scene with valid fields
         scene = Scene(
             id="new",
-            title="Test Scene",
-            details="Test details",
-            date="invalid_date",  # Invalid date should fail
-            urls=["https://example.com/scene"],
+            title="[TEST] Data Validation - Scene",
+            details="Created by data validation test",
+            date=datetime.now().strftime("%Y-%m-%d"),
+            urls=["https://test.example.com/data-validation/scene"],
             organized=True,
             performers=[performer],
             studio=studio,
             tags=[tag],
         )
-        try:
-            await stash_client.create_scene(scene)
-            pytest.fail("Should have failed with invalid date")
-        except Exception:
-            # Fix date and retry
-            scene.date = datetime.now().strftime("%Y-%m-%d")
-            scene = await stash_client.create_scene(scene)
-            ctx.created_ids["scenes"].append(scene.id)
+        scene = await stash_client.create_scene(scene)
+        ctx.created_ids["scenes"].append(scene.id)
 
-        # Test gallery validation
+        # Create gallery with valid fields
         gallery = Gallery(
             id="new",
-            title="Test Gallery",
-            details="Test details",
+            title="[TEST] Data Validation - Gallery",
+            details="Created by data validation test",
             date="2024-01-01",
-            urls=["invalid_url"],  # Invalid URL should fail
+            urls=["https://test.example.com/data-validation/gallery"],
             organized=True,
             performers=[performer],
             studio=studio,
             tags=[tag],
         )
-        try:
-            await stash_client.create_gallery(gallery)
-            pytest.fail("Should have failed with invalid URL")
-        except Exception:
-            # Fix URL and retry
-            gallery.urls = ["https://example.com/gallery"]
-            gallery = await stash_client.create_gallery(gallery)
-            ctx.created_ids["galleries"].append(gallery.id)
+        gallery = await stash_client.create_gallery(gallery)
+        ctx.created_ids["galleries"].append(gallery.id)
 
         # Test relationship validation
         invalid_performer = Performer(
@@ -197,24 +251,29 @@ async def test_data_validation_workflow(stash_client: StashClient) -> None:
         # Verify data integrity
         scene = await stash_client.find_scene(scene.id)
         assert scene is not None
-        assert scene.performers[0].id == performer.id
-        assert scene.studio.id == studio.id
-        assert scene.tags[0].id == tag.id
+        assert performer.id in get_ids(scene.performers)
+        assert get_id(scene.studio) == studio.id
+        assert tag.id in get_ids(scene.tags)
 
         gallery = await stash_client.find_gallery(gallery.id)
         assert gallery is not None
-        assert gallery.performers[0].id == performer.id
-        assert gallery.studio.id == studio.id
-        assert gallery.tags[0].id == tag.id
+        assert performer.id in get_ids(gallery.performers)
+        assert get_id(gallery.studio) == studio.id
+        assert tag.id in get_ids(gallery.tags)
 
-    except Exception as e:
-        pytest.skip(f"Test requires running Stash instance: {e}")
+    except RuntimeError as e:
+        if "Stash instance" in str(e):
+            pytest.skip("Test requires running Stash instance: {e}")
+        else:
+            raise e
     finally:
         await ctx.cleanup()
 
 
 @pytest.mark.asyncio
-async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
+async def test_concurrent_error_recovery(
+    stash_client: StashClient, enable_scene_creation
+) -> None:
     """Test concurrent error recovery.
 
     This test:
@@ -229,7 +288,7 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
         performer = Performer(
             id="new",
             name="Test Performer",
-            gender="FEMALE",
+            gender=GenderEnum.FEMALE,
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
@@ -241,55 +300,54 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
         studio = await stash_client.create_studio(studio)
         ctx.created_ids["studios"].append(studio.id)
 
+        # Create an invalid performer for testing
+        invalid_performer = Performer(
+            id="999999",  # Non-existent ID
+            name="Invalid",
+        )
+
         # Attempt concurrent scene creation with some invalid data
         async def create_scene(i: int, should_fail: bool = False) -> Scene | None:
             try:
                 scene = Scene(
                     id="new",
-                    title=f"Test Scene {i}",
-                    details="Test details",
-                    date="2024-01-01" if not should_fail else "invalid_date",
+                    title=f"[TEST] Concurrent Error - Scene {i}",
+                    details=f"Created by concurrent error recovery test - Scene {i}",
+                    date="2024-01-01",
                     urls=[f"https://example.com/scene_{i}"],
                     organized=True,
-                    performers=[performer],
+                    performers=[invalid_performer if should_fail else performer],
                     studio=studio,
                 )
                 created = await stash_client.create_scene(scene)
-                ctx.created_ids["scenes"].append(created.id)
+                ctx.created_ids["scenes"].append(created.id)  # Track for cleanup
                 return created
             except Exception as e:
                 print(f"Scene {i} creation failed: {e}")
                 if should_fail:
+                    # Expected failure with invalid performer
                     return None
-                # Retry with valid date
-                scene.date = "2024-01-01"
-                created = await stash_client.create_scene(scene)
-                ctx.created_ids["scenes"].append(created.id)
-                return created
+                raise  # Unexpected failure
 
-        # Create 5 scenes, 2 with invalid data
+        # Create 5 scenes, 2 with invalid performers
         tasks = [create_scene(i, should_fail=(i % 2 == 0)) for i in range(5)]
         scenes = await asyncio.gather(*tasks)
         valid_scenes = [s for s in scenes if s is not None]
-        assert len(valid_scenes) >= 3  # At least non-failing scenes should work
+        assert (
+            len(valid_scenes) == 2
+        )  # Exactly the scenes with valid performers (odd indices)
 
         # Attempt concurrent gallery creation with some invalid data
         async def create_gallery(i: int, should_fail: bool = False) -> Gallery | None:
             try:
                 gallery = Gallery(
                     id="new",
-                    title=f"Test Gallery {i}",
-                    details="Test details",
+                    title=f"[TEST] Concurrent Error - Gallery {i}",
+                    details=f"Created by concurrent error recovery test - Gallery {i}",
                     date="2024-01-01",
-                    urls=[
-                        (
-                            "invalid_url"
-                            if should_fail
-                            else f"https://example.com/gallery_{i}"
-                        )
-                    ],
+                    urls=[f"https://example.com/gallery_{i}"],
                     organized=True,
-                    performers=[performer],
+                    performers=[invalid_performer if should_fail else performer],
                     studio=studio,
                 )
                 created = await stash_client.create_gallery(gallery)
@@ -298,40 +356,44 @@ async def test_concurrent_error_recovery(stash_client: StashClient) -> None:
             except Exception as e:
                 print(f"Gallery {i} creation failed: {e}")
                 if should_fail:
+                    # Expected failure with invalid performer
                     return None
-                # Retry with valid URL
-                gallery.urls = [f"https://example.com/gallery_{i}"]
-                created = await stash_client.create_gallery(gallery)
-                ctx.created_ids["galleries"].append(created.id)
-                return created
+                raise  # Unexpected failure
 
-        # Create 5 galleries, 2 with invalid data
+        # Create 5 galleries, 2 with invalid performers
         tasks = [create_gallery(i, should_fail=(i % 2 == 0)) for i in range(5)]
         galleries = await asyncio.gather(*tasks)
         valid_galleries = [g for g in galleries if g is not None]
-        assert len(valid_galleries) >= 3
+        assert (
+            len(valid_galleries) == 2
+        )  # Exactly the galleries with valid performers (odd indices)
 
         # Verify final state
         for scene in valid_scenes:
             found = await stash_client.find_scene(scene.id)
             assert found is not None
-            assert found.performers[0].id == performer.id
-            assert found.studio.id == studio.id
+            assert performer.id in get_ids(found.performers)
+            assert get_id(found.studio) == studio.id
 
         for gallery in valid_galleries:
             found = await stash_client.find_gallery(gallery.id)
             assert found is not None
-            assert found.performers[0].id == performer.id
-            assert found.studio.id == studio.id
+            assert performer.id in get_ids(found.performers)
+            assert get_id(found.studio) == studio.id
 
-    except Exception as e:
-        pytest.skip(f"Test requires running Stash instance: {e}")
+    except RuntimeError as e:
+        if "Stash instance" in str(e):
+            pytest.skip("Test requires running Stash instance: {e}")
+        else:
+            raise e
     finally:
         await ctx.cleanup()
 
 
 @pytest.mark.asyncio
-async def test_metadata_error_recovery(stash_client: StashClient) -> None:
+async def test_metadata_error_recovery(
+    stash_client: StashClient, enable_scene_creation
+) -> None:
     """Test metadata generation error recovery.
 
     This test:
@@ -346,7 +408,7 @@ async def test_metadata_error_recovery(stash_client: StashClient) -> None:
         performer = Performer(
             id="new",
             name="Test Performer",
-            gender="FEMALE",
+            gender=GenderEnum.FEMALE,
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
@@ -420,14 +482,19 @@ async def test_metadata_error_recovery(stash_client: StashClient) -> None:
         assert scene is not None
         # Would check for generated files if we had the API
 
-    except Exception as e:
-        pytest.skip(f"Test requires running Stash instance: {e}")
+    except RuntimeError as e:
+        if "Stash instance" in str(e):
+            pytest.skip("Test requires running Stash instance: {e}")
+        else:
+            raise e
     finally:
         await ctx.cleanup()
 
 
 @pytest.mark.asyncio
-async def test_relationship_error_recovery(stash_client: StashClient) -> None:
+async def test_relationship_error_recovery(
+    stash_client: StashClient, enable_scene_creation
+) -> None:
     """Test relationship error recovery.
 
     This test:
@@ -442,7 +509,7 @@ async def test_relationship_error_recovery(stash_client: StashClient) -> None:
         performer = Performer(
             id="new",
             name="Test Performer",
-            gender="FEMALE",
+            gender=GenderEnum.FEMALE,
         )
         performer = await stash_client.create_performer(performer)
         ctx.created_ids["performers"].append(performer.id)
@@ -525,12 +592,15 @@ async def test_relationship_error_recovery(stash_client: StashClient) -> None:
         scene = await stash_client.find_scene(scene.id)
         assert scene is not None
         assert len(scene.performers) == 1
-        assert scene.performers[0].id == performer.id
-        assert scene.studio.id == studio.id
+        assert performer.id in get_ids(scene.performers)
+        assert get_id(scene.studio) == studio.id
         assert len(scene.tags) == 1
-        assert scene.tags[0].id == tag.id
+        assert tag.id in get_ids(scene.tags)
 
-    except Exception as e:
-        pytest.skip(f"Test requires running Stash instance: {e}")
+    except RuntimeError as e:
+        if "Stash instance" in str(e):
+            pytest.skip("Test requires running Stash instance: {e}")
+        else:
+            raise e
     finally:
         await ctx.cleanup()

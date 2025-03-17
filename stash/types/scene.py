@@ -143,7 +143,7 @@ class Scene(StashObject):
 
     __type_name__ = "Scene"
     __update_input_type__ = SceneUpdateInput
-    # No __create_input_type__ - scenes can only be updated
+    # No __create_input_type__ - scenes can only be updated, they are created by the server during scanning
 
     # Fields to track for changes - only fields that can be written via input types
     __tracked_fields__ = {

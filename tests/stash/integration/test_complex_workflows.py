@@ -258,6 +258,7 @@ async def test_error_handling(stash_client: StashClient) -> None:
 
         # Test missing relationships
         scene = Scene(
+            id="new",  # New scene
             title="Test Scene",
             urls=["https://example.com/scene"],
             organized=True,
@@ -285,11 +286,10 @@ async def test_error_handling(stash_client: StashClient) -> None:
 
         # Test recovery - create valid scene after errors
         scene = Scene(
+            id="new",  # New scene
             title="Valid Scene",
             urls=["https://example.com/valid"],
             organized=True,
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
         )
         created = await stash_client.create_scene(scene)
         assert created.id is not None

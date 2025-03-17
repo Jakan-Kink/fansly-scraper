@@ -578,13 +578,18 @@ class StashClientBase:
                 scene = await client.find_scene("123")
             ```
         """
-        # gql Client doesn't have a close method, but its transports do
+        # Close transports and client
         if hasattr(self, "http_transport") and hasattr(self.http_transport, "close"):
             await self.http_transport.close()
         if hasattr(self, "ws_transport") and hasattr(self.ws_transport, "close"):
             await self.ws_transport.close()
-        if hasattr(self, "client") and hasattr(self.client, "close"):
-            await self.client.close()
+        if hasattr(self, "client"):
+            # gql.Client has close_async() for async contexts
+            if hasattr(self.client, "close_async"):
+                await self.client.close_async()
+            # Fallback to close_sync() if available
+            elif hasattr(self.client, "close_sync"):
+                self.client.close_sync()
 
     async def __aenter__(self) -> "StashClientBase":
         """Enter async context manager."""

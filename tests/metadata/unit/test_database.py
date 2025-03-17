@@ -260,66 +260,76 @@ class TestWALAndConnections:
 class TestSessionManagement:
     """Test session management and transactions."""
 
-    def test_session_scope(self, database: Database):
+    def test_session_scope(self, database: Database, safe_name):
         """Test basic session scope."""
+        table_name = f"test_{safe_name}"
         # Create test data
         with database.session_scope() as session:
-            session.execute(text("CREATE TABLE test (id INTEGER PRIMARY KEY)"))
-            session.execute(text("INSERT INTO test VALUES (1)"))
+            session.execute(text(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY)"))
+            session.execute(text(f"INSERT INTO {table_name} VALUES (1)"))
             # Should auto-commit
 
         # Verify data persisted
         with database.session_scope() as session:
-            result = session.execute(text("SELECT * FROM test")).scalar()
+            result = session.execute(text(f"SELECT * FROM {table_name}")).scalar()
             assert result == 1
 
-    def test_session_rollback(self, database: Database):
+    def test_session_rollback(self, database: Database, safe_name):
         """Test automatic rollback on error."""
+        table_name = f"test_{safe_name}"
         # Create table
         with database.session_scope() as session:
-            session.execute(text("CREATE TABLE test (id INTEGER PRIMARY KEY)"))
+            session.execute(text(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY)"))
 
         # Try operation that will fail
         with pytest.raises(Exception), database.session_scope() as session:
-            session.execute(text("INSERT INTO test VALUES (1)"))
+            session.execute(text(f"INSERT INTO {table_name} VALUES (1)"))
             raise ValueError("Test error")
 
         # Verify no data was committed
         with database.session_scope() as session:
-            result = session.execute(text("SELECT COUNT(*) FROM test")).scalar()
+            result = session.execute(
+                text(f"SELECT COUNT(*) FROM {table_name}")
+            ).scalar()
             assert result == 0
 
     @pytest.mark.asyncio
-    async def test_async_session_scope(self, database: Database):
+    async def test_async_session_scope(self, database: Database, safe_name):
         """Test async session scope."""
+        table_name = f"test_{safe_name}"
         # Create test data
         async with database.async_session_scope() as session:
-            await session.execute(text("CREATE TABLE test (id INTEGER PRIMARY KEY)"))
-            await session.execute(text("INSERT INTO test VALUES (1)"))
+            await session.execute(
+                text(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY)")
+            )
+            await session.execute(text(f"INSERT INTO {table_name} VALUES (1)"))
             # Should auto-commit
 
         # Verify data persisted
         async with database.async_session_scope() as session:
-            result = await session.execute(text("SELECT * FROM test"))
+            result = await session.execute(text(f"SELECT * FROM {table_name}"))
             value = await result.scalar()
             assert value == 1
 
     @pytest.mark.asyncio
-    async def test_async_session_rollback(self, database: Database):
+    async def test_async_session_rollback(self, database: Database, safe_name):
         """Test automatic rollback in async session."""
+        table_name = f"test_{safe_name}"
         # Create table
         async with database.async_session_scope() as session:
-            await session.execute(text("CREATE TABLE test (id INTEGER PRIMARY KEY)"))
+            await session.execute(
+                text(f"CREATE TABLE {table_name} (id INTEGER PRIMARY KEY)")
+            )
 
         # Try operation that will fail
         with pytest.raises(Exception):
             async with database.async_session_scope() as session:
-                await session.execute(text("INSERT INTO test VALUES (1)"))
+                await session.execute(text(f"INSERT INTO {table_name} VALUES (1)"))
                 raise ValueError("Test error")
 
         # Verify no data was committed
         async with database.async_session_scope() as session:
-            result = await session.execute(text("SELECT COUNT(*) FROM test"))
+            result = await session.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
             count = await result.scalar()
             assert count == 0
 
@@ -520,7 +530,7 @@ class TestAsyncSession:
         async with database.async_session_scope() as session:
             # Execute a test query
             result = await session.execute(text("SELECT 1"))
-            assert await result.scalar() == 1
+            assert result.scalar() == 1
 
     @pytest.mark.asyncio
     async def test_async_session_rollback(self, database: Database):

@@ -187,8 +187,7 @@ async def process_download_accessible_media(
     accessible_media = [
         item
         for item in media_items
-        if item.download_url
-        and (item.is_preview == config.download_media_previews or not item.is_preview)
+        if item.download_url and (not item.is_preview or config.download_media_previews)
     ]
 
     # Special messages/wall handling

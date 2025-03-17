@@ -106,13 +106,13 @@ class TestMigrationPatterns:
     def alembic_cfg(self, database: Database) -> AlembicConfig:
         """Create Alembic config for testing."""
         cfg = AlembicConfig("alembic.ini")
-        cfg.attributes["connection"] = database.sync_engine.connect()
+        cfg.attributes["connection"] = database._sync_engine.connect()
         return cfg
 
     def test_forward_migration(self, database: Database, alembic_cfg: AlembicConfig):
         """Test forward migration with data preservation."""
         # Get initial revision
-        initial_rev = get_current_revision(database.sync_engine)
+        initial_rev = get_current_revision(database._sync_engine)
         assert initial_rev is not None
 
         # Create test data
@@ -139,7 +139,7 @@ class TestMigrationPatterns:
     def test_backward_migration(self, database: Database, alembic_cfg: AlembicConfig):
         """Test backward migration with data preservation."""
         # Get current revision
-        current_rev = get_current_revision(database.sync_engine)
+        current_rev = get_current_revision(database._sync_engine)
         assert current_rev is not None
 
         # Create test data
@@ -168,7 +168,7 @@ class TestMigrationPatterns:
     ):
         """Test recovery from migration errors."""
         # Get current revision
-        current_rev = get_current_revision(database.sync_engine)
+        current_rev = get_current_revision(database._sync_engine)
         assert current_rev is not None
 
         # Create test data
@@ -201,7 +201,7 @@ class TestMigrationPatterns:
             )
 
         # Verify recovery
-        assert get_current_revision(database.sync_engine) == current_rev
+        assert get_current_revision(database._sync_engine) == current_rev
 
         # Verify data survived
         with database.get_sync_session() as session:
@@ -279,13 +279,13 @@ class TestMigrationPatterns:
         thread2.join()
 
         # Verify database is in consistent state
-        current_rev = get_current_revision(database.sync_engine)
+        current_rev = get_current_revision(database._sync_engine)
         assert current_rev is not None
 
     def test_index_recreation(self, database: Database, alembic_cfg: AlembicConfig):
         """Test index handling during migrations."""
         # Get initial indexes
-        inspector = inspect(database.sync_engine)
+        inspector = inspect(database._sync_engine)
         initial_indexes = {
             table: inspector.get_indexes(table) for table in inspector.get_table_names()
         }
@@ -294,7 +294,7 @@ class TestMigrationPatterns:
         command.upgrade(alembic_cfg, "head")
 
         # Get final indexes
-        inspector = inspect(database.sync_engine)
+        inspector = inspect(database._sync_engine)
         final_indexes = {
             table: inspector.get_indexes(table) for table in inspector.get_table_names()
         }

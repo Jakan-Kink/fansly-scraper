@@ -19,7 +19,7 @@ class TestMessages(TestCase):
     def setUp(self):
         """Set up test database and session."""
         self.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
+        # Base.metadata.create_all(self.engine)
         self.Session: sessionmaker = sessionmaker(bind=self.engine)
         self.session: Session = self.Session()
 

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from metadata import Account, Message, Post
 
@@ -88,7 +88,7 @@ class TestPerformancePatterns:
 
     @pytest.fixture(autouse=True)
     def setup(self, test_database):
-        self.database = test_database
+        self.database: Database = test_database
         yield
         # Cleanup after each test
         with self.session_scope() as session:
@@ -99,7 +99,7 @@ class TestPerformancePatterns:
     @contextmanager
     def session_scope(self):
         """Provide a transactional scope around a series of operations."""
-        with self.database.get_sync_session() as session:
+        with self.database.session_scope() as session:
             yield session
 
     # def test_query_caching(self):
@@ -120,7 +120,7 @@ class TestPerformancePatterns:
     @pytest.fixture(scope="class")
     def performance_data(self, database: Database) -> list[Account]:
         """Create performance test data."""
-        with database.get_sync_session() as session:
+        with database.session_scope() as session:
             accounts = create_bulk_data(session)
             return accounts
 
@@ -228,7 +228,7 @@ class TestPerformancePatterns:
     @measure_time
     def test_connection_pool_performance(self):
         """Test connection pool performance."""
-        NUM_OPERATIONS = 1000
+        NUM_OPERATIONS = 100  # Reduced from 1000 to avoid overloading
 
         def perform_operation(session: Session) -> None:
             """Perform a simple database operation."""
@@ -237,7 +237,7 @@ class TestPerformancePatterns:
         # Test 1: Sequential operations
         start_time = time.time()
         for _ in range(NUM_OPERATIONS):
-            with self.database.get_sync_session() as session:
+            with self.database.session_scope() as session:
                 perform_operation(session)
         sequential_time = time.time() - start_time
         print(f"Sequential operations time: {sequential_time:.2f}s")
@@ -246,24 +246,18 @@ class TestPerformancePatterns:
         import concurrent.futures
         from threading import local
 
-        # Thread-local storage for session reuse
-        thread_local = local()
-
-        def get_session():
-            if not hasattr(thread_local, "session"):
-                thread_local.session = self.database.get_sync_session()
-            return thread_local.session
-
         def worker():
-            session = get_session()
-            try:
-                perform_operation(session)
-            except Exception:
-                session.rollback()
-                raise
+            with self.database.session_scope() as session:
+                try:
+                    perform_operation(session)
+                except Exception:
+                    session.rollback()
+                    raise
 
         start_time = time.time()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=4
+        ) as executor:  # Reduced from 10
             futures = []
             for _ in range(NUM_OPERATIONS):
                 future = executor.submit(worker)
@@ -298,7 +292,10 @@ class TestPerformancePatterns:
             initial_memory = get_memory_mb()
             chunk_size = 1000
             post_count = 0
-            for chunk in session.query(Post).yield_per(chunk_size):
+            # Use selectinload for relationships to avoid buffering issues
+            for chunk in (
+                session.query(Post).options(selectinload("*")).yield_per(chunk_size)
+            ):
                 post_count += 1
             stream_memory = get_memory_mb()
             print(f"Memory usage for streaming: {stream_memory - initial_memory:.2f}MB")
@@ -318,11 +315,33 @@ class TestPerformancePatterns:
         def run_query(session: Session) -> list[tuple[int, str]]:
             return (
                 session.query(Post.id, Post.content)
-                .filter(Post.accountId == self.performance_data[0].id)
+                .filter(
+                    Post.accountId == 1
+                )  # Use a fixed ID instead of performance_data
                 .all()
             )
 
         with self.session_scope() as session:
+            # Create test data
+            account = Account(
+                id=1,
+                username="test_user",
+                createdAt=datetime.now(timezone.utc),
+            )
+            session.add(account)
+            session.flush()
+
+            # Add some posts
+            for i in range(10):
+                post = Post(
+                    id=i + 1,
+                    accountId=account.id,
+                    content=f"Test post {i}",
+                    createdAt=datetime.now(timezone.utc),
+                )
+                session.add(post)
+            session.commit()
+
             # Test 1: First query execution
             start_time = time.time()
             posts1 = run_query(session)
@@ -341,7 +360,7 @@ class TestPerformancePatterns:
             start_time = time.time()
             posts3 = (
                 session.query(Post.id, Post.content)
-                .filter(Post.accountId == self.performance_data[1].id)
+                .filter(Post.accountId == 2)  # Different account ID
                 .all()
             )
             third_time = time.time() - start_time

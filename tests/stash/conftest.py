@@ -3,13 +3,14 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncGenerator, Generator
-from unittest.mock import AsyncMock, MagicMock
+import os
+from collections.abc import AsyncGenerator, AsyncIterator, Generator
 
 import pytest
 import pytest_asyncio
 
 from stash import StashClient, StashContext
+from stash.types.scene import Scene, SceneCreateInput
 
 
 @pytest.fixture(scope="session")
@@ -23,99 +24,143 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
 
 @pytest_asyncio.fixture
 async def stash_context() -> AsyncGenerator[StashContext, None]:
-    """Create a StashContext for testing."""
+    """Create a StashContext for testing.
+
+    In sandbox mode, raises an error since these tests require a real Stash instance.
+    """
+    if os.environ.get("OPENHANDS_SANDBOX") == "1":
+        raise RuntimeError(
+            "Stash integration tests cannot run in sandbox mode - they require a real Stash instance"
+        )
+
     context = StashContext(
         conn={
             "Scheme": "http",
             "Host": "localhost",
             "Port": 9999,
-            "ApiKey": "test_api_key",
+            "ApiKey": "",
             "Logger": logging.getLogger("stash.test"),
         },
         verify_ssl=False,
     )
+
     yield context
     await context.close()
 
 
+@pytest_asyncio.fixture
+async def stash_client(stash_context) -> StashClient:
+    """Get the StashClient from the StashContext.
+
+    This ensures proper client initialization through the context's get_client() method.
+    """
+    return await stash_context.get_client()
+
+
 @pytest.fixture
-def stash_client() -> StashClient:
-    """Create a mock StashClient for testing."""
-    # Create a mock client
-    mock_client = MagicMock(spec=StashClient)
-    mock_client._initialized = True
-    mock_client.client = MagicMock()
-    mock_client.client.headers = {}
+def enable_scene_creation():
+    """Enable scene creation during tests.
 
-    # Mock gql.Client async methods
-    mock_client.client.__aenter__ = AsyncMock(return_value=mock_client.client)
-    mock_client.client.connect_async = AsyncMock(return_value=mock_client.client)
-    mock_client.client.fetch_schema = AsyncMock()
+    This fixture temporarily sets Scene.__create_input_type__ to SceneCreateInput,
+    allowing scenes to be created directly during testing. It restores the original
+    value after the test completes.
 
-    # Mock transports
-    mock_client.http_transport = MagicMock()
-    mock_client.http_transport.connect = AsyncMock()
-    mock_client.http_transport.close = AsyncMock()
+    Usage:
+        @pytest.mark.asyncio
+        async def test_something(stash_client, enable_scene_creation):
+            scene = Scene(
+                title="Test Scene",
+                urls=["https://example.com/scene"],
+                organized=True,
+            )
+            scene = await stash_client.create_scene(scene)  # Now works!
+    """
+    # Store original value
+    original_create_input_type = getattr(Scene, "__create_input_type__", None)
 
-    mock_client.ws_transport = MagicMock()
-    mock_client.ws_transport.connect = AsyncMock()
-    mock_client.ws_transport.close = AsyncMock()
+    # Enable scene creation
+    Scene.__create_input_type__ = SceneCreateInput
 
-    # Create a mock async context manager for subscriptions
-    class MockAsyncContextManager:
-        def __init__(self, exception_message="Failed to connect"):
-            self.exception_message = exception_message
+    yield
 
-        async def __aenter__(self):
-            # Return a mock async iterator
-            return self
+    # Restore original value
+    if original_create_input_type is None:
+        delattr(Scene, "__create_input_type__")
+    else:
+        Scene.__create_input_type__ = original_create_input_type
 
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return False
 
-        def __aiter__(self):
-            return self
+@pytest_asyncio.fixture
+async def stash_cleanup_tracker():
+    """Fixture that provides a cleanup context manager for Stash objects.
 
-        async def __anext__(self):
-            # Raise the expected exception
-            raise Exception(self.exception_message)
+    Usage:
+        async with stash_cleanup_tracker() as cleanup:
+            performer = await create_performer(...)
+            cleanup.performers.append(performer.id)
+            # ... create more objects ...
+            # Cleanup happens automatically when exiting the context
+    """
 
-    # Set up subscription methods to return the mock context manager
-    mock_client.subscribe_to_jobs.return_value = MockAsyncContextManager()
-    mock_client.subscribe_to_logs.return_value = MockAsyncContextManager()
-    mock_client.subscribe_to_scan_complete.return_value = MockAsyncContextManager()
+    @contextlib.asynccontextmanager
+    async def cleanup_context(
+        client: StashClient,
+    ) -> AsyncIterator[dict[str, list[str]]]:
+        created_objects = {
+            "scenes": [],
+            "performers": [],
+            "studios": [],
+            "tags": [],
+        }
+        try:
+            yield created_objects
+        finally:
+            # Clean up created objects in reverse order of creation
+            try:
+                # Delete scenes first (they depend on performers/studios/tags)
+                for scene_id in created_objects["scenes"]:
+                    await client.execute(
+                        """
+                        mutation DeleteScene($id: ID!) {
+                            sceneDestroy(input: { id: $id })
+                        }
+                        """,
+                        {"id": scene_id},
+                    )
 
-    # Set up other async methods
-    mock_client.initialize = AsyncMock()
-    mock_client.close = AsyncMock()
-    mock_client.wait_for_job_with_updates = AsyncMock(return_value=True)
+                # Delete performers
+                for performer_id in created_objects["performers"]:
+                    await client.execute(
+                        """
+                        mutation DeletePerformer($id: ID!) {
+                            performerDestroy(input: { id: $id })
+                        }
+                        """,
+                        {"id": performer_id},
+                    )
 
-    # Set up mock responses for create methods
-    mock_client.execute = AsyncMock()
-    mock_client.execute.side_effect = lambda query, variables=None: (
-        {"performerCreate": {"id": "123", "name": "Test Account"}}
-        if "performerCreate" in query
-        else (
-            {
-                "galleryCreate": {
-                    "id": "123",
-                    "title": "Test Gallery",
-                    "details": "Test gallery details",
-                    "date": "2024-01-01",
-                    "urls": ["https://example.com/gallery"],
-                    "photographer": "Test Photographer",
-                    "rating100": 85,
-                    "organized": True,
-                    "image_count": 10,
-                    "studio": {"id": "456", "name": "Test Studio"},
-                    "performers": [{"id": "789", "name": "Test Performer"}],
-                    "tags": [{"id": "012", "name": "Test Tag"}],
-                }
-            }
-            if "galleryCreate" in query
-            else {}
-        )
-    )
+                # Delete studios
+                for studio_id in created_objects["studios"]:
+                    await client.execute(
+                        """
+                        mutation DeleteStudio($id: ID!) {
+                            studioDestroy(input: { id: $id })
+                        }
+                        """,
+                        {"id": studio_id},
+                    )
 
-    # Return the mock client
-    return mock_client
+                # Delete tags
+                for tag_id in created_objects["tags"]:
+                    await client.execute(
+                        """
+                        mutation DeleteTag($id: ID!) {
+                            tagDestroy(input: { id: $id })
+                        }
+                        """,
+                        {"id": tag_id},
+                    )
+            except Exception as e:
+                print(f"Warning: Cleanup failed: {e}")
+
+    return cleanup_context

@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -111,7 +112,9 @@ class TestDatabaseMigrations:
         """Test migrations are run automatically."""
         # Create database with migrations
         db_path = tmp_path / "test.db"
-        database = Database(FanslyConfig(metadata_db_file=db_path))
+        database = Database(
+            FanslyConfig(program_version="test", metadata_db_file=db_path)
+        )
 
         # Verify alembic_version table exists
         with database.session_scope() as session:
@@ -133,7 +136,7 @@ class TestDatabaseMigrations:
 
         # Should handle invalid database gracefully
         with pytest.raises(Exception):
-            Database(FanslyConfig(metadata_db_file=db_path))
+            Database(FanslyConfig(program_version="test", metadata_db_file=db_path))
 
 
 class TestDatabaseThreading:

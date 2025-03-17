@@ -33,7 +33,7 @@ from textio import print_error, print_info, print_warning
 async def setup_database(database: Database):
     """Create database tables before each test."""
     try:
-        async with database.get_async_session() as session:
+        async with database.async_session_scope() as session:
             # Create all tables
             async with session.begin():
                 await session.run_sync(Base.metadata.create_all, session.get_bind())
@@ -41,7 +41,7 @@ async def setup_database(database: Database):
     finally:
         # Clean up after each test
         try:
-            async with database.get_async_session() as session:
+            async with database.async_session_scope() as session:
                 # Drop all tables
                 async with session.begin():
                     await session.run_sync(Base.metadata.drop_all, session.get_bind())
@@ -58,7 +58,7 @@ async def test_complex_relationships(
     database: Database, session: Session, test_account: Account
 ):
     """Test complex relationships between multiple models."""
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         # Create media
         media = Media(
             id=1,
@@ -117,7 +117,7 @@ async def test_cascade_operations(
     database: Database, session: Session, test_account: Account
 ):
     """Test cascade operations across relationships."""
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         # Create media and account media
         media = Media(id=1, accountId=test_account.id)
         session.add(media)
@@ -157,7 +157,7 @@ async def test_database_constraints(
     database: Database, session: Session, test_account: Account
 ):
     """Test database constraints and integrity."""
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         # Create a Media object
         media = Media(
             id=100,
@@ -246,7 +246,7 @@ async def test_database_constraints(
 async def test_transaction_isolation(database: Database):
     """Test transaction isolation levels."""
     # Create test data in first session
-    async with database.get_async_session() as session1:
+    async with database.async_session_scope() as session1:
         account1 = Account(
             id=1,
             username="test_user_1",
@@ -255,7 +255,7 @@ async def test_transaction_isolation(database: Database):
         session1.add(account1)
 
         # Start second transaction before committing first
-        async with database.get_async_session() as session2:
+        async with database.async_session_scope() as session2:
             # Should not see uncommitted data from first session
             result = await session2.execute(select(Account).filter_by(id=1))
             assert result.scalar_one_or_none() is None
@@ -273,7 +273,7 @@ async def test_transaction_isolation(database: Database):
         await session1.commit()
 
     # Verify final state
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         result = await session.execute(select(Account).order_by(Account.id))
         accounts = result.scalars().all()
         assert len(accounts) == 2
@@ -291,7 +291,7 @@ async def test_concurrent_access(database: Database, test_account: Account):
         """Add messages in separate task."""
         message_ids = []
         try:
-            async with database.get_async_session() as session:
+            async with database.async_session_scope() as session:
                 # Disable foreign key checks
                 await session.execute(text("PRAGMA foreign_keys = OFF"))
                 for i in range(num_messages):
@@ -324,7 +324,7 @@ async def test_concurrent_access(database: Database, test_account: Account):
             message_ids.extend(await task)
 
         # Verify results
-        async with database.get_async_session() as session:
+        async with database.async_session_scope() as session:
             result = await session.execute(
                 select(Message).filter(Message.id.in_(message_ids)).order_by(Message.id)
             )
@@ -348,7 +348,7 @@ async def test_query_performance(
     database: Database, session: Session, test_account: Account
 ):
     """Test query performance with indexes."""
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         # Create multiple media items
         for i in range(100):
             media = Media(id=i + 1, accountId=test_account.id)
@@ -384,7 +384,7 @@ async def test_query_performance(
 @pytest.mark.asyncio
 async def test_bulk_operations(database: Database):
     """Test bulk database operations with transaction management."""
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         await session.rollback()  # Clear any existing transaction
 
         try:
@@ -417,7 +417,7 @@ async def test_write_through_cache_integration(
     """Test write-through caching in a multi-table scenario."""
     # Create initial data with unique username
     unique_username = f"cache_test_{test_account.username}"
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         account = Account(id=1, username=unique_username)
         session.add(account)
         await session.commit()
@@ -427,7 +427,7 @@ async def test_write_through_cache_integration(
     try:
         db2 = Database(test_config)
         # Verify data is immediately visible
-        async with db2.get_async_session() as session:
+        async with db2.async_session_scope() as session:
             result = await session.execute(select(Account))
             saved_account = result.scalar_one()
             assert saved_account.username == unique_username
@@ -455,7 +455,7 @@ async def test_write_through_cache_integration(
                 raise
 
     # Verify new data is visible in original connection
-    async with database.get_async_session() as session:
+    async with database.async_session_scope() as session:
         result = await session.execute(select(Media))
         saved_media = result.scalar_one()
         assert saved_media is not None
@@ -475,7 +475,7 @@ async def test_database_cleanup_integration(
     print_info("Creating test account")
 
     # Use async session for consistency
-    async with database.get_async_session() as test_session:
+    async with database.async_session_scope() as test_session:
         account = Account(id=1, username=unique_username)
         test_session.add(account)
         await test_session.commit()
@@ -507,7 +507,7 @@ async def test_database_cleanup_integration(
         db2 = Database(database.config)
         print_info("Verifying data persistence")
         # Use async session for consistency
-        async with db2.get_async_session() as test_session:
+        async with db2.async_session_scope() as test_session:
             result = await test_session.execute(
                 select(Account).filter_by(username=unique_username)
             )

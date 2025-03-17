@@ -3,6 +3,7 @@
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest import TestCase
 
 from sqlalchemy import Engine, create_engine
@@ -36,15 +37,15 @@ class TestAccountProcessing(TestCase):
         """Set up fresh database and session for each test."""
         # Create test database
         self.engine: Engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
+        # Base.metadata.create_all(self.engine)
         self.Session: sessionmaker = sessionmaker(bind=self.engine)
         self.session: Session = self.Session()
 
         # Create config with test database
         self.config = FanslyConfig(program_version="0.10.0")
-        self.config.metadata_db_file = ":memory:"
+        self.config.metadata_db_file = Path(":memory:")
         self.config._database = Database(self.config)
-        self.config._database.sync_engine = self.engine
+        self.config._database._sync_engine = self.engine
         self.config._database.session_scope = self.Session
 
     def tearDown(self):

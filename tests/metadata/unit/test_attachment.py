@@ -19,7 +19,7 @@ class TestAttachment(TestCase):
     def setUp(self):
         """Set up test database and session."""
         self.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
+        # Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.session = self.Session()
 
