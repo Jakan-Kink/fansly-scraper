@@ -88,7 +88,7 @@ def set_create_directory_for_download(config: PathConfig, state: DownloadState) 
         state.download_path = download_directory
 
         # Create the directory
-        download_directory.mkdir(exist_ok=True)
+        download_directory.mkdir(parents=True, exist_ok=True)
 
         return download_directory
 
