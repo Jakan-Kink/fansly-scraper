@@ -3,6 +3,8 @@
 import random
 import traceback
 from asyncio import sleep
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
 
 from requests import Response
 from sqlalchemy import select
@@ -27,6 +29,118 @@ from .common import (
 from .core import DownloadState
 from .media import download_media_infos
 from .types import DownloadType
+
+# Type variable for the transaction helper
+T = TypeVar("T")
+
+
+async def in_transaction_or_new(
+    session: AsyncSession,
+    func: Callable[..., Coroutine[Any, Any, T]],
+    debug: bool = False,
+    operation_name: str = "database operation",
+    *args: Any,
+    **kwargs: Any,
+) -> T:
+    """Execute a function in a transaction, creating a savepoint if already in a transaction.
+
+    Args:
+        session: The database session
+        func: The async function to execute
+        debug: Whether to print debug information
+        operation_name: Name of the operation for debug messages
+        *args: Positional arguments to pass to the function
+        **kwargs: Keyword arguments to pass to the function
+
+    Returns:
+        The result of the function
+    """
+    # Check if 'session' is already in kwargs to avoid passing it twice
+    if "session" not in kwargs:
+        kwargs["session"] = session
+
+    if session.in_transaction():
+        # We're already in a transaction, create a savepoint
+        if debug:
+            print_debug(f"Creating savepoint for {operation_name}")
+        async with session.begin_nested():
+            return await func(*args, **kwargs)
+    else:
+        # Start a new transaction
+        if debug:
+            print_debug(f"Starting new transaction for {operation_name}")
+        async with session.begin():
+            return await func(*args, **kwargs)
+
+
+async def process_wall_data(
+    config: FanslyConfig,
+    state: DownloadState,
+    wall_id: str,
+    wall_data: dict[str, Any],
+    before_cursor: str,
+    session: AsyncSession,
+) -> None:
+    """Process wall data with proper transaction handling.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        wall_id: ID of the wall to download
+        wall_data: Wall data from API response
+        before_cursor: Pagination cursor
+        session: AsyncSession for database operations
+    """
+    # Check for duplicates before processing posts
+    await check_page_duplicates(
+        config=config,
+        page_data=wall_data,
+        page_type="wall",
+        page_id=wall_id,
+        cursor=before_cursor if before_cursor != "0" else None,
+        session=session,
+    )
+
+    # Only process posts if no duplicates found
+    await process_wall_posts(
+        config,
+        state,
+        wall_id,
+        wall_data,
+        session=session,
+    )
+
+
+async def process_wall_media(
+    config: FanslyConfig,
+    state: DownloadState,
+    media_ids: list[str],
+    session: AsyncSession,
+) -> bool:
+    """Process wall media with proper transaction handling.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        media_ids: List of media IDs to download
+        session: AsyncSession for database operations
+
+    Returns:
+        False if deduplication error occurred, True otherwise
+    """
+    media_infos = await download_media_infos(
+        config=config,
+        state=state,
+        media_ids=media_ids,
+        session=session,
+    )
+
+    return await process_download_accessible_media(
+        config,
+        state,
+        media_infos,
+        session=session,
+    )
 
 
 @with_database_session(async_session=True)
@@ -98,18 +212,18 @@ async def download_wall(
             if wall_response.status_code == 200:
                 wall_data = wall_response.json()["response"]
 
-                # Check for duplicates before processing posts
-                await check_page_duplicates(
-                    config=config,
-                    page_data=wall_data,
-                    page_type="wall",
-                    page_id=wall_id,
-                    cursor=before_cursor if before_cursor != "0" else None,
-                    session=session,
+                # Process the wall data with transaction handling
+                await in_transaction_or_new(
+                    session,
+                    process_wall_data,
+                    config.debug,
+                    "wall data processing",
+                    config,
+                    state,
+                    wall_id,
+                    wall_data,
+                    before_cursor,
                 )
-
-                # Only process posts if no duplicates found
-                await process_wall_posts(config, state, wall_id, wall_data)
 
                 if config.debug:
                     print_debug(f"Wall data object: {wall_data}")
@@ -131,13 +245,18 @@ async def download_wall(
                     # Reset attempts eg. new page
                     attempts = 0
 
-                media_infos = await download_media_infos(
-                    config=config, state=state, media_ids=all_media_ids
+                # Process media with transaction handling
+                should_continue = await in_transaction_or_new(
+                    session,
+                    process_wall_media,
+                    config.debug,
+                    "media processing",
+                    config,
+                    state,
+                    all_media_ids,
                 )
 
-                if not await process_download_accessible_media(
-                    config, state, media_infos
-                ):
+                if not should_continue:
                     # Break on deduplication error - already downloaded
                     break
 

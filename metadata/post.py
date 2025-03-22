@@ -504,7 +504,7 @@ async def _process_post_attachments(
             )
         )
     )
-    existing = {a.contentId: a for a in result.scalars()}
+    existing = {a.contentId: a for a in (result.scalars().all())}
 
     # Process attachments in batches
     to_update = []
@@ -723,7 +723,7 @@ async def _process_timeline_post(
                     )
                 )
             )
-            existing_hashtags = {h.value.lower(): h for h in result.scalars()}
+            existing_hashtags = {h.value.lower(): h for h in (result.scalars().all())}
 
             # Create missing hashtags in one batch
             missing_values = [
@@ -746,7 +746,7 @@ async def _process_timeline_post(
                         )
                     )
                 )
-                new_hashtags = {h.value.lower(): h for h in result.scalars()}
+                new_hashtags = {h.value.lower(): h for h in (result.scalars().all())}
                 existing_hashtags.update(new_hashtags)
 
             # Create all associations in one batch

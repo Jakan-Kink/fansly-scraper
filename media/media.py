@@ -220,6 +220,10 @@ def parse_media_info(
         if item.file_extension == "mp4" and item.mimetype == "audio/mp3":
             item.file_extension = "mp3"
 
+        # Track video media IDs in state
+        if item.mimetype and item.mimetype.startswith("video/"):
+            state.recent_video_media_ids.add(str(item.media_id))
+
         # if metadata didn't exist we need the user to notify us through github, because that would be detrimental
         if "Key-Pair-Id" not in item.download_url and not item.metadata:
             print_error(

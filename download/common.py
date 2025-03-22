@@ -107,7 +107,9 @@ async def check_page_duplicates(
         # Check if post exists in metadata - only select id to avoid eager loading
         stmt = select(Post.id).where(Post.id == post["id"])
         result = await session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if (
+            result.scalar_one_or_none() is None
+        ):  # Remove await since scalar_one_or_none() returns directly
             all_posts_in_metadata = False
             break
 
@@ -150,6 +152,7 @@ async def process_download_accessible_media(
     state: DownloadState,
     media_infos: list[dict],
     post_id: str | None = None,
+    session: AsyncSession | None = None,
 ) -> bool:
     """Filters all media found in posts, messages, ... and downloads them.
 
@@ -174,7 +177,11 @@ async def process_download_accessible_media(
                 media_items.append(parse_media_info(state, media_info, post_id))
 
             # Process the entire batch at once
-            await process_media_info(config, {"batch": batch})
+            await process_media_info(
+                config,
+                {"batch": batch},
+                session=session,
+            )
 
         except Exception:
             print_error(

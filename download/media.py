@@ -19,7 +19,7 @@ from fileio.dedupe import dedupe_media_file
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from helpers.common import batch_list
 from media import MediaItem
-from metadata import process_media_download, require_database_config
+from metadata import process_media_download
 from metadata.media import Media
 from pathio import get_media_save_path, set_create_directory_for_download
 from textio import print_debug, print_info, print_warning
@@ -29,9 +29,12 @@ from .m3u8 import download_m3u8
 from .types import DownloadType
 
 
-@require_database_config
+@with_database_session(async_session=True)
 async def download_media_infos(
-    config: FanslyConfig, state: DownloadState, media_ids: list[str]
+    config: FanslyConfig,
+    state: DownloadState,
+    media_ids: list[str],
+    session: AsyncSession | None = None,
 ) -> list[dict]:
     """Download media info from API and process it through metadata system.
 
@@ -39,6 +42,7 @@ async def download_media_infos(
         config: FanslyConfig instance
         state: DownloadState instance
         media_ids: List of media IDs to fetch
+        session: SQLAlchemy async session
 
     Returns:
         List of processed media info dictionaries
@@ -48,41 +52,43 @@ async def download_media_infos(
     media_infos: list[dict] = []
 
     for ids in batch_list(media_ids, config.BATCH_SIZE):
-        media_ids_str = ",".join(ids)
+        async with session.begin_nested():
+            media_ids_str = ",".join(ids)
 
-        media_info_response = config.get_api().get_account_media(media_ids_str)
+            media_info_response = config.get_api().get_account_media(media_ids_str)
 
-        media_info_response.raise_for_status()
+            media_info_response.raise_for_status()
 
-        if media_info_response.status_code == 200:
-            media_info = media_info_response.json()
+            if media_info_response.status_code == 200:
+                media_info = media_info_response.json()
 
-            if not media_info["success"]:
-                raise ApiError(
+                if not media_info["success"]:
+                    raise ApiError(
+                        f"Could not retrieve media info for {media_ids_str} due to an "
+                        f"API error - unsuccessful "
+                        f"| content: \n{media_info}"
+                    )
+
+                # Process each media item through metadata system
+                for info in media_info["response"]:
+                    # Process through metadata system
+                    await process_media_bundles(
+                        config=config,
+                        account_id=state.creator_id,
+                        media_bundles=[info],  # Send a copy instead of original
+                        session=session,
+                    )
+                    media_infos.append(info)
+
+            else:
+                raise DownloadError(
                     f"Could not retrieve media info for {media_ids_str} due to an "
-                    f"API error - unsuccessful "
-                    f"| content: \n{media_info}"
+                    f"error --> status_code: {media_info_response.status_code} "
+                    f"| content: \n{media_info_response.content.decode('utf-8')}"
                 )
 
-            # Process each media item through metadata system
-            for info in media_info["response"]:
-                # Process through metadata system
-                await process_media_bundles(
-                    config=config,
-                    account_id=state.creator_id,
-                    media_bundles=[info],  # Send a copy instead of original
-                )
-                media_infos.append(info)
-
-        else:
-            raise DownloadError(
-                f"Could not retrieve media info for {media_ids_str} due to an "
-                f"error --> status_code: {media_info_response.status_code} "
-                f"| content: \n{media_info_response.content.decode('utf-8')}"
-            )
-
-        # Slow down a bit to be sure
-        await async_sleep(random.uniform(0.4, 0.75))
+            # Slow down a bit to be sure
+            await async_sleep(random.uniform(0.4, 0.75))
 
     return media_infos
 
@@ -157,8 +163,7 @@ async def _verify_existing_file(
     return False
 
 
-@require_database_config  # Uses config._database directly
-@with_database_session(async_session=True)
+@with_database_session(async_session=True)  # Uses config._database directly
 async def _verify_temp_download(
     config: FanslyConfig,
     state: DownloadState,
@@ -312,8 +317,7 @@ def _download_regular_file(
             )
 
 
-@require_database_config  # Uses config._database directly
-@with_database_session(async_session=True)
+@with_database_session(async_session=True)  # Uses config._database directly
 async def _download_m3u8_file(
     config: FanslyConfig,
     state: DownloadState,

@@ -144,6 +144,7 @@ async def _process_single_message(
     session: AsyncSession,
     message_data: dict[str, any],
     known_relations: set[str],
+    flush_immediately: bool = True,
 ) -> Message | None:
     """Process a single message's data and return the message instance.
 
@@ -193,7 +194,8 @@ async def _process_single_message(
 
     # Update fields
     Base.update_fields(message, filtered_message)
-    await session.flush()
+    if flush_immediately:
+        await session.flush()
 
     return message
 

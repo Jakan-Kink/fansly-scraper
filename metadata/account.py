@@ -76,8 +76,9 @@ async def process_media_bundles_data(
             config=config,
             account_id=account_id,
             media_bundles=data["accountMediaBundles"],
+            session=session,
         )
-        await session.commit()
+        await session.flush()  # Sync changes to DB without committing transaction
 
 
 class Account(Base):
@@ -560,7 +561,12 @@ async def _process_bundle_media_items(
             await _process_media_item_dict_inner(config, media_item, session=session)
             media_id = media_item["id"]
 
-        await link_media_to_bundle(session, bundle["id"], media_id, pos)
+        await link_media_to_bundle(
+            session,
+            bundle["id"],
+            media_id,
+            pos,
+        )
 
 
 @require_database_config
@@ -638,6 +644,7 @@ async def process_media_bundles(
     config: FanslyConfig,
     account_id: int,
     media_bundles: list[dict],
+    session: AsyncSession | None = None,
 ) -> None:
     """Process media bundles for an account.
 
@@ -653,11 +660,13 @@ async def process_media_bundles(
     media_bundles = copy.deepcopy(media_bundles)
 
     for bundle in media_bundles:
-        await _process_single_bundle(
-            bundle=bundle,
-            account_id=account_id,
-            config=config,
-        )
+        async with session.begin_nested():
+            await _process_single_bundle(
+                bundle=bundle,
+                account_id=account_id,
+                config=config,
+                session=session,
+            )
 
 
 @require_database_config

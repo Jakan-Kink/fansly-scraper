@@ -10,14 +10,109 @@ Note: All logger configuration is now centralized in config/logging.py.
 This module only provides database monitoring and statistics.
 """
 
+import inspect
+import os
 import time
+import traceback
 from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, SessionTransaction
 
 from config import db_logger
+
+
+def get_transaction_nesting_level(transaction: Any) -> int:
+    level = 0
+    current = transaction
+    while hasattr(current, "parent") and current.parent is not None:
+        level += 1
+        current = current.parent
+    return level
+
+
+def get_caller_info() -> str:
+    """Get relevant caller information from the stack.
+
+    Skips internal SQLAlchemy calls and common wrapper functions.
+    Returns a string with the most relevant caller info.
+    """
+    repo_root = os.getcwd()  # assume repo root is the current working directory
+    st = inspect.stack()
+    # List of functions we want to skip
+    skip_funcs = {
+        "async_wrapper",
+        "sync_wrapper",
+        "_run_sync",
+        "__call__",
+        "_execute_context",
+        "greenlet_spawn",
+        "do_orm_execute",
+        "session_transaction",
+        "_transaction",
+        "begin_nested",
+        "begin",
+        "_begin",
+        "__aenter__",
+        "__enter__",
+        "__aexit__",
+        "__exit__",
+        "close",
+        "commit",
+        "rollback",
+        "prepare",
+        "get_transaction_info",
+        "after_transaction_create",
+        "after_transaction_end",
+        "after_rollback",
+        "after_begin",
+    }
+    for frame in st[1:]:
+        # Skip frames from external libraries:
+        filename = frame.filename
+        lower_fname = filename.lower()
+        if (
+            "site-packages" in lower_fname
+            or "virtualenv" in lower_fname
+            or "venv" in lower_fname
+        ):
+            continue
+        if frame.function in skip_funcs:
+            continue
+        # Compute a relative path if possible.
+        if repo_root in filename:
+            relative_path = os.path.relpath(filename, repo_root)
+        else:
+            # Otherwise, return only the basename.
+            relative_path = os.path.basename(filename)
+        return f"{relative_path}:{frame.lineno} in {frame.function}"
+    # Fallback: list the deepest three frames in the stack.
+    deepest = st[-5:]
+    frames_info = []
+    for frame in deepest:
+        filename = frame.filename
+        try:
+            relative_path = os.path.relpath(filename, repo_root)
+        except Exception:
+            relative_path = os.path.basename(filename)
+        frames_info.append(f"{relative_path}:{frame.lineno} in {frame.function}")
+    return "\n".join(frames_info)
+
+
+def get_parent_chain(transaction: object) -> str:
+    """
+    Walk the transaction's parent chain and return a comma-separated string of parent IDs.
+    If there are no parents, returns 'None'.
+    """
+    chain = []
+    current = transaction
+    # Look for an attribute named "parent" that may hold the parent transaction.
+    while hasattr(current, "parent") and current.parent is not None:
+        # Append the parent's ID (formatted as hexadecimal) to the chain
+        chain.append(hex(id(current.parent)))
+        current = current.parent
+    return ", ".join(chain) if chain else "None"
 
 
 class DatabaseLogger:
@@ -99,15 +194,52 @@ class DatabaseLogger:
 
         @event.listens_for(session, "after_transaction_create")
         def after_transaction_create(session: Session, transaction: Any) -> None:
-            db_logger.debug(f"Transaction started: {transaction}")
+            level = get_transaction_nesting_level(transaction)
+            caller = get_caller_info()
+            parent_chain = get_parent_chain(transaction)
+            db_logger.debug(
+                f"Transaction started: id={hex(id(transaction))}, level={level}, parent_chain=[{parent_chain}], "
+                f"caller={caller}, _current_fn={transaction._current_fn if hasattr(transaction, '_current_fn') else 'N/A'}"
+            )
 
         @event.listens_for(session, "after_transaction_end")
         def after_transaction_end(session: Session, transaction: Any) -> None:
-            db_logger.debug(f"Transaction ended: {transaction}")
+            # Get transaction info
+            is_active = transaction.is_active
+            level = get_transaction_nesting_level(transaction)
+            parent_chain = get_parent_chain(transaction)
+            caller = get_caller_info()
+            db_logger.debug(
+                f"Transaction ended: id={hex(id(transaction))}, level={level}, parent_chain=[{parent_chain}], "
+                f"active={is_active}, caller={caller}"
+            )
 
         @event.listens_for(session, "after_rollback")
         def after_rollback(session: Session) -> None:
-            db_logger.error("Transaction rolled back")
+            # Get current transaction info if available
+            transaction = session.get_transaction()
+            if transaction:
+                level = get_transaction_nesting_level(transaction)
+                caller = get_caller_info()
+
+                db_logger.error(
+                    f"Transaction rolled back: id={hex(id(transaction))}, level={level}, "
+                    f"caller={caller}, _current_fn={transaction._current_fn if hasattr(transaction, '_current_fn') else 'N/A'}"
+                )
+            else:
+                db_logger.error("Transaction rolled back (no active transaction)")
+
+        # Add listener for savepoint operations
+        @event.listens_for(session, "after_begin")
+        def after_begin(
+            session: Session, transaction: SessionTransaction | Any, connection: Any
+        ) -> None:
+            if hasattr(transaction, "_current_fn") and transaction._current_fn:
+                caller = get_caller_info()
+                db_logger.debug(
+                    f"Savepoint created: {transaction._current_fn} "
+                    f"(transaction={hex(id(transaction))}, caller={caller})"
+                )
 
     def get_stats(self) -> dict[str, Any]:
         """Get current statistics.

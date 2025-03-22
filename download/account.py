@@ -229,7 +229,7 @@ async def get_creator_account_info(
                 TimelineStats.accountId == state.creator_id
             )
             result = await session.execute(stmt)
-            if current_stats := result.scalar_one_or_none():
+            if current_stats := await result.scalar_one_or_none():
                 # Convert API timestamp to datetime
                 stats_data = {"fetchedAt": account["timelineStats"]["fetchedAt"]}
                 Base.convert_timestamps(stats_data, ("fetchedAt",))

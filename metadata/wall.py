@@ -13,6 +13,7 @@ Features:
 
 from __future__ import annotations
 
+import asyncio
 import copy
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -35,14 +36,13 @@ from textio import json_output
 
 from .base import Base
 from .database import require_database_config
-from .post import process_timeline_posts
+from .post import Post, process_timeline_posts
 
 if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState
 
     from .account import Account
-    from .post import Post
 
 
 class Wall(Base):
@@ -145,50 +145,53 @@ async def process_account_walls(
 
     # Process each wall
     for wall_data in walls_data:
-        # Process wall data
-        filtered_wall, _ = Wall.process_data(
-            wall_data, known_relations, "meta/wall - p_a_w-_p_w"
-        )
-
-        # Query first approach
-        wall = await session.get(Wall, wall_data["id"])
-
-        # Ensure required fields are present before proceeding
-        if "id" not in filtered_wall:
-            json_output(
-                1,
-                "meta/wall - missing_required_field",
-                {"missing_field": "id"},
+        async with session.begin_nested():
+            # Process wall data
+            filtered_wall, _ = Wall.process_data(
+                wall_data, known_relations, "meta/wall - p_a_w-_p_w"
             )
-            continue  # Skip this wall if id is missing
 
-        # Create if doesn't exist with minimum required fields
-        if wall is None:
-            filtered_wall["accountId"] = account.id  # Ensure accountId is set
-            wall = Wall(**filtered_wall)
-            session.add(wall)
-        # Update fields that have changed
-        for key, value in filtered_wall.items():
-            if getattr(wall, key) != value:
-                setattr(wall, key, value)
+            # Query first approach
+            wall = await session.get(Wall, wall_data["id"])
 
-        await session.flush()
+            # Ensure required fields are present before proceeding
+            if "id" not in filtered_wall:
+                json_output(
+                    1,
+                    "meta/wall - missing_required_field",
+                    {"missing_field": "id"},
+                )
+                continue  # Skip this wall if id is missing
+
+            # Create if doesn't exist with minimum required fields
+            if wall is None:
+                filtered_wall["accountId"] = account.id  # Ensure accountId is set
+                wall = Wall(**filtered_wall)
+                session.add(wall)
+            # Update fields that have changed
+            for key, value in filtered_wall.items():
+                if getattr(wall, key) != value:
+                    setattr(wall, key, value)
+            await session.flush()
 
     # Only delete walls if this is a full account data update
     # This function is called from process_account_data which gets all walls for an account
     if len(walls_data) > 0:  # Only if we have any walls data
-        current_wall_ids = {wall_data["id"] for wall_data in walls_data}
-        result = await session.execute(select(Wall).where(Wall.accountId == account.id))
-        existing_walls = (await result.scalars()).all()
-        json_output(
-            1, "meta/wall - existing_walls", [wall.id for wall in existing_walls]
-        )
-        json_output(1, "meta/wall - current_wall_ids", list(current_wall_ids))
-        for wall in existing_walls:
-            if wall.accountId != account.id:
-                continue
-            if wall.id not in current_wall_ids:
-                await session.delete(wall)
+        async with session.begin_nested():
+            current_wall_ids = {wall_data["id"] for wall_data in walls_data}
+            result = await session.execute(
+                select(Wall).where(Wall.accountId == account.id)
+            )
+            existing_walls = result.scalars().all()
+            json_output(
+                1, "meta/wall - existing_walls", [wall.id for wall in existing_walls]
+            )
+            json_output(1, "meta/wall - current_wall_ids", list(current_wall_ids))
+            for wall in existing_walls:
+                if wall.accountId != account.id:
+                    continue
+                if wall.id not in current_wall_ids:
+                    await session.delete(wall)
 
 
 @require_database_config
@@ -223,13 +226,21 @@ async def process_wall_posts(
         session.add(wall)
         await session.flush()
 
-    # Get all posts in a single query
+    # Get all posts in a single query, with unique deduplication applied in the query
     post_ids = [post["id"] for post in posts_data["posts"]]
-    result = await session.execute(select(Post).where(Post.id.in_(post_ids)))
-    posts = result.scalars().all()
+    stmt = select(Post).where(Post.id.in_(post_ids))
+    result = await session.execute(stmt)
+    result = result.unique()
+    raw_posts = result.scalars().all()
+    if asyncio.iscoroutine(raw_posts):
+        posts = await raw_posts
+    else:
+        posts = raw_posts
 
     # Add new posts to wall's posts list without removing existing ones
+    existing_post_ids = {p.id for p in wall.posts}
     for post in posts:
-        if post not in wall.posts:
+        if post.id not in existing_post_ids:
             wall.posts.append(post)
+            existing_post_ids.add(post.id)
     await session.flush()

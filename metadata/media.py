@@ -559,6 +559,59 @@ def _chunk_items(items: list[dict], chunk_size: int) -> Iterator[list[dict]]:
         yield items[i : i + chunk_size]
 
 
+async def _process_account_media_batch(
+    session: AsyncSession,
+    account_media_batch: list[dict],
+) -> None:
+    """Process a batch of AccountMedia records.
+
+    Args:
+        session: SQLAlchemy async session
+        account_media_batch: List of AccountMedia records to process
+    """
+    from .account import AccountMedia
+
+    if not account_media_batch:
+        return
+
+    # Get existing records
+    result = await session.execute(
+        select(AccountMedia.id).where(
+            AccountMedia.id.in_([am["id"] for am in account_media_batch])
+        )
+    )
+    existing_account_media = set(result.scalars().all())
+
+    # Split into inserts and updates
+    to_insert = []
+    to_update = []
+    for am in account_media_batch:
+        if am["id"] in existing_account_media:
+            to_update.append(am)
+        else:
+            to_insert.append(am)
+
+    # Bulk insert new records
+    if to_insert:
+        await session.execute(
+            AccountMedia.__table__.insert().prefix_with("OR IGNORE"),
+            to_insert,
+        )
+
+    # Bulk update existing records
+    if to_update:
+        for item in to_update:
+            am_id = item.pop("id")
+            # Only update fields that are present and not None
+            update_values = {k: v for k, v in item.items() if v is not None}
+            if update_values:  # Only update if we have values to update
+                await session.execute(
+                    update(AccountMedia)
+                    .where(AccountMedia.id == am_id)
+                    .values(**update_values)
+                )
+
+
 @require_database_config
 @with_database_session(async_session=True)
 async def process_media_info(
@@ -617,49 +670,16 @@ async def process_media_info(
                 filtered_account_media["accountId"],
             )
 
-    # Process all data in a single transaction
-    async with session.begin_nested():
-        # Process AccountMedia records
-        if account_media_batch:
-            # Get existing records
-            result = await session.execute(
-                select(AccountMedia.id).where(
-                    AccountMedia.id.in_([am["id"] for am in account_media_batch])
-                )
-            )
-            existing_account_media = set(result.scalars().all())
-
-            # Split into inserts and updates
-            to_insert = []
-            to_update = []
-            for am in account_media_batch:
-                if am["id"] in existing_account_media:
-                    to_update.append(am)
-                else:
-                    to_insert.append(am)
-
-            # Bulk insert new records
-            if to_insert:
-                await session.execute(
-                    AccountMedia.__table__.insert().prefix_with("OR IGNORE"),
-                    to_insert,
-                )
-
-            # Bulk update existing records
-            if to_update:
-                for item in to_update:
-                    am_id = item.pop("id")
-                    # Only update fields that are present and not None
-                    update_values = {k: v for k, v in item.items() if v is not None}
-                    if update_values:  # Only update if we have values to update
-                        await session.execute(
-                            update(AccountMedia)
-                            .where(AccountMedia.id == am_id)
-                            .values(**update_values)
-                        )
-
-        # Process all media operations
+    # Check if we're already in a transaction
+    if session.in_transaction():
+        # We're already in a transaction, so just process the data without creating a new savepoint
+        await _process_account_media_batch(session, account_media_batch)
         await _process_media_batch(session, batch)
+    else:
+        # Not in a transaction, create a nested savepoint
+        async with await session.begin_nested():
+            await _process_account_media_batch(session, account_media_batch)
+            await _process_media_batch(session, batch)
 
 
 # async def _process_single_media_info(

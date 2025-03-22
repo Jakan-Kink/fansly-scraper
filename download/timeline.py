@@ -5,6 +5,8 @@ import traceback
 
 # from pprint import pprint
 from asyncio import sleep
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
 
 from requests import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +30,118 @@ from .common import (
 from .core import DownloadState
 from .media import download_media_infos
 from .types import DownloadType
+
+# Type variable for the transaction helper
+T = TypeVar("T")
+
+
+async def in_transaction_or_new(
+    session: AsyncSession,
+    func: Callable[..., Coroutine[Any, Any, T]],
+    debug: bool = False,
+    operation_name: str = "database operation",
+    *args: Any,
+    **kwargs: Any,
+) -> T:
+    """Execute a function in a transaction, creating a savepoint if already in a transaction.
+
+    Args:
+        session: The database session
+        func: The async function to execute
+        debug: Whether to print debug information
+        operation_name: Name of the operation for debug messages
+        *args: Positional arguments to pass to the function
+        **kwargs: Keyword arguments to pass to the function
+
+    Returns:
+        The result of the function
+    """
+    # Check if 'session' is already in kwargs to avoid passing it twice
+    if "session" not in kwargs:
+        kwargs["session"] = session
+
+    if session.in_transaction():
+        # We're already in a transaction, create a savepoint
+        if debug:
+            print_debug(f"Creating savepoint for {operation_name}")
+        async with session.begin_nested():
+            return await func(*args, **kwargs)
+    else:
+        # Start a new transaction
+        if debug:
+            print_debug(f"Starting new transaction for {operation_name}")
+        async with session.begin():
+            return await func(*args, **kwargs)
+
+
+async def process_timeline_data(
+    config: FanslyConfig,
+    state: DownloadState,
+    timeline: dict,
+    timeline_cursor: int,
+    session: AsyncSession,
+) -> None:
+    """Process timeline data with proper transaction management.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        timeline: Timeline data from API
+        timeline_cursor: Current timeline cursor
+        session: Database session
+    """
+    # Check for duplicates before processing posts
+    await check_page_duplicates(
+        config=config,
+        page_data=timeline,
+        page_type="timeline",
+        page_id=state.creator_id,
+        cursor=timeline_cursor if timeline_cursor != 0 else None,
+        session=session,
+    )
+
+    # Only process posts if no duplicates found
+    await process_timeline_posts(
+        config,
+        state,
+        timeline,
+        session=session,
+    )
+
+
+async def process_timeline_media(
+    config: FanslyConfig,
+    state: DownloadState,
+    all_media_ids: list[str],
+    session: AsyncSession,
+) -> bool:
+    """Process timeline media with proper transaction management.
+
+    Args:
+        config: FanslyConfig instance
+        state: Current download state
+        all_media_ids: List of media IDs to download
+        session: Database session
+
+    Returns:
+        True if processing should continue, False if it should stop
+    """
+    # Reset batch duplicate counter for new batch
+    state.start_batch()
+
+    media_infos = await download_media_infos(
+        config=config,
+        state=state,
+        media_ids=all_media_ids,
+        session=session,
+    )
+
+    return await process_download_accessible_media(
+        config,
+        state,
+        media_infos,
+        session=session,
+    )
 
 
 @with_database_session(async_session=True)
@@ -68,7 +182,6 @@ async def download_timeline(
             print_info(
                 f"Inspecting most recent Timeline cursor ... [CID: {state.creator_id}]"
             )
-
         else:
             print_info(
                 f"Inspecting Timeline cursor: {timeline_cursor} [CID: {state.creator_id}]"
@@ -89,17 +202,17 @@ async def download_timeline(
             if timeline_response.status_code == 200:
                 timeline = timeline_response.json()["response"]
 
-                # Check for duplicates before processing posts
-                await check_page_duplicates(
-                    config=config,
-                    page_data=timeline,
-                    page_type="timeline",
-                    cursor=timeline_cursor if timeline_cursor != 0 else None,
-                    session=session,
+                # Process timeline data with proper transaction management
+                await in_transaction_or_new(
+                    session,
+                    process_timeline_data,
+                    config.debug,
+                    "timeline data processing",
+                    config,
+                    state,
+                    timeline,
+                    timeline_cursor,
                 )
-
-                # Only process posts if no duplicates found
-                await process_timeline_posts(config, state, timeline, session=session)
 
                 if config.debug:
                     print_debug(f"Timeline object: {timeline}")
@@ -117,24 +230,22 @@ async def download_timeline(
                     # Try again
                     attempts += 1
                     continue
-
                 else:
                     # Reset attempts eg. new timeline
                     attempts = 0
 
-                # Reset batch duplicate counter for new batch
-                state.start_batch()
-                media_infos = await download_media_infos(
-                    config=config,
-                    state=state,
-                    media_ids=all_media_ids,
-                )
-
-                if not await process_download_accessible_media(
+                # Process timeline media with proper transaction management
+                should_continue = await in_transaction_or_new(
+                    session,
+                    process_timeline_media,
+                    config.debug,
+                    "media processing",
                     config,
                     state,
-                    media_infos,
-                ):
+                    all_media_ids,
+                )
+
+                if not should_continue:
                     # Break on deduplication error - already downloaded
                     break
 
@@ -169,7 +280,7 @@ async def download_timeline(
 
                     raise ApiError(message)
 
-        except KeyError:
+        except KeyError as e:
             print_error(
                 "Couldn't find any scrapable media at all!\
                 \n This most likely happend because you're not following the creator, your authorisation token is wrong\
@@ -177,15 +288,23 @@ async def download_timeline(
                 35,
             )
             input_enter_continue(config.interactive)
+            # Mark exception as handled
+            setattr(e, "_handled", True)
+            raise
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
             print()
-            break
+            # Mark exception as handled
+            setattr(e, "_handled", True)
+            raise
 
-        except Exception:
+        except Exception as e:
             print_error(
                 f"Unexpected error during Timeline download: \n{traceback.format_exc()}",
                 36,
             )
             input_enter_continue(config.interactive)
+            # Mark exception as handled
+            setattr(e, "_handled", True)
+            raise

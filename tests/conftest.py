@@ -173,10 +173,28 @@ def test_database(test_config, tmp_path, request):
     test_config._database = Database(test_config)
     test_config._database.Session = Session
     test_config._database._sync_engine = engine
+
+    # Create async engine with improved connection settings
     test_config._database._async_engine = create_async_engine(
         f"sqlite+aiosqlite:///file:{db_name}?mode=memory&cache=shared&uri=true",
         future=True,
         echo=False,
+        # Connection health and pooling settings
+        pool_pre_ping=True,  # Check connection health before using
+        pool_recycle=3600,  # Recycle connections after 1 hour
+        pool_size=5,  # Maintain a pool of connections
+        max_overflow=10,  # Allow up to 10 overflow connections
+        # SQLite specific settings
+        connect_args={
+            "uri": True,
+            "timeout": 120,  # Wait up to 120 seconds for busy DB
+            "check_same_thread": False,  # Allow cross-thread usage
+        },
+        # Execution options
+        execution_options={
+            "isolation_level": "SERIALIZABLE",  # Use serializable isolation for safety
+            "autocommit": False,  # Explicit transaction control
+        },
     )
 
     # Let Database handle schema through alembic migrations

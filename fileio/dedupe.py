@@ -82,7 +82,7 @@ async def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
                 updated += 1
 
                 # Commit every 100 records to avoid large transactions
-                if updated % 100 == 0:
+                if updated % 100 == 0 and not session.in_nested_transaction():
                     await session.commit()
                     print_info(f"Updated {updated} of {count} records...")
 
@@ -90,7 +90,8 @@ async def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
                 print_info(f"Error updating record {record.id}: {e}")
 
         # Final commit for any remaining records
-        await session.commit()
+        if not session.in_nested_transaction():
+            await session.commit()
 
         print_info(f"Migration complete! Updated {updated} of {count} records.")
 

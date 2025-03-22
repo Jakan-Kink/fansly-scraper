@@ -20,7 +20,7 @@ from threading import Thread
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.exc import DisconnectionError
+from sqlalchemy.exc import DisconnectionError, OperationalError, PendingRollbackError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -32,7 +32,7 @@ from sqlalchemy.sql.elements import BindParameter
 
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
-from textio import print_debug, print_error, print_info, print_warning
+from config import db_logger
 from utils.semaphore_monitor import monitor_semaphores
 
 from .logging_config import DatabaseLogger
@@ -198,14 +198,12 @@ class Database:
                 "uri": True,  # Required for shared memory URIs
                 "timeout": 60,  # Connection timeout in seconds
                 "check_same_thread": False,  # Allow multi-threading
-                "isolation_level": None,  # Let SQLAlchemy handle transactions
+                "isolation_level": "SERIALIZABLE",  # SQLite's default transaction mode
                 "cached_statements": 1000,  # Cache more prepared statements
             },
             "creator": lambda: self._shared_connection,  # Use our existing shared connection
-            "isolation_level": "AUTOCOMMIT",  # Prevent auto-transactions
             "execution_options": {
                 "expire_on_commit": False,  # Don't expire objects after commit
-                "autocommit": True,  # Allow autocommit mode
                 "preserve_session": True,  # Keep session alive
             },
         }
@@ -251,7 +249,8 @@ class Database:
         event.listen(self._sync_engine, "checkout", _on_checkout)
 
         # Set up logging for sync engine
-        get_db_logger().setup_engine_logging(self._sync_engine)
+        db_logger_monitor = get_db_logger()
+        db_logger_monitor.setup_engine_logging(self._sync_engine)
 
         # Run migrations if needed
         alembic_cfg = AlembicConfig("alembic.ini")
@@ -260,9 +259,7 @@ class Database:
         # Create and keep a persistent connection for migrations and validation
         connection = self._sync_engine.connect()
         connection = connection.execution_options(
-            isolation_level="AUTOCOMMIT",  # Prevent auto-transactions
             expire_on_commit=False,  # Don't expire objects after commit
-            autocommit=True,  # Allow autocommit mode
             preserve_session=True,  # Keep session alive
             keep_transaction=True,  # Keep transaction open
             close_with_result=False,  # Don't close after execute
@@ -277,37 +274,77 @@ class Database:
         alembic_version_exists = result.scalar() is not None
 
         if not alembic_version_exists:
-            print_info("No alembic_version table found. Initializing migrations...")
+            db_logger.info("No alembic_version table found. Initializing migrations...")
             alembic_cfg.attributes["connection"] = connection
             alembic_upgrade(alembic_cfg, "head")  # Run all migrations
-            print_info("Migrations applied successfully.")
+            db_logger.info("Migrations applied successfully.")
         else:
-            print_info(
+            db_logger.info(
                 "Database is already initialized. Running migrations to latest version..."
             )
             alembic_cfg.attributes["connection"] = connection
             alembic_upgrade(alembic_cfg, "head")
-            print_info("Migrations applied successfully.")
+            db_logger.info("Migrations applied successfully.")
 
         # Keep the connection for later use
         self._sqlalchemy_connection = connection
 
         # Get logger and update its level from config
-        logger = get_db_logger()
-        logger.log_level = config.log_levels.get("sqlalchemy", "INFO")
+        db_logger_monitor = get_db_logger()
+        db_logger_monitor.log_level = config.log_levels.get("sqlalchemy", "INFO")
 
         # Set up logging for sync engine
-        logger.setup_engine_logging(self._sync_engine)
+        db_logger_monitor.setup_engine_logging(self._sync_engine)
 
         # Create async engine with same settings
         async_config = engine_config.copy()
         async_config["connect_args"] = engine_config["connect_args"].copy()
+
+        # Add additional connection settings for better reliability
+        # Only add pool settings if we're not using StaticPool
+        if "poolclass" not in async_config or async_config["poolclass"] is not None:
+            async_config["pool_pre_ping"] = True  # Check connection health before using
+            async_config["pool_recycle"] = 3600  # Recycle connections after 1 hour
+
+            # Add more aggressive connection settings for better reliability
+            async_config["max_overflow"] = 10  # Allow more overflow connections
+            async_config["pool_size"] = 5  # Maintain a pool of connections
+
+            # Add connect args for better reliability
+            async_config["connect_args"][
+                "timeout"
+            ] = 120  # Increase timeout for busy operations
+
+        # Add execution options for better transaction handling
+        if "execution_options" not in async_config:
+            async_config["execution_options"] = {}
+
+        async_config["execution_options"].update(
+            {
+                "isolation_level": "SERIALIZABLE",  # Use serializable isolation for safety
+                "autocommit": False,  # Explicit transaction control
+            }
+        )
+
+        # Ensure connect_args has all the settings we need
+        if "connect_args" not in async_config:
+            async_config["connect_args"] = {}
+
+        # Add SQLite-specific settings to connect_args
+        async_config["connect_args"].update(
+            {
+                "timeout": 120,  # Wait up to 120 seconds for busy DB
+                "check_same_thread": False,  # Allow cross-thread usage
+            }
+        )
+
+        # Create the async engine with our config
         self._async_engine = create_async_engine(
             self.sqlalchemy_uri.replace("sqlite://", "sqlite+aiosqlite://"),
             **async_config,
         )
         # Set up logging for async engine
-        logger.setup_engine_logging(self._async_engine)
+        db_logger_monitor.setup_engine_logging(self._async_engine)
 
         # Create session factories
         # Simple sync session factory
@@ -356,7 +393,7 @@ class Database:
             try:
                 # Use our existing shared connection as the source
                 if not self._shared_connection:
-                    print_error("No shared connection available for sync")
+                    db_logger.error("No shared connection available for sync")
                     return
 
                 # Create a temp file for atomic writes
@@ -386,7 +423,7 @@ class Database:
                             "PRAGMA foreign_keys=OFF"
                         )  # Disable FKs for backup
 
-                        print_info(f"Saving in-memory db to file: {self.db_file}")
+                        db_logger.info(f"Saving in-memory db to file: {self.db_file}")
                         # Backup with progress reporting
                         total_pages = None
                         remaining_pages = None
@@ -457,7 +494,7 @@ class Database:
 
                     # Report final size
                     final_size = self.db_file.stat().st_size
-                    print_info(
+                    db_logger.info(
                         f"Save complete. File size: {final_size / (1024*1024):.1f}MB"
                     )
 
@@ -475,10 +512,12 @@ class Database:
                             if temp_wal.exists():
                                 temp_wal.unlink()
                     except Exception as cleanup_error:
-                        print_error(f"Error cleaning up temp files: {cleanup_error}")
+                        db_logger.error(
+                            f"Error cleaning up temp files: {cleanup_error}"
+                        )
 
             except Exception as e:
-                print_error(f"Error syncing to disk: {e}")
+                db_logger.error(f"Error syncing to disk: {e}")
                 # Original file and its backup should still be intact
 
     def _sync_task(self) -> None:
@@ -497,12 +536,12 @@ class Database:
                 time.sleep(1)
 
             except Exception as e:
-                print_error(f"Error in sync task: {e}")
+                db_logger.error(f"Error in sync task: {e}")
 
     def _get_thread_session(self) -> Session | None:
         """Get existing session for current thread if healthy."""
         if hasattr(self._thread_local, "session"):
-            session = self._thread_local.session
+            session: Session = self._thread_local.session
             try:
                 # Check if session is healthy
                 with session.begin():
@@ -541,13 +580,30 @@ class Database:
                 session.commit()
                 self._commit_count += 1
         except Exception as e:
-            print_error(f"Error in sync session: {e}")
+            db_logger.error(f"Error in sync session: {e}")
             if session.is_active:
-                session.rollback()
+                try:
+                    session.rollback()
+                except PendingRollbackError:
+                    db_logger.warning(
+                        "PendingRollbackError during session rollback, transaction already rolled back"
+                    )
+                except Exception as rollback_e:
+                    db_logger.error(f"Error during session rollback: {rollback_e}")
             raise
         finally:
-            session.close()
-            delattr(self._thread_local, "session")
+            try:
+                session.close()
+            except PendingRollbackError:
+                db_logger.warning(
+                    "PendingRollbackError during session close, transaction already rolled back"
+                )
+            except Exception as close_e:
+                db_logger.error(f"Error during session close: {close_e}")
+
+            # Always remove the session from thread local
+            if hasattr(self._thread_local, "session"):
+                delattr(self._thread_local, "session")
 
     @asynccontextmanager
     async def async_session_scope(self) -> AsyncGenerator[AsyncSession]:
@@ -555,55 +611,394 @@ class Database:
 
         This context manager:
         1. Reuses sessions within the same task
-        2. Handles transactions properly
+        2. Handles transactions and savepoints properly
         3. Manages session lifecycle
         4. Provides proper cleanup
+        5. Implements robust recovery from transaction errors
 
         Example:
             async with db.async_session_scope() as session:
                 result = await session.execute(text("SELECT * FROM table"))
         """
         task_id = id(asyncio.current_task())
-        task_local = getattr(self._thread_local, "async_sessions", {})
+
+        # Initialize thread-local storage if needed
         if not hasattr(self._thread_local, "async_sessions"):
             self._thread_local.async_sessions = {}
+        task_local = self._thread_local.async_sessions
 
-        # Try to get existing session for this task
-        session = task_local.get(task_id)
-        if session is not None:
+        # Check if a session is already in use for this task
+        session_wrapper = task_local.get(task_id)
+        if session_wrapper is not None:
+            # Increase nesting depth and yield the existing session
+            session_wrapper["depth"] += 1
             try:
-                # Verify session is still valid
-                await session.execute(text("SELECT 1"))
-                yield session
-                return
-            except Exception:
-                # Session is invalid, remove it and create new one
-                await session.close()
-                del task_local[task_id]
+                # Verify the session is still valid with a simple query
 
-        # Create new session
-        session = self._async_session_factory()
-        task_local[task_id] = session
-        get_db_logger().setup_session_logging(session)
+                db_logger.debug("Validating existing session")
+                result = await session_wrapper["session"].execute(text("SELECT 1"))
+                if result.scalar() != 1:
+                    db_logger.warning(
+                        "Session validation query returned unexpected result"
+                    )
+                    raise ValueError("Session validation failed: unexpected result")
+                db_logger.debug("Existing session is valid")
+            except (OperationalError, PendingRollbackError) as e:
+                # Handle SQLAlchemy specific errors during validation
+
+                db_logger.error(f"SQLAlchemy error during session validation: {e}")
+
+                # Check if this is a savepoint or connection error
+                error_msg = str(e).lower()
+                if any(
+                    err_msg in error_msg
+                    for err_msg in ["savepoint", "transaction", "connection"]
+                ):
+                    db_logger.warning(
+                        "Detected transaction error during validation, attempting recovery"
+                    )
+                    try:
+                        # Try to recover the session
+                        await self._handle_savepoint_error(
+                            session_wrapper["session"],
+                            session_wrapper,
+                            task_id,
+                            task_local,
+                        )
+                        # If recovery succeeded, session_wrapper will have a new session
+                        db_logger.info("Session recovery successful during validation")
+                    except Exception as recovery_e:
+                        db_logger.error(
+                            f"Session recovery failed during validation: {recovery_e}"
+                        )
+                        # If recovery failed, create a new session
+                        del task_local[task_id]
+                        session_wrapper = None
+                else:
+                    # For other errors, create a new session
+                    db_logger.warning(
+                        "Non-transaction error during validation, creating new session"
+                    )
+                    try:
+                        await session_wrapper["session"].close()
+                    except Exception:
+                        pass  # Ignore errors during close of invalid session
+
+                    del task_local[task_id]
+                    session_wrapper = None
+            except Exception as e:
+                # Handle other errors during validation
+
+                db_logger.error(f"Existing session validation failed: {e}")
+                # If the session is invalid, close and remove it
+                try:
+                    await session_wrapper["session"].close()
+                except Exception as close_e:
+                    db_logger.debug(f"Error closing invalid session: {close_e}")
+
+                del task_local[task_id]
+                session_wrapper = None
+
+        if session_wrapper is None:
+            # Create a new session wrapper with a depth counter starting at 1
+            session = self._async_session_factory()
+            session_wrapper = {"session": session, "depth": 1}
+            task_local[task_id] = session_wrapper
+            get_db_logger().setup_session_logging(session)
+
+        session: AsyncSession = session_wrapper["session"]
 
         try:
-            # Let the caller manage transactions
             yield session
+
             # Only commit if there are changes and no active transaction
-            if session.in_transaction() and session.is_active:
+            # and this is the outermost session scope
+            if (
+                session.in_transaction()
+                and session.is_active
+                and session_wrapper["depth"] == 1
+            ):
                 await session.commit()
                 self._commit_count += 1
-        except Exception as e:
-            print_error(f"Error in async session: {e}")
-            # Rollback if in transaction
-            if session.in_transaction():
-                await session.rollback()
+
+        except (OperationalError, PendingRollbackError) as e:
+            # Handle SQLAlchemy specific errors
+
+            db_logger.error(f"SQLAlchemy error in async session: {e}")
+
+            # Check for savepoint errors specifically
+            error_msg = str(e).lower()
+            is_savepoint_error = any(
+                err_msg in error_msg
+                for err_msg in [
+                    "no such savepoint",
+                    "invalid savepoint",
+                    "can't reconnect until invalid savepoint",
+                    "savepoint",  # Catch any savepoint-related errors
+                    "transaction",  # Catch transaction-related errors
+                ]
+            )
+
+            # Also check for connection errors
+            is_connection_error = any(
+                err_msg in error_msg
+                for err_msg in [
+                    "database is locked",
+                    "unable to open database file",
+                    "disk i/o error",
+                    "database or disk is full",
+                    "database disk image is malformed",
+                    "connection",  # Catch any connection-related errors
+                ]
+            )
+
+            if is_savepoint_error or is_connection_error:
+                # Use our aggressive recovery mechanism
+                db_logger.warning(
+                    f"Detected {'savepoint' if is_savepoint_error else 'connection'} error, initiating recovery"
+                )
+                await self._handle_savepoint_error(
+                    session, session_wrapper, task_id, task_local
+                )
+            elif session.in_transaction():
+                # For other operational errors, try standard rollback
+                try:
+                    db_logger.info(
+                        "Attempting standard rollback for non-savepoint error"
+                    )
+                    await session.rollback()
+                    db_logger.info("Standard rollback successful")
+                except Exception as rollback_e:
+                    db_logger.error(f"Error during standard rollback: {rollback_e}")
+                    # If rollback fails, try recovery
+                    db_logger.warning("Standard rollback failed, initiating recovery")
+                    await self._handle_savepoint_error(
+                        session, session_wrapper, task_id, task_local
+                    )
+
+            # Re-raise the original exception with context
+            db_logger.error(
+                f"Re-raising original exception after recovery attempt: {e}"
+            )
             raise
+
+        except Exception as e:
+            # Handle general exceptions
+
+            db_logger.error(f"General error in async session: {e}")
+
+            if session.in_transaction():
+                try:
+                    # Standard rollback for general exceptions
+                    db_logger.info("Attempting standard rollback for general exception")
+                    await session.rollback()
+                    db_logger.info("Standard rollback successful for general exception")
+                except (OperationalError, PendingRollbackError) as rollback_e:
+                    # Handle SQLAlchemy specific errors during rollback
+                    db_logger.error(f"SQLAlchemy error during rollback: {rollback_e}")
+
+                    # Check if this is a savepoint error
+                    error_msg = str(rollback_e).lower()
+                    if any(
+                        err_msg in error_msg
+                        for err_msg in ["savepoint", "transaction", "connection"]
+                    ):
+                        db_logger.warning(
+                            "Detected savepoint/transaction error during rollback, initiating recovery"
+                        )
+                        await self._handle_savepoint_error(
+                            session, session_wrapper, task_id, task_local
+                        )
+                except Exception as rollback_e:
+                    # Handle other errors during rollback
+                    db_logger.error(
+                        f"Error during rollback for general exception: {rollback_e}"
+                    )
+                    # If rollback fails, try recovery
+                    db_logger.warning(
+                        "Standard rollback failed for general exception, initiating recovery"
+                    )
+                    await self._handle_savepoint_error(
+                        session, session_wrapper, task_id, task_local
+                    )
+
+            # Re-raise the original exception with context
+            db_logger.error(
+                f"Re-raising original exception after recovery attempt: {e}"
+            )
+            raise
+
         finally:
-            # Only close session if it's not being reused
+            # Decrease nesting depth; if outermost, remove from tracking and close it
+            if session_wrapper is not None:  # Check if session_wrapper still exists
+                session_wrapper["depth"] -= 1
+                if session_wrapper["depth"] <= 0:
+                    # Only close the session if it's the outermost scope
+                    try:
+                        # Check if session is still valid before closing
+                        if session.is_active:
+                            db_logger.debug("Closing session in finally block")
+                            await session.close()
+                            db_logger.debug("Session closed successfully")
+                        else:
+                            db_logger.debug(
+                                "Session already closed or invalid, skipping close"
+                            )
+                    except (OperationalError, PendingRollbackError) as e:
+                        # Handle SQLAlchemy specific errors during close
+                        db_logger.error(
+                            f"SQLAlchemy error closing session in finally block: {e}"
+                        )
+                        # No need to recover here as we're already cleaning up
+                    except Exception as e:
+                        # Handle other errors during close
+                        db_logger.error(f"Error closing session in finally block: {e}")
+                    finally:
+                        # Always remove from tracking even if close fails
+                        if task_id in task_local:
+                            db_logger.debug(f"Removing task {task_id} from tracking")
+                            del task_local[task_id]
+
+    async def _handle_savepoint_error(
+        self,
+        session: AsyncSession,
+        session_wrapper: dict,
+        task_id: int,
+        task_local: dict,
+    ) -> None:
+        """Handle savepoint errors with aggressive recovery.
+
+        This method implements a multi-stage recovery process for SQLite savepoint errors:
+        1. Try to reset the connection state with ROLLBACK
+        2. Try to reset the connection with raw DBAPI rollback
+        3. Try to invalidate the connection and test new connections
+        4. Try to force close the problematic session
+        5. Try to dispose the engine with close=True and recreate session factory
+        6. Create a new session and verify it works
+
+        Args:
+            session: The problematic session
+            session_wrapper: The session wrapper containing the session and depth
+            task_id: The task ID for tracking
+            task_local: The task-local storage for sessions
+        """
+        # Use the imported db_logger directly
+        db_logger.warning("Starting savepoint error recovery process")
+
+        # Stage 1: Try to reset the connection state with ROLLBACK
+        db_logger.debug("Stage 1: Attempting ROLLBACK")
+        try:
+            # Try a simple rollback first
+            await session.rollback()
+            # Test if the session is now usable
+            await session.execute(text("SELECT 1"))
+            db_logger.info("Stage 1 recovery successful: ROLLBACK fixed the session")
+            return
+        except Exception as e:
+            db_logger.warning(f"Stage 1 recovery failed: {e}")
+
+        # Stage 2: Try to reset the connection with raw DBAPI rollback
+        db_logger.debug("Stage 2: Attempting raw DBAPI rollback")
+        try:
+            # Get the raw connection and try a direct rollback
+            raw_connection = await session.connection()
+            dbapi_connection = raw_connection.connection.connection
+            if hasattr(dbapi_connection, "rollback"):
+                dbapi_connection.rollback()
+                # Test if the session is now usable
+                await session.execute(text("SELECT 1"))
+                db_logger.info(
+                    "Stage 2 recovery successful: Raw DBAPI rollback fixed the session"
+                )
+                return
+        except Exception as e:
+            db_logger.warning(f"Stage 2 recovery failed: {e}")
+
+        # Stage 3: Try to invalidate the connection and test new connections
+        db_logger.debug("Stage 3: Attempting connection invalidation")
+        try:
+            # Get the connection and invalidate it
+            connection = await session.connection()
+            connection.invalidate()
+            # Test if a new connection works
+            async with self._async_engine.connect() as test_conn:
+                await test_conn.execute(text("SELECT 1"))
+            db_logger.info(
+                "Stage 3 recovery successful: Connection invalidation worked"
+            )
+        except Exception as e:
+            db_logger.warning(f"Stage 3 recovery failed: {e}")
+
+        # Stage 4: Try to force close the problematic session
+        db_logger.debug("Stage 4: Forcing session close")
+        try:
+            # Force close the session
+            await session.close()
+            db_logger.info("Stage 4: Session closed")
+        except Exception as e:
+            db_logger.warning(f"Stage 4: Error closing session: {e}")
+
+        # Stage 5: Try to dispose the engine and recreate session factory
+        db_logger.debug("Stage 5: Disposing engine and recreating session factory")
+        try:
+            # Dispose the engine with close=True to close all connections
+            await self._async_engine.dispose(close=True)
+
+            # Recreate the engine with the same settings
+            async_config = {
+                "echo": self._async_engine.echo,
+                "pool_pre_ping": True,
+                "pool_recycle": 3600,
+                "pool_size": 5,
+                "max_overflow": 10,
+                "connect_args": {
+                    "timeout": 120,
+                    "check_same_thread": False,
+                },
+                "execution_options": {
+                    "isolation_level": "SERIALIZABLE",
+                    "autocommit": False,
+                },
+            }
+
+            # Create a new engine
+            self._async_engine = create_async_engine(
+                self.sqlalchemy_uri.replace("sqlite://", "sqlite+aiosqlite://"),
+                **async_config,
+            )
+
+            # Create a new session factory
+            Database._async_session_factory = async_sessionmaker(
+                bind=self._async_engine,
+                expire_on_commit=False,
+                class_=AsyncSession,
+            )
+
+            db_logger.info("Stage 5: Engine disposed and recreated")
+        except Exception as e:
+            db_logger.error(f"Stage 5: Error disposing engine: {e}")
+
+        # Stage 6: Create a new session and verify it works
+        db_logger.debug("Stage 6: Creating new session")
+        try:
+            # Create a new session
+            new_session = self._async_session_factory()
+
+            # Test if the new session works
+            await new_session.execute(text("SELECT 1"))
+
+            # Update the session wrapper with the new session
+            session_wrapper["session"] = new_session
+            task_local[task_id] = session_wrapper
+
+            db_logger.info("Stage 6: New session created and verified")
+        except Exception as e:
+            db_logger.error(f"Stage 6: Error creating new session: {e}")
+            # If we can't create a new session, remove the task from tracking
             if task_id in task_local:
                 del task_local[task_id]
-                await session.close()
+            # Re-raise to signal that recovery failed
+            raise RuntimeError(f"Failed to recover from savepoint error: {e}") from e
 
     async def cleanup(self) -> None:
         """Clean up all database connections."""
@@ -616,28 +1011,93 @@ class Database:
             # Final sync
             self._sync_to_disk()
 
+            # Handle any pending async sessions before closing
+            try:
+                # Check if there's an active async session and handle pending transactions
+                if hasattr(self._thread_local, "async_session"):
+                    async_session = self._thread_local.async_session
+                    if async_session.is_active:
+                        try:
+                            # Try to rollback any pending transactions
+                            await async_session.rollback()
+                            db_logger.info(
+                                "Rolled back pending async transaction during cleanup"
+                            )
+                        except Exception as rollback_e:
+                            db_logger.error(
+                                f"Error rolling back async transaction during cleanup: {rollback_e}"
+                            )
+                        finally:
+                            # Close the session
+                            await async_session.close()
+                            db_logger.info("Closed active async session during cleanup")
+            except Exception as session_e:
+                db_logger.error(
+                    f"Error handling active async session during cleanup: {session_e}"
+                )
+
+            # Handle any pending sync sessions before closing
+            try:
+                # Check if there's an active session and handle pending transactions
+                if hasattr(self._thread_local, "session"):
+                    session = self._thread_local.session
+                    if session.is_active:
+                        try:
+                            # Try to rollback any pending transactions
+                            session.rollback()
+                            db_logger.info(
+                                "Rolled back pending transaction during cleanup"
+                            )
+                        except Exception as rollback_e:
+                            db_logger.error(
+                                f"Error rolling back transaction during cleanup: {rollback_e}"
+                            )
+                        finally:
+                            # Close the session
+                            session.close()
+                            db_logger.info("Closed active session during cleanup")
+            except Exception as session_e:
+                db_logger.error(
+                    f"Error handling active session during cleanup: {session_e}"
+                )
+
             # Close shared connection first to properly close in-memory database
             if (
                 hasattr(self, "_shared_connection")
                 and self._shared_connection is not None
             ):
                 try:
+                    # Execute a rollback directly on the connection to clear any pending transactions
+                    try:
+                        self._shared_connection.execute("ROLLBACK")
+                        db_logger.info(
+                            "Executed ROLLBACK on shared connection before closing"
+                        )
+                    except Exception as direct_rollback_e:
+                        db_logger.error(
+                            f"Error executing direct ROLLBACK: {direct_rollback_e}"
+                        )
+
+                    # Now close the connection
                     self._shared_connection.close()
+                    db_logger.info("Closed shared connection successfully")
                 except Exception as e:
-                    print_error(f"Error closing shared connection: {e}")
+                    db_logger.error(f"Error closing shared connection: {e}")
 
             # Then close engines
             if hasattr(self, "_sync_engine") and self._sync_engine is not None:
                 try:
                     self._sync_engine.dispose()
+                    db_logger.info("Disposed sync engine successfully")
                 except Exception as e:
-                    print_error(f"Error disposing sync engine: {e}")
+                    db_logger.error(f"Error disposing sync engine: {e}")
 
             if hasattr(self, "_async_engine") and self._async_engine is not None:
                 try:
                     await self._async_engine.dispose()
+                    db_logger.info("Disposed async engine successfully")
                 except Exception as e:
-                    print_error(f"Error disposing async engine: {e}")
+                    db_logger.error(f"Error disposing async engine: {e}")
 
     def close_sync(self) -> None:
         """Synchronous cleanup for atexit handler."""
@@ -647,22 +1107,61 @@ class Database:
             if self._sync_thread is not None:
                 self._sync_thread.join(timeout=5)
 
+            # Handle any pending sessions before closing
+            try:
+                # Check if there's an active session and handle pending transactions
+                if hasattr(self._thread_local, "session"):
+                    session = self._thread_local.session
+                    if session.is_active:
+                        try:
+                            # Try to rollback any pending transactions
+                            session.rollback()
+                            db_logger.info(
+                                "Rolled back pending transaction during cleanup"
+                            )
+                        except Exception as rollback_e:
+                            db_logger.error(
+                                f"Error rolling back transaction during cleanup: {rollback_e}"
+                            )
+                        finally:
+                            # Close the session
+                            session.close()
+                            db_logger.info("Closed active session during cleanup")
+            except Exception as session_e:
+                db_logger.error(
+                    f"Error handling active session during cleanup: {session_e}"
+                )
+
             # Close shared connection first to properly close in-memory database
             if (
                 hasattr(self, "_shared_connection")
                 and self._shared_connection is not None
             ):
                 try:
+                    # Execute a rollback directly on the connection to clear any pending transactions
+                    try:
+                        self._shared_connection.execute("ROLLBACK")
+                        db_logger.info(
+                            "Executed ROLLBACK on shared connection before closing"
+                        )
+                    except Exception as direct_rollback_e:
+                        db_logger.error(
+                            f"Error executing direct ROLLBACK: {direct_rollback_e}"
+                        )
+
+                    # Now close the connection
                     self._shared_connection.close()
+                    db_logger.info("Closed shared connection successfully")
                 except Exception as e:
-                    print_error(f"Error closing shared connection: {e}")
+                    db_logger.error(f"Error closing shared connection: {e}")
 
             # Then close engines
             if hasattr(self, "_sync_engine") and self._sync_engine is not None:
                 try:
                     self._sync_engine.dispose()
+                    db_logger.info("Disposed sync engine successfully")
                 except Exception as e:
-                    print_error(f"Error disposing sync engine: {e}")
+                    db_logger.error(f"Error disposing sync engine: {e}")
 
             # Check for leaked semaphores
             monitor_semaphores(threshold=20)  # Warn if too many semaphores
@@ -718,16 +1217,16 @@ class Database:
         """
         # Set the correct shared memory URI in Alembic config
         alembic_cfg.set_main_option("sqlalchemy.url", self.sqlalchemy_uri)
-        print_info(
+        db_logger.info(
             f"Running migrations on shared memory database: {self.sqlalchemy_uri}"
         )
 
         # Create persistent connection for migrations
         connection = self._sync_engine.connect()
         connection = connection.execution_options(
-            isolation_level="AUTOCOMMIT",
+            isolation_level="SERIALIZABLE",
             expire_on_commit=False,
-            autocommit=True,
+            autocommit=False,
             preserve_session=True,
             keep_transaction=True,
             close_with_result=False,
@@ -745,25 +1244,25 @@ class Database:
                 alembic_version_exists = result.scalar() is not None
 
                 if not alembic_version_exists:
-                    print_info(
+                    db_logger.info(
                         "No alembic_version table found. Initializing migrations..."
                     )
                     alembic_cfg.attributes["connection"] = connection
                     alembic_upgrade(alembic_cfg, "head")  # Run all migrations
-                    print_info("Migrations applied successfully.")
+                    db_logger.info("Migrations applied successfully.")
                 else:
-                    print_info(
+                    db_logger.info(
                         "Database is already initialized. Running migrations to latest version..."
                     )
                     alembic_cfg.attributes["connection"] = connection
                     alembic_upgrade(alembic_cfg, "head")
-                    print_info("Migrations applied successfully.")
+                    db_logger.info("Migrations applied successfully.")
 
             # Create a new connection for validation
             validation_connection = self._sync_engine.connect().execution_options(
-                isolation_level="AUTOCOMMIT",
+                isolation_level="SERIALIZABLE",
                 expire_on_commit=False,
-                autocommit=True,
+                autocommit=False,
                 preserve_session=True,
                 keep_transaction=True,
                 close_with_result=False,
@@ -775,7 +1274,7 @@ class Database:
             # Keep the validation connection for later use
             self._sqlalchemy_connection = validation_connection
         except Exception as e:
-            print_error(f"Error running migrations: {e}")
+            db_logger.error(f"Error running migrations: {e}")
             connection.close()
             raise
 
@@ -810,8 +1309,8 @@ class Database:
                         params,
                     )
                 except Exception as e:
-                    print_error(f"Error validating statement '{name}': {e}")
-                    print_error(f"SQL: {stmt.text}")
+                    db_logger.error(f"Error validating statement '{name}': {e}")
+                    db_logger.error(f"SQL: {stmt.text}")
                     raise
 
     def _prepare_statements(self) -> None:
