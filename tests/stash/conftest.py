@@ -27,8 +27,9 @@ async def stash_context() -> AsyncGenerator[StashContext, None]:
     """Create a StashContext for testing.
 
     In sandbox mode, raises an error since these tests require a real Stash instance.
+    Tests that require a real server should be skipped with pytest.mark.skip.
     """
-    if os.environ.get("OPENHANDS_SANDBOX") == "1":
+    if os.environ.get("OPENHANDS_SANDBOX") in ("1", "true"):
         raise RuntimeError(
             "Stash integration tests cannot run in sandbox mode - they require a real Stash instance"
         )
@@ -53,6 +54,7 @@ async def stash_client(stash_context) -> StashClient:
     """Get the StashClient from the StashContext.
 
     This ensures proper client initialization through the context's get_client() method.
+    Tests that require a real server should be skipped with pytest.mark.skip.
     """
     return await stash_context.get_client()
 
