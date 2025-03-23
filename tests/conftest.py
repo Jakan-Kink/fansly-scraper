@@ -182,8 +182,6 @@ def test_database(test_config, tmp_path, request):
         # Connection health and pooling settings
         pool_pre_ping=True,  # Check connection health before using
         pool_recycle=3600,  # Recycle connections after 1 hour
-        pool_size=5,  # Maintain a pool of connections
-        max_overflow=10,  # Allow up to 10 overflow connections
         # SQLite specific settings
         connect_args={
             "uri": True,
