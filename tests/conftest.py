@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+import pytest_asyncio
 from loguru import logger
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -15,6 +16,15 @@ from alembic.config import Config as AlembicConfig
 from config import FanslyConfig
 from metadata.base import Base
 from metadata.database import Database
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_database(test_database):
+    """Clean up database after each test."""
+    yield
+    db = await test_database
+    async with db.async_session_scope() as session:
+        await session.rollback()
 
 
 @pytest.fixture(autouse=True)
@@ -154,8 +164,8 @@ def test_config_factory():
     return config
 
 
-@pytest.fixture
-def test_database(test_config, tmp_path, request):
+@pytest_asyncio.fixture
+async def test_database(test_config, tmp_path, request):
     """Create a test database instance."""
     # Create a unique in-memory database name for each test
     test_name = request.node.name.replace("[", "_").replace("]", "_")
@@ -195,7 +205,18 @@ def test_database(test_config, tmp_path, request):
         },
     )
 
-    # Let Database handle schema through alembic migrations
+    # Create all tables using Base.metadata
+    Base.metadata.create_all(engine)
+
+    # Run alembic migrations
+    alembic_cfg = AlembicConfig("alembic.ini")
+    alembic_cfg.attributes["connection"] = engine
+
+    # Import after config to avoid circular imports
+    from alembic import command
+
+    command.upgrade(alembic_cfg, "head")
+
     yield test_config._database
 
     # Clean up
@@ -213,16 +234,18 @@ def test_session(test_database):
         yield session
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_async_session(test_database):
     """Create an async test database session."""
-    async with test_database.async_session_scope() as session:
+    db = await test_database
+    async with db.async_session_scope() as session:
         yield session
 
 
-@pytest.fixture(scope="session")
-def event_loop():
+@pytest_asyncio.fixture(scope="function")
+async def event_loop():
     """Create an instance of the default event loop for each test case."""
-    loop = asyncio.new_event_loop()
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
     yield loop
     loop.close()

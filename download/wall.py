@@ -3,8 +3,7 @@
 import random
 import traceback
 from asyncio import sleep
-from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
+from typing import Any
 
 from requests import Response
 from sqlalchemy import select
@@ -28,49 +27,8 @@ from .common import (
 )
 from .core import DownloadState
 from .media import download_media_infos
+from .transaction import in_transaction_or_new
 from .types import DownloadType
-
-# Type variable for the transaction helper
-T = TypeVar("T")
-
-
-async def in_transaction_or_new(
-    session: AsyncSession,
-    func: Callable[..., Coroutine[Any, Any, T]],
-    debug: bool = False,
-    operation_name: str = "database operation",
-    *args: Any,
-    **kwargs: Any,
-) -> T:
-    """Execute a function in a transaction, creating a savepoint if already in a transaction.
-
-    Args:
-        session: The database session
-        func: The async function to execute
-        debug: Whether to print debug information
-        operation_name: Name of the operation for debug messages
-        *args: Positional arguments to pass to the function
-        **kwargs: Keyword arguments to pass to the function
-
-    Returns:
-        The result of the function
-    """
-    # Check if 'session' is already in kwargs to avoid passing it twice
-    if "session" not in kwargs:
-        kwargs["session"] = session
-
-    if session.in_transaction():
-        # We're already in a transaction, create a savepoint
-        if debug:
-            print_debug(f"Creating savepoint for {operation_name}")
-        async with session.begin_nested():
-            return await func(*args, **kwargs)
-    else:
-        # Start a new transaction
-        if debug:
-            print_debug(f"Starting new transaction for {operation_name}")
-        async with session.begin():
-            return await func(*args, **kwargs)
 
 
 async def process_wall_data(
@@ -100,6 +58,7 @@ async def process_wall_data(
         cursor=before_cursor if before_cursor != "0" else None,
         session=session,
     )
+    await session.flush()
 
     # Only process posts if no duplicates found
     await process_wall_posts(
@@ -109,6 +68,7 @@ async def process_wall_data(
         wall_data,
         session=session,
     )
+    await session.flush()
 
 
 async def process_wall_media(
@@ -134,13 +94,16 @@ async def process_wall_media(
         media_ids=media_ids,
         session=session,
     )
+    await session.flush()
 
-    return await process_download_accessible_media(
+    result = await process_download_accessible_media(
         config,
         state,
         media_infos,
         session=session,
     )
+    await session.flush()
+    return result
 
 
 @with_database_session(async_session=True)
@@ -272,6 +235,7 @@ async def download_wall(
                     )
 
                 print()
+                await session.commit()
 
                 # Get next before_cursor
                 try:
@@ -309,6 +273,7 @@ async def download_wall(
         except DuplicatePageError as e:
             print_info_highlight(str(e))
             print()
+            setattr(e, "_handled", True)
             break  # Break out of the loop to stop processing this wall
 
         except Exception:

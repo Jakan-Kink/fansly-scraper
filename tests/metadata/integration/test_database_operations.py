@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import exc, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from metadata import Account, AccountMedia, Base, Media, Message, Post
@@ -55,9 +56,10 @@ async def setup_database(database: Database):
 
 @pytest.mark.asyncio
 async def test_complex_relationships(
-    database: Database, session: Session, test_account: Account
+    database: Database, session: AsyncSession, test_account: Account
 ):
     """Test complex relationships between multiple models."""
+    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create media
         media = Media(
@@ -114,9 +116,10 @@ async def test_complex_relationships(
 
 @pytest.mark.asyncio
 async def test_cascade_operations(
-    database: Database, session: Session, test_account: Account
+    database: Database, session: AsyncSession, test_account: Account
 ):
     """Test cascade operations across relationships."""
+    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create media and account media
         media = Media(id=1, accountId=test_account.id)
@@ -154,9 +157,10 @@ async def test_cascade_operations(
 
 @pytest.mark.asyncio
 async def test_database_constraints(
-    database: Database, session: Session, test_account: Account
+    database: Database, session: AsyncSession, test_account: Account
 ):
     """Test database constraints and integrity."""
+    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create a Media object
         media = Media(
@@ -284,6 +288,7 @@ async def test_transaction_isolation(database: Database):
 @pytest.mark.asyncio
 async def test_concurrent_access(database: Database, test_account: Account):
     """Test concurrent database access patterns."""
+    test_account = await test_account  # Await the test_account fixture
     num_tasks = 5
     num_messages = 10
 
@@ -345,9 +350,10 @@ async def test_concurrent_access(database: Database, test_account: Account):
 
 @pytest.mark.asyncio
 async def test_query_performance(
-    database: Database, session: Session, test_account: Account
+    database: Database, session: AsyncSession, test_account: Account
 ):
     """Test query performance with indexes."""
+    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create multiple media items
         for i in range(100):
@@ -415,6 +421,7 @@ async def test_write_through_cache_integration(
     database: Database, test_config, test_account: Account
 ):
     """Test write-through caching in a multi-table scenario."""
+    test_account = await test_account  # Await the test_account fixture
     # Create initial data with unique username
     unique_username = f"cache_test_{test_account.username}"
     async with database.async_session_scope() as session:

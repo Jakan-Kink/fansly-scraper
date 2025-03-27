@@ -4,10 +4,11 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest import TestCase
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql import text
 
 from config import FanslyConfig
 from metadata.account import Account
@@ -17,131 +18,115 @@ from metadata.post import Post
 from metadata.wall import Wall, process_account_walls, process_wall_posts
 
 
-class TestWallOperations(TestCase):
-    """Integration tests for wall operations."""
+@pytest.fixture(autouse=True)
+async def setup_account(test_database, request):
+    """Set up test account."""
+    # Generate unique ID based on test name
+    test_name = request.node.name
+    import hashlib
 
-    @classmethod
-    def setUpClass(cls):
-        """Load test data."""
-        # Load test data
-        cls.test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
-        with open(os.path.join(cls.test_data_dir, "timeline-sample-account.json")) as f:
-            cls.timeline_data = json.load(f)
-
-    def setUp(self):
-        """Set up fresh database and session for each test."""
-        # Create test database
-        self.engine = create_engine("sqlite:///:memory:")
-        # Base.metadata.create_all(self.engine)
-        self.Session: sessionmaker = sessionmaker(bind=self.engine)
-        self.session: Session = self.Session()
-
-        # Create config with test database
-        self.config = FanslyConfig(program_version="0.10.0")
-        self.config.metadata_db_file = Path(":memory:")
-        self.config._database = Database(self.config)
-        self.config._database._sync_engine = self.engine
-        self.config._database.session_scope = self.Session
-
-        # Generate unique ID based on test name
-        test_name = self._testMethodName
-        import hashlib
-
-        unique_id = (
-            int(
-                hashlib.sha1(
-                    f"{self.__class__.__name__}_{test_name}".encode()
-                ).hexdigest()[:8],
-                16,
-            )
-            % 1000000
+    unique_id = (
+        int(
+            hashlib.sha1(f"TestWallOperations_{test_name}".encode()).hexdigest()[:8],
+            16,
         )
+        % 1000000
+    )
 
+    async with test_database.async_session_scope() as session:
         # Create test account with unique ID
-        self.account = Account(id=unique_id, username=f"test_user_{unique_id}")
-        self.session.add(self.account)
-        self.session.commit()
+        account = Account(id=unique_id, username=f"test_user_{unique_id}")
+        session.add(account)
+        await session.commit()
+        return account
 
-    def tearDown(self):
-        """Clean up after each test."""
-        try:
-            # Clean up data
-            for table in reversed(Base.metadata.sorted_tables):
-                self.session.execute(table.delete())
-            self.session.commit()
-        except Exception:
-            self.session.rollback()
-        finally:
-            self.session.close()
-            self.engine.dispose()
 
-    def test_wall_post_integration(self):
-        """Test full wall and post integration."""
+@pytest.mark.asyncio
+async def test_wall_post_integration(test_database, setup_account):
+    """Test full wall and post integration."""
+    async with test_database.async_session_scope() as session:
         # Create walls
         walls = [
             Wall(
                 id=i,
-                accountId=self.account.id,
+                accountId=setup_account.id,
                 name=f"Wall {i}",
                 pos=i,
                 description=f"Description {i}",
             )
             for i in range(1, 3)
         ]
-        self.session.add_all(walls)
+        for wall in walls:
+            session.add(wall)
 
         # Create posts
         posts = [
             Post(
                 id=i,
-                accountId=self.account.id,
+                accountId=setup_account.id,
                 content=f"Post {i}",
                 createdAt=datetime.now(timezone.utc),
             )
             for i in range(1, 5)
         ]
-        self.session.add_all(posts)
-        self.session.commit()
+        for post in posts:
+            session.add(post)
+        await session.commit()
 
         # Associate posts with walls
         walls[0].posts = posts[:2]  # First two posts to first wall
         walls[1].posts = posts[2:]  # Last two posts to second wall
-        self.session.commit()
+        await session.commit()
 
         # Verify through separate session
-        with self.Session() as verify_session:
-            # Check first wall
-            wall1 = verify_session.query(Wall).get(1)
-            self.assertEqual(len(wall1.posts), 2)
-            self.assertEqual(
-                sorted(p.content for p in wall1.posts), ["Post 1", "Post 2"]
+        # Check first wall
+        result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))
+        wall1 = result.fetchone()
+        assert wall1 is not None, "Wall 1 should exist"
+        result = await session.execute(
+            text(
+                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 1 ORDER BY posts.content"
             )
+        )
+        wall1_posts = result.fetchall()
+        assert len(wall1_posts) == 2
+        assert [p.content for p in wall1_posts] == ["Post 1", "Post 2"]
 
-            # Check second wall
-            wall2 = verify_session.query(Wall).get(2)
-            self.assertEqual(len(wall2.posts), 2)
-            self.assertEqual(
-                sorted(p.content for p in wall2.posts), ["Post 3", "Post 4"]
+        # Check second wall
+        result = await session.execute(text("SELECT * FROM walls WHERE id = 2"))
+        wall2 = result.fetchone()
+        assert wall2 is not None, "Wall 2 should exist"
+        result = await session.execute(
+            text(
+                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 2 ORDER BY posts.content"
             )
+        )
+        wall2_posts = result.fetchall()
+        assert len(wall2_posts) == 2
+        assert [p.content for p in wall2_posts] == ["Post 3", "Post 4"]
 
-    def test_wall_updates_with_posts(self):
-        """Test updating walls while maintaining post associations."""
+
+@pytest.mark.asyncio
+async def test_wall_updates_with_posts(test_database, config, setup_account):
+    """Test updating walls while maintaining post associations."""
+    async with test_database.async_session_scope() as session:
         # Create initial wall with posts
-        wall = Wall(id=1, accountId=self.account.id, name="Original Wall", pos=1)
-        self.session.add(wall)
+        wall = Wall(id=1, accountId=setup_account.id, name="Original Wall", pos=1)
+        session.add(wall)
 
         posts = [
             Post(
                 id=i,
-                accountId=self.account.id,
+                accountId=setup_account.id,
                 content=f"Post {i}",
                 createdAt=datetime.now(timezone.utc),
             )
             for i in range(1, 3)
         ]
-        self.session.add_all(posts)
+        for post in posts:
+            session.add(post)
         wall.posts = posts
-        self.session.commit()
+        await session.commit()
 
         # Update wall through process_account_walls
         new_wall_data = [
@@ -153,55 +138,74 @@ class TestWallOperations(TestCase):
             }
         ]
 
-        process_account_walls(self.config, self.account, new_wall_data)
+        await process_account_walls(config, setup_account, new_wall_data)
 
-        # Verify updates in new session
-        with self.Session() as verify_session:
-            updated_wall = verify_session.query(Wall).get(1)
-            self.assertEqual(updated_wall.name, "Updated Wall")
-            self.assertEqual(updated_wall.pos, 2)
-            self.assertEqual(updated_wall.description, "New description")
+        # Verify updates
+        result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))
+        updated_wall = result.fetchone()
+        assert updated_wall.name == "Updated Wall"
+        assert updated_wall.pos == 2
+        assert updated_wall.description == "New description"
 
-            # Verify posts are still associated
-            self.assertEqual(len(updated_wall.posts), 2)
-            self.assertEqual(
-                sorted(p.content for p in updated_wall.posts), ["Post 1", "Post 2"]
+        # Verify posts are still associated
+        result = await session.execute(
+            text(
+                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 1 ORDER BY posts.content"
             )
+        )
+        wall_posts = result.fetchall()
+        assert len(wall_posts) == 2
+        assert [p.content for p in wall_posts] == ["Post 1", "Post 2"]
 
-    def test_wall_post_processing(self):
-        """Test processing wall posts from timeline-style data."""
+
+@pytest.mark.asyncio
+async def test_wall_post_processing(test_database, config, setup_account):
+    """Test processing wall posts from timeline-style data."""
+    async with test_database.async_session_scope() as session:
         # Create wall
-        wall = Wall(id=1, accountId=self.account.id, name="Test Wall")
-        self.session.add(wall)
-        self.session.commit()
+        wall = Wall(id=1, accountId=setup_account.id, name="Test Wall")
+        session.add(wall)
+        await session.commit()
 
         # Create posts data in timeline format
         posts_data = {
             "posts": [
                 {
                     "id": i,
-                    "accountId": self.account.id,
+                    "accountId": setup_account.id,
                     "content": f"Post {i}",
                     "createdAt": int(datetime.now(timezone.utc).timestamp()),
                 }
                 for i in range(1, 4)
             ],
-            "accounts": [{"id": self.account.id, "username": self.account.username}],
+            "accounts": [{"id": setup_account.id, "username": setup_account.username}],
             "accountMedia": [],  # Empty list to avoid KeyError
         }
 
         # Process posts
-        process_wall_posts(self.config, None, wall.id, posts_data)
+        await process_wall_posts(config, None, wall.id, posts_data)
 
-        # Verify in new session
-        with self.Session() as verify_session:
-            wall = verify_session.query(Wall).get(1)
-            self.assertEqual(len(wall.posts), 3)
+        # Verify
+        result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))
+        wall = result.fetchone()
+        result = await session.execute(
+            text(
+                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 1 ORDER BY posts.content"
+            )
+        )
+        wall_posts = result.fetchall()
+        assert len(wall_posts) == 3
 
-            # Verify post content
-            post_contents = sorted(p.content for p in wall.posts)
-            self.assertEqual(post_contents, ["Post 1", "Post 2", "Post 3"])
+        # Verify post content
+        post_contents = [p.content for p in wall_posts]
+        assert post_contents == ["Post 1", "Post 2", "Post 3"]
 
-            # Verify post-wall relationships
-            for post in wall.posts:
-                self.assertIn(wall, post.walls)
+        # Verify post-wall relationships
+        for post in wall_posts:
+            result = await session.execute(
+                text(
+                    "SELECT * FROM wall_posts WHERE postId = :post_id AND wallId = :wall_id"
+                ),
+                {"post_id": post.id, "wall_id": wall.id},
+            )
+            assert result.fetchone() is not None

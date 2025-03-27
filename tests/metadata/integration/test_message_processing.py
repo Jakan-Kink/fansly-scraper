@@ -4,10 +4,11 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest import TestCase
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql import text
 
 from config import FanslyConfig
 from metadata.account import Account
@@ -19,174 +20,172 @@ from metadata.messages import (
     process_groups_response,
     process_messages_metadata,
 )
+from tests.metadata.conftest import TestDatabase
 
 
-class TestMessageProcessing(TestCase):
-    """Integration tests for message processing."""
+@pytest.fixture(scope="session")
+def conversation_data():
+    """Load conversation test data."""
+    test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
+    with open(os.path.join(test_data_dir, "conversation-sample-account.json")) as f:
+        return json.load(f)
 
-    @classmethod
-    def setUpClass(cls):
-        """Load test data."""
-        # Load test data
-        cls.test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
 
-        # Load conversation data
-        with open(
-            os.path.join(cls.test_data_dir, "conversation-sample-account.json")
-        ) as f:
-            cls.conversation_data = json.load(f)
+@pytest.fixture(scope="session")
+def group_data():
+    """Load group messages test data."""
+    test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
+    with open(os.path.join(test_data_dir, "messages-group.json")) as f:
+        return json.load(f)
 
-        # Load group messages data
-        with open(os.path.join(cls.test_data_dir, "messages-group.json")) as f:
-            cls.group_data = json.load(f)
 
-    def setUp(self):
-        """Set up fresh database and session for each test."""
-        # Create test database
-        self.engine = create_engine("sqlite:///:memory:")
-        # Base.metadata.create_all(self.engine)
-        self.Session: sessionmaker = sessionmaker(bind=self.engine)
-        self.session: Session = self.Session()
+@pytest.fixture(autouse=True)
+async def setup_accounts(test_database: TestDatabase, request):
+    """Set up test accounts."""
+    # Generate unique IDs based on test name
+    test_name = request.node.name
+    import hashlib
 
-        # Create config with test database
-        self.config = FanslyConfig(program_version="0.10.0")
-        self.config.metadata_db_file = Path(":memory:")
-        self.config._database = Database(self.config)
-        self.config._database._sync_engine = self.engine
-        self.config._database.session_scope = self.Session
-
-        # Generate unique IDs based on test name
-        test_name = self._testMethodName
-        import hashlib
-
-        base_id = (
-            int(
-                hashlib.sha1(
-                    f"{self.__class__.__name__}_{test_name}".encode()
-                ).hexdigest()[:8],
-                16,
-            )
-            % 1000000
+    base_id = (
+        int(
+            hashlib.sha1(f"TestMessageProcessing_{test_name}".encode()).hexdigest()[:8],
+            16,
         )
+        % 1000000
+    )
 
+    async with test_database.async_session_scope() as session:
         # Create test accounts with unique IDs
-        self.accounts = [
+        accounts = [
             Account(id=base_id + i, username=f"user{base_id}_{i}") for i in range(1, 3)
         ]
-        self.session.add_all(self.accounts)
-        self.session.commit()
+        for account in accounts:
+            session.add(account)
+        await session.commit()
+        return accounts
 
-    def tearDown(self):
-        """Clean up after each test."""
-        try:
-            # Clean up data
-            for table in reversed(Base.metadata.sorted_tables):
-                self.session.execute(table.delete())
-            self.session.commit()
-        except Exception:
-            self.session.rollback()
-        finally:
-            self.session.close()
-            self.engine.dispose()
 
-    def test_process_direct_messages(self):
-        """Test processing direct messages from conversation data."""
-        if not self.conversation_data.get("response", {}).get("messages"):
-            self.skipTest("No messages found in conversation data")
+@pytest.mark.asyncio
+async def test_process_direct_messages(
+    test_database: TestDatabase, config, conversation_data, setup_accounts
+):
+    """Test processing direct messages from conversation data."""
+    if not conversation_data.get("response", {}).get("messages"):
+        pytest.skip("No messages found in conversation data")
+    setup_accounts = (
+        await setup_accounts if hasattr(setup_accounts, "__await__") else setup_accounts
+    )
 
-        messages_data = self.conversation_data["response"]["messages"]
+    messages_data = conversation_data["response"]["messages"]
 
-        # Process messages
-        process_messages_metadata(self.config, None, messages_data)
+    # Process messages
+    await process_messages_metadata(config, None, messages_data)
 
-        # Verify messages were created
-        with self.config._database.session_scope() as session:
-            messages = session.query(Message).all()
-            self.assertGreater(len(messages), 0)
+    # Verify messages were created
+    async with test_database.async_session_scope() as session:
+        result = await session.execute(text("SELECT COUNT(*) FROM messages"))
+        count = result.scalar()
+        assert count > 0
 
-            # Clear existing messages
-            session.query(Message).delete()
-            session.commit()
+        # Clear existing messages
+        await session.execute(text("DELETE FROM messages"))
+        await session.commit()
 
-            # Create test message data
-            test_message_data = {
-                "id": 1,
-                "senderId": self.accounts[0].id,
-                "content": "Test message content",
-                "createdAt": int(datetime.now(timezone.utc).timestamp()),
-            }
+        # Create test message data
+        test_message_data = {
+            "id": 1,
+            "senderId": setup_accounts[0].id,
+            "content": "Test message content",
+            "createdAt": int(datetime.now(timezone.utc).timestamp()),
+        }
 
-            # Process test message
-            process_messages_metadata(self.config, None, [test_message_data])
+        # Process test message
+        await process_messages_metadata(config, None, [test_message_data])
 
-            # Verify message was created
-            messages = session.query(Message).all()
-            self.assertEqual(len(messages), 1)
-            self.assertEqual(messages[0].content, test_message_data["content"])
-            self.assertEqual(messages[0].senderId, test_message_data["senderId"])
+        # Verify message was created
+        result = await session.execute(text("SELECT * FROM messages"))
+        messages = result.fetchall()
+        assert len(messages) == 1
+        assert messages[0].content == test_message_data["content"]
+        assert messages[0].senderId == test_message_data["senderId"]
 
-            # Verify message was created with correct data
-            self.assertIsNotNone(messages[0].createdAt)
-            self.assertFalse(messages[0].deleted)
-            self.assertIsNone(messages[0].deletedAt)
+        # Verify message was created with correct data
+        assert messages[0].createdAt is not None
+        assert not messages[0].deleted
+        assert messages[0].deletedAt is None
 
-            # Check attachments if present
-            if "attachments" in test_message_data:
-                self.assertEqual(
-                    len(messages[0].attachments), len(test_message_data["attachments"])
-                )
+        # Check attachments if present
+        if "attachments" in test_message_data:
+            assert len(messages[0].attachments) == len(test_message_data["attachments"])
 
-    def test_process_group_messages(self):
-        """Test processing group messages."""
-        if not self.group_data.get("response", {}).get("data"):
-            self.skipTest("No group data found in test data")
 
-        # Process group data
-        process_groups_response(self.config, None, self.group_data["response"])
+@pytest.mark.asyncio
+async def test_process_group_messages(test_database: TestDatabase, config, group_data):
+    """Test processing group messages."""
+    if not group_data.get("response", {}).get("data"):
+        pytest.skip("No group data found in test data")
 
-        # Verify groups were created
-        with self.config._database.session_scope() as session:
-            groups = session.query(Group).all()
-            self.assertGreater(len(groups), 0)
+    # Process group data
+    await process_groups_response(config, None, group_data["response"])
 
-            # Check first group
-            first_group = groups[0]
-            first_data = self.group_data["response"]["data"][0]
+    # Verify groups were created
+    async with test_database.async_session_scope() as session:
+        result = await session.execute(text("SELECT * FROM groups"))
+        groups = result.fetchall()
+        assert len(groups) > 0
 
-            # Verify group members
-            if "users" in first_data:
-                self.assertEqual(len(first_group.users), len(first_data["users"]))
+        # Check first group
+        first_group = groups[0]
+        first_data = group_data["response"]["data"][0]
 
-            # Verify last message if present
-            if first_group.lastMessageId:
-                last_message = session.query(Message).get(first_group.lastMessageId)
-                self.assertIsNotNone(last_message)
-                self.assertEqual(last_message.groupId, first_group.id)
+        # Verify group members
+        if "users" in first_data:
+            assert len(first_group.users) == len(first_data["users"])
 
-    def test_process_message_attachments(self):
-        """Test processing messages with attachments."""
-        messages_with_attachments = []
+        # Verify last message if present
+        if first_group.lastMessageId:
+            result = await session.execute(
+                text("SELECT * FROM messages WHERE id = :message_id"),
+                {"message_id": first_group.lastMessageId},
+            )
+            last_message = result.fetchone()
+            assert last_message is not None
+            assert last_message.groupId == first_group.id
 
-        # Look for messages with attachments in both conversation and group data
-        if self.conversation_data.get("response", {}).get("messages"):
-            for msg in self.conversation_data["response"]["messages"]:
-                if msg.get("attachments"):
-                    messages_with_attachments.append(msg)
 
-        if not messages_with_attachments:
-            self.skipTest("No messages with attachments found in test data")
+@pytest.mark.asyncio
+async def test_process_message_attachments(
+    test_database: TestDatabase,
+    config,
+    conversation_data,
+):
+    """Test processing messages with attachments."""
+    messages_with_attachments = []
 
-        # Process messages
-        process_messages_metadata(self.config, None, messages_with_attachments)
+    # Look for messages with attachments in conversation data
+    if conversation_data.get("response", {}).get("messages"):
+        for msg in conversation_data["response"]["messages"]:
+            if msg.get("attachments"):
+                messages_with_attachments.append(msg)
 
-        # Verify attachments were created
-        with self.config._database.session_scope() as session:
-            for msg_data in messages_with_attachments:
-                message = session.query(Message).get(msg_data["id"])
-                self.assertIsNotNone(message)
-                self.assertEqual(len(message.attachments), len(msg_data["attachments"]))
+    if not messages_with_attachments:
+        pytest.skip("No messages with attachments found in test data")
 
-                # Verify attachment content IDs match
-                attachment_ids = {str(a.contentId) for a in message.attachments}
-                expected_ids = {str(a["contentId"]) for a in msg_data["attachments"]}
-                self.assertEqual(attachment_ids, expected_ids)
+    # Process messages
+    await process_messages_metadata(config, None, messages_with_attachments)
+
+    # Verify attachments were created
+    async with test_database.async_session_scope() as session:
+        for msg_data in messages_with_attachments:
+            result = await session.execute(
+                text("SELECT * FROM messages WHERE id = :message_id"),
+                {"message_id": msg_data["id"]},
+            )
+            message = result.fetchone()
+            assert message is not None
+            assert len(message.attachments) == len(msg_data["attachments"])
+
+            # Verify attachment content IDs match
+            attachment_ids = {str(a.contentId) for a in message.attachments}
+            expected_ids = {str(a["contentId"]) for a in msg_data["attachments"]}
+            assert attachment_ids == expected_ids

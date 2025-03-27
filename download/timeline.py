@@ -5,8 +5,7 @@ import traceback
 
 # from pprint import pprint
 from asyncio import sleep
-from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
+from typing import Any
 
 from requests import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,49 +28,8 @@ from .common import (
 )
 from .core import DownloadState
 from .media import download_media_infos
+from .transaction import in_transaction_or_new
 from .types import DownloadType
-
-# Type variable for the transaction helper
-T = TypeVar("T")
-
-
-async def in_transaction_or_new(
-    session: AsyncSession,
-    func: Callable[..., Coroutine[Any, Any, T]],
-    debug: bool = False,
-    operation_name: str = "database operation",
-    *args: Any,
-    **kwargs: Any,
-) -> T:
-    """Execute a function in a transaction, creating a savepoint if already in a transaction.
-
-    Args:
-        session: The database session
-        func: The async function to execute
-        debug: Whether to print debug information
-        operation_name: Name of the operation for debug messages
-        *args: Positional arguments to pass to the function
-        **kwargs: Keyword arguments to pass to the function
-
-    Returns:
-        The result of the function
-    """
-    # Check if 'session' is already in kwargs to avoid passing it twice
-    if "session" not in kwargs:
-        kwargs["session"] = session
-
-    if session.in_transaction():
-        # We're already in a transaction, create a savepoint
-        if debug:
-            print_debug(f"Creating savepoint for {operation_name}")
-        async with session.begin_nested():
-            return await func(*args, **kwargs)
-    else:
-        # Start a new transaction
-        if debug:
-            print_debug(f"Starting new transaction for {operation_name}")
-        async with session.begin():
-            return await func(*args, **kwargs)
 
 
 async def process_timeline_data(
@@ -99,6 +57,7 @@ async def process_timeline_data(
         cursor=timeline_cursor if timeline_cursor != 0 else None,
         session=session,
     )
+    await session.flush()
 
     # Only process posts if no duplicates found
     await process_timeline_posts(
@@ -107,6 +66,7 @@ async def process_timeline_data(
         timeline,
         session=session,
     )
+    await session.flush()
 
 
 async def process_timeline_media(
@@ -135,13 +95,16 @@ async def process_timeline_media(
         media_ids=all_media_ids,
         session=session,
     )
+    await session.flush()
 
-    return await process_download_accessible_media(
+    results = await process_download_accessible_media(
         config,
         state,
         media_infos,
         session=session,
     )
+    await session.flush()
+    return results
 
 
 @with_database_session(async_session=True)
@@ -260,6 +223,7 @@ async def download_timeline(
                     )
 
                 print()
+                await session.commit()
 
                 # get next timeline_cursor
                 try:
@@ -280,7 +244,7 @@ async def download_timeline(
 
                     raise ApiError(message)
 
-        except KeyError as e:
+        except KeyError:
             print_error(
                 "Couldn't find any scrapable media at all!\
                 \n This most likely happend because you're not following the creator, your authorisation token is wrong\
@@ -288,23 +252,16 @@ async def download_timeline(
                 35,
             )
             input_enter_continue(config.interactive)
-            # Mark exception as handled
-            setattr(e, "_handled", True)
-            raise
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
             print()
-            # Mark exception as handled
             setattr(e, "_handled", True)
-            raise
+            break  # Break out of the loop to stop processing this timeline
 
-        except Exception as e:
+        except Exception:
             print_error(
                 f"Unexpected error during Timeline download: \n{traceback.format_exc()}",
                 36,
             )
             input_enter_continue(config.interactive)
-            # Mark exception as handled
-            setattr(e, "_handled", True)
-            raise

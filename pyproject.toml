@@ -168,7 +168,9 @@ markers = [
     "unit: marks tests as unit tests",
     "functional: marks tests as functional tests",
     "performance: marks tests as performance tests",
+    "asyncio: mark a test as an async test",
 ]
+asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]

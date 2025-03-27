@@ -342,6 +342,7 @@ async def _process_single_group(
     )
 
     if "lastMessageId" in filtered_group:
+        # Check if message exists
         message_exists = await log_missing_relationship(
             session=session,
             table_name="groups",
@@ -350,6 +351,7 @@ async def _process_single_group(
             referenced_table="messages",
             context={"groupId": filtered_group.get("id"), "source": source},
         )
+        # Only set lastMessageId if message exists or this is not from aggregation data
         if source == "aggregation_groups" and not message_exists:
             del filtered_group["lastMessageId"]
 

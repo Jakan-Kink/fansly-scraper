@@ -35,21 +35,30 @@ async def log_missing_relationship(
     Returns:
         bool: True if the relationship exists, False if it's missing
     """
-    # Convert ID to string for consistent handling
+    # Convert ID to string for consistent handling in logs
     str_id = str(missing_id)
 
-    # Check if the ID exists in the referenced table
-    result = (
-        await session.execute(
-            text(f"SELECT 1 FROM {referenced_table} WHERE id = :id"), {"id": missing_id}
-        )
-        if isinstance(session, AsyncSession)
-        else session.execute(
-            text(f"SELECT 1 FROM {referenced_table} WHERE id = :id"), {"id": missing_id}
-        )
-    )
+    # Convert ID to integer for database query
+    try:
+        int_id = int(missing_id)
+    except (ValueError, TypeError):
+        # If ID can't be converted to integer, treat as missing
+        int_id = None
 
-    exists = (result.first()) is not None
+    if int_id is not None:
+        # Check if the ID exists in the referenced table
+        query = text(f"SELECT 1 FROM {referenced_table} WHERE id = :id")
+        params = {"id": int_id}
+
+        if isinstance(session, AsyncSession):
+            result = await session.execute(query, params)
+        else:
+            result = session.execute(query, params)
+
+        row = result.first()
+        exists = row is not None
+    else:
+        exists = False
 
     if not exists:
         # Check if this relationship is already logged

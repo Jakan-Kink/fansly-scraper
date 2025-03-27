@@ -17,7 +17,8 @@
           {
             "messageId": "123456789",
             "contentType": 1,
-            "contentId": "732187623"
+            "contentId": "732187623",
+            "pos": 0
             }
         ],
         "embeds": [],

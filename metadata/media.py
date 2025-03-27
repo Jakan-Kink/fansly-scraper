@@ -126,7 +126,7 @@ class Media(Base):
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     local_filename: Mapped[str] = mapped_column(String, nullable=True)
-    content_hash: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=True)
     is_downloaded: Mapped[bool] = mapped_column(
         Integer,
         default=0,

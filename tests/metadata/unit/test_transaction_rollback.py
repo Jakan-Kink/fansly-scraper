@@ -20,19 +20,25 @@ def config(tmp_path: Path) -> FanslyConfig:
     return config
 
 
-@pytest.fixture
-def database(config: FanslyConfig) -> Database:
-    """Create test database."""
-    db = Database(config)
-
-    # Create test table in a synchronous way
-    with db.session_scope() as session:
-        session.execute(text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)"))
+@pytest.fixture(autouse=True)
+def cleanup_test_table(database: Database):
+    """Clean up test table before and after each test."""
+    # Drop table if it exists before test
+    with database.session_scope() as session:
+        session.execute(text("DROP TABLE IF EXISTS test"))
+        session.commit()
+    yield
+    # Drop table after test
+    with database.session_scope() as session:
+        session.execute(text("DROP TABLE IF EXISTS test"))
         session.commit()
 
-    yield db
 
-    # Clean up synchronously
+@pytest.fixture
+def database(config: FanslyConfig) -> Database:
+    """Create test database for transaction tests."""
+    db = Database(config)
+    yield db
     db.close_sync()
 
 
@@ -41,6 +47,13 @@ class TestNestedTransactionRollback:
 
     def test_successful_nested_transactions(self, database: Database):
         """Test scenario where nested transactions succeed."""
+        # Create test table
+        with database.session_scope() as session:
+            session.execute(
+                text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+            )
+            session.commit()
+
         # Test nested transactions
         with database.session_scope() as session:
             with session.begin():
@@ -72,9 +85,11 @@ class TestNestedTransactionRollback:
 
     def test_nested_transaction_error_recovery(self, database: Database):
         """Test scenario where a nested transaction fails but outer transaction continues."""
-        # Clear the table
+        # Create test table
         with database.session_scope() as session:
-            session.execute(text("DELETE FROM test"))
+            session.execute(
+                text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+            )
             session.commit()
 
         # Test nested transactions with error
@@ -119,9 +134,11 @@ class TestNestedTransactionRollback:
 
     def test_connection_failure_recovery(self, database: Database, monkeypatch):
         """Test recovery from connection failures during nested transactions."""
-        # Clear the table
+        # Create test table
         with database.session_scope() as session:
-            session.execute(text("DELETE FROM test"))
+            session.execute(
+                text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+            )
             session.commit()
 
         # Instead of actually closing the connection, we'll mock the execute method
@@ -189,9 +206,11 @@ class TestNestedTransactionRollback:
 
     def test_multiple_savepoint_errors(self, database: Database, monkeypatch):
         """Test handling of multiple savepoint errors in sequence."""
-        # Clear the table
+        # Create test table
         with database.session_scope() as session:
-            session.execute(text("DELETE FROM test"))
+            session.execute(
+                text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
+            )
             session.commit()
 
         # Mock the rollback method to simulate multiple savepoint errors

@@ -93,7 +93,7 @@ def database(config: FanslyConfig) -> Database:
 class TestSessionManagement:
     """Test session management and transactions."""
 
-    def test_session_scope(self, database: Database, safe_name):
+    def test_session_scope(self, database: Database, safe_name, session_sync):
         """Test basic session scope."""
         table_name = f"test_{safe_name}"
         # Create test data
@@ -182,7 +182,7 @@ class TestDatabaseOperations:
             result = session.execute(text("SELECT * FROM test")).scalar()
             assert result == 1
 
-    def test_sync_to_disk(self, database: Database):
+    def test_sync_to_disk(self, database: Database, test_database_sync):
         """Test sync to disk functionality."""
         # Since _sync_to_disk is mocked, we just need to verify it can be called
         database._sync_to_disk()

@@ -215,7 +215,7 @@ class StashProcessing:
             performer = await self._find_existing_performer(account)
             if performer is None:
                 # Create new performer
-                performer = await Performer.from_account(account)
+                performer = Performer.from_account(account)
                 await performer.save(self.context.client)
 
             debug_print(

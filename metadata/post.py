@@ -162,7 +162,7 @@ async def process_pinned_posts(
     for post in posts:
         # Check if the post exists in the database
         result = await session.execute(select(Post).where(Post.id == post["postId"]))
-        post_exists = result.scalar_one_or_none() is not None
+        post_exists = result.unique().scalar_one_or_none() is not None
         if not post_exists:
             json_output(
                 1,

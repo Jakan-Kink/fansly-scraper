@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from metadata.relationship_logger import (
     clear_missing_relationships,
@@ -14,17 +15,18 @@ from metadata.relationship_logger import (
     print_missing_relationships_summary,
 )
 
-pytestmark = pytest.mark.asyncio
+# Remove global mark and add it to individual async tests
 
 
+@pytest.mark.asyncio
 async def test_log_missing_relationship_existing(session):
     """Test logging when relationship exists."""
     # Create test data
-    session.execute(
+    await session.execute(
         text("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
     )
-    session.execute(text("INSERT INTO test_table (id) VALUES (1)"))
-    session.commit()
+    await session.execute(text("INSERT INTO test_table (id) VALUES (1)"))
+    await session.commit()
 
     # Clear any existing relationships
     clear_missing_relationships()
@@ -42,13 +44,14 @@ async def test_log_missing_relationship_existing(session):
     assert not missing_relationships  # Should be empty since relationship exists
 
 
+@pytest.mark.asyncio
 async def test_log_missing_relationship_nonexistent(session):
     """Test logging when relationship doesn't exist."""
     # Create test table
-    session.execute(
+    await session.execute(
         text("CREATE TABLE IF NOT EXISTS nonexistent_table (id INTEGER PRIMARY KEY)")
     )
-    session.commit()
+    await session.commit()
 
     # Clear any existing relationships
     clear_missing_relationships()
@@ -140,13 +143,14 @@ def test_clear_missing_relationships():
     assert len(missing_relationships) == 0
 
 
+@pytest.mark.asyncio
 async def test_log_missing_relationship_with_none_id(session):
     """Test logging with None ID."""
     # Create test table
-    session.execute(
+    await session.execute(
         text("CREATE TABLE IF NOT EXISTS ref_table (id INTEGER PRIMARY KEY)")
     )
-    session.commit()
+    await session.commit()
 
     exists = await log_missing_relationship(
         session=session,
@@ -162,19 +166,33 @@ async def test_log_missing_relationship_with_none_id(session):
     assert "None" in missing_relationships["ref_table"]["test_table"]
 
 
-@pytest.fixture
-def session(test_session):
+@pytest_asyncio.fixture
+async def session(test_engine):
     """Get test session."""
-    return test_session
+    # Create session factory
+    async_session_factory = async_sessionmaker(
+        bind=test_engine,
+        expire_on_commit=False,
+        class_=AsyncSession,
+    )
+
+    # Create session
+    async with async_session_factory() as session:
+        # Create tables
+        async with session.begin():
+            await session.execute(text("PRAGMA foreign_keys=OFF"))
+            await session.execute(text("PRAGMA journal_mode=WAL"))
+        yield session
 
 
+@pytest.mark.asyncio
 async def test_log_missing_relationship_multiple_times(session):
     """Test logging same missing relationship multiple times."""
     # Create test table
-    session.execute(
+    await session.execute(
         text("CREATE TABLE IF NOT EXISTS ref_table (id INTEGER PRIMARY KEY)")
     )
-    session.commit()
+    await session.commit()
 
     # Clear any existing relationships
     clear_missing_relationships()
@@ -206,13 +224,14 @@ async def test_log_missing_relationship_multiple_times(session):
         True,  # Boolean
     ],
 )
+@pytest.mark.asyncio
 async def test_log_missing_relationship_id_types(session, missing_id):
     """Test logging with different ID types."""
     # Create test table
-    session.execute(
+    await session.execute(
         text("CREATE TABLE IF NOT EXISTS ref_table (id INTEGER PRIMARY KEY)")
     )
-    session.commit()
+    await session.commit()
 
     exists = await log_missing_relationship(
         session=session,
