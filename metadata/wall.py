@@ -222,7 +222,7 @@ async def process_wall_posts(
     json_output(1, "meta/wall - p_w_p - posts_data", posts_data)
 
     # First process posts normally
-    await process_timeline_posts(config, state, posts_data, session)
+    await process_timeline_posts(config, state, posts_data, session=session)
 
     wall = await session.get(Wall, wall_id)
     if wall is None:
