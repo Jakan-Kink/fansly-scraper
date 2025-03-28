@@ -22,6 +22,7 @@ from stash.types import (
 )
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_full_content_workflow(stash_client: StashClient) -> None:
     """Test full content workflow with relationships.
@@ -155,6 +156,7 @@ async def test_full_content_workflow(stash_client: StashClient) -> None:
         pytest.skip(f"Test requires running Stash instance: {e}")
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_concurrent_operations(stash_client: StashClient) -> None:
     """Test concurrent operations.

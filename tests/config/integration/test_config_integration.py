@@ -4,17 +4,51 @@ from tempfile import TemporaryDirectory
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config.config import load_config
 from config.fanslyconfig import FanslyConfig
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from errors import ConfigError
+from metadata.base import Base
+
+
+@pytest_asyncio.fixture
+async def config_db():
+    """Create an async test database."""
+
+    # Create async context manager for database sessions
+    class AsyncSessionContextManager:
+        async def __aenter__(self):
+            self.session = AsyncSession(
+                bind=create_async_engine(
+                    "sqlite+aiosqlite:///file:test_config?mode=memory&cache=shared&uri=true",
+                    future=True,
+                    connect_args={"check_same_thread": False},
+                )
+            )
+            return self.session
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            await self.session.rollback()
+            await self.session.close()
+
+    return AsyncSessionContextManager
 
 
 @pytest.fixture
-def config():
-    return FanslyConfig(program_version="0.10.0")
+def config(config_db, mocker):
+    """Create a test configuration with async database support."""
+    config = FanslyConfig(program_version="0.10.0")
+    session_factory = config_db
+
+    # Create mock database with async session support
+    mock_db = mocker.Mock()
+    mock_db.async_session_scope = session_factory
+    config._database = mock_db
+
+    return config
 
 
 @pytest.fixture
@@ -27,7 +61,7 @@ def temp_config_dir():
 
 
 @pytest.mark.asyncio
-def test_config_with_api_integration(temp_config_dir, config):
+async def test_config_with_api_integration(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Create config with valid API credentials
@@ -55,7 +89,8 @@ download_directory = Local_directory
     assert "401 Client Error: Unauthorized" in str(exc_info.value)
 
 
-def test_config_with_download_modes(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_download_modes(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test each download mode
@@ -75,7 +110,8 @@ download_directory = Local_directory
         assert config.download_mode_str() == mode.name.capitalize()
 
 
-def test_config_with_metadata_handling(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_metadata_handling(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test each metadata handling mode
@@ -95,7 +131,8 @@ download_directory = Local_directory
         assert config.metadata_handling_str() == mode.name.capitalize()
 
 
-def test_config_with_invalid_mode(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_invalid_mode(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test invalid download mode
@@ -114,7 +151,8 @@ download_directory = Local_directory
     assert "wrong value in the config.ini file" in str(exc_info.value)
 
 
-def test_config_with_invalid_metadata_handling(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_invalid_metadata_handling(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test invalid metadata handling
@@ -133,7 +171,8 @@ download_directory = Local_directory
     assert "wrong value in the config.ini file" in str(exc_info.value)
 
 
-def test_config_with_boolean_options(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_boolean_options(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test all boolean options
@@ -173,7 +212,8 @@ prompt_on_exit = False
     assert config.prompt_on_exit is False
 
 
-def test_config_with_invalid_boolean(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_invalid_boolean(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test invalid boolean value
@@ -193,7 +233,8 @@ interactive = NotABoolean
     assert "can only be True or False" in str(exc_info.value)
 
 
-def test_config_with_paths_and_database(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_paths_and_database(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
     db_path = temp_config_dir / "metadata.db"
     download_dir = temp_config_dir / "downloads"
@@ -222,7 +263,8 @@ temp_folder = {temp_dir}
     assert config._base is None  # Base not initialized yet
 
 
-def test_config_with_check_key_validation(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_check_key_validation(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test old check keys that should be replaced
@@ -250,7 +292,7 @@ download_directory = Local_directory
 
 
 @pytest.mark.asyncio
-def test_config_with_device_id_caching(temp_config_dir, config):
+async def test_config_with_device_id_caching(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Create config with cached device ID
@@ -292,7 +334,8 @@ device_id_timestamp = 123456789
             assert "device_id_timestamp = 123456789" in content
 
 
-def test_config_with_renamed_options(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_renamed_options(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test old option names that should be renamed
@@ -319,7 +362,8 @@ use_suffix = False
     assert not config._parser.has_option("Options", "use_suffix")
 
 
-def test_config_with_deprecated_options(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_deprecated_options(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test deprecated options that should be removed
@@ -345,7 +389,8 @@ version = 1.0.0
     assert not config._parser.has_option("Other", "version")
 
 
-def test_config_with_path_validation(temp_config_dir, config):
+@pytest.mark.asyncio
+async def test_config_with_path_validation(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Create some test directories and files

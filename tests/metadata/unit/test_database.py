@@ -151,6 +151,7 @@ class TestSessionManagement:
         assert session.close.called
 
 
+@pytest.mark.unit
 class TestMigrationIntegration:
     """Test migration integration in Database class."""
 
@@ -167,6 +168,7 @@ class TestMigrationIntegration:
             assert result == "alembic_version"
 
 
+@pytest.mark.unit
 class TestDatabaseOperations:
     """Test database operations."""
 
@@ -204,6 +206,7 @@ class TestDatabaseOperations:
 # The optimized_storage property no longer exists in the current implementation
 
 
+@pytest.mark.unit
 class TestDatabaseInit:
     """Test database initialization."""
 
@@ -249,6 +252,7 @@ class TestSyncSession:
         assert True, "Context manager exited successfully"
 
 
+@pytest.mark.unit
 class TestAsyncSession:
     """Test asynchronous session management."""
 

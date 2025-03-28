@@ -45,7 +45,10 @@ async def test_wall_creation(test_async_session: AsyncSession, test_account: Acc
 
 
 @pytest.mark.asyncio
-async def test_wall_post_association(test_async_session, test_account):
+async def test_wall_post_association(
+    test_async_session: AsyncSession,
+    test_account: Account,
+):
     """Test associating posts with a wall."""
     # Create wall
     wall = Wall(id=1, accountId=test_account.id, name="Test Wall")
@@ -84,23 +87,29 @@ async def test_wall_post_association(test_async_session, test_account):
 
 
 @pytest.mark.asyncio
-async def test_process_account_walls(test_async_session, test_account):
+async def test_process_account_walls(
+    test_config,
+    test_async_session: AsyncSession,
+    test_account: Account,
+):
     """Test processing walls data for an account."""
-    config_mock = MagicMock()
-    config_mock._database = MagicMock()
-    config_mock._database.async_session = lambda: test_async_session
+    # Test wall data matching test_wall fixture
     walls_data = [
         {"id": 1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
         {"id": 2, "pos": 2, "name": "Wall 2", "description": "Description 2"},
     ]
 
-    await process_account_walls(config_mock, test_account, walls_data)
-
-    # Verify walls were created
-    result = await test_async_session.execute(
-        select(Wall).order_by(Wall.pos).execution_options(populate_existing=True)
+    await process_account_walls(
+        config=test_config,
+        account=test_account,
+        walls_data=walls_data,
+        session=test_async_session,
     )
-    walls = result.unique().scalars().all()
+
+    result = await test_async_session.execute(
+        select(Wall).where(Wall.accountId == test_account.id)
+    )
+    walls = result.scalars().all()
     assert len(walls) == 2
     assert walls[0].name == "Wall 1"
     assert walls[1].name == "Wall 2"
@@ -109,7 +118,11 @@ async def test_process_account_walls(test_async_session, test_account):
 
 
 @pytest.mark.asyncio
-async def test_wall_cleanup(test_async_session, test_account):
+async def test_wall_cleanup(
+    test_config,
+    test_async_session: AsyncSession,
+    test_account: Account,
+):
     """Test cleanup of removed walls."""
     # Create initial walls
     walls = [
@@ -120,16 +133,17 @@ async def test_wall_cleanup(test_async_session, test_account):
         test_async_session.add(wall)
     await test_async_session.commit()
 
-    # Process new walls data (missing one wall)
-    config_mock = MagicMock()
-    config_mock._database = MagicMock()
-    config_mock._database.async_session = lambda: test_async_session
     new_walls_data = [
         {"id": 1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
         {"id": 3, "pos": 2, "name": "Wall 3", "description": "Description 3"},
     ]
 
-    await process_account_walls(config_mock, test_account, new_walls_data)
+    await process_account_walls(
+        test_config,
+        test_account,
+        new_walls_data,
+        test_async_session,
+    )
 
     # Verify wall 2 was removed
     result = await test_async_session.execute(
@@ -141,7 +155,11 @@ async def test_wall_cleanup(test_async_session, test_account):
 
 
 @pytest.mark.asyncio
-async def test_process_wall_posts(test_async_session, test_account):
+async def test_process_wall_posts(
+    test_config,
+    test_async_session: AsyncSession,
+    test_account: Account,
+):
     """Test processing posts for a wall."""
     # Create wall
     wall = Wall(id=1, accountId=test_account.id, name="Test Wall")
@@ -168,10 +186,13 @@ async def test_process_wall_posts(test_async_session, test_account):
         "accountMedia": [],
     }
 
-    config_mock = MagicMock()
-    config_mock._database = MagicMock()
-    config_mock._database.async_session = lambda: test_async_session
-    await process_wall_posts(config_mock, None, wall.id, posts_data)
+    await process_wall_posts(
+        test_config,
+        None,
+        wall.id,
+        posts_data,
+        test_async_session,
+    )
 
     # Verify posts were associated with wall
     result = await test_async_session.execute(

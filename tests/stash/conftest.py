@@ -13,15 +13,6 @@ from stash import StashClient, StashContext
 from stash.types.scene import Scene, SceneCreateInput
 
 
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an event loop for the test session."""
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest_asyncio.fixture
 async def stash_context() -> AsyncGenerator[StashContext, None]:
     """Create a StashContext for testing.

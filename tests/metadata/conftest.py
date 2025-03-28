@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
@@ -56,10 +57,16 @@ T = TypeVar("T")
 class TestDatabase(Database):
     """Enhanced database class for testing."""
 
-    def __init__(self, config: FanslyConfig, isolation_level: str = "SERIALIZABLE"):
+    def __init__(
+        self,
+        config: FanslyConfig,
+        isolation_level: str = "SERIALIZABLE",
+        skip_migrations: bool = False,
+    ):
         """Initialize test database with configurable isolation level."""
-        super().__init__(config)
+        self.skip_migrations = skip_migrations
         self.isolation_level = isolation_level
+        super().__init__(config, skip_migrations=skip_migrations)
         self._setup_engine()
 
     def _setup_engine(self) -> None:
@@ -123,11 +130,19 @@ class TestDatabase(Database):
             echo=False,
             connect_args={"check_same_thread": False},
         )
-        self.async_session_factory = async_sessionmaker(
+        self._async_session_factory = async_sessionmaker(
             bind=self._async_engine,
             expire_on_commit=False,
             class_=AsyncSession,
         )
+
+    @property
+    def async_session_factory(self):
+        return self._async_session_factory
+
+    @async_session_factory.setter
+    def async_session_factory(self, value):
+        self._async_session_factory = value
 
     def _before_cursor_execute(
         self, conn, cursor, statement, parameters, context, executemany
@@ -205,6 +220,12 @@ class TestDatabase(Database):
         except Exception:
             await session.rollback()
             raise
+
+    def _run_migrations_if_needed(self, alembic_cfg: AlembicConfig) -> None:
+        """Override to optionally skip migrations."""
+        if self.skip_migrations:
+            return
+        super()._run_migrations_if_needed(alembic_cfg)
 
 
 @pytest.fixture(scope="session")
@@ -354,13 +375,11 @@ def config(temp_db_path) -> FanslyConfig:
     config.db_sync_seconds = 60
 
     # Initialize database
-    from metadata.base import Base
-    from metadata.database import Database
 
     # # Skip migrations during tests
     # config.skip_migrations = True
 
-    config._database = Database(config)
+    config._database = TestDatabase(config, skip_migrations=True)
     return config
 
 
@@ -438,7 +457,7 @@ async def test_database_sync(config: FanslyConfig) -> Database:
 @pytest_asyncio.fixture(scope="function")
 async def test_database(config: FanslyConfig, test_engine: AsyncEngine) -> Database:
     """Create a test database instance with enhanced features (async version)."""
-    db = TestDatabase(config)
+    db = TestDatabase(config, skip_migrations=True)  # Skip migrations by default
     try:
         # Use the test engine
         db._async_engine = test_engine

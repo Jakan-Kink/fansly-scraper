@@ -241,65 +241,40 @@ class StashObject:
                 log.debug(f"No changes to save for {self.__type_name__} {self.id}")
                 self.mark_clean()  # Mark as clean since there are no changes
                 return
-        except Exception as e:
-            raise ValueError(f"Failed to prepare input data: {e}") from e
 
-        if hasattr(self, "id") and self.id != "new":
-            # Update existing
+            is_update = hasattr(self, "id") and self.id != "new"
+            operation = "Update" if is_update else "Create"
+            type_name = self.__type_name__
+
+            # Keep type_name uppercase for mutation name, but lowercase first letter for operation
+            operation_key = f"{type_name[0].lower()}{type_name[1:]}{operation}"
             mutation = f"""
-                mutation Update{self.__type_name__}($input: {self.__type_name__}UpdateInput!) {{
-                    {self.__type_name__.lower()}Update(input: $input) {{
-                        id
-                    }}
-                }}
-            """
-        else:
-            # Create new
-            mutation = f"""
-                mutation Create{self.__type_name__}($input: {self.__type_name__}CreateInput!) {{
-                    {self.__type_name__.lower()}Create(input: $input) {{
+                mutation {operation}{type_name}($input: {type_name}{operation}Input!) {{
+                    {operation_key}(input: $input) {{
                         id
                     }}
                 }}
             """
 
-        # Get input data
-        try:
-            # Ensure all values are JSON serializable
-            for key, value in list(
-                input_data.items()
-            ):  # Use list to allow modification during iteration
-                if hasattr(value, "__await__"):
-                    log.debug(f"Found coroutine in {key}: {value}")
-                    input_data[key] = await value
-                elif isinstance(value, (list, tuple)):
-                    # Check for coroutines in lists/tuples
-                    new_value = []
-                    for item in value:
-                        if hasattr(item, "__await__"):
-                            log.debug(f"Found coroutine in {key} list: {item}")
-                            new_value.append(await item)
-                        else:
-                            new_value.append(item)
-                    input_data[key] = new_value
+            result = await client.execute(mutation, {"input": input_data})
 
-            result = await client.execute(
-                mutation,
-                {"input": input_data},
-            )
+            # Extract the result using the correct camelCase key
+            if operation_key not in result:
+                raise ValueError(f"Missing '{operation_key}' in response: {result}")
+
+            operation_result = result[operation_key]
+            if operation_result is None:
+                raise ValueError(f"{operation} operation returned None")
+
+            # Update ID for new objects
+            if not is_update:
+                self.id = operation_result["id"]
+
+            # Mark object as clean after successful save
+            self.mark_clean()
+
         except Exception as e:
             raise ValueError(f"Failed to save {self.__type_name__}: {e}") from e
-
-        # Update ID if this was a create
-        if not hasattr(self, "id") or self.id == "new":
-            result_key = f"{self.__type_name__.lower()}Create"
-            if result_key not in result:
-                print(f"DEBUG: Missing '{result_key}' in result: {result}")
-                raise ValueError(f"Missing '{result_key}' in response")
-            self.id = result[result_key]["id"]
-
-        # Mark object as clean after successful save
-        self.mark_clean()
 
     @staticmethod
     async def _get_id(obj: Any) -> str | None:

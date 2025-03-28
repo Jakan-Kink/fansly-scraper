@@ -118,7 +118,8 @@ async def test_client_execute() -> None:
 
     with patch.object(client.client, "execute", new=mock_execute):
         with pytest.raises(
-            ValueError, match="GraphQL errors: \\[{'message': 'Invalid query'}\\]"
+            ValueError,
+            match=r"Invalid GraphQL query: Syntax Error: Unexpected Name 'invalid'\.",
         ):
             await client.execute("invalid { query }")
 

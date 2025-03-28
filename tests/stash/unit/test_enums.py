@@ -29,6 +29,7 @@ from stash.types.enums import (
 )
 
 
+@pytest.mark.unit
 def test_gender_enum() -> None:
     """Test GenderEnum values match schema."""
     assert issubclass(GenderEnum, str)
@@ -95,6 +96,7 @@ def test_orientation_enum() -> None:
     assert OrientationEnum.SQUARE.value == "SQUARE"
 
 
+@pytest.mark.unit
 def test_criterion_modifier() -> None:
     """Test CriterionModifier values match schema."""
     assert issubclass(CriterionModifier, str)

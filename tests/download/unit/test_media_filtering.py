@@ -1,6 +1,7 @@
 """Test media filtering functionality."""
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config import FanslyConfig
 from download.common import process_download_accessible_media
@@ -78,16 +79,27 @@ def test_config_factory(tmp_path, mocker):
     config.interactive = False
     config.download_directory = tmp_path
 
-    # Mock database session
-    mock_session = mocker.AsyncMock()
-    mock_session_scope = mocker.AsyncMock()
-    mock_session_scope.__aenter__.return_value = mock_session
-    mock_session_scope.__aexit__.return_value = None
+    # Create async context manager for database sessions
+    class AsyncSessionContextManager:
+        async def __aenter__(self):
+            self.session = AsyncSession(
+                bind=create_async_engine(
+                    "sqlite+aiosqlite:///file:test_media_filtering?mode=memory&cache=shared&uri=true",
+                    future=True,
+                    connect_args={"check_same_thread": False},
+                )
+            )
+            return self.session
 
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            await self.session.rollback()
+            await self.session.close()
+
+    # Mock database with async session support
     mock_db = mocker.Mock()
-    mock_db.async_session_scope.return_value = mock_session_scope
-
+    mock_db.async_session_scope = AsyncSessionContextManager
     config._database = mock_db
+
     return config
 
 

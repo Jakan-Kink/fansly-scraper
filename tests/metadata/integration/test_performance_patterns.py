@@ -10,6 +10,7 @@ Tests performance characteristics including:
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import time
 from contextlib import contextmanager
@@ -211,77 +212,82 @@ async def test_query_optimization(test_database):
         print(f"Join query time ({len(joined_posts)} posts): {join_time:.2f}s")
 
 
-@measure_time
-async def test_index_performance(test_database):
-    """Test index usage and performance."""
-    async with test_database.async_session_scope() as session:
-        # Test queries with and without indexes
-        queries = [
-            ("Index scan on primary key", "SELECT * FROM posts WHERE id = 1"),
-            (
-                "Index scan on foreign key",
-                "SELECT * FROM posts WHERE accountId = 1",
-            ),
-            ("Full table scan", "SELECT * FROM posts WHERE content LIKE '%test%'"),
-            (
-                "Index scan with join",
-                """
-                SELECT p.* FROM posts p
-                JOIN accounts a ON p.accountId = a.id
-                WHERE a.username = 'perf_user_1'
-                """,
-            ),
-        ]
+@pytest.mark.integration
+@pytest.mark.performance
+class TestPerformancePatterns:
+    """Test database performance patterns."""
 
-        for description, query in queries:
-            # Get query plan
-            result = await session.execute(text(f"EXPLAIN QUERY PLAN {query}"))
-            plan = result.fetchall()
-            plan_str = "\n".join(str(row) for row in plan)
-            print(f"\n{description} plan:\n{plan_str}")
-
-            # Execute query and measure time
-            start_time = time.time()
-            result = await session.execute(text(query))
-            await result.fetchall()
-            duration = time.time() - start_time
-            print(f"{description} execution time: {duration:.2f}s")
-
-
-@measure_time
-async def test_connection_pool_performance(test_database):
-    """Test connection pool performance."""
-    NUM_OPERATIONS = 100  # Reduced from 1000 to avoid overloading
-
-    async def perform_operation(session: AsyncSession) -> None:
-        """Perform a simple database operation."""
-        result = await session.execute(text("SELECT 1"))
-        await result.fetchone()
-
-    # Test 1: Sequential operations
-    start_time = time.time()
-    for _ in range(NUM_OPERATIONS):
+    @pytest.mark.asyncio
+    @measure_time
+    async def test_index_performance(self, test_database):
+        """Test index usage and performance."""
         async with test_database.async_session_scope() as session:
-            await perform_operation(session)
-    sequential_time = time.time() - start_time
-    print(f"Sequential operations time: {sequential_time:.2f}s")
+            # Test queries with and without indexes
+            queries = [
+                ("Index scan on primary key", "SELECT * FROM posts WHERE id = 1"),
+                (
+                    "Index scan on foreign key",
+                    "SELECT * FROM posts WHERE accountId = 1",
+                ),
+                ("Full table scan", "SELECT * FROM posts WHERE content LIKE '%test%'"),
+                (
+                    "Index scan with join",
+                    """
+                    SELECT p.* FROM posts p
+                    JOIN accounts a ON p.accountId = a.id
+                    WHERE a.username = 'perf_user_1'
+                    """,
+                ),
+            ]
 
-    # Test 2: Parallel operations with session reuse
-    import asyncio
+            for description, query in queries:
+                # Get query plan
+                result = await session.execute(text(f"EXPLAIN QUERY PLAN {query}"))
+                plan = result.fetchall()
+                plan_str = "\n".join(str(row) for row in plan)
+                print(f"\n{description} plan:\n{plan_str}")
 
-    async def worker():
-        async with test_database.async_session_scope() as session:
-            try:
+                # Execute query and measure time
+                start_time = time.time()
+                result = await session.execute(text(query))
+                await result.fetchall()
+                duration = time.time() - start_time
+                print(f"{description} execution time: {duration:.2f}s")
+
+    @pytest.mark.asyncio
+    @measure_time
+    async def test_connection_pool_performance(self, test_database):
+        """Test connection pool performance."""
+        NUM_OPERATIONS = 100  # Reduced from 1000 to avoid overloading
+
+        async def perform_operation(session: AsyncSession) -> None:
+            """Perform a simple database operation."""
+            result = await session.execute(text("SELECT 1"))
+            await result.fetchone()
+
+        # Test 1: Sequential operations
+        start_time = time.time()
+        for _ in range(NUM_OPERATIONS):
+            async with test_database.async_session_scope() as session:
                 await perform_operation(session)
-            except Exception:
-                await session.rollback()
-                raise
+        sequential_time = time.time() - start_time
+        print(f"Sequential operations time: {sequential_time:.2f}s")
 
-    start_time = time.time()
-    tasks = [worker() for _ in range(NUM_OPERATIONS)]
-    await asyncio.gather(*tasks)
-    parallel_time = time.time() - start_time
-    print(f"Parallel operations time: {parallel_time:.2f}s")
+        # Test 2: Parallel operations with session reuse
+
+        async def worker():
+            async with test_database.async_session_scope() as session:
+                try:
+                    await perform_operation(session)
+                except Exception:
+                    await session.rollback()
+                    raise
+
+        start_time = time.time()
+        tasks = [worker() for _ in range(NUM_OPERATIONS)]
+        await asyncio.gather(*tasks)
+        parallel_time = time.time() - start_time
+        print(f"Parallel operations time: {parallel_time:.2f}s")
 
 
 @measure_time

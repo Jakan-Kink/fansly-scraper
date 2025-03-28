@@ -116,12 +116,14 @@ class Database:
         config: FanslyConfig,
         *,
         creator_name: str | None = None,
+        skip_migrations: bool = False,  # Add migration control
     ) -> None:
         """Initialize database manager.
 
         Args:
             config: FanslyConfig instance
             creator_name: Optional creator name for separate databases
+            skip_migrations: Skip running migrations during initialization
         """
         # Initialize all instance variables first to prevent cleanup errors
         self.config = config
@@ -252,10 +254,6 @@ class Database:
         db_logger_monitor = get_db_logger()
         db_logger_monitor.setup_engine_logging(self._sync_engine)
 
-        # Run migrations if needed
-        alembic_cfg = AlembicConfig("alembic.ini")
-        self._run_migrations_if_needed(alembic_cfg)
-
         # Create and keep a persistent connection for migrations and validation
         connection = self._sync_engine.connect()
         connection = connection.execution_options(
@@ -265,26 +263,34 @@ class Database:
             close_with_result=False,  # Don't close after execute
         )
 
-        # Check if alembic_version table exists
-        result = connection.execute(
-            text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+        alembic_cfg = AlembicConfig("alembic.ini")
+        if not skip_migrations:
+            self._run_migrations_if_needed(alembic_cfg)
+            # Check if alembic_version table exists
+            result = connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+                )
             )
-        )
-        alembic_version_exists = result.scalar() is not None
-
-        if not alembic_version_exists:
-            db_logger.info("No alembic_version table found. Initializing migrations...")
-            alembic_cfg.attributes["connection"] = connection
-            alembic_upgrade(alembic_cfg, "head")  # Run all migrations
-            db_logger.info("Migrations applied successfully.")
+            alembic_version_exists = result.scalar() is not None
+            if not alembic_version_exists:
+                db_logger.info(
+                    "No alembic_version table found. Initializing migrations..."
+                )
+                alembic_cfg.attributes["connection"] = connection
+                alembic_upgrade(alembic_cfg, "head")  # Run all migrations
+                db_logger.info("Migrations applied successfully.")
+            else:
+                db_logger.info(
+                    "Database is already initialized. Running migrations to latest version..."
+                )
+                alembic_cfg.attributes["connection"] = connection
+                alembic_upgrade(alembic_cfg, "head")
+                db_logger.info("Migrations applied successfully.")
         else:
-            db_logger.info(
-                "Database is already initialized. Running migrations to latest version..."
-            )
-            alembic_cfg.attributes["connection"] = connection
-            alembic_upgrade(alembic_cfg, "head")
-            db_logger.info("Migrations applied successfully.")
+            db_logger.info("Skipping migrations as requested.")
+
+        self._sqlalchemy_connection = connection
 
         # Keep the connection for later use
         self._sqlalchemy_connection = connection

@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from metadata import Account, AccountMedia, Base, Media, Message, Post
 from metadata.database import Database
+from tests.metadata.conftest import TestDatabase  # Add this import
 from textio import print_error, print_info, print_warning
 
 
@@ -34,23 +35,39 @@ from textio import print_error, print_info, print_warning
 async def setup_database(database: Database):
     """Create database tables before each test."""
     try:
+        # First, ensure tables are dropped if they exist
         async with database.async_session_scope() as session:
-            # Create all tables
             async with session.begin():
-                await session.run_sync(Base.metadata.create_all, session.get_bind())
+                # Get connection and run DDL operations
+                conn = await session.connection()
+                # Drop all tables first to ensure clean state
+                await conn.run_sync(Base.metadata.drop_all)
+                # Create all tables
+                await conn.run_sync(Base.metadata.create_all)
+
+                # Reset SQLite sequences more safely
+                try:
+                    await session.execute(text("DELETE FROM sqlite_sequence"))
+                except Exception:
+                    # sqlite_sequence may not exist if no AUTOINCREMENT tables created yet
+                    pass
+                await session.commit()
+
         yield
+    except Exception as e:
+        print_error(f"Error during setup: {e}")
+        raise
     finally:
         # Clean up after each test
         try:
             async with database.async_session_scope() as session:
-                # Drop all tables
                 async with session.begin():
-                    await session.run_sync(Base.metadata.drop_all, session.get_bind())
+                    conn = await session.connection()
+                    await conn.run_sync(Base.metadata.drop_all)
         except Exception as e:
             print_error(f"Error during cleanup: {e}")
             raise
         finally:
-            # Ensure all connections are closed
             await database.close_async()
 
 
@@ -59,7 +76,6 @@ async def test_complex_relationships(
     database: Database, session: AsyncSession, test_account: Account
 ):
     """Test complex relationships between multiple models."""
-    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create media
         media = Media(
@@ -119,7 +135,6 @@ async def test_cascade_operations(
     database: Database, session: AsyncSession, test_account: Account
 ):
     """Test cascade operations across relationships."""
-    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create media and account media
         media = Media(id=1, accountId=test_account.id)
@@ -160,7 +175,6 @@ async def test_database_constraints(
     database: Database, session: AsyncSession, test_account: Account
 ):
     """Test database constraints and integrity."""
-    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create a Media object
         media = Media(
@@ -288,7 +302,6 @@ async def test_transaction_isolation(database: Database):
 @pytest.mark.asyncio
 async def test_concurrent_access(database: Database, test_account: Account):
     """Test concurrent database access patterns."""
-    test_account = await test_account  # Await the test_account fixture
     num_tasks = 5
     num_messages = 10
 
@@ -353,7 +366,6 @@ async def test_query_performance(
     database: Database, session: AsyncSession, test_account: Account
 ):
     """Test query performance with indexes."""
-    test_account = await test_account  # Await the test_account fixture
     async with database.async_session_scope() as session:
         # Create multiple media items
         for i in range(100):
@@ -421,7 +433,6 @@ async def test_write_through_cache_integration(
     database: Database, test_config, test_account: Account
 ):
     """Test write-through caching in a multi-table scenario."""
-    test_account = await test_account  # Await the test_account fixture
     # Create initial data with unique username
     unique_username = f"cache_test_{test_account.username}"
     async with database.async_session_scope() as session:
@@ -492,7 +503,11 @@ async def test_database_cleanup_integration(
     # Close the database with timeout
     try:
         async with asyncio.timeout(5):
-            await database.close_async()
+            # Check if we have TestDatabase instance
+            if isinstance(database, TestDatabase):
+                await database.close_async()
+            else:
+                database.close_sync()
             print_info("Database closed successfully")
     except TimeoutError:
         print_error("Timeout while closing database")
@@ -511,23 +526,31 @@ async def test_database_cleanup_integration(
     # Create a new connection to verify data persists
     db2: Database | None = None
     try:
-        db2 = Database(database.config)
+        db2 = TestDatabase(database.config)  # Use TestDatabase instead of Database
         print_info("Verifying data persistence")
-        # Use async session for consistency
-        async with db2.async_session_scope() as test_session:
-            result = await test_session.execute(
-                select(Account).filter_by(username=unique_username)
-            )
-            saved_account = result.scalar_one()
-            assert saved_account.username == unique_username
-            print_info("Data persistence verified")
+        try:
+            # Use async session for consistency
+            async with db2.async_session_scope() as test_session:
+                result = await test_session.execute(
+                    select(Account).filter_by(username=unique_username)
+                )
+                saved_account = result.scalar_one()
+                assert saved_account.username == unique_username
+                print_info("Data persistence verified")
+        except exc.NoResultFound:
+            # Handle case where data was not persisted
+            print_error("Data persistence check failed - account not found")
+            raise AssertionError(f"Account {unique_username} not found in new database")
     finally:
         print_info("Cleaning up second database connection")
         # Close second database with timeout
         if db2 is not None:
             try:
                 async with asyncio.timeout(5):
-                    await db2.close_async()
+                    if isinstance(db2, TestDatabase):
+                        await db2.close_async()
+                    else:
+                        db2.close_sync()
                     print_info("Second database closed successfully")
             except TimeoutError:
                 print_error("Timeout while closing second database")

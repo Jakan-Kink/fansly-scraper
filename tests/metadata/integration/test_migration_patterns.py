@@ -10,9 +10,12 @@ Tests migration behavior including:
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import threading
 import time
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,9 +30,12 @@ from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from metadata import Account, Message, Post
+from tests.metadata.integration.test_performance_patterns import measure_time
 
 if TYPE_CHECKING:
+    from config import FanslyConfig
     from metadata.database import Database
+    from tests.metadata.conftest import TestDatabase
 
 
 async def get_current_revision(engine: Engine) -> str | None:
@@ -118,112 +124,39 @@ async def alembic_cfg(test_database: Database) -> AlembicConfig:
     return cfg
 
 
-async def test_forward_migration(test_database, alembic_cfg: AlembicConfig):
-    """Test forward migration with data preservation."""
-    # Get initial revision
-    initial_rev = await get_current_revision(test_database._sync_engine)
-    assert initial_rev is not None
-
-    # Create test data
-    async with test_database.async_session_scope() as session:
-        await create_test_data(session)
-
-    # Get all revisions
-    revisions = get_all_revisions(alembic_cfg)
-    assert len(revisions) > 0
-
-    # Migrate forward through each revision
-    start_time = time.time()
-    for rev in revisions:
-        if rev > initial_rev:
-            command.upgrade(alembic_cfg, rev)
-
-            # Verify data after each migration
-            async with test_database.async_session_scope() as session:
-                await verify_test_data(session)
-
-    duration = time.time() - start_time
-    print(f"Forward migration time: {duration:.2f}s")
+@pytest.fixture(scope="function")
+async def clean_database(config: FanslyConfig) -> AsyncGenerator[TestDatabase]:
+    """Create a clean database without migrations for migration testing."""
+    # Create temp file that will be automatically removed
+    with tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False) as tmp:
+        temp_path = Path(tmp.name)
+        db = None
+        try:
+            config = FanslyConfig(program_version="test")
+            config.metadata_db_file = temp_path
+            db = TestDatabase(config, skip_migrations=True)
+            yield db
+        finally:
+            await db.close_async()
+            # Clean up temp file and any associated WAL/SHM files
+            for ext in ["", "-wal", "-shm"]:
+                try:
+                    (temp_path.parent / f"{temp_path.name}{ext}").unlink(
+                        missing_ok=True
+                    )
+                except Exception as e:
+                    print(f"Warning: Error cleaning up {ext} file: {e}")
 
 
-async def test_backward_migration(test_database, alembic_cfg: AlembicConfig):
-    """Test backward migration with data preservation."""
-    # Get current revision
-    current_rev = await get_current_revision(test_database._sync_engine)
-    assert current_rev is not None
-
-    # Create test data
-    async with test_database.async_session_scope() as session:
-        await create_test_data(session)
-
-    # Get all revisions
-    revisions = get_all_revisions(alembic_cfg)
-    assert len(revisions) > 0
-
-    # Migrate backward through each revision
-    start_time = time.time()
-    for rev in reversed(revisions):
-        if rev < current_rev:
-            command.downgrade(alembic_cfg, rev)
-
-            # Verify data after each migration
-            async with test_database.async_session_scope() as session:
-                await verify_test_data(session)
-
-    duration = time.time() - start_time
-    print(f"Backward migration time: {duration:.2f}s")
-
-
-async def test_migration_error_recovery(test_database, alembic_cfg: AlembicConfig):
-    """Test recovery from migration errors."""
-    # Get current revision
-    current_rev = await get_current_revision(test_database._sync_engine)
-    assert current_rev is not None
-
-    # Create test data
-    async with test_database.async_session_scope() as session:
-        await create_test_data(session)
-
-    # Simulate migration error by corrupting the database
-    async with test_database.async_session_scope() as session:
-        await session.execute(text("DROP TABLE IF EXISTS alembic_version"))
-
-    # Attempt migration
-    with pytest.raises(OperationalError):
-        command.upgrade(alembic_cfg, "head")
-
-    # Recover by recreating alembic_version
-    async with test_database.async_session_scope() as session:
-        await session.execute(
-            text(
-                """
-                CREATE TABLE alembic_version (
-                    version_num VARCHAR(32) NOT NULL,
-                    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
-                )
-                """
-            )
-        )
-        await session.execute(
-            text("INSERT INTO alembic_version (version_num) VALUES (:version)"),
-            {"version": current_rev},
-        )
-
-    # Verify recovery
-    assert await get_current_revision(test_database._sync_engine) == current_rev
-
-    # Verify data survived
-    async with test_database.async_session_scope() as session:
-        await verify_test_data(session)
-
-
-async def test_migration_performance(test_database, alembic_cfg: AlembicConfig):
+@pytest.mark.asyncio
+@measure_time
+async def test_migration_performance(clean_database, alembic_cfg: AlembicConfig):
     """Test migration performance with large dataset."""
     BATCH_SIZE = 1000
 
     # Create large dataset
     start_time = time.time()
-    async with test_database.async_session_scope() as session:
+    async with clean_database.async_session_scope() as session:
         # Create base account
         account = Account(
             id=1,
@@ -257,13 +190,116 @@ async def test_migration_performance(test_database, alembic_cfg: AlembicConfig):
     print(f"Migration time for large dataset: {migration_time:.2f}s")
 
     # Verify data
-    async with test_database.async_session_scope() as session:
+    async with clean_database.async_session_scope() as session:
         result = await session.execute(text("SELECT COUNT(*) FROM posts"))
         post_count = result.scalar()
         assert post_count == 10 * BATCH_SIZE
 
 
-async def test_concurrent_migrations(test_database, alembic_cfg: AlembicConfig):
+@pytest.mark.asyncio
+async def test_forward_migration(clean_database, alembic_cfg: AlembicConfig):
+    """Test forward migration with data preservation."""
+    # Get initial revision
+    initial_rev = await get_current_revision(clean_database._sync_engine)
+    assert initial_rev is not None
+
+    # Create test data
+    async with clean_database.async_session_scope() as session:
+        await create_test_data(session)
+
+    # Get all revisions
+    revisions = get_all_revisions(alembic_cfg)
+    assert len(revisions) > 0
+
+    # Migrate forward through each revision
+    start_time = time.time()
+    for rev in revisions:
+        if rev > initial_rev:
+            command.upgrade(alembic_cfg, rev)
+
+            # Verify data after each migration
+            async with clean_database.async_session_scope() as session:
+                await verify_test_data(session)
+
+    duration = time.time() - start_time
+    print(f"Forward migration time: {duration:.2f}s")
+
+
+@pytest.mark.asyncio
+async def test_backward_migration(clean_database, alembic_cfg: AlembicConfig):
+    """Test backward migration with data preservation."""
+    # Get current revision
+    current_rev = await get_current_revision(clean_database._sync_engine)
+    assert current_rev is not None
+
+    # Create test data
+    async with clean_database.async_session_scope() as session:
+        await create_test_data(session)
+
+    # Get all revisions
+    revisions = get_all_revisions(alembic_cfg)
+    assert len(revisions) > 0
+
+    # Migrate backward through each revision
+    start_time = time.time()
+    for rev in reversed(revisions):
+        if rev < current_rev:
+            command.downgrade(alembic_cfg, rev)
+
+            # Verify data after each migration
+            async with clean_database.async_session_scope() as session:
+                await verify_test_data(session)
+
+    duration = time.time() - start_time
+    print(f"Backward migration time: {duration:.2f}s")
+
+
+@pytest.mark.asyncio
+async def test_migration_error_recovery(clean_database, alembic_cfg: AlembicConfig):
+    """Test recovery from migration errors."""
+    # Get current revision
+    current_rev = await get_current_revision(clean_database._sync_engine)
+    assert current_rev is not None
+
+    # Create test data
+    async with clean_database.async_session_scope() as session:
+        await create_test_data(session)
+
+    # Simulate migration error by corrupting the database
+    async with clean_database.async_session_scope() as session:
+        await session.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+    # Attempt migration
+    with pytest.raises(OperationalError):
+        command.upgrade(alembic_cfg, "head")
+
+    # Recover by recreating alembic_version
+    async with clean_database.async_session_scope() as session:
+        await session.execute(
+            text(
+                """
+                CREATE TABLE alembic_version (
+                    version_num VARCHAR(32) NOT NULL,
+                    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+                )
+                """
+            )
+        )
+        await session.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES (:version)"),
+            {"version": current_rev},
+        )
+
+    # Verify recovery
+    assert await get_current_revision(clean_database._sync_engine) == current_rev
+
+    # Verify data survived
+    async with clean_database.async_session_scope() as session:
+        await verify_test_data(session)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_migrations(clean_database, alembic_cfg: AlembicConfig):
     """Test handling of concurrent migration attempts."""
 
     async def attempt_migration():
@@ -284,14 +320,15 @@ async def test_concurrent_migrations(test_database, alembic_cfg: AlembicConfig):
     await asyncio.gather(task1, task2)
 
     # Verify database is in consistent state
-    current_rev = await get_current_revision(test_database._sync_engine)
+    current_rev = await get_current_revision(clean_database._sync_engine)
     assert current_rev is not None
 
 
-async def test_index_recreation(test_database, alembic_cfg: AlembicConfig):
+@pytest.mark.asyncio
+async def test_index_recreation(clean_database, alembic_cfg: AlembicConfig):
     """Test index handling during migrations."""
     # Get initial indexes
-    inspector = inspect(test_database._sync_engine)
+    inspector = inspect(clean_database._sync_engine)
     initial_indexes = {
         table: inspector.get_indexes(table) for table in inspector.get_table_names()
     }
@@ -300,7 +337,7 @@ async def test_index_recreation(test_database, alembic_cfg: AlembicConfig):
     command.upgrade(alembic_cfg, "head")
 
     # Get final indexes
-    inspector = inspect(test_database._sync_engine)
+    inspector = inspect(clean_database._sync_engine)
     final_indexes = {
         table: inspector.get_indexes(table) for table in inspector.get_table_names()
     }

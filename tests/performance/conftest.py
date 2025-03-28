@@ -78,6 +78,7 @@ def performance_tracker(performance_log_dir, request):
                 performance_log_dir / f"{request.node.name}_{operation_name}.log"
             )
             self.metrics = None
+            self.perf_context = None
 
         def __enter__(self):
             self.perf_context = track_performance()
@@ -97,6 +98,14 @@ def performance_tracker(performance_log_dir, request):
                 f.write("-" * 50 + "\n")
 
             return result
+
+        async def __aenter__(self):
+            """Async enter - reuse sync context manager."""
+            return self.__enter__()
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            """Async exit - reuse sync context manager."""
+            return self.__exit__(exc_type, exc_val, exc_tb)
 
     return lambda operation_name: PerformanceContextManager(operation_name)
 

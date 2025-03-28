@@ -29,7 +29,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from config.decorators import with_database_session
 from textio import json_output
@@ -130,6 +130,10 @@ async def process_account_walls(
         - Wall positions are preserved through the pos field
         - Wall-post associations are maintained separately
     """
+    # Ensure we have a valid session
+    if not session:
+        raise RuntimeError("Database session is required")
+
     walls_data = copy.deepcopy(walls_data)
     # Known attributes that are handled separately
     known_relations = {
@@ -210,11 +214,15 @@ async def process_wall_posts(
         posts_data: Timeline-style posts data from the API
         session: Optional AsyncSession for database operations
     """
+    # Ensure we have a valid session
+    if not session:
+        raise RuntimeError("Database session is required")
+
     posts_data = copy.deepcopy(posts_data)
     json_output(1, "meta/wall - p_w_p - posts_data", posts_data)
 
     # First process posts normally
-    await process_timeline_posts(config, state, posts_data)
+    await process_timeline_posts(config, state, posts_data, session)
 
     wall = await session.get(Wall, wall_id)
     if wall is None:

@@ -38,6 +38,7 @@ def mock_api():
     return api
 
 
+@pytest.mark.functional
 class TestDatabaseLifecycle:
     """Test database lifecycle in main application."""
 

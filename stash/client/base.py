@@ -201,24 +201,23 @@ class StashClientBase:
         query: str,
         variables: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Execute a GraphQL query or mutation.
+        """Execute GraphQL query with proper initialization and error handling.
 
         Args:
             query: GraphQL query string
-            variables: Optional variables for the query
+            variables: Optional variables for query
 
         Returns:
-            Query result as a dictionary
+            Query result as dictionary
 
         Raises:
             ValueError: If query validation fails or execution fails
         """
         self._ensure_initialized()
-
+        transport = None
         try:
-            # Parse and validate query
+            # Parse query first to catch syntax errors early
             try:
-                # First parse the query string into an AST
                 operation = gql(query)
 
                 # Then validate against schema if available
@@ -256,9 +255,11 @@ class StashClientBase:
 
         except Exception as e:
             self._handle_gql_error(e)  # This will raise ValueError
+
         finally:
-            # Ensure transport is cleaned up
-            await transport.close()
+            # Only try to close transport if it was initialized
+            if transport is not None and hasattr(transport, "close"):
+                await transport.close()
 
     def _convert_datetime(self, obj: Any) -> Any:
         """Convert datetime objects to ISO format strings."""
