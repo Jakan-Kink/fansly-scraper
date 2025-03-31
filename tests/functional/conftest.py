@@ -1,6 +1,7 @@
 """Fixtures and configuration for functional tests."""
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -64,6 +65,16 @@ def setup_test_logging():
             "<level>{level: <8}</level> | "
             "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
             rotation="1 MB",
+            filter=lambda record: record["extra"].get("logger")
+            in ("textio", "stash", "json", "db", "trace"),
+        )
+
+        # Also add a stdout handler for easier debugging
+        logger.add(
+            sys.stdout,
+            format="<level>{level}</level> | <white>{time:HH:mm:ss}</white> | {message}",
+            level="INFO",
+            filter=lambda record: record["extra"].get("logger") in ("textio", "stash"),
         )
 
         yield

@@ -24,14 +24,20 @@ def log_setup():
     yield temp_dir, log_filename, logger
 
     # Cleanup
-    for handler in logger.handlers[:]:
+    handler_list = (
+        logger.handlers.copy()
+    )  # Make a copy to avoid modification during iteration
+    for handler in handler_list:
         logger.removeHandler(handler)
         handler.close()
 
     # Remove test files
-    for filename in os.listdir(temp_dir):
-        os.remove(os.path.join(temp_dir, filename))
-    os.rmdir(temp_dir)
+    try:
+        for filename in os.listdir(temp_dir):
+            os.remove(os.path.join(temp_dir, filename))
+        os.rmdir(temp_dir)
+    except OSError as e:
+        print(f"Warning: Cleanup issue: {e}")
 
 
 def test_size_based_rotation(log_setup):

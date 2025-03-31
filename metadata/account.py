@@ -479,7 +479,13 @@ class AccountMediaBundle(Base):
         )
 
         # Return the ordered list of media IDs
-        return [row.media_id for row in stmt.execute()]
+        from sqlalchemy.orm import object_session
+
+        sess = object_session(self)
+        if sess is None:
+            return []
+        result = sess.execute(stmt)
+        return [row.media_id for row in result.all()]
 
     access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     purchased: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

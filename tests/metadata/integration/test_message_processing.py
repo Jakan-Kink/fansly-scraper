@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 from sqlalchemy.sql import text
 
 from config import FanslyConfig
@@ -78,8 +78,9 @@ async def test_process_direct_messages(
 
     messages_data = conversation_data["response"]["messages"]
 
-    # Process messages
-    await process_messages_metadata(config, None, messages_data)
+    async with test_database.async_session_scope() as session:
+        # Process messages
+        await process_messages_metadata(config, None, messages_data, session=session)
 
     # Verify messages were created
     async with test_database.async_session_scope() as session:
@@ -100,7 +101,9 @@ async def test_process_direct_messages(
         }
 
         # Process test message
-        await process_messages_metadata(config, None, [test_message_data])
+        await process_messages_metadata(
+            config, None, [test_message_data], session=session
+        )
 
         # Verify message was created
         result = await session.execute(text("SELECT * FROM messages"))
@@ -125,8 +128,11 @@ async def test_process_group_messages(test_database: TestDatabase, config, group
     if not group_data.get("response", {}).get("data"):
         pytest.skip("No group data found in test data")
 
-    # Process group data
-    await process_groups_response(config, None, group_data["response"])
+    async with test_database.async_session_scope() as session:
+        # Process group data
+        await process_groups_response(
+            config, None, group_data["response"], session=session
+        )
 
     # Verify groups were created
     async with test_database.async_session_scope() as session:
@@ -171,18 +177,28 @@ async def test_process_message_attachments(
     if not messages_with_attachments:
         pytest.skip("No messages with attachments found in test data")
 
-    # Process messages
-    await process_messages_metadata(config, None, messages_with_attachments)
+    async with test_database.async_session_scope() as session:
+        # Process messages
+        await process_messages_metadata(
+            config, None, messages_with_attachments, session=session
+        )
 
     # Verify attachments were created
     async with test_database.async_session_scope() as session:
         for msg_data in messages_with_attachments:
-            result = await session.execute(
-                text("SELECT * FROM messages WHERE id = :message_id"),
-                {"message_id": msg_data["id"]},
+            # Use ORM to get message with relationships loaded
+            # Include explicit loading of the attachments relationship
+            stmt = (
+                select(Message)
+                .options(selectinload(Message.attachments))
+                .where(Message.id == msg_data["id"])
             )
-            message = result.fetchone()
+
+            result = await session.execute(stmt)
+            message = result.scalar_one()
+
             assert message is not None
+            # Now attachments is accessed as a relationship property that's already loaded
             assert len(message.attachments) == len(msg_data["attachments"])
 
             # Verify attachment content IDs match

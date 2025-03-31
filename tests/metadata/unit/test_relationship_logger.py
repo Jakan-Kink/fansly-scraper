@@ -182,7 +182,11 @@ async def session(test_engine):
         async with session.begin():
             await session.execute(text("PRAGMA foreign_keys=OFF"))
             await session.execute(text("PRAGMA journal_mode=WAL"))
+
         yield session
+
+        # Clean up - roll back any pending transactions
+        await session.rollback()
 
 
 @pytest.mark.asyncio

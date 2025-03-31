@@ -72,7 +72,7 @@ class TestDatabase(Database):
     def _setup_engine(self) -> None:
         """Set up database engine with enhanced test configuration."""
         # Use the unique URI from config to prevent cross-test pollution
-        safe_name = f"test_{id(self)}"
+        safe_name = f"test_{id(self)}_{threading.get_ident()}"
         db_uri = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
 
         # Create sync engine
@@ -84,6 +84,8 @@ class TestDatabase(Database):
                 "check_same_thread": False,
                 "timeout": 30,  # 30 second timeout
             },
+            # Use StaticPool to ensure unique connection per engine
+            poolclass=StaticPool,
         )
 
         # Add event listeners for debugging and monitoring
@@ -108,16 +110,17 @@ class TestDatabase(Database):
             conn.execute(text("PRAGMA foreign_keys=OFF"))
 
             # Create all tables in dependency order
-            Base.metadata.create_all(bind=conn, checkfirst=True)
+            if not self.skip_migrations:
+                Base.metadata.create_all(bind=conn, checkfirst=True)
 
-            # Verify tables were created
-            inspector = inspect(self._sync_engine)
-            table_names = inspector.get_table_names()
-            if not table_names:
-                raise RuntimeError("Failed to create database tables")
+                # Verify tables were created
+                inspector = inspect(self._sync_engine)
+                table_names = inspector.get_table_names()
+                if not table_names:
+                    raise RuntimeError("Failed to create database tables")
 
-            # Log created tables for debugging
-            print(f"Created tables: {', '.join(sorted(table_names))}")
+                # Log created tables for debugging
+                print(f"Created tables: {', '.join(sorted(table_names))}")
 
             # Use WAL mode for better concurrency in tests
             conn.execute(text("PRAGMA journal_mode=WAL"))
@@ -251,35 +254,34 @@ def run_async(func):
     return wrapper
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def safe_name(request) -> str:
     """Generate a safe name for the test database based on the test name."""
-    # Get the full test name and replace invalid characters
-    test_name = request.node.name.replace("[", "_").replace("]", "_")
-    test_name = test_name.replace(".", "_").replace("::", "_")
-    return test_name
+    # Get the full test name to ensure uniqueness
+    test_id = request.node.nodeid.encode("utf-8")
+    safe_name = f"test_{abs(hash(test_id))}"
+    return safe_name
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def temp_db_path(request) -> Generator[str, None, None]:
     """Create a temporary database file path with unique URI."""
     # Use unique URI for each test to prevent cross-test pollution
-    import uuid
-
-    safe_name = f"creator_{uuid.uuid4().hex}"
+    test_id = request.node.nodeid.encode("utf-8")
+    safe_name = f"creator_{abs(hash(test_id))}"
     db_path = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
     yield db_path
 
 
 @pytest_asyncio.fixture
-async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
+async def test_engine(request) -> AsyncGenerator[AsyncEngine, None]:
     """Create a test database engine.
 
-    Uses SQLite in-memory database with shared cache to ensure proper transaction isolation
-    and connection pooling.
+    Uses SQLite in-memory database with unique name to ensure proper isolation between tests.
     """
-    # Create unique database name
-    safe_name = f"test_{id(test_engine)}"
+    # Create unique database name for each test
+    test_id = request.node.nodeid.encode("utf-8")
+    safe_name = f"test_{abs(hash(test_id))}"
     db_uri = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
     async_uri = db_uri.replace("sqlite://", "sqlite+aiosqlite://")
 
@@ -322,33 +324,60 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
     yield engine
 
     # Cleanup
-    Base.metadata.drop_all(sync_engine)
     await engine.dispose()
     sync_engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def test_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Create a test database session."""
-    async_session_factory = async_sessionmaker(
-        bind=test_engine,
-        expire_on_commit=False,
-        class_=AsyncSession,
+async def test_async_session(request) -> AsyncGenerator[AsyncSession, None]:
+    """Create a test async database session with tables properly created."""
+    # Create unique database name for each test
+    test_id = request.node.nodeid.encode("utf-8")
+    safe_name = f"test_{abs(hash(test_id))}"
+    db_uri = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
+    async_uri = db_uri.replace("sqlite://", "sqlite+aiosqlite://")
+
+    # Create sync engine for migrations
+    sync_engine = create_engine(
+        db_uri,
+        isolation_level="SERIALIZABLE",
+        echo=False,
+        connect_args={
+            "check_same_thread": False,
+            "timeout": 30,  # 30 second timeout
+        },
+        poolclass=StaticPool,  # Use StaticPool to ensure unique connection
     )
-    session = async_session_factory()
-    try:
-        yield session
-    finally:
-        await session.rollback()
-        await session.close()
 
+    # Configure SQLite for optimal test performance
+    with sync_engine.connect() as conn:
+        conn.execute(text("PRAGMA synchronous=OFF"))
+        conn.execute(text("PRAGMA temp_store=MEMORY"))
+        conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
+        conn.execute(text("PRAGMA page_size=4096"))
+        conn.execute(text("PRAGMA cache_size=-2000"))  # 2MB cache
+        conn.execute(text("PRAGMA busy_timeout=30000"))
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
 
-@pytest_asyncio.fixture
-async def test_async_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Create a test async database session."""
+        # Create all tables
+        Base.metadata.create_all(sync_engine)
+
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+
+    # Create async engine
+    engine = create_async_engine(
+        async_uri,
+        isolation_level="SERIALIZABLE",
+        echo=False,
+        connect_args={
+            "check_same_thread": False,
+            "timeout": 30,
+        },
+    )
+
     # Create session factory
     async_session_factory = async_sessionmaker(
-        bind=test_engine,
+        bind=engine,
         expire_on_commit=False,
         class_=AsyncSession,
     )
@@ -363,6 +392,8 @@ async def test_async_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
     finally:
         await session.rollback()
         await session.close()
+        await engine.dispose()
+        sync_engine.dispose()
 
 
 @pytest.fixture(scope="function")
@@ -374,24 +405,11 @@ def config(temp_db_path) -> FanslyConfig:
     config.db_sync_commits = 1000
     config.db_sync_seconds = 60
 
-    # Initialize database
-
-    # # Skip migrations during tests
-    # config.skip_migrations = True
-
-    config._database = TestDatabase(config, skip_migrations=True)
     return config
 
 
 @pytest.fixture(scope="function")
-def event_loop_policy():
-    """Create a policy for test event loops."""
-    policy = asyncio.get_event_loop_policy()
-    return policy
-
-
-@pytest_asyncio.fixture(scope="function")
-async def database(config: FanslyConfig) -> AsyncGenerator[TestDatabase, None]:
+def database(config: FanslyConfig, request) -> Generator[TestDatabase, None]:
     """Create a test database instance with enhanced features."""
     db = TestDatabase(config)
     try:
@@ -405,20 +423,20 @@ async def database(config: FanslyConfig) -> AsyncGenerator[TestDatabase, None]:
     finally:
         try:
             # Enhanced cleanup procedure
-            async with db.async_session_scope() as session:
+            with db.session_scope() as session:
                 try:
                     # Keep foreign keys disabled for cleanup
-                    await session.execute(text("PRAGMA foreign_keys = OFF"))
+                    session.execute(text("PRAGMA foreign_keys = OFF"))
 
                     # Delete data in reverse dependency order
                     for table in reversed(Base.metadata.sorted_tables):
-                        await session.execute(table.delete())
-                    await session.commit()
+                        session.execute(table.delete())
+                    session.commit()
                 except Exception as e:
                     print(f"Warning: Error during table cleanup: {e}")
 
             # Close database connections
-            await db.close_async()
+            db.close()
         except Exception as e:
             print(f"Warning: Error during database cleanup: {e}")
 
@@ -457,7 +475,7 @@ async def test_database_sync(config: FanslyConfig) -> Database:
 @pytest_asyncio.fixture(scope="function")
 async def test_database(config: FanslyConfig, test_engine: AsyncEngine) -> Database:
     """Create a test database instance with enhanced features (async version)."""
-    db = TestDatabase(config, skip_migrations=True)  # Skip migrations by default
+    db = TestDatabase(config, skip_migrations=False)  # Enable migrations
     try:
         # Use the test engine
         db._async_engine = test_engine

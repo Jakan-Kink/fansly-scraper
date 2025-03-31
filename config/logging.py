@@ -159,10 +159,10 @@ for level_name, level_data in _CUSTOM_LEVELS.items():
 
 
 # Pre-configured loggers with extra fields
-textio_logger = logger.bind(textio=True)
-json_logger = logger.bind(json=True)
-stash_logger = logger.bind(stash=True)
-db_logger = logger.bind(db=True)
+textio_logger = logger.bind(logger="textio")
+json_logger = logger.bind(logger="json")
+stash_logger = logger.bind(logger="stash")
+db_logger = logger.bind(logger="db")
 
 
 def _trace_level_only(record):
@@ -175,7 +175,7 @@ def _trace_level_only(record):
 
 
 # For very detailed logging
-trace_logger = logger.bind(trace=True).patch(_trace_level_only)
+trace_logger = logger.bind(logger="trace").patch(_trace_level_only)
 
 # Handler IDs for cleanup
 _handler_ids = {}  # {id: (handler, file_handler)}
@@ -215,16 +215,16 @@ def setup_handlers() -> None:
     from textio.logging import SizeTimeRotatingHandler
 
     # Common enqueue settings for all handlers
-    enqueue_args = {
-        "enqueue": True,  # Use loguru's built-in queue management
-    }
+    enqueue_args = (
+        {"enqueue": False} if os.getenv("TESTING") == "1" else {"enqueue": True}
+    )
 
     # 1. TextIO Console Handler
     handler_id = logger.add(
         sys.stdout,
         format="<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>",
         level=get_log_level("textio", "INFO"),
-        filter=lambda record: record["extra"].get("textio", False),
+        filter=lambda record: record["extra"].get("logger") == "textio",
         colorize=True,
         **enqueue_args,
     )
@@ -247,7 +247,7 @@ def setup_handlers() -> None:
         textio_handler.write,
         format="[{level.name}] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]: {message}",
         level=get_log_level("textio", "INFO"),
-        filter=lambda record: record["extra"].get("textio", False),
+        filter=lambda record: record["extra"].get("logger") == "textio",
         backtrace=True,
         diagnose=True,
         **enqueue_args,
@@ -269,9 +269,9 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         json_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} {message}",
+        format="[{time:YYYY-MM-DD HH:mm:ss}] [{level.name}] {message}",
         level=get_log_level("json", "INFO"),
-        filter=lambda record: record["extra"].get("json", False),
+        filter=lambda record: record["extra"].get("logger") == "json",
         backtrace=True,
         diagnose=True,
         **enqueue_args,
@@ -284,7 +284,7 @@ def setup_handlers() -> None:
         format="<level>{level.name}</level>: {message}",
         level=get_log_level("stash_console", "INFO"),
         colorize=True,
-        filter=lambda record: record["extra"].get("stash", False),
+        filter=lambda record: record["extra"].get("logger") == "stash",
         **enqueue_args,
     )
     _handler_ids[handler_id] = (None, None)  # No file handler for stdout
@@ -305,7 +305,7 @@ def setup_handlers() -> None:
         stash_handler.write,
         format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {name}\n{message}",
         level=get_log_level("stash_file", "INFO"),
-        filter=lambda record: record["extra"].get("stash", False),
+        filter=lambda record: record["extra"].get("logger") == "stash",
         **enqueue_args,
     )
     _handler_ids[handler_id] = (stash_handler, None)
@@ -326,7 +326,7 @@ def setup_handlers() -> None:
         db_handler.write,
         format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {message}",
         level=get_log_level("sqlalchemy", "INFO"),
-        filter=lambda record: record["extra"].get("db", False),
+        filter=lambda record: record["extra"].get("logger") == "db",
         **enqueue_args,
     )
     _handler_ids[handler_id] = (db_handler, None)
@@ -347,7 +347,7 @@ def setup_handlers() -> None:
         trace_handler.write,
         format="[{time:YYYY-MM-DD HH:mm:ss.SSSSSS}] {level.name} - {message}",
         level=get_log_level("trace", "TRACE"),  # Default to TRACE level
-        filter=lambda record: record["extra"].get("trace", False),
+        filter=lambda record: record["extra"].get("logger", None) == "trace",
         **enqueue_args,
     )
     _handler_ids[handler_id] = (trace_handler, None)
@@ -366,6 +366,7 @@ def set_debug_enabled(enabled: bool) -> None:
     """Set the global debug flag."""
     global _debug_enabled
     _debug_enabled = enabled
+    update_logging_config(_config, enabled)  # Update logging config
 
 
 def get_log_level(logger_name: str, default: str = "INFO") -> int:

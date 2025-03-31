@@ -1,10 +1,11 @@
 """Unit tests for metadata.account module."""
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from metadata.account import (
     Account,
@@ -52,12 +53,19 @@ async def test_account_media_bundle_creation(session):
     await session.commit()
 
     # Verify bundle content order
-    stmt = select(AccountMediaBundle).where(AccountMediaBundle.id == 1)
+    # Use a single query with eager loading of the relationship
+    stmt = (
+        select(AccountMediaBundle)
+        .where(AccountMediaBundle.id == 1)
+        .options(selectinload(AccountMediaBundle.accountMedia))
+    )
     result = await session.execute(stmt)
-    saved_bundle = result.unique().scalar_one_or_none()
+    saved_bundle: AccountMediaBundle | None = result.unique().scalar_one_or_none()
     assert saved_bundle is not None
-    media_ids = [m.id for m in saved_bundle.accountMediaIds]
-    assert sorted(media_ids) == [1, 2]  # Should contain both media IDs
+
+    # Access the relationship directly through accountMedia
+    media_ids = sorted([media.id for media in saved_bundle.accountMedia])
+    assert media_ids == [1, 2]  # Should contain both media IDs
 
 
 @pytest.mark.asyncio
@@ -71,7 +79,7 @@ async def test_update_optimization(session):
     # Create mock config
     mock_config = MagicMock()
     mock_config._database = MagicMock()
-    mock_config._database.async_session = lambda: session
+    mock_config._database.async_session = AsyncMock(return_value=session)
 
     # Update with same values
     data = {
@@ -125,7 +133,7 @@ async def test_timeline_stats_optimization(session):
     # Create mock config
     mock_config = MagicMock()
     mock_config._database = MagicMock()
-    mock_config._database.async_session = lambda: session
+    mock_config._database.async_session = AsyncMock(return_value=session)
 
     # Update with same values
     data = {
@@ -134,7 +142,7 @@ async def test_timeline_stats_optimization(session):
         "timelineStats": {
             "imageCount": 10,
             "videoCount": 5,
-            "fetchedAt": "2023-10-10T00:00:00Z",
+            "fetchedAt": int(datetime(2023, 10, 10, tzinfo=timezone.utc).timestamp()),
         },
     }
     await process_account_data(mock_config, data, session=session)
@@ -147,7 +155,7 @@ async def test_timeline_stats_optimization(session):
 
     # Update with different values
     data["timelineStats"]["imageCount"] = 15
-    await process_account_data(mock_config, data)
+    await process_account_data(mock_config, data, session=session)
 
     # Check that UPDATE was performed
     stmt = select(TimelineStats).filter_by(accountId=1)
@@ -174,7 +182,7 @@ async def test_process_media_bundles(session):
     # Create mock config
     mock_config = MagicMock()
     mock_config._database = MagicMock()
-    mock_config._database.async_session = lambda: session
+    mock_config._database.async_session = AsyncMock(return_value=session)
 
     # Process bundles
     bundles_data = [
@@ -192,9 +200,14 @@ async def test_process_media_bundles(session):
     await process_media_bundles(mock_config, 1, bundles_data, session=session)
 
     # Verify bundle was created
-    stmt = select(AccountMediaBundle)
+    # Use a single query with eager loading of the relationship
+    stmt = select(AccountMediaBundle).options(
+        selectinload(AccountMediaBundle.accountMedia)
+    )
     result = await session.execute(stmt)
     bundle = result.scalar_one_or_none()
     assert bundle is not None
-    media_ids = [m.id for m in bundle.accountMediaIds]
-    assert sorted(media_ids) == [101, 102]  # Check both media are present in order
+
+    # Access the relationship directly through accountMedia
+    media_ids = sorted([media.id for media in bundle.accountMedia])
+    assert media_ids == [101, 102]  # Check both media are present

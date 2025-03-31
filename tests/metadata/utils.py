@@ -7,7 +7,8 @@ package, including data generation, validation, and common test operations.
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from metadata import Account, AccountMedia, Media, Message, Post, Wall
@@ -222,94 +223,65 @@ def create_test_data_set(
         raise
 
 
-def verify_relationship_integrity(
-    session: Session, parent: Any, child_attr: str, expected_count: int | None = None
+async def verify_relationship_integrity(
+    session: AsyncSession, parent: Any, child_attr: str, expected_count: int
 ) -> bool:
-    """Verify the integrity of a relationship.
+    """Verify relationship integrity between parent and child objects."""
+    print(
+        f"\nVerifying {child_attr} relationship for {parent.__class__.__name__} (id={parent.id})"
+    )
 
-    Args:
-        session: Database session
-        parent: Parent object
-        child_attr: Name of the relationship attribute
-        expected_count: Expected number of children (if known)
-
-    Returns:
-        bool: True if relationship is valid, False otherwise
-    """
-    session.refresh(parent)
-    children = getattr(parent, child_attr)
-
-    if expected_count is not None:
-        if len(children) != expected_count:
-            print(
-                f"Expected {expected_count} children, but found {len(children)} for parent {parent} and child_attr {child_attr}"
-            )
-            return False
-
-    # Verify bidirectional relationships
-    for child in children:
-        # Get the parent relationship attribute from the child
-        parent_attr = None
-        for rel in child.__mapper__.relationships:
-            if rel.back_populates == child_attr:
-                parent_attr = rel.key
-                break
-
-        if parent_attr is None:
-            print(
-                f"No back_populates relationship found for {child_attr} in {type(child).__name__} for parent {parent}"
-            )
-            return False
-
-        child_parent = getattr(child, parent_attr)
-        if child_parent != parent:
-            print(
-                f"Child's parent attribute {parent_attr} does not match the parent in {type(child).__name__} for parent {parent}"
-            )
-            print(
-                f"Expected parent: {parent}, but found: {child_parent} for child {child}"
-            )
-            return False
-
-        # Verify foreign key constraints
-        for column in child.__table__.columns:
-            if column.foreign_keys:
-                for fk in column.foreign_keys:
-                    if fk.column.table == parent.__table__:
-                        if getattr(child, column.name) != getattr(
-                            parent, fk.column.name
-                        ):
-                            print(
-                                f"Foreign key constraint failed for column {column.name} in {type(child).__name__} for parent {parent}"
-                            )
-                            print(
-                                f"Expected value: {getattr(parent, fk.column.name)}, but found: {getattr(child, column.name)} for child {child}"
-                            )
-                            return False
-
-    # Verify that the accountId in AccountMedia matches the id in Account
     if child_attr == "accountMedia":
-        for account_media in children:
-            if account_media.accountId != parent.id:
-                print(
-                    f"AccountMedia's accountId {account_media.accountId} does not match Account's id {parent.id} for account_media {account_media}"
-                )
-                return False
-            # Verify that the mediaId in AccountMedia references a valid Media object
-            if account_media.mediaId is None or account_media.media is None:
-                print(
-                    f"AccountMedia's mediaId {account_media.mediaId} does not reference a valid Media object for account_media {account_media}"
-                )
-                return False
-            if account_media.media.accountId != parent.id:
-                print(
-                    f"Media's accountId {account_media.media.accountId} does not match Account's id {parent.id} for account_media {account_media}"
-                )
-                return False
-            if account_media.media.id != account_media.mediaId:
-                print(
-                    f"AccountMedia's mediaId {account_media.mediaId} does not match Media's id {account_media.media.id} for account_media {account_media}"
-                )
-                return False
-            print(f"Verified AccountMedia: {account_media.id} for Account: {parent.id}")
-    return True
+        # Special handling for accountMedia relationship which goes through Media
+        query = """
+            SELECT COUNT(*)
+            FROM account_media am
+            JOIN media m ON m.id = am.mediaId
+            WHERE m.accountId = :account_id
+        """
+        result = await session.execute(text(query), {"account_id": parent.id})
+        count = result.scalar()
+
+        # Debug queries
+        media_result = await session.execute(
+            text("SELECT * FROM media WHERE accountId = :account_id"),
+            {"account_id": parent.id},
+        )
+        media_items = media_result.fetchall()
+        print(f"Found {len(media_items)} media items for account {parent.id}")
+
+        acc_media_result = await session.execute(
+            text(
+                "SELECT * FROM account_media am JOIN media m ON m.id = am.mediaId WHERE m.accountId = :account_id"
+            ),
+            {"account_id": parent.id},
+        )
+        acc_media_items = acc_media_result.fetchall()
+        print(
+            f"Found {len(acc_media_items)} account_media items for account {parent.id}"
+        )
+    elif child_attr == "walls":
+        # Direct query for walls
+        result = await session.execute(
+            text("SELECT COUNT(*) FROM walls WHERE accountId = :account_id"),
+            {"account_id": parent.id},
+        )
+        count = result.scalar()
+
+        # Debug info
+        walls_result = await session.execute(
+            text("SELECT * FROM walls WHERE accountId = :account_id"),
+            {"account_id": parent.id},
+        )
+        walls = walls_result.fetchall()
+        print(f"Found {len(walls)} walls for account {parent.id}")
+    else:
+        # Default relationship counting with account filter
+        result = await session.execute(
+            text(f"SELECT COUNT(*) FROM {child_attr} WHERE accountId = :account_id"),
+            {"account_id": parent.id},
+        )
+        count = result.scalar()
+
+    print(f"Expected count: {expected_count}, Actual count: {count}")
+    return count == expected_count

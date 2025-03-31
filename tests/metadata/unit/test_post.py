@@ -231,16 +231,16 @@ async def test_process_pinned_posts_update(session, test_account, config):
     ]
     await process_pinned_posts(config, test_account, updated_data, session=session)
 
-    # Verify update
+    # Verify update - use mappings().first() to get a row as a dict/mapping
     result = await session.execute(
         select(pinned_posts).where(
             pinned_posts.c.postId == 1,
             pinned_posts.c.accountId == test_account.id,
         )
     )
-    result_row = result.scalar_one_or_none()  # No need for unique() on a table query
+    result_row = result.mappings().first()  # Get row as a mapping
     assert result_row is not None
-    assert result_row.pos == 1
+    assert result_row["pos"] == 1  # Access by key rather than attribute
 
 
 @pytest.mark.asyncio

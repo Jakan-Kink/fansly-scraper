@@ -6,18 +6,40 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from metadata import Account, Post, Wall, process_account_walls, process_wall_posts
 
 
 @pytest_asyncio.fixture
+async def test_config():
+    """Create a mock configuration."""
+    config = MagicMock()
+    config._database = MagicMock()
+    return config
+
+
+@pytest_asyncio.fixture
 async def test_account(test_async_session):
     """Create a test account."""
-    account = Account(id=1, username="test_user")
-    test_async_session.add(account)
-    await test_async_session.commit()
-    await test_async_session.refresh(account)
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    # Check if account already exists
+    result = await test_async_session.execute(select(Account).filter_by(id=1))
+    account = result.scalar_one_or_none()
+
+    if account is None:
+        # Create the account
+        account = Account(
+            id=1, username="test_user", createdAt=datetime.now(timezone.utc)
+        )
+        test_async_session.add(account)
+        await test_async_session.commit()
+        await test_async_session.refresh(account)
+
     return account
 
 
@@ -142,7 +164,7 @@ async def test_wall_cleanup(
         test_config,
         test_account,
         new_walls_data,
-        test_async_session,
+        session=test_async_session,  # Pass the session explicitly
     )
 
     # Verify wall 2 was removed
@@ -165,6 +187,11 @@ async def test_process_wall_posts(
     wall = Wall(id=1, accountId=test_account.id, name="Test Wall")
     test_async_session.add(wall)
     await test_async_session.commit()
+
+    # Make sure wall.posts is properly initialized in the greenlet context
+    await test_async_session.run_sync(
+        lambda s: s.refresh(wall, attribute_names=["posts"])
+    )
 
     # Create posts data
     posts_data = {
@@ -191,13 +218,28 @@ async def test_process_wall_posts(
         None,
         wall.id,
         posts_data,
-        test_async_session,
+        session=test_async_session,
     )
 
-    # Verify posts were associated with wall
+    # Verify posts were created by checking count and IDs
+    result = await test_async_session.execute(text("SELECT id FROM posts ORDER BY id"))
+    post_ids = [row[0] for row in result.fetchall()]
+    assert len(post_ids) == 2
+    assert post_ids == [1, 2]
+
+    # Now verify the relationship from wall to posts using a direct SQL query
     result = await test_async_session.execute(
-        select(Wall).execution_options(populate_existing=True)
+        text(
+            "SELECT p.id "
+            "FROM posts p "
+            "JOIN wall_posts wp ON p.id = wp.postId "
+            "WHERE wp.wallId = :wall_id "
+            "ORDER BY p.id"
+        ),
+        {"wall_id": wall.id},
     )
-    saved_wall = result.unique().scalar_one_or_none()
-    assert len(saved_wall.posts) == 2
-    assert sorted(p.id for p in saved_wall.posts) == [1, 2]
+
+    # Get the post IDs directly from the SQL query result
+    wall_post_ids = [row[0] for row in result.fetchall()]
+    assert len(wall_post_ids) == 2
+    assert sorted(wall_post_ids) == [1, 2]

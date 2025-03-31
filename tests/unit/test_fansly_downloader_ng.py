@@ -66,11 +66,18 @@ async def test_cleanup_database_error(capsys):
     mock_db.cleanup = cleanup_mock
     config._database = mock_db
 
-    await cleanup_database(config)
+    # Mock print_error to ensure it's called and can be captured
+    with patch("fansly_downloader_ng.print_error") as mock_print_error:
+        # Run the function
+        await cleanup_database(config)
 
+        # Verify that print_error was called with the expected message
+        mock_print_error.assert_called_once()
+        error_msg = mock_print_error.call_args[0][0]
+        assert "Error closing database connections: Database error" in error_msg
+
+    # Verify the cleanup method was called
     cleanup_mock.assert_called_once()
-    captured = capsys.readouterr()
-    assert "Error closing database connections: Database error" in captured.out
 
 
 def test_cleanup_database_no_database():
@@ -518,6 +525,7 @@ async def test_main_success(
 
     # Mock background tasks
     mock_task = AsyncMock()
+    # Ensure we await the task if needed
     mock_config.get_background_tasks.return_value = [mock_task]
 
     # Mock API response
@@ -531,19 +539,19 @@ async def test_main_success(
         }
     }
 
+    async_wait_for_mock = AsyncMock()
+    async_gather_mock = AsyncMock()
+    main_mock = AsyncMock(return_value=EXIT_SUCCESS)
+
     with (
         patch("config.load_config"),
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
         patch("config.args.map_args_to_config"),
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
-        patch("asyncio.wait_for", new_callable=AsyncMock),
-        patch("asyncio.gather", new_callable=AsyncMock),
-        patch(
-            "fansly_downloader_ng.main",
-            new_callable=AsyncMock,
-            return_value=EXIT_SUCCESS,
-        ),
+        patch("asyncio.wait_for", new=async_wait_for_mock),
+        patch("asyncio.gather", new=async_gather_mock),
+        patch("fansly_downloader_ng.main", new=main_mock),
     ):
         result = await _async_main(mock_config)
         assert result == EXIT_SUCCESS
@@ -572,6 +580,10 @@ async def test_main_api_account_error(
     mock_task = AsyncMock()
     mock_config.get_background_tasks.return_value = [mock_task]
 
+    async_wait_for_mock = AsyncMock()
+    async_gather_mock = AsyncMock()
+    main_mock = AsyncMock(return_value=SOME_USERS_FAILED)
+
     with (
         patch("config.load_config"),
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
@@ -579,13 +591,9 @@ async def test_main_api_account_error(
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
         patch("textio.textio.input_enter_continue"),
-        patch("asyncio.wait_for", new_callable=AsyncMock),
-        patch("asyncio.gather", new_callable=AsyncMock),
-        patch(
-            "fansly_downloader_ng.main",
-            new_callable=AsyncMock,
-            return_value=SOME_USERS_FAILED,
-        ),
+        patch("asyncio.wait_for", new=async_wait_for_mock),
+        patch("asyncio.gather", new=async_gather_mock),
+        patch("fansly_downloader_ng.main", new=main_mock),
     ):
         result = await _async_main(mock_config)
         assert result == SOME_USERS_FAILED
@@ -620,19 +628,19 @@ async def test_main_with_background_tasks(
         }
     }
 
+    async_wait_for_mock = AsyncMock()
+    async_gather_mock = AsyncMock()
+    main_mock = AsyncMock(return_value=EXIT_SUCCESS)
+
     with (
         patch("config.load_config"),
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
         patch("config.args.map_args_to_config"),
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
-        patch("asyncio.gather", new_callable=AsyncMock),
-        patch("asyncio.wait_for", new_callable=AsyncMock),
-        patch(
-            "fansly_downloader_ng.main",
-            new_callable=AsyncMock,
-            return_value=EXIT_SUCCESS,
-        ),
+        patch("asyncio.gather", new=async_gather_mock),
+        patch("asyncio.wait_for", new=async_wait_for_mock),
+        patch("fansly_downloader_ng.main", new=main_mock),
     ):
         result = await _async_main(mock_config)
         assert result == EXIT_SUCCESS
@@ -654,6 +662,10 @@ async def test_main_keyboard_interrupt(mock_config, mock_args, mock_common_funct
     mock_task = AsyncMock()
     mock_config.get_background_tasks.return_value = [mock_task]
 
+    async_wait_for_mock = AsyncMock()
+    async_gather_mock = AsyncMock()
+    main_mock = AsyncMock(side_effect=KeyboardInterrupt)
+
     with (
         patch("config.load_config"),
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
@@ -661,13 +673,9 @@ async def test_main_keyboard_interrupt(mock_config, mock_args, mock_common_funct
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
         patch("textio.textio.input_enter_close"),
-        patch("asyncio.wait_for", new_callable=AsyncMock),
-        patch("asyncio.gather", new_callable=AsyncMock),
-        patch(
-            "fansly_downloader_ng.main",
-            new_callable=AsyncMock,
-            side_effect=KeyboardInterrupt,
-        ),
+        patch("asyncio.wait_for", new=async_wait_for_mock),
+        patch("asyncio.gather", new=async_gather_mock),
+        patch("fansly_downloader_ng.main", new=main_mock),
     ):
         result = await _async_main(mock_config)
         assert result == EXIT_ABORT
@@ -700,15 +708,19 @@ async def test_main_error_handling(
     mock_task = AsyncMock()
     mock_config.get_background_tasks.return_value = [mock_task]
 
+    async_wait_for_mock = AsyncMock()
+    async_gather_mock = AsyncMock()
+    main_mock = AsyncMock(side_effect=error)
+
     with (
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
         patch("textio.textio.input_enter_close"),
         patch("config.args.map_args_to_config"),
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
-        patch("asyncio.wait_for", new_callable=AsyncMock),
-        patch("asyncio.gather", new_callable=AsyncMock),
-        patch("fansly_downloader_ng.main", new_callable=AsyncMock, side_effect=error),
+        patch("asyncio.wait_for", new=async_wait_for_mock),
+        patch("asyncio.gather", new=async_gather_mock),
+        patch("fansly_downloader_ng.main", new=main_mock),
     ):
         result = await _async_main(mock_config)
         assert result == expected_code
@@ -745,6 +757,9 @@ async def test_main_cleanup_on_exit(
         atexit.register(cleanup_database_sync, config)
         raise Exception("Test error")
 
+    async_wait_for_mock = AsyncMock()
+    async_gather_mock = AsyncMock()
+
     with (
         patch("atexit.register", side_effect=mock_register),
         patch("fansly_downloader_ng.parse_args", return_value=mock_args),
@@ -752,8 +767,8 @@ async def test_main_cleanup_on_exit(
         patch("updater.self_update"),
         patch("config.validation.validate_adjust_config"),
         patch("textio.textio.input_enter_close"),
-        patch("asyncio.wait_for", new_callable=AsyncMock),
-        patch("asyncio.gather", new_callable=AsyncMock),
+        patch("asyncio.wait_for", new=async_wait_for_mock),
+        patch("asyncio.gather", new=async_gather_mock),
         patch(
             "fansly_downloader_ng.main", new_callable=AsyncMock, side_effect=mock_main
         ),

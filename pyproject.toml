@@ -93,6 +93,7 @@ psutil = "^6.1.1"
 types-psutil = "^6.1.0.20241221"
 types-tqdm = "^4.67.0.20241221"
 radon = "^6.0.1"
+pytest-loguru = "^0.4.0"
 
 [build-system]
 requires = ["poetry-core"]

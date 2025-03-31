@@ -2,7 +2,7 @@
 
 import asyncio
 import sqlite3
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -43,8 +43,10 @@ class TestTransactionRecovery:
             "depth": 1,
         }
 
+        # Use an AsyncMock instance properly (not returning a coroutine)
+        mock_handler = AsyncMock()
         # Patch the _handle_savepoint_error method to verify it's called
-        with patch.object(test_database, "_handle_savepoint_error") as mock_handler:
+        with patch.object(test_database, "_handle_savepoint_error", new=mock_handler):
             # Simulate a savepoint error
             await test_database._handle_savepoint_error(
                 mock_session,
@@ -54,7 +56,7 @@ class TestTransactionRecovery:
             )
 
             # Verify the handler was called
-            assert mock_handler.called
+            mock_handler.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_nested_transaction_recovery(self, test_database):
@@ -90,9 +92,6 @@ class TestTransactionRecovery:
         """Test connection invalidation and recreation."""
         # Mock the _handle_savepoint_error method to avoid actual database operations
         with patch.object(test_database, "_handle_savepoint_error") as mock_handler:
-            # Set up a mock return value
-            mock_handler.return_value = None
-
             # Create a mock session
             mock_session = MagicMock()
             mock_session.execute.side_effect = [

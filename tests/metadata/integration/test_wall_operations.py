@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, selectinload, sessionmaker
 from sqlalchemy.sql import text
 
 from config import FanslyConfig
@@ -16,6 +16,7 @@ from metadata.base import Base
 from metadata.database import Database
 from metadata.post import Post
 from metadata.wall import Wall, process_account_walls, process_wall_posts
+from metadata.wall import wall_posts as wall_posts_table
 
 
 @pytest.fixture(autouse=True)
@@ -71,37 +72,33 @@ async def test_wall_post_integration(test_database, setup_account):
         ]
         for post in posts:
             session.add(post)
-        await session.commit()
+        await session.flush()
 
-        # Associate posts with walls
-        walls[0].posts = posts[:2]  # First two posts to first wall
-        walls[1].posts = posts[2:]  # Last two posts to second wall
-        await session.commit()
-
-        # Verify through separate session
-        # Check first wall
-        result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))
-        wall1 = result.fetchone()
-        assert wall1 is not None, "Wall 1 should exist"
-        result = await session.execute(
-            text(
-                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 1 ORDER BY posts.content"
+        # Associate posts with walls using the association table directly
+        for post in posts[:2]:
+            await session.execute(
+                wall_posts_table.insert().values(wallId=walls[0].id, postId=post.id)
             )
-        )
-        wall1_posts = result.fetchall()
+
+        for post in posts[2:]:
+            await session.execute(
+                wall_posts_table.insert().values(wallId=walls[1].id, postId=post.id)
+            )
+
+        await session.commit()
+
+        # Verify through ORM queries
+        # Check first wall
+        wall1 = await session.scalar(select(Wall).where(Wall.id == 1))
+        assert wall1 is not None, "Wall 1 should exist"
+        wall1_posts = sorted(wall1.posts, key=lambda p: p.content)
         assert len(wall1_posts) == 2
         assert [p.content for p in wall1_posts] == ["Post 1", "Post 2"]
 
         # Check second wall
-        result = await session.execute(text("SELECT * FROM walls WHERE id = 2"))
-        wall2 = result.fetchone()
+        wall2 = await session.scalar(select(Wall).where(Wall.id == 2))
         assert wall2 is not None, "Wall 2 should exist"
-        result = await session.execute(
-            text(
-                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 2 ORDER BY posts.content"
-            )
-        )
-        wall2_posts = result.fetchall()
+        wall2_posts = sorted(wall2.posts, key=lambda p: p.content)
         assert len(wall2_posts) == 2
         assert [p.content for p in wall2_posts] == ["Post 3", "Post 4"]
 
@@ -138,7 +135,9 @@ async def test_wall_updates_with_posts(test_database, config, setup_account):
             }
         ]
 
-        await process_account_walls(config, setup_account, new_wall_data)
+        await process_account_walls(
+            config, setup_account, new_wall_data, session=session
+        )
 
         # Verify updates
         result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))
@@ -167,6 +166,11 @@ async def test_wall_post_processing(test_database, config, setup_account):
         session.add(wall)
         await session.commit()
 
+        # Explicitly load the wall with its posts to avoid lazy loading
+        stmt = select(Wall).options(selectinload(Wall.posts)).where(Wall.id == 1)
+        result = await session.execute(stmt)
+        wall = result.scalar_one()
+
         # Create posts data in timeline format
         posts_data = {
             "posts": [
@@ -182,8 +186,8 @@ async def test_wall_post_processing(test_database, config, setup_account):
             "accountMedia": [],  # Empty list to avoid KeyError
         }
 
-        # Process posts
-        await process_wall_posts(config, None, wall.id, posts_data)
+        # Process posts - use the eager-loaded wall object
+        await process_wall_posts(config, None, wall.id, posts_data, session=session)
 
         # Verify
         result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))

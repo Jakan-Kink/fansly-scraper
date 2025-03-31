@@ -175,8 +175,8 @@ class Base(AsyncAttrs, DeclarativeBase):
         """Async version of get_or_create."""
         # Try to get existing instance
         stmt = select(cls).filter_by(**filters)
-        result = await session.scalars(stmt)
-        instance = result.first()
+        result = await session.execute(stmt)
+        instance = result.scalar_one_or_none()
 
         if instance is not None:
             # Handle potential identity map issues

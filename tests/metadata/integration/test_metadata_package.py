@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from metadata import (
     Account,
@@ -24,12 +24,13 @@ async def test_full_content_processing(test_database, config, timeline_data):
     """Test processing a complete set of content."""
     # Process account data from timeline
     account_data = timeline_data["response"]["accounts"][0]
-    await process_account_data(config, account_data)
+    async with test_database.async_session_scope() as session:
+        await process_account_data(config, account_data, session=session)
 
-    # Process media
-    if "accountMedia" in timeline_data["response"]:
-        for media_data in timeline_data["response"]["accountMedia"]:
-            await process_media_info(config, media_data)
+        # Process media
+        if "accountMedia" in timeline_data["response"]:
+            for media_data in timeline_data["response"]["accountMedia"]:
+                await process_media_info(config, media_data, session=session)
 
     # Verify data through database queries
     async with test_database.async_session_scope() as session:
@@ -74,37 +75,37 @@ async def test_relationship_integrity(test_database):
 
     async with test_database.async_session_scope() as session:
         try:
-            # Create a complete set of test data
-            data = await create_test_data_set(
+            print("\nCreating test data set...")
+            data = create_test_data_set(
                 session,
                 num_accounts=2,
                 num_media_per_account=3,
                 num_posts_per_account=2,
                 num_walls_per_account=2,
             )
+            await session.commit()
+            print(f"Created {len(data['accounts'])} accounts")
+            print(f"Created {len(data['media'])} media items")
+            print(f"Created {len(data['account_media'])} account_media associations")
 
             # Verify relationships for each account
             for account in data["accounts"]:
-                # Test 1: Account -> AccountMedia relationship
-                result = await session.execute(
-                    text(
-                        "SELECT * FROM account_media WHERE accountId = :account_id ORDER BY id"
-                    ),
-                    {"account_id": account.id},
+                print(f"\nVerifying relationships for account {account.id}")
+                # Test 1: Account -> AccountMedia relationship using ORM
+                account_media = await session.scalars(
+                    select(AccountMedia).filter_by(accountId=account.id)
                 )
-                account_media = result.fetchall()
-                assert len(account_media) == 3  # Expect exactly 3 media items
-                assert await verify_relationship_integrity(
+                assert len(list(account_media)) == 3
+
+                # Verify relationship count using async-safe method
+                integrity_check = await verify_relationship_integrity(
                     session, account, "accountMedia", expected_count=3
                 )
+                assert integrity_check, "Relationship integrity check failed"
 
-                # Test 2: AccountMedia -> Media relationship
+                # Test 2: AccountMedia -> Media relationship using ORM
                 for account_media in account_media:
-                    result = await session.execute(
-                        text("SELECT * FROM media WHERE id = :media_id"),
-                        {"media_id": account_media.mediaId},
-                    )
-                    media = result.fetchone()
+                    media = account_media.media
                     assert (
                         media is not None
                     ), f"Media {account_media.mediaId} not found for AccountMedia {account_media.id}"
@@ -112,31 +113,20 @@ async def test_relationship_integrity(test_database):
                         media.accountId == account.id
                     ), f"Media {media.id} has wrong accountId {media.accountId}, expected {account.id}"
 
-                # Test 3: Account -> Walls relationship (existing walls)
-                result = await session.execute(
-                    text(
-                        "SELECT * FROM walls WHERE accountId = :account_id ORDER BY id"
-                    ),
-                    {"account_id": account.id},
+                # Test 3: Account -> Walls relationship (existing walls) using ORM
+                existing_walls = await session.scalars(
+                    select(Wall).filter_by(accountId=account.id)
                 )
-                existing_walls = result.fetchall()
                 assert (
-                    len(existing_walls) == 2
-                ), f"Expected 2 walls for account {account.id}, found {len(existing_walls)}"
+                    len(list(existing_walls)) == 2
+                ), f"Expected 2 walls for account {account.id}, found {len(list(existing_walls))}"
                 assert await verify_relationship_integrity(
                     session, account, "walls", expected_count=2
                 )
 
-                # Test 4: Wall -> Posts relationship
+                # Test 4: Wall -> Posts relationship using ORM
                 for wall in existing_walls:
-                    # Get posts for this wall's account
-                    result = await session.execute(
-                        text(
-                            "SELECT * FROM posts WHERE accountId = :account_id ORDER BY id"
-                        ),
-                        {"account_id": wall.accountId},
-                    )
-                    account_posts = result.fetchall()
+                    account_posts = wall.posts
                     assert (
                         len(account_posts) == 2
                     ), f"Expected 2 posts for account {wall.accountId}, found {len(account_posts)}"

@@ -37,10 +37,10 @@ async def test_process_video_from_timeline(test_database, config, timeline_data)
     assert "mimetype" in media_data["media"], "Missing mimetype in media object"
 
     # Process the media
-    await process_media_info(config, media_data)
-
-    # Verify the results
     async with test_database.async_session_scope() as session:
+        # Process the media with session parameter
+        await process_media_info(config, media_data, session=session)
+
         # Test 1: Basic media record creation
         result = await session.execute(
             text("SELECT * FROM media WHERE id = :media_id"),
@@ -91,7 +91,7 @@ async def test_process_video_from_timeline(test_database, config, timeline_data)
                         pytest.fail(f"Invalid height value: {e}")
 
         # Test 3: Process same media again to test unique constraint handling
-        await process_media_info(config, media_data)
+        await process_media_info(config, media_data, session=session)
         # Verify only one record exists
         result = await session.execute(
             text("SELECT COUNT(*) FROM media WHERE id = :media_id"),

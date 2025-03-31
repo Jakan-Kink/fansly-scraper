@@ -78,7 +78,7 @@ def setup_test_logging():
             sys.stdout,
             format="<level>{level}</level> | <white>{time:HH:mm}</white> <level>|</level><light-white>| {message}</light-white>",
             level="INFO",
-            filter=lambda record: not record["extra"].get("json", False),
+            filter=lambda record: record["extra"].get("logger") in ("textio", "stash"),
         )
 
         # Add file handler for regular logs
@@ -88,7 +88,7 @@ def setup_test_logging():
             retention="1 day",
             compression="gz",
             level="INFO",
-            filter=lambda record: not record["extra"].get("json", False),
+            filter=lambda record: record["extra"].get("logger") in ("textio", "stash"),
         )
 
         # Add handler for JSON logs using loguru's built-in rotation
@@ -96,7 +96,7 @@ def setup_test_logging():
             str(temp_path / "test_json.log"),
             format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]:\n{message}",
             level="INFO",
-            filter=lambda record: record["extra"].get("json", False),
+            filter=lambda record: record["extra"].get("logger") == "json",
             rotation="50 MB",
             retention="1 day",
             compression="gz",
@@ -104,6 +104,22 @@ def setup_test_logging():
             catch=True,  # Catch exceptions
             backtrace=False,
             diagnose=False,
+        )
+
+        # Make sure trace logger gets its own file
+        logger.add(
+            str(temp_path / "trace.log"),
+            format="[{time:YYYY-MM-DD HH:mm:ss.SSSSSS}] [{level.name}] {message}",
+            level="TRACE",
+            filter=lambda record: record["extra"].get("logger") == "trace",
+        )
+
+        # Add DB logger file
+        logger.add(
+            str(temp_path / "sqlalchemy.log"),
+            format="[{time:YYYY-MM-DD HH:mm:ss}] [{level.name}] {message}",
+            level="INFO",
+            filter=lambda record: record["extra"].get("logger") == "db",
         )
 
         try:
@@ -303,11 +319,42 @@ def test_session(test_database):
 
 
 @pytest_asyncio.fixture
-async def test_async_session(test_database):
-    """Create an async test database session."""
-    db = await test_database
-    async with db.async_session_scope() as session:
+async def test_async_session(test_config: FanslyConfig):
+    """Create a test async database session with tables always created."""
+    # Create unique database name for each test session
+    import uuid
+
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
+
+    db_name = f"test_db_{uuid.uuid4()}"
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///file:{db_name}?mode=memory&cache=shared&uri=true",
+        future=True,
+    )
+
+    # Create all tables
+    from metadata.base import Base
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    SessionMaker = async_sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+    async with SessionMaker() as session:
+        # Configure session for optimum test performance
+        await session.execute(text("PRAGMA synchronous=OFF"))
+        await session.execute(text("PRAGMA temp_store=MEMORY"))
+        await session.execute(text("PRAGMA foreign_keys=OFF"))
+        await session.execute(text("PRAGMA journal_mode=WAL"))
         yield session
+
+    # Clean up
+    await engine.dispose()
 
 
 @pytest.fixture(scope="session")

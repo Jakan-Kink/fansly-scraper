@@ -1,12 +1,14 @@
 """Unit tests for metadata.messages module."""
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from config import FanslyConfig
@@ -18,9 +20,15 @@ from metadata.messages import Group, Message, group_users, process_messages_meta
 
 
 @pytest.fixture
-def db_session():
-    """Set up test database and session."""
-    engine = create_engine("sqlite:///:memory:")
+def db_session(request):
+    """Set up test database and session with a unique in-memory database per test."""
+    # Create a unique database name based on the test name
+    test_name = request.node.name.replace("[", "_").replace("]", "_")
+    db_name = f"test_messages_{test_name}_{id(request)}"
+    # Use URI format for in-memory database to ensure thread safety
+    db_uri = f"sqlite:///file:{db_name}?mode=memory&cache=shared&uri=true"
+
+    engine = create_engine(db_uri, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -36,6 +44,7 @@ def db_session():
     # Cleanup
     session.close()
     Base.metadata.drop_all(engine)
+    engine.dispose()
 
 
 def test_direct_message_creation(db_session):
@@ -118,9 +127,9 @@ def test_group_message(db_session):
 
 def test_message_with_attachment(db_session):
     """Test message with an attachment."""
-
     session, account1, account2 = db_session
 
+    # Create a message with attachment
     message = Message(
         id=1,
         senderId=account1.id,
@@ -131,6 +140,7 @@ def test_message_with_attachment(db_session):
     session.add(message)
     session.flush()
 
+    # Add attachment to the message
     attachment = Attachment(
         contentId="test_content",
         messageId=1,
@@ -139,20 +149,13 @@ def test_message_with_attachment(db_session):
     )
     session.add(attachment)
     session.commit()
-    # Pre-create a Message instance so that process_messages_metadata updates an existing message instead of using the class directly
-    initial_msg = Message(
-        id=1,
-        senderId=account1.id,
-        recipientId=account2.id,
-        content="Initial Content",
-        createdAt=int(datetime.now(timezone.utc).timestamp()),
-    )
-    session.add(initial_msg)
-    session.commit()
 
+    # Verify the message has the attachment
     saved_message = session.execute(select(Message)).scalar_one_or_none()
+    assert saved_message.content == "Message with attachment"
     assert len(saved_message.attachments) == 1
     assert saved_message.attachments[0].contentType == ContentType.ACCOUNT_MEDIA
+    assert saved_message.attachments[0].contentId == "test_content"
 
 
 @pytest.mark.asyncio
@@ -160,31 +163,56 @@ async def test_process_messages_metadata(db_session):
     """Test processing message metadata."""
     session, account1, account2 = db_session
 
-    # Create a mock config with the test session
-    config = MagicMock()
-    config._database = MagicMock()
-    config._database.async_session = lambda: session
+    # Since we need an async session but have a sync one, we need to create a proper
+    # async session that works with the same database
 
-    messages_data = [
-        {
-            "id": 1,
-            "senderId": account1.id,
-            "recipientId": account2.id,
-            "content": "Test message",
-            "createdAt": int(datetime.now(timezone.utc).timestamp()),
-            "attachments": [
-                {
-                    "contentId": "test_content",
-                    "contentType": ContentType.ACCOUNT_MEDIA.value,
-                    "pos": 1,
-                }
-            ],
-        }
-    ]
+    # Extract the database path from the sync session
+    engine = session.get_bind()
+    url = str(engine.url)
 
-    await process_messages_metadata(config, None, messages_data)
+    # Create an async engine pointing to the same database - use replace for simplicity
+    async_url = url.replace("sqlite://", "sqlite+aiosqlite://")
+    async_engine = create_async_engine(async_url)
 
-    saved_message = session.execute(select(Message)).unique().scalar_one_or_none()
-    assert saved_message.content == "Test message"
-    assert len(saved_message.attachments) == 1
-    assert saved_message.attachments[0].contentId == "test_content"
+    # Create the async session
+    async_session_factory = async_sessionmaker(
+        bind=async_engine, expire_on_commit=False
+    )
+    async_session = async_session_factory()
+
+    try:
+        # Create a mock config that returns our async session
+        config = MagicMock()
+        config._database = MagicMock()
+        config._database.async_session = lambda: async_session
+
+        messages_data = [
+            {
+                "id": 1,
+                "senderId": account1.id,
+                "recipientId": account2.id,
+                "content": "Test message",
+                "createdAt": int(datetime.now(timezone.utc).timestamp()),
+                "attachments": [
+                    {
+                        "contentId": "test_content",
+                        "contentType": ContentType.ACCOUNT_MEDIA.value,
+                        "pos": 1,
+                    }
+                ],
+            }
+        ]
+
+        await process_messages_metadata(
+            config, None, messages_data, session=async_session
+        )
+        await async_session.commit()
+
+        # Use the sync session to verify the results since we already have it set up with data
+        saved_message = session.execute(select(Message)).unique().scalar_one_or_none()
+        assert saved_message.content == "Test message"
+        assert len(saved_message.attachments) == 1
+        assert saved_message.attachments[0].contentId == "test_content"
+    finally:
+        await async_session.close()
+        await async_engine.dispose()

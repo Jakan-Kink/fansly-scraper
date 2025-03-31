@@ -379,7 +379,11 @@ async def _process_group_users(
         group: Group instance
         users: List of user data dictionaries
     """
-    group.users = set()  # Clear existing users
+    # First, remove existing group_users entries instead of accessing group.users directly
+    await session.execute(group_users.delete().where(group_users.c.groupId == group.id))
+    await session.flush()
+
+    # Process each user
     for user in users:
         user_id = user.get("userId")
         if not user_id:
@@ -395,16 +399,14 @@ async def _process_group_users(
             context={"groupId": group.id, "source": "group_users"},
         )
 
-        # Add user to group_users table
-        group_user = {"groupId": group.id, "accountId": user_id}
-        result = await session.execute(
-            select(group_users).where(
-                and_(*[getattr(group_users.c, k) == v for k, v in group_user.items()])
-            )
+        # Add user to group_users table using direct insertion
+        await session.execute(
+            group_users.insert()
+            .prefix_with("OR IGNORE")
+            .values(groupId=group.id, accountId=user_id)
         )
-        existing = result.scalar_one_or_none()
-        if not existing:
-            await session.execute(group_users.insert().values(group_user))
+
+    await session.flush()
 
 
 @require_database_config
@@ -470,7 +472,7 @@ async def process_groups_response(
     accounts: list = aggregation_data.get("accounts", {})
     for account in accounts:
         json_output(1, "meta/mess - p_g_resp - account", account)
-        await process_account_data(config, data=account, state=state)
+        await process_account_data(config, data=account, state=state, session=session)
 
     # Process groups
     data: list[dict] = response.get("data", {})

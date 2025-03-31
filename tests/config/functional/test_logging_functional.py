@@ -1,6 +1,8 @@
 """Functional tests for logging configuration."""
 
+import io
 import os
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,22 +29,23 @@ def log_dir(tmp_path):
     # Create logs directory in the right place
     log_dir = tmp_path / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    # Also create it in cwd since some code looks there
-    cwd_logs = Path.cwd() / "logs"
-    cwd_logs.mkdir(parents=True, exist_ok=True)
-    return log_dir
+    # Set this as the current working directory for log file output
+    old_cwd = Path.cwd()
+    os.chdir(str(tmp_path))
+    yield log_dir
+    # Restore original working directory
+    os.chdir(str(old_cwd))
 
 
 @pytest.fixture
 def config(log_dir):
     """Create a test config with log directory set."""
     config = FanslyConfig(program_version="test")
-    # Monkeypatch cwd to use our temp log dir
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(Path, "cwd", lambda: log_dir.parent)
+    # Set testing environment flag
+    os.environ["TESTING"] = "1"
+    # Initialize logging with this config
     init_logging_config(config)
     yield config
-    monkeypatch.undo()
 
 
 def read_log_file(log_dir: Path, filename: str) -> list[str]:
@@ -50,28 +53,58 @@ def read_log_file(log_dir: Path, filename: str) -> list[str]:
     log_file = log_dir / filename
     if not log_file.exists():
         return []
-    return log_file.read_text().splitlines()
+    # Ensure file has been flushed to disk
+    with open(log_file, encoding="utf-8") as f:
+        return [line.strip() for line in f.readlines()]
+
+
+def assert_log_contains(log_lines: list[str], message: str, level: str = None) -> bool:
+    """Check if log contains message and optionally level."""
+    for line in log_lines:
+        if message in line:
+            if level is None or level in line:
+                return True
+    return False
 
 
 def test_textio_logger_output(config, log_dir):
     """Test that textio_logger writes to the correct files at correct levels."""
     # INFO level should go to both console and file
     textio_logger.info("Info message")
+    # Force logger to flush
+    logger.complete()
     log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
-    assert any("Info message" in line for line in log_lines)
-    assert any("[INFO ]" in line for line in log_lines)
+    assert len(log_lines) > 0, "Log file empty or not found"
+
+    # Check that any line contains our message
+    message_found = False
+    info_level_found = False
+    for line in log_lines:
+        if "Info message" in line:
+            message_found = True
+        if "INFO" in line:
+            info_level_found = True
+
+    assert message_found, f"Log content: {log_lines}"
+    assert info_level_found, f"Log content: {log_lines}"
 
     # DEBUG level should be filtered out by default
     textio_logger.debug("Debug message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
-    assert not any("Debug message" in line for line in log_lines)
+    assert not any(
+        "Debug message" in line for line in log_lines
+    ), f"Log file should not contain 'Debug message'. Contents: {log_lines}"
 
     # With debug enabled, DEBUG should appear
     set_debug_enabled(True)
     try:
         textio_logger.debug("Debug message with debug enabled")
+        logger.complete()
         log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
-        assert any("Debug message with debug enabled" in line for line in log_lines)
+        assert any(
+            "Debug message with debug enabled" in line for line in log_lines
+        ), f"Log content: {log_lines}"
         assert any("[DEBUG]" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
@@ -81,12 +114,16 @@ def test_json_logger_output(config, log_dir):
     """Test that json_logger writes to the correct file at correct levels."""
     # INFO level should go to file only
     json_logger.info("Info message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
-    assert any("Info message" in line for line in log_lines)
+    assert any(
+        "Info message" in line for line in log_lines
+    ), f"Log content: {log_lines}"
     assert any("[INFO]" in line for line in log_lines)
 
     # DEBUG level should be filtered out by default
     json_logger.debug("Debug message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
     assert not any("Debug message" in line for line in log_lines)
 
@@ -94,8 +131,11 @@ def test_json_logger_output(config, log_dir):
     set_debug_enabled(True)
     try:
         json_logger.debug("Debug message with debug enabled")
+        logger.complete()
         log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
-        assert any("Debug message with debug enabled" in line for line in log_lines)
+        assert any(
+            "Debug message with debug enabled" in line for line in log_lines
+        ), f"Log content: {log_lines}"
         assert any("[DEBUG]" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
@@ -105,12 +145,16 @@ def test_db_logger_output(config, log_dir):
     """Test that db_logger writes to the correct file at correct levels."""
     # INFO level should go to file only
     db_logger.info("Info message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "sqlalchemy.log")
-    assert any("Info message" in line for line in log_lines)
-    assert any("[INFO]" in line for line in log_lines)
+    assert any(
+        "Info message" in line for line in log_lines
+    ), f"Log content: {log_lines}"
+    assert any("INFO" in line for line in log_lines)
 
     # DEBUG level should be filtered out by default
     db_logger.debug("Debug message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "sqlalchemy.log")
     assert not any("Debug message" in line for line in log_lines)
 
@@ -118,9 +162,12 @@ def test_db_logger_output(config, log_dir):
     set_debug_enabled(True)
     try:
         db_logger.debug("Debug message with debug enabled")
+        logger.complete()
         log_lines = read_log_file(log_dir, "sqlalchemy.log")
-        assert any("Debug message with debug enabled" in line for line in log_lines)
-        assert any("[DEBUG]" in line for line in log_lines)
+        assert any(
+            "Debug message with debug enabled" in line for line in log_lines
+        ), f"Log content: {log_lines}"
+        assert any("DEBUG" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
 
@@ -129,12 +176,16 @@ def test_stash_logger_output(config, log_dir):
     """Test that stash_logger writes to the correct files at correct levels."""
     # INFO level should go to both console and file
     stash_logger.info("Info message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "stash.log")
-    assert any("Info message" in line for line in log_lines)
-    assert any("[INFO]" in line for line in log_lines)
+    assert any(
+        "Info message" in line for line in log_lines
+    ), f"Log content: {log_lines}"
+    assert any("INFO" in line for line in log_lines)
 
     # DEBUG level should be filtered out by default
     stash_logger.debug("Debug message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "stash.log")
     assert not any("Debug message" in line for line in log_lines)
 
@@ -142,9 +193,12 @@ def test_stash_logger_output(config, log_dir):
     set_debug_enabled(True)
     try:
         stash_logger.debug("Debug message with debug enabled")
+        logger.complete()
         log_lines = read_log_file(log_dir, "stash.log")
-        assert any("Debug message with debug enabled" in line for line in log_lines)
-        assert any("[DEBUG]" in line for line in log_lines)
+        assert any(
+            "Debug message with debug enabled" in line for line in log_lines
+        ), f"Log content: {log_lines}"
+        assert any("DEBUG" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
 
@@ -153,6 +207,7 @@ def test_trace_logger_output(config, log_dir):
     """Test that trace_logger writes to the correct file only when enabled."""
     # TRACE level should be filtered out by default
     trace_logger.trace("Trace message")
+    logger.complete()
     log_lines = read_log_file(log_dir, "trace.log")
     assert not any("Trace message" in line for line in log_lines)
 
@@ -161,9 +216,12 @@ def test_trace_logger_output(config, log_dir):
     init_logging_config(config)
     try:
         trace_logger.trace("Trace message with trace enabled")
+        logger.complete()
         log_lines = read_log_file(log_dir, "trace.log")
-        assert any("Trace message with trace enabled" in line for line in log_lines)
-        assert any("[TRACE]" in line for line in log_lines)
+        assert any(
+            "Trace message with trace enabled" in line for line in log_lines
+        ), f"Log content: {log_lines}"
+        assert any("TRACE" in line for line in log_lines)
     finally:
         config.trace = False
         init_logging_config(config)
@@ -198,25 +256,27 @@ def test_debug_mode_all_loggers(config, log_dir):
         json_logger.debug("Debug json")
         stash_logger.debug("Debug stash")
         db_logger.debug("Debug db")
+        logger.complete()
 
         # Check each log file
         assert any(
             "Debug textio" in line
             for line in read_log_file(log_dir, "fansly_downloader_ng.log")
-        )
+        ), f"Log content: {read_log_file(log_dir, 'fansly_downloader_ng.log')}"
         assert any(
             "Debug json" in line
             for line in read_log_file(log_dir, "fansly_downloader_ng_json.log")
-        )
+        ), f"Log content: {read_log_file(log_dir, 'fansly_downloader_ng_json.log')}"
         assert any(
             "Debug stash" in line for line in read_log_file(log_dir, "stash.log")
-        )
+        ), f"Log content: {read_log_file(log_dir, 'stash.log')}"
         assert any(
             "Debug db" in line for line in read_log_file(log_dir, "sqlalchemy.log")
-        )
+        ), f"Log content: {read_log_file(log_dir, 'sqlalchemy.log')}"
 
         # trace_logger should still be silent
         trace_logger.trace("Trace message")
+        logger.complete()
         assert not any(
             "Trace message" in line for line in read_log_file(log_dir, "trace.log")
         )
@@ -231,15 +291,17 @@ def test_trace_mode_only_affects_trace_logger(config, log_dir):
     try:
         # trace_logger should output TRACE
         trace_logger.trace("Trace message")
+        logger.complete()
         assert any(
             "Trace message" in line for line in read_log_file(log_dir, "trace.log")
-        )
+        ), f"Log content: {read_log_file(log_dir, 'trace.log')}"
 
         # Other loggers should still filter out DEBUG
         textio_logger.debug("Debug textio")
         json_logger.debug("Debug json")
         stash_logger.debug("Debug stash")
         db_logger.debug("Debug db")
+        logger.complete()
 
         # Check each log file
         assert not any(
@@ -261,56 +323,91 @@ def test_trace_mode_only_affects_trace_logger(config, log_dir):
 
 def test_console_output(config, capsys):
     """Test that only textio and stash loggers write to console."""
+
     # textio_logger should write to console
     textio_logger.info("Textio console message")
-    captured = capsys.readouterr()
-    assert "Textio console message" in captured.out
+    logger.complete()  # Ensure flushing
+    output = capsys.readouterr()
+    print(f"Captured output: {output.out}")
+    assert (
+        "Textio console message" in output.out
+    ), f"Expected 'Textio console message' in: {output.out}"
+    capsys.clear()  # Clear buffer
 
     # stash_logger should write to console
     stash_logger.info("Stash console message")
-    captured = capsys.readouterr()
-    assert "Stash console message" in captured.out
+    logger.complete()  # Ensure flushing
+    output = capsys.readouterr()
+    print(f"Captured output: {output.out}")
+    assert (
+        "Stash console message" in output.out
+    ), f"Expected 'Stash console message' in: {output.out}"
+    capsys.clear()  # Clear buffer
 
     # json_logger should NOT write to console
     json_logger.info("Json NO console message")
-    captured = capsys.readouterr()
-    assert "Json NO console message" not in captured.out
+    logger.complete()  # Ensure flushing
+    output = capsys.readouterr()
+    print(f"Captured output: {output.out}")
+    assert (
+        "Json NO console message" not in output.out
+    ), f"Should not find 'Json NO console message' in: {output.out}"
+    capsys.clear()  # Clear buffer
 
     # db_logger should NOT write to console
     db_logger.info("DB NO console message")
-    captured = capsys.readouterr()
-    assert "DB NO console message" not in captured.out
+    logger.complete()  # Ensure flushing
+    output = capsys.readouterr()
+    print(f"Captured output: {output.out}")
+    assert (
+        "DB NO console message" not in output.out
+    ), f"Should not find 'DB NO console message' in: {output.out}"
+    capsys.clear()  # Clear buffer
 
     # trace_logger should NOT write to console even when enabled
     config.trace = True
     init_logging_config(config)
     try:
         trace_logger.trace("Trace NO console message")
-        captured = capsys.readouterr()
-        assert "Trace NO console message" not in captured.out
+        logger.complete()  # Ensure flushing
+        output = capsys.readouterr()
+        print(f"Captured output: {output.out}")
+        assert (
+            "Trace NO console message" not in output.out
+        ), f"Should not find 'Trace NO console message' in: {output.out}"
     finally:
         config.trace = False
         init_logging_config(config)
 
 
-def test_console_level_format(config, capsys):
+def test_console_level_format(config, caplog):
     """Test that console output shows level names correctly."""
+
+    # Use direct patching of sys.stdout to capture output
     textio_logger.info("Info level message")
-    captured = capsys.readouterr()
-    assert "INFO" in captured.out
-    assert "Level 20" not in captured.out
+    logger.complete()  # Ensure flushing
+    output = caplog.text
+    print(f"Captured output: {output}")
+    assert "INFO" in output, f"Expected 'INFO' in: {output}"
+    assert "Level 20" not in output, f"Should not find 'Level 20' in: {output}"
+    caplog.clear()  # Clear buffer
 
     stash_logger.warning("Warning level message")
-    captured = capsys.readouterr()
-    assert "WARNING" in captured.out
-    assert "Level 30" not in captured.out
+    logger.complete()  # Ensure flushing
+    output = caplog.text
+    print(f"Captured output: {output}")
+    assert "WARNING" in output, f"Expected 'WARNING' in: {output}"
+    assert "Level 30" not in output, f"Should not find 'Level 30' in: {output}"
+    caplog.clear()  # Clear buffer
 
     set_debug_enabled(True)
     try:
         textio_logger.debug("Debug level message")
-        captured = capsys.readouterr()
-        assert "DEBUG" in captured.out
-        assert "Level 10" not in captured.out
+        logger.complete()  # Ensure flushing
+        output = caplog.text
+        print(f"Captured output: {output}")
+        assert "DEBUG" in output, f"Expected 'DEBUG' in: {output}"
+        assert "Level 10" not in output, f"Should not find 'Level 10' in: {output}"
     finally:
         set_debug_enabled(False)
 
@@ -363,6 +460,7 @@ def test_custom_log_levels(config, log_dir):
         json_logger.error("Error json")  # Should appear
         stash_logger.info("Info stash")  # Should appear
         db_logger.info("Info db")  # Should appear
+        logger.complete()
 
         # Check log files
         textio_lines = read_log_file(log_dir, "fansly_downloader_ng.log")

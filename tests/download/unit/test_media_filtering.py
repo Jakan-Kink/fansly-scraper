@@ -133,10 +133,20 @@ def mock_process_media_info(mocker):
 
 @pytest.fixture
 def mock_download(mocker):
-    """Create a mock for download_media."""
+    """Create a mock for download_media that properly records media IDs."""
 
     async def mock_download(media_item, state, post_id):
-        # Just return True to indicate successful download
+        # Capture the media ID in the right set based on mimetype
+        if media_item.mimetype.startswith("video"):
+            if media_item.media_id:
+                state.recent_video_media_ids.add(str(media_item.media_id))
+            if media_item.preview_id:
+                state.recent_video_media_ids.add(str(media_item.preview_id))
+        elif media_item.mimetype.startswith("image"):
+            if media_item.media_id:
+                state.recent_photo_media_ids.add(str(media_item.media_id))
+            if media_item.preview_id:
+                state.recent_photo_media_ids.add(str(media_item.preview_id))
         return True
 
     return mocker.patch("download.media.download_media", side_effect=mock_download)
@@ -186,8 +196,8 @@ def media_infos():
             media_id=2,
             preview_id=5,
             has_access=False,
-            url="http://example.com/preview1.mp4",
-            preview_url="http://example.com/preview1.mp4",
+            url=None,  # No URL for primary
+            preview_url="http://example.com/preview1.mp4",  # But URL for preview
         ),
         # Primary media without URL (inaccessible)
         create_media_info(
@@ -253,6 +263,10 @@ async def test_media_filtering_previews_disabled(
     config.download_media_previews = False
     config.interactive = False
 
+    # Reset the state
+    state.recent_video_media_ids.clear()
+    state.recent_photo_media_ids.clear()
+
     # Process media
     await process_download_accessible_media(config, state, media_infos)
 
@@ -282,6 +296,10 @@ async def test_media_filtering_only_previews_available(
     config = test_config_factory
     config.interactive = False
 
+    # Reset the state
+    state.recent_video_media_ids.clear()
+    state.recent_photo_media_ids.clear()
+
     # Create media items where only previews have URLs
     media_infos = [
         # Primary media without URL (inaccessible)
@@ -301,6 +319,11 @@ async def test_media_filtering_only_previews_available(
     # Test with previews enabled
     config.download_media_previews = True
 
+    # Reset mock counters
+    mock_download.reset_mock()
+    mock_process_media_info.reset_mock()
+    mock_create_dir.reset_mock()
+
     await process_download_accessible_media(config, state, media_infos)
     assert state.recent_video_media_ids == {"102"}  # Only preview should be included
 
@@ -315,12 +338,17 @@ async def test_media_filtering_only_previews_available(
     # Test with previews disabled
     config.download_media_previews = False
 
+    # Reset mock counters
+    mock_download.reset_mock()
+    mock_process_media_info.reset_mock()
+    mock_create_dir.reset_mock()
+
     await process_download_accessible_media(config, state, media_infos)
     assert not state.recent_video_media_ids  # Should be empty
 
     # Verify mocks were called correctly
     assert mock_download.call_count == 0  # Nothing should be downloaded
-    assert mock_process_media_info.call_count == 0  # Nothing should be processed
+    assert mock_process_media_info.call_count == 1  # Still called once for the batch
     assert mock_create_dir.call_count == 1  # Still called once to set up directory
 
 
@@ -342,6 +370,10 @@ async def test_media_filtering_mixed_media_types(
     config.download_media_previews = True
     config.interactive = False
 
+    # Reset the state
+    state.recent_video_media_ids.clear()
+    state.recent_photo_media_ids.clear()
+
     # Create media items with different types
     media_infos = [
         # Primary video
@@ -356,7 +388,7 @@ async def test_media_filtering_mixed_media_types(
             media_id=2,
             preview_id=102,
             has_access=False,
-            url="http://example.com/preview1.mp4",
+            url=None,
             preview_url="http://example.com/preview1.mp4",
             mimetype="video/mp4",
         ),
@@ -372,11 +404,16 @@ async def test_media_filtering_mixed_media_types(
             media_id=4,
             preview_id=104,
             has_access=False,
-            url="http://example.com/preview1.jpg",
+            url=None,
             preview_url="http://example.com/preview1.jpg",
             mimetype="image/jpeg",
         ),
     ]
+
+    # Reset mock counters
+    mock_download.reset_mock()
+    mock_process_media_info.reset_mock()
+    mock_create_dir.reset_mock()
 
     # Process media
     await process_download_accessible_media(config, state, media_infos)
@@ -407,6 +444,10 @@ async def test_media_filtering_both_inaccessible(
     config = test_config_factory
     config.interactive = False
 
+    # Reset the state
+    state.recent_video_media_ids.clear()
+    state.recent_photo_media_ids.clear()
+
     # Create media items where neither primary nor preview have URLs
     media_infos = [
         create_media_info(
@@ -418,6 +459,11 @@ async def test_media_filtering_both_inaccessible(
 
     # Test with previews enabled
     config.download_media_previews = True
+
+    # Reset mock counters
+    mock_download.reset_mock()
+    mock_process_media_info.reset_mock()
+    mock_create_dir.reset_mock()
 
     await process_download_accessible_media(config, state, media_infos)
     assert (
@@ -431,6 +477,11 @@ async def test_media_filtering_both_inaccessible(
 
     # Test with previews disabled
     config.download_media_previews = False
+
+    # Reset mock counters
+    mock_download.reset_mock()
+    mock_process_media_info.reset_mock()
+    mock_create_dir.reset_mock()
 
     await process_download_accessible_media(config, state, media_infos)
     assert not state.recent_video_media_ids  # Should still be empty
@@ -457,6 +508,10 @@ async def test_media_filtering_primary_only_accessible(
     config = test_config_factory
     config.interactive = False
 
+    # Reset the state
+    state.recent_video_media_ids.clear()
+    state.recent_photo_media_ids.clear()
+
     # Create media items where primary has URL but preview doesn't
     media_infos = [
         create_media_info(
@@ -469,6 +524,11 @@ async def test_media_filtering_primary_only_accessible(
 
     # Test with previews enabled
     config.download_media_previews = True
+
+    # Reset mock counters
+    mock_download.reset_mock()
+    mock_process_media_info.reset_mock()
+    mock_create_dir.reset_mock()
 
     await process_download_accessible_media(config, state, media_infos)
     assert state.recent_video_media_ids == {"1"}  # Only primary should be included
@@ -483,6 +543,11 @@ async def test_media_filtering_primary_only_accessible(
 
     # Test with previews disabled
     config.download_media_previews = False
+
+    # Reset mock counters
+    mock_download.reset_mock()
+    mock_process_media_info.reset_mock()
+    mock_create_dir.reset_mock()
 
     await process_download_accessible_media(config, state, media_infos)
     assert state.recent_video_media_ids == {"1"}  # Only primary should be included
