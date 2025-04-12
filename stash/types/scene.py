@@ -287,6 +287,46 @@ class Scene(StashObject):
 
 
 @strawberry.type
+class SceneMovieID:
+    """Movie ID with scene index."""
+
+    movie_id: str  # ID!
+    scene_index: str | None = None  # String
+
+
+@strawberry.type
+class ParseSceneFilenameResult:
+    """Result of parsing a scene filename."""
+
+    scene: Scene  # Scene!
+    title: str | None = None  # String
+    code: str | None = None  # String
+    details: str | None = None  # String
+    director: str | None = None  # String
+    url: str | None = None  # String
+    date: str | None = None  # String
+    # rating expressed as 1-5 (deprecated)
+    rating: int | None = None  # Int @deprecated
+    # rating expressed as 1-100
+    rating100: int | None = None  # Int
+    studio_id: ID | None = None  # ID
+    gallery_ids: list[ID] | None = None  # [ID!]
+    performer_ids: list[ID] | None = None  # [ID!]
+    movies: list[SceneMovieID] | None = None  # [SceneMovieID!]
+    tag_ids: list[ID] | None = None  # [ID!]
+
+
+@strawberry.type
+class ParseSceneFilenamesResult:
+    """Results from parsing scene filenames."""
+
+    count: int  # Int!
+    results: list[ParseSceneFilenameResult] = strawberry.field(
+        default_factory=list
+    )  # [ParseSceneFilenameResult!]!
+
+
+@strawberry.type
 class FindScenesResultType:
     """Result type for finding scenes from schema/types/scene.graphql.
 

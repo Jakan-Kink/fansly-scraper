@@ -136,16 +136,16 @@ def mock_download(mocker):
     """Create a mock for download_media that properly records media IDs."""
 
     async def mock_download(media_item, state, post_id):
-        # Capture the media ID in the right set based on mimetype
+        # Only record media IDs based on the download_media_previews setting
         if media_item.mimetype.startswith("video"):
-            if media_item.media_id:
+            if media_item.media_id and not media_item.is_preview:
                 state.recent_video_media_ids.add(str(media_item.media_id))
-            if media_item.preview_id:
+            elif media_item.preview_id and state.config.download_media_previews:
                 state.recent_video_media_ids.add(str(media_item.preview_id))
         elif media_item.mimetype.startswith("image"):
-            if media_item.media_id:
+            if media_item.media_id and not media_item.is_preview:
                 state.recent_photo_media_ids.add(str(media_item.media_id))
-            if media_item.preview_id:
+            elif media_item.preview_id and state.config.download_media_previews:
                 state.recent_photo_media_ids.add(str(media_item.preview_id))
         return True
 

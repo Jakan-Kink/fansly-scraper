@@ -5,6 +5,7 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator, Generator
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -25,14 +26,16 @@ async def stash_context() -> AsyncGenerator[StashContext, None]:
             "Stash integration tests cannot run in sandbox mode - they require a real Stash instance"
         )
 
+    # Create connection config without ApiKey by default
+    conn = {
+        "Scheme": "http",
+        "Host": "localhost",
+        "Port": 9999,
+        "Logger": logging.getLogger("stash.test"),
+    }
+
     context = StashContext(
-        conn={
-            "Scheme": "http",
-            "Host": "localhost",
-            "Port": 9999,
-            "ApiKey": "",
-            "Logger": logging.getLogger("stash.test"),
-        },
+        conn=conn,
         verify_ssl=False,
     )
 
@@ -104,6 +107,7 @@ async def stash_cleanup_tracker():
             "performers": [],
             "studios": [],
             "tags": [],
+            "galleries": [],
         }
         try:
             yield created_objects
@@ -153,7 +157,60 @@ async def stash_cleanup_tracker():
                         """,
                         {"id": tag_id},
                     )
+
+                # Delete galleries
+                if created_objects["galleries"]:
+                    await client.execute(
+                        """
+                        mutation DeleteGalleries($ids: [ID!]!) {
+                            galleryDestroy(input: { ids: $ids })
+                        }
+                        """,
+                        {"ids": created_objects["galleries"]},
+                    )
             except Exception as e:
                 print(f"Warning: Cleanup failed: {e}")
 
     return cleanup_context
+
+
+@pytest.fixture
+def mock_session():
+    """Create a mock session for testing GraphQL execution."""
+    session = MagicMock()
+    session.execute = AsyncMock()
+    return session
+
+
+@pytest.fixture
+def mock_transport():
+    """Create a mock transport for testing GraphQL execution."""
+    transport = MagicMock()
+    transport.headers = {}
+    transport.close = AsyncMock()
+    return transport
+
+
+@pytest.fixture
+def mock_client(mock_transport):
+    """Create a mock client with async context manager behavior and transport setup."""
+    client = MagicMock()
+    client.transport = mock_transport
+    client.http_transport = mock_transport
+    client.ws_transport = mock_transport
+    client.__aenter__ = AsyncMock()
+    client.close_async = AsyncMock()
+    return client
+
+
+@pytest.fixture
+def test_query():
+    """Sample GraphQL query for testing."""
+    return """
+    query TestQuery($id: ID!) {
+        findScene(id: $id) {
+            id
+            title
+        }
+    }
+    """

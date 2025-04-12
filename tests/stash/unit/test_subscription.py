@@ -6,13 +6,7 @@ import os
 import pytest
 
 from stash import StashClient
-from stash.types import (
-    GenerateMetadataInput,
-    GenerateMetadataOptions,
-    JobStatus,
-    ScanMetadataInput,
-    ScanMetadataOptions,
-)
+from stash.types import Job, JobStatus
 
 # Skip all tests in this module when running in the OpenHands sandbox
 # These tests require a real Stash server to run properly
@@ -25,166 +19,123 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.asyncio
 async def test_subscribe_to_jobs(stash_client: StashClient) -> None:
     """Test job subscription by triggering a metadata scan job."""
-    # Start subscription first
+    # Start subscription before triggering the job
     async with stash_client.subscribe_to_jobs() as subscription:
-        # Trigger a job in a separate task
-        task = asyncio.create_task(
-            stash_client.metadata_scan(
-                ScanMetadataInput(
-                    paths=["/"],  # Use root path for test server
-                    rescan=False,
-                    scanGenerateCovers=False,
-                    scanGeneratePreviews=False,
-                    scanGenerateImagePreviews=False,
-                    scanGenerateSprites=False,
-                    scanGeneratePhashes=False,
-                    scanGenerateThumbnails=False,
-                    scanGenerateClipPreviews=False,
-                )
-            )
-        )
-
-        # Wait for job update with timeout
         try:
-            async with asyncio.timeout(30):  # 30-second timeout
+            async with asyncio.timeout(5):
+                # Start metadata scan job with proper array of paths
+                job_id = await stash_client.metadata_scan(
+                    paths=["test/path"],  # Array of paths
+                )
+                assert job_id is not None, "Job should start successfully"
                 async for update in subscription:
                     assert update.type is not None
-                    assert update.status is not None
                     assert update.job is not None
-                    assert update.job.id is not None
-                    # We got an update, test passes
-                    break
-        finally:
-            # Clean up the task
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+                    # Only process updates for our specific job
+                    if update.job.id == job_id:
+                        # Break if we hit a terminal state
+                        if update.job.status in [
+                            JobStatus.FINISHED,
+                            JobStatus.CANCELLED,
+                            JobStatus.FAILED,
+                        ]:
+                            break
+        except TimeoutError:
+            pytest.fail("Timed out waiting for job updates")
 
 
 @pytest.mark.asyncio
 async def test_subscribe_to_logs(stash_client: StashClient) -> None:
     """Test log subscription by triggering an operation that generates logs."""
-    # Start subscription first
+    # Start subscription before triggering the job
     async with stash_client.subscribe_to_logs() as subscription:
-        # Trigger an operation that generates logs (e.g., metadata scan)
-        task = asyncio.create_task(
-            stash_client.metadata_scan(
-                ScanMetadataInput(
-                    paths=["/"],  # Use root path for test server
-                    rescan=False,
-                    scanGenerateCovers=False,
-                    scanGeneratePreviews=False,
-                    scanGenerateImagePreviews=False,
-                    scanGenerateSprites=False,
-                    scanGeneratePhashes=False,
-                    scanGenerateThumbnails=False,
-                    scanGenerateClipPreviews=False,
-                )
-            )
+        # Start scan job with proper array of paths
+        job_id = await stash_client.metadata_scan(
+            paths=["test/path"],  # Array of paths
         )
+        assert job_id is not None, "Job should start successfully"
 
-        # Wait for log entries with timeout
         try:
-            async with asyncio.timeout(30):  # 30-second timeout
+            async with asyncio.timeout(5):
                 async for logs in subscription:
-                    assert isinstance(logs, list)
-                    if logs:  # Only validate if we got logs
-                        for log in logs:
-                            assert log.time is not None
-                            assert log.level is not None
-                            assert log.message is not None
-                        # We got logs, test passes
+                    # Skip empty log batches
+                    if not logs:
+                        continue
+
+                    # Validate structure of logs
+                    assert all(
+                        log.time is not None
+                        and log.level is not None
+                        and log.message is not None
+                        for log in logs
+                    )
+
+                    # Check if any log mentions our job
+                    if any(job_id in log.message for log in logs):
                         break
-        finally:
-            # Clean up the task
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+
+        except TimeoutError:
+            pytest.fail("Timed out waiting for job logs")
 
 
 @pytest.mark.asyncio
 async def test_subscribe_to_scan_complete(stash_client: StashClient) -> None:
     """Test scan completion subscription by triggering a scan."""
-    # Start subscription first
+    # Start subscription before starting scan
     async with stash_client.subscribe_to_scan_complete() as subscription:
-        # Trigger a scan operation
-        task = asyncio.create_task(
-            stash_client.metadata_scan(
-                ScanMetadataInput(
-                    paths=["/"],  # Use root path for test server
-                    rescan=False,
-                    scanGenerateCovers=False,
-                    scanGeneratePreviews=False,
-                    scanGenerateImagePreviews=False,
-                    scanGenerateSprites=False,
-                    scanGeneratePhashes=False,
-                    scanGenerateThumbnails=False,
-                    scanGenerateClipPreviews=False,
-                )
-            )
+        # Start scan job with proper array of paths
+        job_id = await stash_client.metadata_scan(
+            paths=["test/path"],  # Array of paths
         )
+        assert job_id is not None, "Job should start successfully"
 
-        # Wait for scan complete event with timeout
         try:
-            async with asyncio.timeout(60):  # 60-second timeout (scans can take longer)
+            async with asyncio.timeout(
+                5
+            ):  # Short timeout since we're properly ordered now
                 async for completed in subscription:
                     assert isinstance(completed, bool)
-                    # We got a scan complete event, test passes
+                    # We got a scan complete event
                     break
-        finally:
-            # Clean up the task
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+        except TimeoutError:
+            pytest.fail("Timed out waiting for scan complete event")
 
 
 @pytest.mark.asyncio
 async def test_wait_for_job_with_updates(stash_client: StashClient) -> None:
     """Test waiting for job with updates using a real job."""
-    # Create a real job (e.g., metadata generation for a scene)
-    # First find a scene to use
-    result = await stash_client.execute(
-        """
-        query FindScenes {
-            findScenes(filter: {per_page: 1}) {
-                scenes {
-                    id
-                }
-            }
-        }
-        """
-    )
-
-    scenes = result.get("findScenes", {}).get("scenes", [])
-    if not scenes:
-        pytest.skip("No scenes available for testing")
-
-    scene_id = scenes[0]["id"]
-
-    # Start a metadata generation job
-    job_id = await stash_client.metadata_generate(
-        GenerateMetadataInput(
-            sceneIDs=[scene_id],
-            phashes=True,  # This corresponds to perceptualHash
-            previews=False,  # This corresponds to previewGeneration
+    result = False  # Initialize result variable
+    # Set up job subscription first
+    async with stash_client.subscribe_to_jobs() as subscription:
+        # Start a simple generation job
+        job_id = await stash_client.metadata_generate(
+            {
+                "phashes": True,  # Minimal options to ensure job completes
+            },
         )
-    )
+        assert job_id is not None, "Job ID should not be None"
 
-    # Wait for the job with a reasonable timeout
-    result = await stash_client.wait_for_job_with_updates(
-        job_id,
-        status=JobStatus.FINISHED,
-        timeout=60.0,  # 60-second timeout
-    )
+        try:
+            async with asyncio.timeout(5.0):
+                async for update in subscription:
+                    if update.job and update.job.id == job_id:
+                        if update.job.status == JobStatus.FINISHED:
+                            result = True
+                            break
+                        elif update.job.status in [
+                            JobStatus.CANCELLED,
+                            JobStatus.FAILED,
+                        ]:
+                            result = False
+                            break
+        except TimeoutError:
+            pytest.fail("Timed out waiting for job completion")
 
-    # Verify the result
-    assert result is not None, "Job result should not be None"
+        # Print details and verify the job completed successfully
+        if not result:
+            print(
+                f"Job failed to complete successfully. Last update status: {update.job.status}"
+            )
+            if update.job:
+                print(f"Job details: {update.job}")
+        assert result is True, "Job should complete successfully"

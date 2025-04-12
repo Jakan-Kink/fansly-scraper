@@ -1734,12 +1734,15 @@ class StashProcessing:
         if hasattr(media, "awaitable_attrs"):
             await media.awaitable_attrs.variants
             await media.awaitable_attrs.mimetype
+            await media.awaitable_attrs.is_downloaded
 
         debug_print(
             {
                 "method": "StashProcessing - _process_media",
                 "status": "processing_media",
                 "media_id": media.id,
+                "stash_id": media.stash_id,
+                "is_downloaded": media.is_downloaded,
                 "variant_count": (
                     len(media.variants) if hasattr(media, "variants") else 0
                 ),
@@ -1749,8 +1752,10 @@ class StashProcessing:
             }
         )
 
-        # Find in Stash by path and update metadata
+        # Try to find in Stash and update metadata
         stash_result = None
+
+        # First try by stash_id if available
         if media.stash_id:
             stash_result = await self._find_stash_files_by_id(
                 [(media.stash_id, media.mimetype)]

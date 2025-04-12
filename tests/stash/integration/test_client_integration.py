@@ -3,34 +3,39 @@
 These tests require a running Stash instance.
 """
 
+import asyncio
+
 import pytest
 
 from stash import StashClient
-from stash.types import GenerateMetadataOptions, Scene
+from stash.types import GenerateMetadataOptions, JobStatus, Scene
 
 
 @pytest.mark.asyncio
-async def test_scene_workflow(stash_client: StashClient) -> None:
+async def test_scene_workflow(
+    stash_client: StashClient, enable_scene_creation, stash_cleanup_tracker
+) -> None:
     """Test complete scene workflow."""
-    # Create scene
-    scene = Scene(
-        id="new",  # Required for initialization, will be replaced on create
-        title="Test Scene",
-        details="Test scene details",
-        date="2024-01-01",
-        urls=["https://example.com/scene"],
-        organized=True,
-        # Required relationships
-        performers=[],
-        tags=[],
-        galleries=[],
-        studio=None,
-        stash_ids=[],
-    )
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        # Create scene
+        scene = Scene(
+            id="new",  # Required for initialization, will be replaced on create
+            title="Test Scene",
+            details="Test scene details",
+            date="2024-01-01",
+            urls=["https://example.com/scene"],
+            organized=True,
+            # Required relationships
+            performers=[],
+            tags=[],
+            galleries=[],
+            studio=None,
+            stash_ids=[],
+        )
 
-    try:
         # Create
         created = await stash_client.create_scene(scene)
+        cleanup["scenes"].append(created.id)  # Add to cleanup tracker
         assert created.id is not None
         assert created.title == scene.title
 
@@ -55,11 +60,8 @@ async def test_scene_workflow(stash_client: StashClient) -> None:
         assert job_id is not None
 
         # Wait for job
-        result = await stash_client.wait_for_job(job_id)
+        result = await stash_client.wait_for_job(job_id=job_id, period=0.1)
         assert result is True
-
-    except Exception as e:
-        pytest.skip(f"Test requires running Stash instance: {e}")
 
 
 @pytest.mark.asyncio
@@ -79,16 +81,37 @@ async def test_subscription_integration(stash_client: StashClient) -> None:
             options = GenerateMetadataOptions(covers=True)
             job_id = await stash_client.metadata_generate(options)
 
-            # Collect updates
-            async for update in subscription:
-                updates.append(update)
-                if update.job and update.job.id == job_id:
-                    if update.status in ["FINISHED", "CANCELLED"]:
-                        break
+            # Collect updates with a shorter timeout
+            async with asyncio.timeout(30):  # Reduced from default 300s
+                async for update in subscription:
+                    updates.append(update)
+                    if update.job and update.job.id == job_id:
+                        # Check for completion via status or type
+                        if update.job.status == JobStatus.FINISHED or (
+                            update.type == "REMOVE"
+                            and update.job.status == JobStatus.FINISHED
+                        ):
+                            break
+                        # Also break on other terminal states
+                        if update.job.status in [JobStatus.CANCELLED, JobStatus.FAILED]:
+                            break
 
         # Verify updates
-        assert len(updates) > 0
-        assert any(u.job and u.job.id == job_id for u in updates)
+        assert len(updates) > 0, "Should receive at least one update"
+        assert any(
+            u.job and u.job.id == job_id for u in updates
+        ), "Should receive update for our job"
 
+        # Verify final state
+        final_updates = [u for u in updates if u.job and u.job.id == job_id]
+        assert any(
+            u.job.status == JobStatus.FINISHED for u in final_updates
+        ), "Job should complete successfully"
+
+    except (ConnectionError, TimeoutError) as e:
+        pytest.skip(
+            f"Connection error - test requires running Stash instance: {str(e)}"
+        )
     except Exception as e:
-        pytest.skip(f"Test requires running Stash instance: {e}")
+        # Re-raise other exceptions that aren't connection-related
+        raise e

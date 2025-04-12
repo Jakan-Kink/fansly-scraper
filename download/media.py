@@ -226,9 +226,17 @@ async def _verify_temp_download(
 
         # Compare hashes
         if temp_hash == media_record.content_hash:
-            # Update database with verified hash
+            # Update database with verified hash (but don't mark as downloaded yet)
             media_record.content_hash = temp_hash
             media_record.local_filename = str(check_path)
+            session.add(media_record)
+            await session.flush()
+
+            # Move temp file to final location
+            check_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(temp_path), str(check_path))
+
+            # Only mark as downloaded after successful move
             media_record.is_downloaded = True
             session.add(media_record)
             await session.flush()
@@ -379,10 +387,10 @@ async def _download_m3u8_file(
         check_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(temp_path), str(check_path))
 
-        # Update database record
+        # Update database record only after successful move
         media_record.content_hash = new_hash
         media_record.local_filename = str(check_path)
-        media_record.is_downloaded = True
+        media_record.is_downloaded = True  # Set this after successful move
         session.add(media_record)
         await session.flush()
 

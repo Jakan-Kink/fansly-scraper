@@ -291,7 +291,7 @@ class PerformerClientMixin(StashClientProtocol):
                     },
                 )
                 if result.count > 0:
-                    return result.performers[0]
+                    return Performer(**result.performers[0])
                 raise  # Re-raise if we couldn't find the performer
 
             self.log.error(f"Failed to create performer: {e}")

@@ -1188,10 +1188,21 @@ async def dedupe_media_file(
                     return True
 
             # No match found, update our media record
-            media_record.content_hash = file_hash
-            media_record.local_filename = get_filename_only(filename)
-            media_record.is_downloaded = True
-            session.add(media_record)
-            await session.flush()
+            # Verify file exists before marking as downloaded
+            if await _check_file_exists(
+                state.download_path, get_filename_only(filename)
+            ):
+                media_record.content_hash = file_hash
+                media_record.local_filename = get_filename_only(filename)
+                media_record.is_downloaded = True
+                session.add(media_record)
+                await session.flush()
+            else:
+                # File disappeared between download and verification
+                media_record.is_downloaded = False
+                media_record.content_hash = None
+                media_record.local_filename = None
+                session.add(media_record)
+                await session.flush()
 
     return False

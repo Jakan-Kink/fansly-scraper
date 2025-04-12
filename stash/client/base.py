@@ -4,6 +4,7 @@ import asyncio
 import re
 import time
 from datetime import datetime
+from pprint import pformat
 from typing import Any, TypeVar
 
 from gql import Client, gql
@@ -146,15 +147,15 @@ class StashClientBase:
 
             # Create a client just for schema fetching
             transport = AIOHTTPTransport(**self.transport_config)
-            self.client = Client(
+            async with Client(
                 transport=transport,
                 fetch_schema_from_transport=True,
-            )
-            async with self.client as session:
-                result = await session.execute(test_query)
-                self.schema = session.client.schema  # Store schema for validation
+            ) as session:
+                await session.execute(test_query)
+                # Store the proper GraphQLSchema object
+                self.schema = session.client.schema
+                self.client = Client(transport=transport, schema=self.schema)
                 self.log.debug("Schema fetched successfully")
-                self.log.debug(f"Test query result: {result}")
                 self.log.debug("Connection test successful")
         except Exception as e:
             self.log.error(f"Connection test failed: {e}")
@@ -238,28 +239,40 @@ class StashClientBase:
             # Process variables
             processed_vars = self._convert_datetime(variables or {})
 
-            # Execute with fresh client and transport
+            # Execute with existing client first, fall back to new client if transport is disconnected
             self.log.debug(f"Executing query with variables: {processed_vars}")
             self.log.debug(f"Query: {query}")
-            transport = AIOHTTPTransport(**self.transport_config)
-            async with Client(
-                transport=transport,
-                fetch_schema_from_transport=False,  # Already have schema
-            ) as session:
-                result = await session.execute(
-                    operation, variable_values=processed_vars
-                )
-                self.log.debug("Query executed successfully")
-                self.log.debug(f"Result: {result}")
-                return result
+
+            try:
+                # Try using existing client first (this allows mocks to work in tests)
+                async with self.client as session:
+                    result = await session.execute(
+                        operation, variable_values=processed_vars
+                    )
+                    self.log.debug("Query executed successfully with existing client")
+                    self.log.debug(f"Result: {result}")
+                    return result
+            except Exception as client_error:
+                if "Transport is already connected" not in str(client_error):
+                    raise  # Re-raise if it's not a connection reuse error
+
+                # If existing client's transport is disconnected, create a new one
+                self.log.debug("Creating new client due to disconnected transport")
+                transport = AIOHTTPTransport(**self.transport_config)
+                async with Client(
+                    transport=transport,
+                    fetch_schema_from_transport=False,  # Already have schema
+                    schema=self.schema,  # Use the schema we already fetched
+                ) as session:
+                    result = await session.execute(
+                        operation, variable_values=processed_vars
+                    )
+                    self.log.debug("Query executed successfully with new client")
+                    self.log.debug(f"Result: {result}")
+                    return result
 
         except Exception as e:
             self._handle_gql_error(e)  # This will raise ValueError
-
-        finally:
-            # Only try to close transport if it was initialized
-            if transport is not None and hasattr(transport, "close"):
-                await transport.close()
 
     def _convert_datetime(self, obj: Any) -> Any:
         """Convert datetime objects to ISO format strings."""
@@ -316,6 +329,15 @@ class StashClientBase:
 
             if defaults := result.get("configuration", {}).get("defaults"):
                 self.log.debug(f"Using server defaults: {defaults}")
+                # Convert all options to proper types
+                if isinstance(defaults.get("scan"), dict):
+                    defaults["scan"] = ScanMetadataOptions(**defaults["scan"])
+                if isinstance(defaults.get("autoTag"), dict):
+                    defaults["autoTag"] = AutoTagMetadataOptions(**defaults["autoTag"])
+                if isinstance(defaults.get("generate"), dict):
+                    defaults["generate"] = GenerateMetadataOptions(
+                        **defaults["generate"]
+                    )
                 return ConfigDefaultSettingsResult(**defaults)
 
             self.log.warning("No defaults in response, using hardcoded values")
@@ -341,7 +363,7 @@ class StashClientBase:
 
     async def metadata_generate(
         self,
-        options: GenerateMetadataOptions | dict[str, Any] = {},
+        options: GenerateMetadataOptions | dict[str, Any] = None,
         input_data: GenerateMetadataInput | dict[str, Any] | None = None,
     ) -> str:
         """Generate metadata.
@@ -381,29 +403,40 @@ class StashClientBase:
         """
         try:
             # Convert GenerateMetadataOptions to dict if needed
-            options_dict = (
-                options.__dict__
-                if isinstance(options, GenerateMetadataOptions)
-                else options
-            )
+            options_dict = {}
+            if options is not None:
+                if isinstance(options, GenerateMetadataOptions):
+                    options_dict = {
+                        k: v for k, v in vars(options).items() if v is not None
+                    }
+                else:
+                    options_dict = options
 
             # Convert GenerateMetadataInput to dict if needed
             input_dict = {}
             if input_data is not None:
-                input_dict = (
-                    input_data.__dict__
-                    if isinstance(input_data, GenerateMetadataInput)
-                    else input_data
-                )
+                if isinstance(input_data, GenerateMetadataInput):
+                    input_dict = {
+                        k: v for k, v in vars(input_data).items() if v is not None
+                    }
+                else:
+                    input_dict = input_data
 
             # Combine options and input data
-            combined_input = {**options_dict, **input_dict}
+            variables = {"input": {**options_dict, **input_dict}}
 
-            result = await self.execute(
-                fragments.METADATA_GENERATE_MUTATION,
-                {"input": combined_input},
-            )
-            return result.get("metadataGenerate")
+            # Execute mutation with combined input
+            result = await self.execute(fragments.METADATA_GENERATE_MUTATION, variables)
+
+            if not isinstance(result, dict):
+                raise ValueError("Invalid response format from server")
+
+            job_id = result.get("metadataGenerate")
+            if not job_id:
+                raise ValueError("No job ID returned from server")
+
+            return str(job_id)
+
         except Exception as e:
             self.log.error(f"Failed to generate metadata: {e}")
             raise
@@ -503,20 +536,31 @@ class StashClientBase:
                 print(f"Job status: {job.status}")
             ```
         """
-        result = await self.execute(
-            fragments.FIND_JOB_QUERY,
-            {"input": FindJobInput(id=job_id).__dict__},
-        )
-        if job_data := result.get("findJob"):
-            return Job(**job_data)
-        return None
+        if not job_id:
+            return None
+
+        try:
+            result = await self.execute(
+                fragments.FIND_JOB_QUERY,
+                {"input": FindJobInput(id=job_id).__dict__},
+            )
+            # First check if there are any GraphQL errors
+            if "errors" in result:
+                return None
+            # Then check if we got a valid job back
+            if job_data := result.get("findJob"):
+                return Job(**job_data)
+            return None
+        except Exception as e:
+            self.log.error(f"Failed to find job {job_id}: {e}")
+            return None
 
     async def wait_for_job(
         self,
-        job_id: str,
+        job_id: str | int,
         status: JobStatus = JobStatus.FINISHED,
         period: float = 1.5,
-        timeout: float = 120,
+        timeout: float = 120.0,
     ) -> bool | None:
         """Wait for a job to reach a specific status.
 
@@ -533,18 +577,26 @@ class StashClientBase:
 
         Raises:
             TimeoutError: If timeout is reached
+            ValueError: If job is not found
         """
+        if not job_id:
+            return None
+
         timeout_value = time.time() + timeout
         while time.time() < timeout_value:
             job = await self.find_job(job_id)
-            if not job:
+            self.log.info(f"Job: {pformat(job)}")
+            if not isinstance(job, Job):
+                raise ValueError(f"Job {job_id} not found")
+            if not job_id:
                 return None
 
             # Only log through stash's logger
             self.log.info(
-                f"Waiting for Job:{job_id} Status:{job.status} Progress:{job.progress}"
+                f"Job {job_id} - Status: {job.status}, Progress: {job.progress}%"
             )
 
+            # Check for desired state
             if job.status == status:
                 return True
             if job.status in [JobStatus.FINISHED, JobStatus.CANCELLED]:
@@ -552,7 +604,7 @@ class StashClientBase:
 
             await asyncio.sleep(period)
 
-        raise TimeoutError("Hit timeout waiting for Job to complete")
+        raise TimeoutError(f"Timeout waiting for job {job_id} to reach status {status}")
 
     async def close(self) -> None:
         """Close the HTTP client and clean up resources.
@@ -579,18 +631,27 @@ class StashClientBase:
                 scene = await client.find_scene("123")
             ```
         """
-        # Close transports and client
-        if hasattr(self, "http_transport") and hasattr(self.http_transport, "close"):
-            await self.http_transport.close()
-        if hasattr(self, "ws_transport") and hasattr(self.ws_transport, "close"):
-            await self.ws_transport.close()
-        if hasattr(self, "client"):
-            # gql.Client has close_async() for async contexts
-            if hasattr(self.client, "close_async"):
-                await self.client.close_async()
-            # Fallback to close_sync() if available
-            elif hasattr(self.client, "close_sync"):
-                self.client.close_sync()
+        try:
+            # Close transports
+            if hasattr(self, "http_transport") and hasattr(
+                self.http_transport, "close"
+            ):
+                await self.http_transport.close()
+            if hasattr(self, "ws_transport") and hasattr(self.ws_transport, "close"):
+                await self.ws_transport.close()
+
+            # Close GQL client - note that we don't check for session directly
+            # since it's managed internally by the Client class
+            if hasattr(self, "client"):
+                try:
+                    await self.client.close_async()
+                except Exception:
+                    # If close_async fails (e.g. due to transport already being closed),
+                    # try synchronous close as fallback
+                    if hasattr(self.client, "close_sync"):
+                        self.client.close_sync()
+        except Exception as e:
+            self.log.warning(f"Error during client cleanup: {e}")
 
     async def __aenter__(self) -> "StashClientBase":
         """Enter async context manager."""

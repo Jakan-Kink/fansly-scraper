@@ -715,8 +715,6 @@ mutation UpdateMarker($input: SceneMarkerUpdateInput!) {{
 
 # Scene marker tag query
 SCENE_MARKER_TAG_QUERY = f"""
-{TAG_FIELDS}
-{MARKER_FIELDS}
 query FindSceneMarkerTags($scene_id: ID!) {{
     sceneMarkerTags(scene_id: $scene_id) {{
         tag {{
@@ -731,7 +729,6 @@ query FindSceneMarkerTags($scene_id: ID!) {{
 
 # Tag mutations
 TAGS_MERGE_MUTATION = f"""
-{TAG_FIELDS}
 mutation TagsMerge($input: TagsMergeInput!) {{
     tagsMerge(input: $input) {{
         {TAG_FIELDS}
@@ -740,7 +737,6 @@ mutation TagsMerge($input: TagsMergeInput!) {{
 """
 
 BULK_TAG_UPDATE_MUTATION = f"""
-{TAG_FIELDS}
 mutation BulkTagUpdate($input: BulkTagUpdateInput!) {{
     bulkTagUpdate(input: $input) {{
         {TAG_FIELDS}

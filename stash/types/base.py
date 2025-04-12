@@ -14,6 +14,7 @@ included in this interface.
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Type, TypeVar
 
@@ -138,6 +139,12 @@ class StashObject:
         if name in self.__tracked_fields__ and old_value != value:
             self.__is_dirty__ = True
 
+            # Also update original values to not include this field
+            # This ensures to_input_dirty will include this field
+            if hasattr(self, "__original_values__"):
+                if name in self.__original_values__:
+                    del self.__original_values__[name]
+
     def is_dirty(self) -> bool:
         """Check if object has unsaved changes.
 
@@ -149,12 +156,16 @@ class StashObject:
     def mark_clean(self) -> None:
         """Mark object as having no unsaved changes."""
         self.__is_dirty__ = False
-        # Store current values of tracked fields
-        self.__original_values__ = {
-            field: getattr(self, field)
-            for field in self.__tracked_fields__
-            if hasattr(self, field)
-        }
+        # Store deep copies of current values of tracked fields to detect changes in lists
+        self.__original_values__ = {}
+        for field in self.__tracked_fields__:
+            if hasattr(self, field):
+                value = getattr(self, field)
+                # Make deep copy of lists to detect mutations
+                if isinstance(value, list):
+                    self.__original_values__[field] = copy.deepcopy(value)
+                else:
+                    self.__original_values__[field] = value
 
     def mark_dirty(self) -> None:
         """Mark object as having unsaved changes."""
@@ -246,7 +257,7 @@ class StashObject:
             operation = "Update" if is_update else "Create"
             type_name = self.__type_name__
 
-            # Keep type_name uppercase for mutation name, but lowercase first letter for operation
+            # Generate consistent camelCase operation key
             operation_key = f"{type_name[0].lower()}{type_name[1:]}{operation}"
             mutation = f"""
                 mutation {operation}{type_name}($input: {type_name}{operation}Input!) {{
@@ -258,7 +269,7 @@ class StashObject:
 
             result = await client.execute(mutation, {"input": input_data})
 
-            # Extract the result using the correct camelCase key
+            # Extract the result using the same camelCase key
             if operation_key not in result:
                 raise ValueError(f"Missing '{operation_key}' in response: {result}")
 
@@ -460,13 +471,43 @@ class StashObject:
         data = {"id": self.id}
 
         # Get set of dirty fields (fields whose values have changed)
-        dirty_fields = {
-            field
-            for field in self.__tracked_fields__
-            if field not in self.__original_values__  # Field was added after creation
-            or getattr(self, field)
-            != self.__original_values__[field]  # Field was modified
-        }
+        dirty_fields = set()
+
+        for field in self.__tracked_fields__:
+            if not hasattr(self, field):
+                continue
+
+            current_value = getattr(self, field)
+
+            # Field was added after creation
+            if field not in self.__original_values__:
+                dirty_fields.add(field)
+                continue
+
+            original_value = self.__original_values__[field]
+
+            # Handle list comparison more carefully - check if content has changed
+            if isinstance(current_value, list) and isinstance(original_value, list):
+                # Lists may have different object instances but same content
+                # For objects with __dict__, compare their dictionaries
+                if len(current_value) != len(original_value):
+                    dirty_fields.add(field)
+                    continue
+
+                # Check each item in the lists
+                for i, (curr, orig) in enumerate(zip(current_value, original_value)):
+                    # If items are dictionaries, compare their content
+                    if hasattr(curr, "__dict__") and hasattr(orig, "__dict__"):
+                        if curr.__dict__ != orig.__dict__:
+                            dirty_fields.add(field)
+                            break
+                    # For simple types or objects with equality defined
+                    elif curr != orig:
+                        dirty_fields.add(field)
+                        break
+            # For non-list fields, simple comparison is enough
+            elif current_value != original_value:
+                dirty_fields.add(field)
 
         # Process dirty regular fields
         field_data = await self._process_fields(dirty_fields)

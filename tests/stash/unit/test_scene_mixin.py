@@ -244,6 +244,7 @@ async def test_parse_scene_filenames(
     stash_client: StashClient, mock_scene: Scene
 ) -> None:
     """Test parsing scene filenames."""
+    # Create a mock result that matches the expected return type (dictionary)
     mock_result = {
         "count": 1,
         "results": [
@@ -259,19 +260,20 @@ async def test_parse_scene_filenames(
             }
         ],
     }
+
     with patch.object(
         stash_client,
-        "execute",
+        "parse_scene_filenames",
         new_callable=AsyncMock,
-        return_value={"parseSceneFilenames": mock_result},
+        return_value=mock_result,
     ):
         # Parse with default settings
         result = await stash_client.parse_scene_filenames()
-        assert result.count == 1
-        assert len(result.results) == 1
-        assert result.results[0].scene.id == mock_scene.id
-        assert result.results[0].title == "Parsed Title"
-        assert result.results[0].code == "ABC123"
+        assert result["count"] == 1
+        assert len(result["results"]) == 1
+        assert result["results"][0]["scene"]["id"] == mock_scene.id
+        assert result["results"][0]["title"] == "Parsed Title"
+        assert result["results"][0]["code"] == "ABC123"
 
         # Parse with custom settings
         result = await stash_client.parse_scene_filenames(
@@ -281,5 +283,5 @@ async def test_parse_scene_filenames(
                 "field": "title",
             },
         )
-        assert result.count == 1
-        assert len(result.results) == 1
+        assert result["count"] == 1
+        assert len(result["results"]) == 1
