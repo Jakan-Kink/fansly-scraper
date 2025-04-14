@@ -218,7 +218,12 @@ class Database:
 
         # Set up event listeners for connection management
         def _on_connect(dbapi_connection, connection_record):
-            """Configure connection on checkout."""
+            """Configure connection on checkout.
+
+            Args:
+                dbapi_connection: The raw SQLite connection
+                connection_record: The connection record containing metadata
+            """
             # Set thread-local storage for connection
             if not hasattr(connection_record, "_thread_id"):
                 connection_record._thread_id = threading.get_ident()
@@ -228,12 +233,26 @@ class Database:
             dbapi_connection.execute("PRAGMA temp_store=MEMORY")
 
         def _on_checkin(dbapi_connection, connection_record):
-            """Clean up connection on checkin."""
+            """Clean up connection on checkin.
+
+            Args:
+                dbapi_connection: The raw SQLite connection
+                connection_record: The connection record containing metadata
+            """
             if hasattr(connection_record, "_thread_id"):
                 del connection_record._thread_id
 
         def _on_checkout(dbapi_connection, connection_record, connection_proxy):
-            """Verify connection on checkout."""
+            """Verify connection on checkout.
+
+            Args:
+                dbapi_connection: The raw SQLite connection
+                connection_record: The connection record containing metadata
+                connection_proxy: The connection proxy
+
+            Raises:
+                DisconnectionError: If the connection was created in a different thread
+            """
             if (
                 hasattr(connection_record, "_thread_id")
                 and connection_record._thread_id != threading.get_ident()
@@ -394,7 +413,18 @@ class Database:
         atexit.register(self.close_sync)
 
     def _sync_to_disk(self) -> None:
-        """Sync in-memory database to disk."""
+        """Sync in-memory database to disk.
+
+        This method performs an atomic write of the in-memory database to disk:
+        1. Creates a temporary file for the new database
+        2. Backs up the shared connection to the temporary file
+        3. Verifies the backup integrity
+        4. Creates a backup of the existing file
+        5. Atomically moves the temporary file into place
+        6. Uses fsync to ensure durability
+
+        The operation is protected by a sync lock to prevent concurrent syncs.
+        """
         with self._sync_lock:
             try:
                 # Use our existing shared connection as the source
@@ -527,14 +557,25 @@ class Database:
                 # Original file and its backup should still be intact
 
     def _sync_task(self) -> None:
-        """Background task to sync database to disk."""
+        """Background task to sync database to disk.
+
+        This task periodically checks if a sync is needed based on commit count or time elapsed.
+        It performs the sync operation and handles any exceptions that might occur during the process.
+        """
         while not self._stop_sync.is_set():
             try:
-                # Check if sync needed
+                # Check if sync needed (using a snapshot of current values to avoid race conditions)
                 current_time = time.time()
+                with self._sync_lock:
+                    commit_count = self._commit_count
+                    last_sync = self._last_sync
+                    sync_commits = self._sync_commits
+                    sync_interval = self._sync_interval
+
+                # Determine if sync is needed based on captured values
                 if (
-                    self._commit_count >= self._sync_commits
-                    or current_time - self._last_sync >= self._sync_interval
+                    commit_count >= sync_commits
+                    or current_time - last_sync >= sync_interval
                 ):
                     self._sync_to_disk()
 
@@ -543,6 +584,10 @@ class Database:
 
             except Exception as e:
                 db_logger.error(f"Error in sync task: {e}")
+                # Add stack trace for better debugging
+                import traceback
+
+                db_logger.debug(f"Sync task error details: {traceback.format_exc()}")
 
     def _get_thread_session(self) -> Session | None:
         """Get existing session for current thread if healthy."""
@@ -561,8 +606,11 @@ class Database:
     def session_scope(self) -> Generator[Session]:
         """Get a sync session with proper resource management.
 
+        This context manager handles session creation, transaction management,
+        and proper cleanup, including session reuse for the same thread.
+
         Returns:
-            SQLAlchemy Session object
+            SQLAlchemy Session object with active transaction
 
         Example:
             with db.session_scope() as session:
@@ -615,16 +663,24 @@ class Database:
     async def async_session_scope(self) -> AsyncGenerator[AsyncSession]:
         """Get an async session with proper resource management.
 
-        This context manager:
-        1. Reuses sessions within the same task
-        2. Handles transactions and savepoints properly
-        3. Manages session lifecycle
-        4. Provides proper cleanup
-        5. Implements robust recovery from transaction errors
+        This context manager provides comprehensive session management:
+        1. Creates AsyncSession instances with async_sessionmaker
+        2. Handles transactions and savepoints correctly
+        3. Manages complete session lifecycle with proper cleanup
+        4. Implements multi-stage recovery from transaction errors
+        5. Uses task-local storage for efficient session reuse
+
+        Error recovery includes these progressive stages:
+        1. Savepoint recovery - Tries to rollback to last good savepoint
+        2. Transaction rollback - Attempts full transaction rollback
+        3. Connection reset - Resets the underlying connection state
+        4. Session recreation - Creates a fresh session if needed
+        5. Engine disposal - Last resort full engine cleanup and recreation
 
         Example:
             async with db.async_session_scope() as session:
                 result = await session.execute(text("SELECT * FROM table"))
+                data = await session.scalars(select(Model))
         """
         task_id = id(asyncio.current_task())
 
@@ -639,231 +695,154 @@ class Database:
             # Increase nesting depth and yield the existing session
             session_wrapper["depth"] += 1
             try:
-                # Verify the session is still valid with a simple query
-
-                db_logger.debug("Validating existing session")
-                result = await session_wrapper["session"].execute(text("SELECT 1"))
-                if result.scalar() != 1:
-                    db_logger.warning(
-                        "Session validation query returned unexpected result"
-                    )
-                    raise ValueError("Session validation failed: unexpected result")
-                db_logger.debug("Existing session is valid")
-            except (OperationalError, PendingRollbackError) as e:
-                # Handle SQLAlchemy specific errors during validation
-
-                db_logger.error(f"SQLAlchemy error during session validation: {e}")
-
-                # Check if this is a savepoint or connection error
-                error_msg = str(e).lower()
-                if any(
-                    err_msg in error_msg
-                    for err_msg in ["savepoint", "transaction", "connection"]
-                ):
-                    db_logger.warning(
-                        "Detected transaction error during validation, attempting recovery"
-                    )
-                    try:
-                        # Try to recover the session
+                # Verify the session is still valid
+                await session_wrapper["session"].execute(text("SELECT 1"))
+                try:
+                    yield session_wrapper["session"]
+                except (OperationalError, PendingRollbackError) as e:
+                    # Handle SQLAlchemy specific errors
+                    db_logger.error(f"SQLAlchemy error in nested session: {e}")
+                    # Check if this is a savepoint/transaction error
+                    error_msg = str(e).lower()
+                    if any(
+                        err_msg in error_msg
+                        for err_msg in ["savepoint", "transaction", "connection"]
+                    ):
+                        db_logger.warning(
+                            "Detected transaction error in nested session, attempting recovery"
+                        )
                         await self._handle_savepoint_error(
                             session_wrapper["session"],
                             session_wrapper,
                             task_id,
                             task_local,
                         )
-                        # If recovery succeeded, session_wrapper will have a new session
-                        db_logger.info("Session recovery successful during validation")
-                    except Exception as recovery_e:
-                        db_logger.error(
-                            f"Session recovery failed during validation: {recovery_e}"
-                        )
-                        # If recovery failed, create a new session
-                        del task_local[task_id]
-                        session_wrapper = None
-                else:
-                    # For other errors, create a new session
-                    db_logger.warning(
-                        "Non-transaction error during validation, creating new session"
-                    )
-                    try:
-                        await session_wrapper["session"].close()
-                    except Exception:
-                        pass  # Ignore errors during close of invalid session
-
-                    del task_local[task_id]
-                    session_wrapper = None
+                    raise
+                return
             except Exception as e:
-                # Handle other errors during validation
-
-                db_logger.error(f"Existing session validation failed: {e}")
-                # If the session is invalid, close and remove it
+                db_logger.error(f"Session validation failed: {e}")
+                # If validation fails, remove the session and continue to create a new one
                 try:
                     await session_wrapper["session"].close()
                 except Exception as close_e:
-                    db_logger.debug(f"Error closing invalid session: {close_e}")
-
+                    db_logger.error(f"Error closing invalid session: {close_e}")
                 del task_local[task_id]
-                session_wrapper = None
 
-        if session_wrapper is None:
-            # Create a new session wrapper with a depth counter starting at 1
-            session = self._async_session_factory()
-            session_wrapper = {"session": session, "depth": 1}
-            task_local[task_id] = session_wrapper
-            get_db_logger().setup_session_logging(session)
-
-        session: AsyncSession = session_wrapper["session"]
+        # Create a new session wrapper with a depth counter starting at 1
+        session = self._async_session_factory()
+        session_wrapper = {"session": session, "depth": 1}
+        task_local[task_id] = session_wrapper
+        get_db_logger().setup_session_logging(session)
 
         try:
-            yield session
+            try:
+                yield session
 
-            # Only commit if there are changes and no active transaction
-            # and this is the outermost session scope
-            if (
-                session.in_transaction()
-                and session.is_active
-                and session_wrapper["depth"] == 1
-            ):
-                await session.commit()
-                self._commit_count += 1
+                # Only commit if there are changes and no active transaction
+                # and this is the outermost session scope
+                if (
+                    session.in_transaction()
+                    and session.is_active
+                    and session_wrapper["depth"] == 1
+                ):
+                    try:
+                        await session.commit()
+                        self._commit_count += 1
+                    except (OperationalError, PendingRollbackError) as e:
+                        # Handle SQLAlchemy specific errors during commit
+                        db_logger.error(f"Error during commit: {e}")
+                        error_msg = str(e).lower()
+                        if any(
+                            err_msg in error_msg
+                            for err_msg in ["savepoint", "transaction", "connection"]
+                        ):
+                            db_logger.warning(
+                                "Detected transaction error during commit, attempting recovery"
+                            )
+                            await self._handle_savepoint_error(
+                                session, session_wrapper, task_id, task_local
+                            )
+                        raise
+                    except Exception as e:
+                        db_logger.error(f"Unexpected error during commit: {e}")
+                        if session.in_transaction():
+                            await session.rollback()
+                        raise
 
-        except (OperationalError, PendingRollbackError) as e:
-            # Handle SQLAlchemy specific errors
-
-            db_logger.error(f"SQLAlchemy error in async session: {e}")
-
-            # Check for savepoint errors specifically
-            error_msg = str(e).lower()
-            is_savepoint_error = any(
-                err_msg in error_msg
-                for err_msg in [
-                    "no such savepoint",
-                    "invalid savepoint",
-                    "can't reconnect until invalid savepoint",
-                    "savepoint",  # Catch any savepoint-related errors
-                    "transaction",  # Catch transaction-related errors
-                ]
-            )
-
-            # Also check for connection errors
-            is_connection_error = any(
-                err_msg in error_msg
-                for err_msg in [
-                    "database is locked",
-                    "unable to open database file",
-                    "disk i/o error",
-                    "database or disk is full",
-                    "database disk image is malformed",
-                    "connection",  # Catch any connection-related errors
-                ]
-            )
-
-            if is_savepoint_error or is_connection_error:
-                # Use our aggressive recovery mechanism
-                db_logger.warning(
-                    f"Detected {'savepoint' if is_savepoint_error else 'connection'} error, initiating recovery"
-                )
-                await self._handle_savepoint_error(
-                    session, session_wrapper, task_id, task_local
-                )
-            elif session.in_transaction():
-                # For other operational errors, try standard rollback
-                try:
-                    db_logger.info(
-                        "Attempting standard rollback for non-savepoint error"
-                    )
-                    await session.rollback()
-                    db_logger.info("Standard rollback successful")
-                except Exception as rollback_e:
-                    db_logger.error(f"Error during standard rollback: {rollback_e}")
-                    # If rollback fails, try recovery
-                    db_logger.warning("Standard rollback failed, initiating recovery")
+            except (OperationalError, PendingRollbackError) as e:
+                # Handle SQLAlchemy specific errors
+                db_logger.error(f"SQLAlchemy error in session: {e}")
+                error_msg = str(e).lower()
+                if any(
+                    err_msg in error_msg
+                    for err_msg in ["savepoint", "transaction", "connection"]
+                ):
+                    db_logger.warning("Detected transaction error, attempting recovery")
                     await self._handle_savepoint_error(
                         session, session_wrapper, task_id, task_local
                     )
+                elif session.in_transaction():
+                    try:
+                        await session.rollback()
+                    except Exception as rollback_e:
+                        db_logger.error(f"Error during rollback: {rollback_e}")
+                raise
 
-            # Re-raise the original exception with context
-            db_logger.error(
-                f"Re-raising original exception after recovery attempt: {e}"
-            )
-            raise
-
-        except Exception as e:
-            # Handle general exceptions
-
-            db_logger.error(f"General error in async session: {e}")
-
-            if session.in_transaction():
-                try:
-                    # Standard rollback for general exceptions
-                    db_logger.info("Attempting standard rollback for general exception")
-                    await session.rollback()
-                    db_logger.info("Standard rollback successful for general exception")
-                except (OperationalError, PendingRollbackError) as rollback_e:
-                    # Handle SQLAlchemy specific errors during rollback
-                    db_logger.error(f"SQLAlchemy error during rollback: {rollback_e}")
-
-                    # Check if this is a savepoint error
-                    error_msg = str(rollback_e).lower()
-                    if any(
-                        err_msg in error_msg
-                        for err_msg in ["savepoint", "transaction", "connection"]
-                    ):
-                        db_logger.warning(
-                            "Detected savepoint/transaction error during rollback, initiating recovery"
+            except Exception as e:
+                # Handle other exceptions
+                db_logger.error(f"Unexpected error in session: {e}")
+                if session.in_transaction():
+                    try:
+                        await session.rollback()
+                    except (OperationalError, PendingRollbackError) as rollback_e:
+                        db_logger.error(
+                            f"SQLAlchemy error during rollback: {rollback_e}"
                         )
-                        await self._handle_savepoint_error(
-                            session, session_wrapper, task_id, task_local
+                        # Check if this is a savepoint error
+                        error_msg = str(rollback_e).lower()
+                        if any(
+                            err_msg in error_msg
+                            for err_msg in ["savepoint", "transaction", "connection"]
+                        ):
+                            db_logger.warning(
+                                "Detected transaction error during rollback, attempting recovery"
+                            )
+                            await self._handle_savepoint_error(
+                                session, session_wrapper, task_id, task_local
+                            )
+                    except Exception as rollback_e:
+                        db_logger.error(
+                            f"Unexpected error during rollback: {rollback_e}"
                         )
-                except Exception as rollback_e:
-                    # Handle other errors during rollback
-                    db_logger.error(
-                        f"Error during rollback for general exception: {rollback_e}"
-                    )
-                    # If rollback fails, try recovery
-                    db_logger.warning(
-                        "Standard rollback failed for general exception, initiating recovery"
-                    )
-                    await self._handle_savepoint_error(
-                        session, session_wrapper, task_id, task_local
-                    )
-
-            # Re-raise the original exception with context
-            db_logger.error(
-                f"Re-raising original exception after recovery attempt: {e}"
-            )
-            raise
+                raise
 
         finally:
             # Decrease nesting depth; if outermost, remove from tracking and close it
-            if session_wrapper is not None:  # Check if session_wrapper still exists
-                session_wrapper["depth"] -= 1
-                if session_wrapper["depth"] <= 0:
-                    # Only close the session if it's the outermost scope
-                    try:
-                        # Check if session is still valid before closing
-                        if session.is_active:
-                            db_logger.debug("Closing session in finally block")
-                            await session.close()
-                            db_logger.debug("Session closed successfully")
-                        else:
+            session_wrapper["depth"] -= 1
+            if session_wrapper["depth"] <= 0:
+                try:
+                    # Check for active transaction before closing
+                    if session.in_transaction():
+                        try:
+                            await session.rollback()
                             db_logger.debug(
-                                "Session already closed or invalid, skipping close"
+                                "Rolled back active transaction during cleanup"
                             )
-                    except (OperationalError, PendingRollbackError) as e:
-                        # Handle SQLAlchemy specific errors during close
-                        db_logger.error(
-                            f"SQLAlchemy error closing session in finally block: {e}"
-                        )
-                        # No need to recover here as we're already cleaning up
-                    except Exception as e:
-                        # Handle other errors during close
-                        db_logger.error(f"Error closing session in finally block: {e}")
-                    finally:
-                        # Always remove from tracking even if close fails
-                        if task_id in task_local:
-                            db_logger.debug(f"Removing task {task_id} from tracking")
-                            del task_local[task_id]
+                        except Exception as rollback_e:
+                            db_logger.error(
+                                f"Error rolling back transaction during cleanup: {rollback_e}"
+                            )
+
+                    await session.close()
+                    db_logger.debug("Session closed successfully")
+                except (OperationalError, PendingRollbackError) as e:
+                    db_logger.error(f"SQLAlchemy error during session cleanup: {e}")
+                    # Even for errors, we want to remove from tracking
+                except Exception as e:
+                    db_logger.error(f"Unexpected error during session cleanup: {e}")
+                finally:
+                    if task_id in task_local:
+                        del task_local[task_id]
 
     async def _handle_savepoint_error(
         self,
@@ -1007,7 +986,18 @@ class Database:
             raise RuntimeError(f"Failed to recover from savepoint error: {e}") from e
 
     async def cleanup(self) -> None:
-        """Clean up all database connections."""
+        """Clean up all database connections.
+
+        This method performs a complete cleanup of all database resources:
+        1. Stops the background sync thread
+        2. Performs a final sync to disk
+        3. Handles any pending async and sync sessions
+        4. Closes the shared connection for the in-memory database
+        5. Disposes of both sync and async engines
+
+        It's designed to be called during application shutdown to ensure
+        all changes are persisted and resources are properly released.
+        """
         if hasattr(self, "_stop_sync"):  # Check if init completed
             # Stop sync thread
             self._stop_sync.set()
@@ -1106,7 +1096,19 @@ class Database:
                     db_logger.error(f"Error disposing async engine: {e}")
 
     def close_sync(self) -> None:
-        """Synchronous cleanup for atexit handler."""
+        """Synchronous cleanup for atexit handler.
+
+        This method provides a synchronous version of the cleanup process
+        that can be safely called from an atexit handler. It performs:
+        1. Stopping the background sync thread
+        2. Handling any pending sync sessions
+        3. Closing the shared connection
+        4. Disposing of the sync engine
+        5. Checking for leaked semaphores
+
+        The async engine is left for Python's garbage collector to handle
+        since async operations can't be done in a synchronous context.
+        """
         if hasattr(self, "_stop_sync"):  # Check if init completed
             # Stop sync thread
             self._stop_sync.set()

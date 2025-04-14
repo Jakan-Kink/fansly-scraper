@@ -50,7 +50,10 @@ async def stash_client(stash_context) -> StashClient:
     This ensures proper client initialization through the context's get_client() method.
     Tests that require a real server should be skipped with pytest.mark.skip.
     """
-    return await stash_context.get_client()
+    client = await stash_context.get_client()
+    yield client
+    # Ensure we explicitly clean up after each test
+    await client.close()
 
 
 @pytest.fixture

@@ -3,6 +3,7 @@
 from typing import Any
 
 from ... import fragments
+from ...client_helpers import async_lru_cache
 from ...types import FindSceneMarkersResultType, SceneMarker
 from ..protocols import StashClientProtocol
 
@@ -10,6 +11,7 @@ from ..protocols import StashClientProtocol
 class MarkerClientMixin(StashClientProtocol):
     """Mixin for marker-related client methods."""
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_marker(self, id: str) -> SceneMarker | None:
         """Find a scene marker by its ID.
 
@@ -31,6 +33,7 @@ class MarkerClientMixin(StashClientProtocol):
             self.log.error(f"Failed to find marker {id}: {e}")
             return None
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_markers(
         self,
         filter_: dict[str, Any] = {"per_page": -1},
@@ -91,6 +94,9 @@ class MarkerClientMixin(StashClientProtocol):
                 fragments.CREATE_MARKER_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified markers
+            self.find_marker.cache_clear()
+            self.find_markers.cache_clear()
             return SceneMarker(**result["sceneMarkerCreate"])
         except Exception as e:
             self.log.error(f"Failed to create marker: {e}")
@@ -139,6 +145,9 @@ class MarkerClientMixin(StashClientProtocol):
                 fragments.UPDATE_MARKER_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified a marker
+            self.find_marker.cache_clear()
+            self.find_markers.cache_clear()
             return SceneMarker(**result["sceneMarkerUpdate"])
         except Exception as e:
             self.log.error(f"Failed to update marker: {e}")

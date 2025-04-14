@@ -102,13 +102,22 @@ def _validate_media_item(media_item: MediaItem) -> None:
 
 
 def _update_media_type_stats(state: DownloadState, media_item: MediaItem) -> None:
-    """Update in-memory media type statistics."""
+    """Update in-memory media type statistics.
+
+    Uses the preview_id for preview media and media_id for primary media to ensure
+    correct tracking of downloaded items.
+    """
+    # Use preview_id if this is preview content, otherwise use media_id
+    media_id = str(
+        media_item.preview_id if media_item.is_preview else media_item.media_id
+    )
+
     if "image" in media_item.mimetype:
-        state.recent_photo_media_ids.add(media_item.media_id)
+        state.recent_photo_media_ids.add(media_id)
     elif "video" in media_item.mimetype:
-        state.recent_video_media_ids.add(media_item.media_id)
+        state.recent_video_media_ids.add(media_id)
     elif "audio" in media_item.mimetype:
-        state.recent_audio_media_ids.add(media_item.media_id)
+        state.recent_audio_media_ids.add(media_id)
 
 
 async def _verify_existing_file(

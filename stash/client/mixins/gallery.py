@@ -3,6 +3,7 @@
 from typing import Any
 
 from ... import fragments
+from ...client_helpers import async_lru_cache
 from ...types import FindGalleriesResultType, Gallery, GalleryChapter
 from ..protocols import StashClientProtocol
 
@@ -10,6 +11,7 @@ from ..protocols import StashClientProtocol
 class GalleryClientMixin(StashClientProtocol):
     """Mixin for gallery-related client methods."""
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_gallery(self, id: str) -> Gallery | None:
         """Find a gallery by its ID.
 
@@ -31,6 +33,7 @@ class GalleryClientMixin(StashClientProtocol):
             self.log.error(f"Failed to find gallery {id}: {e}")
             return None
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_galleries(
         self,
         filter_: dict[str, Any] = {"per_page": -1},
@@ -89,6 +92,9 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.CREATE_GALLERY_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified galleries
+            self.find_gallery.cache_clear()
+            self.find_galleries.cache_clear()
             return Gallery(**result["galleryCreate"])
         except Exception as e:
             self.log.error(f"Failed to create gallery: {e}")
@@ -116,6 +122,9 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.UPDATE_GALLERY_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified a gallery
+            self.find_gallery.cache_clear()
+            self.find_galleries.cache_clear()
             return Gallery(**result["galleryUpdate"])
         except Exception as e:
             self.log.error(f"Failed to update gallery: {e}")
@@ -135,6 +144,9 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.GALLERIES_UPDATE_MUTATION,
                 {"input": [await gallery.to_input() for gallery in galleries]},
             )
+            # Clear caches since we've modified galleries
+            self.find_gallery.cache_clear()
+            self.find_galleries.cache_clear()
             return [Gallery(**gallery) for gallery in result["galleriesUpdate"]]
         except Exception as e:
             self.log.error(f"Failed to update galleries: {e}")
@@ -167,6 +179,9 @@ class GalleryClientMixin(StashClientProtocol):
                     }
                 },
             )
+            # Clear caches since we've deleted galleries
+            self.find_gallery.cache_clear()
+            self.find_galleries.cache_clear()
             return result["galleryDestroy"]
         except Exception as e:
             self.log.error(f"Failed to destroy galleries {ids}: {e}")
@@ -191,6 +206,8 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.REMOVE_GALLERY_IMAGES_MUTATION,
                 {"input": {"gallery_id": gallery_id, "image_ids": image_ids}},
             )
+            # Clear cache for this gallery since we've modified its images
+            self.find_gallery.cache_clear()
             return result["removeGalleryImages"]
         except Exception as e:
             self.log.error(f"Failed to remove images from gallery {gallery_id}: {e}")
@@ -215,6 +232,8 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.SET_GALLERY_COVER_MUTATION,
                 {"input": {"gallery_id": gallery_id, "cover_image_id": cover_image_id}},
             )
+            # Clear cache for this gallery since we've modified its cover
+            self.find_gallery.cache_clear()
             return result["setGalleryCover"]
         except Exception as e:
             self.log.error(f"Failed to set cover for gallery {gallery_id}: {e}")
@@ -234,6 +253,8 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.RESET_GALLERY_COVER_MUTATION,
                 {"input": {"gallery_id": gallery_id}},
             )
+            # Clear cache for this gallery since we've modified its cover
+            self.find_gallery.cache_clear()
             return result["resetGalleryCover"]
         except Exception as e:
             self.log.error(f"Failed to reset cover for gallery {gallery_id}: {e}")
@@ -266,6 +287,8 @@ class GalleryClientMixin(StashClientProtocol):
                     }
                 },
             )
+            # Clear cache for this gallery since we've modified its chapters
+            self.find_gallery.cache_clear()
             return GalleryChapter(**result["galleryChapterCreate"])
         except Exception as e:
             self.log.error(f"Failed to create chapter for gallery {gallery_id}: {e}")
@@ -302,6 +325,8 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.GALLERY_CHAPTER_UPDATE_MUTATION,
                 {"input": input_data},
             )
+            # Clear cache for affected galleries since we've modified chapters
+            self.find_gallery.cache_clear()
             return GalleryChapter(**result["galleryChapterUpdate"])
         except Exception as e:
             self.log.error(f"Failed to update chapter {id}: {e}")
@@ -335,6 +360,8 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.GALLERY_ADD_IMAGES_MUTATION,
                 {"input": {"gallery_id": gallery_id, "image_ids": image_ids}},
             )
+            # Clear cache for this gallery since we've modified its images
+            self.find_gallery.cache_clear()
             return result["addGalleryImages"]
         except Exception as e:
             self.log.error(f"Failed to add images to gallery {gallery_id}: {e}")
@@ -354,6 +381,8 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.GALLERY_CHAPTER_DESTROY_MUTATION,
                 {"id": id},
             )
+            # Clear caches since we've modified galleries by removing a chapter
+            self.find_gallery.cache_clear()
             return result["galleryChapterDestroy"]
         except Exception as e:
             self.log.error(f"Failed to destroy chapter {id}: {e}")

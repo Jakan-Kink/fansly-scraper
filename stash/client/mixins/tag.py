@@ -103,7 +103,7 @@ class TagClientMixin(StashClientProtocol):
                 self.log.info(
                     f"Tag '{tag.name}' already exists. Fetching existing tag."
                 )
-                # Clear both tag caches since we have a new tag
+                # Clear both tag caches
                 self.find_tag.cache_clear()
                 self.find_tags.cache_clear()
                 # Try to find the existing tag with exact name match
@@ -139,6 +139,9 @@ class TagClientMixin(StashClientProtocol):
                 fragments.TAGS_MERGE_MUTATION,
                 {"input": {"source": source, "destination": destination}},
             )
+            # Clear caches since we've modified tags
+            self.find_tag.cache_clear()
+            self.find_tags.cache_clear()
             return Tag(**result["tagsMerge"])
         except Exception as e:
             self.log.error(f"Failed to merge tags {source} into {destination}: {e}")
@@ -187,6 +190,9 @@ class TagClientMixin(StashClientProtocol):
                 fragments.BULK_TAG_UPDATE_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified tags
+            self.find_tag.cache_clear()
+            self.find_tags.cache_clear()
             return [Tag(**tag) for tag in result["bulkTagUpdate"]]
         except Exception as e:
             self.log.error(f"Failed to bulk update tags {ids}: {e}")
@@ -214,6 +220,9 @@ class TagClientMixin(StashClientProtocol):
                 fragments.UPDATE_TAG_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified a tag
+            self.find_tag.cache_clear()
+            self.find_tags.cache_clear()
             return Tag(**result["tagUpdate"])
         except Exception as e:
             self.log.error(f"Failed to update tag: {e}")

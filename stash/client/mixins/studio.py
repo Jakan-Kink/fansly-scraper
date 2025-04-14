@@ -3,6 +3,7 @@
 from typing import Any
 
 from ... import fragments
+from ...client_helpers import async_lru_cache
 from ...types import FindStudiosResultType, Studio
 from ..protocols import StashClientProtocol
 
@@ -10,6 +11,7 @@ from ..protocols import StashClientProtocol
 class StudioClientMixin(StashClientProtocol):
     """Mixin for studio-related client methods."""
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_studio(self, id: str) -> Studio | None:
         """Find a studio by its ID.
 
@@ -31,6 +33,7 @@ class StudioClientMixin(StashClientProtocol):
             self.log.error(f"Failed to find studio {id}: {e}")
             return None
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_studios(
         self,
         filter_: dict[str, Any] = {"per_page": -1},
@@ -89,6 +92,9 @@ class StudioClientMixin(StashClientProtocol):
                 fragments.CREATE_STUDIO_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified studios
+            self.find_studio.cache_clear()
+            self.find_studios.cache_clear()
             return Studio(**result["studioCreate"])
         except Exception as e:
             self.log.error(f"Failed to create studio: {e}")
@@ -116,6 +122,9 @@ class StudioClientMixin(StashClientProtocol):
                 fragments.UPDATE_STUDIO_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified a studio
+            self.find_studio.cache_clear()
+            self.find_studios.cache_clear()
             return Studio(**result["studioUpdate"])
         except Exception as e:
             self.log.error(f"Failed to update studio: {e}")

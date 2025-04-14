@@ -3,6 +3,7 @@
 from typing import Any
 
 from ... import fragments
+from ...client_helpers import async_lru_cache
 from ...types import FindScenesResultType, Scene
 from ..protocols import StashClientProtocol
 
@@ -10,6 +11,7 @@ from ..protocols import StashClientProtocol
 class SceneClientMixin(StashClientProtocol):
     """Mixin for scene-related client methods."""
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_scene(self, id: str) -> Scene | None:
         """Find a scene by its ID.
 
@@ -18,6 +20,9 @@ class SceneClientMixin(StashClientProtocol):
 
         Returns:
             Scene object if found, None otherwise
+
+        Raises:
+            ValueError: If scene ID is None or empty
 
         Examples:
             Find a scene and check its title:
@@ -49,6 +54,10 @@ class SceneClientMixin(StashClientProtocol):
                 preview_url = scene.paths.preview
             ```
         """
+        # Validate scene ID
+        if id is None or id == "":
+            raise ValueError("Scene ID cannot be empty")
+
         try:
             result = await self.execute(
                 fragments.FIND_SCENE_QUERY,
@@ -61,6 +70,7 @@ class SceneClientMixin(StashClientProtocol):
             self.log.error(f"Failed to find scene {id}: {e}")
             return None
 
+    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_scenes(
         self,
         filter_: dict[str, Any] = {"per_page": -1},
@@ -228,6 +238,9 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.CREATE_SCENE_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified scenes
+            self.find_scene.cache_clear()
+            self.find_scenes.cache_clear()
             return Scene(**result["sceneCreate"])
         except Exception as e:
             self.log.error(f"Failed to create scene: {e}")
@@ -313,6 +326,16 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.UPDATE_SCENE_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified a scene
+            self.find_scene.cache_clear()
+            self.find_scenes.cache_clear()
+
+            # Check if the scene is in the cache and remove it
+            if hasattr(scene, "id") and scene.id is not None:
+                if hasattr(self, "scene_cache") and scene.id in self.scene_cache:
+                    del self.scene_cache[scene.id]
+
+            # Create a Scene instance from the result
             return Scene(**result["sceneUpdate"])
         except Exception as e:
             self.log.error(f"Failed to update scene: {e}")
@@ -413,6 +436,9 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.BULK_SCENE_UPDATE_MUTATION,
                 {"input": input_data},
             )
+            # Clear caches since we've modified scenes
+            self._find_scene_cache.cache_clear()
+            self._find_scenes_cache.cache_clear()
             return [Scene(**scene) for scene in result["bulkSceneUpdate"]]
         except Exception as e:
             self.log.error(f"Failed to bulk update scenes: {e}")
@@ -432,6 +458,21 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.SCENES_UPDATE_MUTATION,
                 {"input": [await scene.to_input() for scene in scenes]},
             )
+            # Clear caches since we've modified scenes
+            if hasattr(self, "find_scene") and hasattr(self.find_scene, "cache_clear"):
+                self.find_scene.cache_clear()
+
+            if hasattr(self, "find_scenes") and hasattr(
+                self.find_scenes, "cache_clear"
+            ):
+                self.find_scenes.cache_clear()
+
+            # Clear each scene from the scene_cache
+            if hasattr(self, "scene_cache"):
+                for scene in scenes:
+                    if hasattr(scene, "id") and scene.id in self.scene_cache:
+                        del self.scene_cache[scene.id]
+
             return [Scene(**scene) for scene in result["scenesUpdate"]]
         except Exception as e:
             self.log.error(f"Failed to update scenes: {e}")
@@ -460,7 +501,21 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.SCENE_GENERATE_SCREENSHOT_MUTATION,
                 {"id": id, "at": at},
             )
-            return result["sceneGenerateScreenshot"]
+            # Clear scene cache since screenshot generation modifies the scene
+            if hasattr(self, "scene_cache") and id in self.scene_cache:
+                del self.scene_cache[id]
+
+            if hasattr(self, "find_scene") and hasattr(self.find_scene, "cache_clear"):
+                self.find_scene.cache_clear()
+
+            if hasattr(self, "find_scenes") and hasattr(
+                self.find_scenes, "cache_clear"
+            ):
+                self.find_scenes.cache_clear()
+
+            if result and "sceneGenerateScreenshot" in result:
+                return result["sceneGenerateScreenshot"]
+            return ""
         except Exception as e:
             self.log.error(f"Failed to generate screenshot for scene {id}: {e}")
             raise

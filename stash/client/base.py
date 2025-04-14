@@ -609,9 +609,8 @@ class StashClientBase:
     async def close(self) -> None:
         """Close the HTTP client and clean up resources.
 
-        This method should be called when you're done with the client
-        to properly clean up resources. You can also use the client
-        as an async context manager to automatically handle cleanup.
+        This method attempts to clean up all resources but continues even if errors occur.
+        Any errors during cleanup are logged but not propagated.
 
         Examples:
             Manual cleanup:
@@ -640,18 +639,19 @@ class StashClientBase:
             if hasattr(self, "ws_transport") and hasattr(self.ws_transport, "close"):
                 await self.ws_transport.close()
 
-            # Close GQL client - note that we don't check for session directly
-            # since it's managed internally by the Client class
+            # Close GQL client
             if hasattr(self, "client"):
-                try:
-                    await self.client.close_async()
-                except Exception:
-                    # If close_async fails (e.g. due to transport already being closed),
-                    # try synchronous close as fallback
-                    if hasattr(self.client, "close_sync"):
-                        self.client.close_sync()
+                if hasattr(self.client, "close_async"):
+                    try:
+                        await self.client.close_async()
+                    except Exception as e:
+                        # Just log any errors during client.close_async and continue
+                        self.log.debug(
+                            f"Non-critical error during client.close_async(): {e}"
+                        )
         except Exception as e:
-            self.log.warning(f"Error during client cleanup: {e}")
+            # Just log the error and continue
+            self.log.warning(f"Non-critical error during client cleanup: {e}")
 
     async def __aenter__(self) -> "StashClientBase":
         """Enter async context manager."""
