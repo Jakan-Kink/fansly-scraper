@@ -4,7 +4,7 @@ These tests require a running Stash instance.
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import datetime
 from pathlib import Path
 from pprint import pformat
@@ -87,7 +87,9 @@ async def create_test_data(
 
 @pytest.mark.asyncio
 async def test_tag_cleanup_workflow(
-    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
+    stash_client: StashClient,
+    stash_cleanup_tracker: AsyncIterator[dict[str, list[str]]],
+    enable_scene_creation,
 ) -> None:
     """Test tag cleanup workflow.
 
@@ -99,6 +101,7 @@ async def test_tag_cleanup_workflow(
     5. Cleans up unused tags
     """
     try:
+        cleanup: dict[str, list[str]]
         async with stash_cleanup_tracker(stash_client) as cleanup:
             # Create initial data
             performer, studio, tags, scenes = await create_test_data(
@@ -367,12 +370,12 @@ async def test_studio_hierarchy_workflow(
             for studio_id, scenes in scenes_by_studio.items():
                 for scene in scenes:
                     assert (
-                        await stash_client.find_scene(scene.id) is not None
+                        await stash_client.find_scene(scene["id"]) is not None
                     ), f"Scene {scene.id} should still exist but has been deleted"
                     if studio_id != parent_studio.id:
                         # Get full studio details since find_scene only returns studio ID
                         scene_studio = await stash_client.find_studio(
-                            scene.studio["id"]  # Use scene instead of updated
+                            scene["studio"]["id"]  # Use scene instead of updated
                         )
                         assert (
                             scene_studio.parent_studio

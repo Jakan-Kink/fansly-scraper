@@ -20,6 +20,9 @@ class MediaItem:
     file_extension: str | None = None
 
     # Preview fields
+    preview_id: int = 0
+    preview_metadata: dict[str, Any] | None = None
+    preview_created_at: int = 0
     preview_url: str | None = None
     preview_mimetype: str | None = None
     preview_extension: str | None = None

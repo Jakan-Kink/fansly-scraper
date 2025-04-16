@@ -1,0 +1,731 @@
+"""Gallery processing mixin."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import traceback
+from collections.abc import Callable
+from pprint import pformat
+from typing import TYPE_CHECKING, Any, Dict, List, Protocol, Tuple
+
+from sqlalchemy.orm import Session
+
+from metadata import Account, Post
+from textio import print_error
+
+from ...logging import debug_print
+from ...logging import processing_logger as logger
+from ...types import Gallery, GalleryChapter, Image, Scene, Studio, Tag
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+
+class HasMetadata(Protocol):
+    """Protocol for models that have metadata for Stash."""
+
+    id: int
+    content: str | None
+    createdAt: datetime
+    attachments: list[Any]
+    # Messages don't have accountMentions, only Posts do
+    accountMentions: list[Account] | None = None
+
+
+class GalleryProcessingMixin:
+    """Gallery processing functionality."""
+
+    async def _get_gallery_by_stash_id(
+        self,
+        item: HasMetadata,
+    ) -> Gallery | None:
+        """Try to find gallery by stash_id."""
+        if not hasattr(item, "stash_id") or not item.stash_id:
+            return None
+
+        gallery = await self.context.client.find_gallery(item.stash_id)
+        if gallery:
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_gallery_by_stash_id",
+                    "status": "found",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
+                }
+            )
+        return gallery
+
+    async def _get_gallery_by_title(
+        self,
+        item: HasMetadata,
+        title: str,
+        studio: Studio | None,
+    ) -> Gallery | None:
+        """Try to find gallery by title and metadata."""
+        galleries = await self.context.client.find_galleries(
+            gallery_filter={
+                "title": {
+                    "value": title,
+                    "modifier": "EQUALS",
+                }
+            }
+        )
+        if not galleries or galleries.count == 0:
+            return None
+
+        for gallery_dict in galleries.galleries:
+            gallery = Gallery(**gallery_dict)
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_gallery_by_title",
+                    "gallery_studio_type": (
+                        type(gallery.studio).__name__ if gallery.studio else None
+                    ),
+                    "gallery_studio": gallery.studio,
+                }
+            )
+            if (
+                gallery.title == title
+                and gallery.date == item.createdAt.strftime("%Y-%m-%d")
+                and (
+                    not studio
+                    or (gallery.studio and gallery.studio.get("id") == studio.id)
+                )
+            ):
+                debug_print(
+                    {
+                        "method": "StashProcessing - _get_gallery_by_title",
+                        "status": "found",
+                        "item_id": item.id,
+                        "gallery_id": gallery.id,
+                    }
+                )
+                if hasattr(item, "stash_id"):
+                    item.stash_id = gallery.id
+                return gallery
+        return None
+
+    async def _get_gallery_by_code(
+        self,
+        item: HasMetadata,
+    ) -> Gallery | None:
+        """Try to find gallery by code (post/message ID)."""
+        galleries = await self.context.client.find_galleries(
+            gallery_filter={
+                "code": {
+                    "value": str(item.id),
+                    "modifier": "EQUALS",
+                }
+            }
+        )
+        if not galleries or galleries.count == 0:
+            return None
+
+        for gallery_dict in galleries.galleries:
+            gallery = Gallery(**gallery_dict)
+            if gallery.code == str(item.id):
+                debug_print(
+                    {
+                        "method": "StashProcessing - _get_gallery_by_code",
+                        "status": "found",
+                        "item_id": item.id,
+                        "gallery_id": gallery.id,
+                    }
+                )
+                if hasattr(item, "stash_id"):
+                    item.stash_id = gallery.id
+                return gallery
+        return None
+
+    async def _get_gallery_by_url(
+        self,
+        item: HasMetadata,
+        url: str,
+    ) -> Gallery | None:
+        """Try to find gallery by URL."""
+        galleries = await self.context.client.find_galleries(
+            gallery_filter={
+                "urls": {
+                    "value": url,
+                    "modifier": "INCLUDES",
+                }
+            }
+        )
+        if not galleries or galleries.count == 0:
+            return None
+
+        for gallery_dict in galleries.galleries:
+            gallery = Gallery(**gallery_dict)
+            # Use urls list instead of deprecated url property
+            if url in gallery.urls:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _get_gallery_by_url",
+                        "status": "found",
+                        "item_id": item.id,
+                        "gallery_id": gallery.id,
+                    }
+                )
+                if hasattr(item, "stash_id"):
+                    item.stash_id = gallery.id
+                gallery.code = str(item.id)
+                await gallery.save(self.context.client)
+                return gallery
+        return None
+
+    async def _create_new_gallery(
+        self,
+        item: HasMetadata,
+        title: str,
+    ) -> Gallery:
+        """Create a new gallery with basic fields."""
+        debug_print(
+            {
+                "method": "StashProcessing - _create_new_gallery",
+                "status": "creating",
+                "item_id": item.id,
+            }
+        )
+        return Gallery(
+            id="new",  # Will be replaced on save
+            title=title,
+            details=item.content,
+            code=str(item.id),  # Use post/message ID as code for uniqueness
+            date=item.createdAt.strftime("%Y-%m-%d"),
+            # created_at and updated_at handled by Stash
+            organized=True,  # Mark as organized since we have metadata
+        )
+
+    async def _get_gallery_metadata(
+        self,
+        item: HasMetadata,
+        account: Account,
+        url_pattern: str,
+    ) -> tuple[str, str, str]:
+        """Get metadata needed for gallery operations.
+
+        Args:
+            item: The item to process
+            account: The Account object
+            url_pattern: URL pattern for the item
+
+        Returns:
+            Tuple of (username, title, url)
+        """
+        # Get username
+        username = (
+            await account.awaitable_attrs.username
+            if hasattr(account, "awaitable_attrs")
+            else account.username
+        )
+
+        # Generate title
+        title = self._generate_title_from_content(
+            content=item.content,
+            username=username,
+            created_at=item.createdAt,
+        )
+
+        # Generate URL
+        url = url_pattern.format(username=username, id=item.id)
+
+        return username, title, url
+
+    async def _setup_gallery_performers(
+        self,
+        gallery: Gallery,
+        item: HasMetadata,
+        performer: Any,
+    ) -> None:
+        """Set up performers for a gallery.
+
+        Args:
+            gallery: Gallery to set up
+            item: Source item with mentions
+            performer: Main performer
+        """
+        performers = []
+
+        # Add main performer
+        if performer:
+            if hasattr(performer, "awaitable_attrs"):
+                await performer.awaitable_attrs.id
+            performers.append(performer)
+
+        # Add mentioned accounts as performers
+        if hasattr(item, "accountMentions") and item.accountMentions:
+            for mention in item.accountMentions:
+                if mention_performer := await self._find_existing_performer(mention):
+                    performers.append(mention_performer)
+
+        # Set performers if we have any
+        if performers:
+            gallery.performers = performers
+
+    async def _check_aggregated_posts(self, posts: list[Post]) -> bool:
+        """Check if any aggregated posts have media content.
+
+        Args:
+            posts: List of posts to check
+
+        Returns:
+            True if any post has media content, False otherwise
+        """
+        for post in posts:
+            if await self._has_media_content(post):
+                return True
+        return False
+
+    async def _has_media_content(self, item: HasMetadata) -> bool:
+        """Check if an item has media content that needs a gallery.
+
+        Args:
+            item: The item to check
+
+        Returns:
+            True if the item has media content, False otherwise
+        """
+        # Check for attachments
+        if hasattr(item, "attachments") and item.attachments:
+            for attachment in item.attachments:
+                # Direct media content
+                if hasattr(attachment, "contentType") and attachment.contentType in (
+                    "ACCOUNT_MEDIA",
+                    "ACCOUNT_MEDIA_BUNDLE",
+                ):
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _has_media_content",
+                            "status": "has_media",
+                            "item_id": item.id,
+                            "content_type": attachment.contentType,
+                        }
+                    )
+                    return True
+
+                # Aggregated posts (which might contain media)
+                if (
+                    hasattr(attachment, "contentType")
+                    and attachment.contentType == "AGGREGATED_POSTS"
+                ):
+                    if hasattr(attachment, "resolve_content") and (
+                        post := await attachment.resolve_content()
+                    ):
+                        if await self._check_aggregated_posts([post]):
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _has_media_content",
+                                    "status": "has_aggregated_media",
+                                    "item_id": item.id,
+                                    "post_id": post.id,
+                                }
+                            )
+                            return True
+
+        debug_print(
+            {
+                "method": "StashProcessing - _has_media_content",
+                "status": "no_media",
+                "item_id": item.id,
+            }
+        )
+        return False
+
+    async def _get_or_create_gallery(
+        self,
+        item: HasMetadata,
+        account: Account,
+        performer: Any,
+        studio: Studio | None,
+        item_type: str,
+        url_pattern: str,
+    ) -> Gallery | None:
+        """Get or create a gallery for an item.
+
+        Args:
+            item: The item to process
+            account: The Account object
+            performer: The Performer object
+            studio: The Studio object
+            item_type: Type of item ("post" or "message")
+            url_pattern: URL pattern for the item
+
+        Returns:
+            Gallery object or None if creation fails or item has no media
+        """
+        # Only create/get gallery if there's media content
+        if not await self._has_media_content(item):
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_or_create_gallery",
+                    "status": "skipped_no_media",
+                    "item_id": item.id,
+                }
+            )
+            return None
+        # Get metadata needed for all operations
+        username, title, url = await self._get_gallery_metadata(
+            item, account, url_pattern
+        )
+
+        # Try each search method in order
+        for method in [
+            lambda: self._get_gallery_by_stash_id(item),
+            lambda: self._get_gallery_by_code(item),
+            lambda: self._get_gallery_by_title(item, title, studio),
+            lambda: self._get_gallery_by_url(item, url),
+        ]:
+            if gallery := await method():
+                return gallery
+
+        # Create new gallery if none found
+        gallery = await self._create_new_gallery(item, title)
+
+        # Set up performers
+        await self._setup_gallery_performers(gallery, item, performer)
+
+        # Set studio if provided
+        if studio:
+            if hasattr(studio, "awaitable_attrs"):
+                await studio.awaitable_attrs.id
+            gallery.studio = studio
+
+        # Set URL and save
+        gallery.urls = [url_pattern]
+
+        # Add chapters for aggregated posts
+        if hasattr(item, "attachments"):
+            image_index = 0
+            for attachment in item.attachments:
+                if (
+                    hasattr(attachment, "contentType")
+                    and attachment.contentType == "AGGREGATED_POSTS"
+                ):
+                    if hasattr(attachment, "resolve_content") and (
+                        post := await attachment.resolve_content()
+                    ):
+                        # Only create chapter if post has media
+                        if await self._has_media_content(post):
+                            # Generate chapter title using same method as gallery title
+                            title = self._generate_title_from_content(
+                                content=post.content,
+                                username=username,  # Use same username as parent
+                                created_at=post.createdAt,
+                            )
+
+                            # Create chapter
+                            chapter = GalleryChapter(
+                                id="new",
+                                gallery=gallery,
+                                title=title,
+                                image_index=image_index,
+                            )
+                            gallery.chapters.append(chapter)
+                            image_index += 1  # Increment for next chapter
+
+        # Save gallery with chapters
+        await gallery.save(self.context.client)
+        return gallery
+
+    async def _process_item_gallery(
+        self,
+        item: HasMetadata,
+        account: Account,
+        performer: Any,
+        studio: Studio | None,
+        item_type: str,
+        url_pattern: str,
+        session: Session | None = None,
+    ) -> None:
+        """Process a single item's gallery.
+
+        Args:
+            item: Item to process
+            account: Account that owns the item
+            performer: Performer to associate with gallery
+            studio: Optional studio to associate with gallery
+            item_type: Type of item ("post" or "message")
+            url_pattern: URL pattern for the item
+            session: Optional database session
+        """
+        debug_print(
+            {
+                "method": "StashProcessing - _process_item_gallery",
+                "status": "entry",
+                "item_id": item.id,
+                "item_type": item_type,
+                "attachment_count": (
+                    len(item.attachments) if hasattr(item, "attachments") else 0
+                ),
+            }
+        )
+
+        async with contextlib.AsyncExitStack() as stack:
+            if session is None:
+                session = await stack.enter_async_context(
+                    self.database.get_async_session()
+                )
+
+            attachments = await item.awaitable_attrs.attachments or []
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "got_attachments",
+                    "item_id": item.id,
+                    "attachment_count": len(attachments),
+                    "attachment_ids": (
+                        [a.id for a in attachments] if attachments else []
+                    ),
+                }
+            )
+            if not attachments:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_item_gallery",
+                        "status": "no_attachments",
+                        "item_id": item.id,
+                    }
+                )
+                return
+
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "processing_attachments",
+                    "item_id": item.id,
+                    "attachment_count": len(attachments),
+                    "attachment_ids": [a.id for a in attachments],
+                }
+            )
+
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "creating_gallery",
+                    "item_id": item.id,
+                }
+            )
+            gallery = await self._get_or_create_gallery(
+                item=item,
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type=item_type,
+                url_pattern=url_pattern,
+            )
+            if not gallery:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_item_gallery",
+                        "status": "gallery_creation_failed",
+                        "item_id": item.id,
+                    }
+                )
+                return
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "gallery_created",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id if gallery else None,
+                }
+            )
+
+            # Add hashtags as tags
+            if hasattr(item, "hashtags"):
+                await item.awaitable_attrs.hashtags
+                if item.hashtags:
+                    tags = await self._process_hashtags_to_tags(item.hashtags)
+                    if tags:
+                        # TODO: Re-enable this code after testing
+                        # This code will update tags instead of overwriting them
+                        # For now, we overwrite to test tag matching behavior
+                        #
+                        # # Preserve existing tags
+                        # existing_tags = set(stash_obj.tags) if hasattr(stash_obj, "tags") else set()
+                        # existing_tags.update(tags)
+                        # stash_obj.tags = list(existing_tags)
+
+                        # Temporarily overwrite tags for testing
+                        gallery.tags = tags
+
+            # Process attachments and collect images/scenes
+            all_images = []
+            all_scenes = []
+            for i, attachment in enumerate(attachments, 1):
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_item_gallery",
+                        "status": "processing_attachment",
+                        "item_id": item.id,
+                        "attachment_id": attachment.id,
+                        "progress": f"{i}/{len(attachments)}",
+                    }
+                )
+                try:
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_item_gallery",
+                            "status": "attachment_details",
+                            "item_id": item.id,
+                            "attachment_id": attachment.id,
+                            "content_id": getattr(attachment, "contentId", None),
+                            "content_type": getattr(attachment, "contentType", None),
+                        }
+                    )
+                    result = await self.process_creator_attachment(
+                        attachment=attachment,
+                        item=item,
+                        account=account,
+                        session=session,
+                    )
+                    if result["images"] or result["scenes"]:
+                        all_images.extend(result["images"])
+                        all_scenes.extend(result["scenes"])
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _process_item_gallery",
+                                "status": "attachment_processed",
+                                "item_id": item.id,
+                                "attachment_id": attachment.id,
+                                "progress": f"{i}/{len(attachments)}",
+                                "images_added": len(result["images"]),
+                                "scenes_added": len(result["scenes"]),
+                            }
+                        )
+                    else:
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _process_item_gallery",
+                                "status": "attachment_skipped",
+                                "item_id": item.id,
+                                "attachment_id": attachment.id,
+                                "progress": f"{i}/{len(attachments)}",
+                            }
+                        )
+                except Exception as e:
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_item_gallery",
+                            "status": "attachment_failed",
+                            "item_id": item.id,
+                            "attachment_id": attachment.id,
+                            "progress": f"{i}/{len(attachments)}",
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                        }
+                    )
+
+            if not all_images and not all_scenes:
+                # No content was processed, delete the gallery if we just created it
+                if gallery.id == "new":
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_item_gallery",
+                            "status": "deleting_empty_gallery",
+                            "item_id": item.id,
+                            "gallery_id": gallery.id,
+                        }
+                    )
+                    await gallery.destroy(self.context.client)
+                return
+
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "content_summary",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
+                    "image_count": len(all_images),
+                    "scene_count": len(all_scenes),
+                }
+            )
+
+            # Link images and scenes to gallery
+            try:
+                # Link images using the special API endpoint
+                if all_images:
+                    # Try up to 3 times with increasing delays
+                    for attempt in range(3):
+                        try:
+                            success = await self.context.client.add_gallery_images(
+                                gallery_id=gallery.id,
+                                image_ids=[img.id for img in all_images],
+                            )
+                            if success:
+                                debug_print(
+                                    {
+                                        "method": "StashProcessing - _process_item_gallery",
+                                        "status": "gallery_images_added",
+                                        "item_id": item.id,
+                                        "gallery_id": gallery.id,
+                                        "success": success,
+                                        "image_count": len(all_images),
+                                        "attempt": attempt + 1,
+                                    }
+                                )
+                                break
+                            else:
+                                debug_print(
+                                    {
+                                        "method": "StashProcessing - _process_item_gallery",
+                                        "status": "gallery_images_add_failed",
+                                        "item_id": item.id,
+                                        "gallery_id": gallery.id,
+                                        "attempt": attempt + 1,
+                                        "image_count": len(all_images),
+                                    }
+                                )
+                                if attempt < 2:  # Don't sleep on last attempt
+                                    await asyncio.sleep(
+                                        2**attempt
+                                    )  # Exponential backoff
+                        except Exception as e:
+                            logger.exception(
+                                f"Failed to add gallery images for {item_type} {item.id}",
+                                exc_info=e,
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _process_item_gallery",
+                                    "status": "gallery_images_add_error",
+                                    "item_id": item.id,
+                                    "gallery_id": gallery.id,
+                                    "attempt": attempt + 1,
+                                    "error": str(e),
+                                    "traceback": traceback.format_exc(),
+                                }
+                            )
+                            if attempt < 2:  # Don't sleep on last attempt
+                                await asyncio.sleep(2**attempt)  # Exponential backoff
+
+                # Link scenes using the standard gallery update
+                if all_scenes:
+                    gallery.scenes = all_scenes
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_item_gallery",
+                            "status": "gallery_scenes_added",
+                            "item_id": item.id,
+                            "gallery_id": gallery.id,
+                            "scene_count": len(all_scenes),
+                            "scenes": pformat(all_scenes),
+                        }
+                    )
+                await gallery.save(self.context.client)
+            except Exception as e:
+                logger.exception(
+                    f"Failed to link content to gallery for {item_type} {item.id}",
+                    exc_info=e,
+                )
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_item_gallery",
+                        "status": "gallery_content_error",
+                        "item_id": item.id,
+                        "gallery_id": gallery.id,
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
+                )

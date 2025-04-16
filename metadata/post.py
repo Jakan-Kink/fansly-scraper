@@ -200,27 +200,64 @@ async def process_pinned_posts(
 async def process_timeline_posts(
     config: FanslyConfig,
     state: DownloadState,
-    posts: list[dict[str, any]],
+    posts_data: dict[str, any],
     session: AsyncSession | None = None,
 ) -> None:
-    """Process timeline posts.
+    """Process timeline posts and related data.
 
     Args:
         config: FanslyConfig instance
         state: Current download state
-        posts: List of post data dictionaries
+        posts_data: Post data from API response
         session: Optional AsyncSession for database operations
     """
     import time
 
-    from .account import process_account_data
+    from .account import Account, process_account_data
     from .media import process_media_info
 
     start_time = time.time()
-    posts = copy.deepcopy(posts)
+    posts = copy.deepcopy(posts_data)
     copy_time = time.time() - start_time
 
     json_output(1, "meta/post - p_t_posts - posts", posts)
+
+    # Process accounts
+    accounts_start = time.time()
+
+    # First ensure creator account exists and is tracked
+    account = None
+    if state.creator_id:
+        # Get the account by ID first
+        stmt = select(Account).where(Account.id == state.creator_id)
+        result = await session.execute(stmt)
+        account = result.scalar_one_or_none()
+
+        if not account and "account" in posts:
+            # If no account found but we have account data, process it
+            await process_account_data(config, data=posts["account"], session=session)
+            # Get the fresh account instance
+            result = await session.execute(stmt)
+            account = result.scalar_one()
+
+    if account:
+        session.add(account)  # Ensure account is tracked
+
+    # Process other accounts in the data
+    accounts = posts.get("accounts", [])
+    for account_data in accounts:
+        account_start = time.time()
+        # Process account without refresh to avoid None errors
+        await process_account_data(config, data=account_data, session=session)
+        json_output(
+            2,
+            "meta/post - timing - single_account",
+            {
+                "account_id": account_data.get("id"),
+                "time_taken": time.time() - account_start,
+            },
+        )
+    accounts_time = time.time() - accounts_start
 
     # Process main timeline posts
     tl_posts = posts["posts"]
@@ -278,22 +315,6 @@ async def process_timeline_posts(
         config, posts, id_fields=["accountId"], session=session
     )
     bundles_time = time.time() - bundles_start
-
-    # Process accounts
-    accounts_start = time.time()
-    accounts = posts["accounts"]
-    for account in accounts:
-        account_start = time.time()
-        await process_account_data(config, data=account, session=session)
-        json_output(
-            2,
-            "meta/post - timing - single_account",
-            {
-                "account_id": account.get("id"),
-                "time_taken": time.time() - account_start,
-            },
-        )
-    accounts_time = time.time() - accounts_start
 
     total_time = time.time() - start_time
     json_output(

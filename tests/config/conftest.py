@@ -5,6 +5,7 @@ import tempfile
 from collections.abc import Generator
 from configparser import ConfigParser
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from loguru import logger
@@ -150,6 +151,16 @@ def setup_test_logging():
 
         # Cleanup
         logger.remove()
+
+
+@pytest.fixture(autouse=True)
+def mock_open_browser():
+    """Prevent browser from opening during tests"""
+    with (
+        patch("helpers.browser.open_get_started_url"),
+        patch("helpers.browser.open_url"),
+    ):
+        yield
 
 
 def pytest_collection_modifyitems(items):

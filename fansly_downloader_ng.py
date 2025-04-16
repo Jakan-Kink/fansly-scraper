@@ -402,7 +402,7 @@ async def main(config: FanslyConfig) -> int:
                         )
 
                     if config.stash_context_conn is not None:
-                        from stash.processing import StashProcessing
+                        from stash import StashProcessing
 
                         # Create processor using factory method
                         stash_processor = StashProcessing.from_config(config, state)

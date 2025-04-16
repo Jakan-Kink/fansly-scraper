@@ -6,6 +6,22 @@ import pytest
 from loguru import logger
 
 from config import FanslyConfig
+from config.modes import DownloadMode
+from download.types import DownloadType
+from pathio import get_creator_base_path
+
+
+@pytest.fixture
+def test_downloads_dir(test_config: FanslyConfig, tmp_path: Path) -> Path:
+    """Create a temporary downloads directory."""
+    test_config.base_directory = str(tmp_path)
+    test_config.download_directory = tmp_path
+    test_config.download_mode = DownloadMode.NORMAL
+
+    # Create the creator directory structure
+    creator_path = tmp_path / "test_user_fansly"
+    creator_path.mkdir(parents=True, exist_ok=True)
+    return creator_path
 
 
 # Mock functions for testing - replace with actual imports when modules are implemented
@@ -34,16 +50,6 @@ def process_media(
     if output_path:
         output_path.write_bytes(b"mock processed content")
     return Result()
-
-
-@pytest.fixture
-def test_downloads_dir(test_config: FanslyConfig) -> Path:
-    """Create a temporary downloads directory."""
-    from pathio import get_creator_base_path
-
-    path = get_creator_base_path(test_config, "test_user")
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 @pytest.mark.functional

@@ -398,3 +398,41 @@ async def async_session(async_engine):
     async with async_session_factory() as session:
         yield session
         await session.rollback()
+
+
+@pytest.fixture(scope="function")
+def test_config_with_downloads():
+    """Create a test configuration for download tests."""
+    with TemporaryDirectory() as temp_dir:
+        config = FanslyConfig(program_version="0.10.0")
+        config.download_directory = Path(temp_dir)
+        config.max_concurrent_downloads = 2
+        config.download_timeout = 30
+        config.retry_attempts = 2
+        config.retry_delay = 1
+        yield config
+
+
+@pytest.fixture(scope="function")
+def test_downloads_dir(test_config_with_downloads):
+    """Create a temporary directory for test downloads."""
+    return test_config_with_downloads.download_directory
+
+
+@pytest.fixture(scope="function")
+def mock_api_response(request):
+    """Load mock API response data from JSON files.
+
+    Looks for JSON files in a mock_data directory next to the test file,
+    named same as the test function.
+    """
+    test_module = request.module.__file__
+    test_dir = os.path.dirname(test_module)
+    mock_data_path = os.path.join(
+        test_dir, "mock_data", request.function.__name__ + ".json"
+    )
+
+    if os.path.exists(mock_data_path):
+        with open(mock_data_path) as f:
+            return f.read()
+    return None

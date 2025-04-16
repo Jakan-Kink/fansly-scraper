@@ -1,0 +1,413 @@
+"""Content processing mixin for posts and messages."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import traceback
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql import select
+
+from metadata import Account, Group, Message, Post
+from metadata.account import AccountMedia, AccountMediaBundle
+from metadata.attachment import Attachment
+from metadata.decorators import with_session
+from textio import print_error, print_info
+
+from ...logging import debug_print
+from ...logging import processing_logger as logger
+from ...types import Performer, Studio
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class ContentProcessingMixin:
+    """Content processing for posts and messages."""
+
+    @with_session()
+    async def process_creator_messages(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None = None,
+        session: AsyncSession | None = None,
+    ) -> None:
+        """Process creator message metadata.
+
+        This method:
+        1. Retrieves message information from the database
+        2. Creates galleries for messages with media in parallel
+        3. Links media files to galleries
+        4. Associates galleries with performer and studio
+
+        Args:
+            account: The Account object
+            performer: The Performer object
+            studio: Optional Studio object
+            session: Optional database session to use
+        """
+
+        def get_message_url(group: Group) -> str:
+            """Get URL for a message in a group."""
+            return f"https://fansly.com/messages/{group.id}"
+
+        # Get a fresh account instance bound to the session
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
+
+        # Get all messages with attachments in one query with relationships
+        stmt = (
+            select(Message)
+            .join(Message.attachments)  # Join to filter messages with attachments
+            .join(Message.group)
+            .join(Group.users)
+            .where(Group.users.any(Account.id == account.id))
+            .options(
+                selectinload(Message.attachments)
+                .selectinload(Attachment.media)
+                .selectinload(AccountMedia.media),
+                selectinload(Message.attachments)
+                .selectinload(Attachment.bundle)
+                .selectinload(AccountMediaBundle.accountMedia)
+                .selectinload(AccountMedia.media),
+                selectinload(Message.group),
+            )
+        )
+        debug_print(
+            {
+                "status": "building_message_query",
+                "account_id": account.id,
+                "statement": str(stmt.compile(compile_kwargs={"literal_binds": True})),
+            }
+        )
+
+        result = await session.execute(stmt)
+        messages = result.unique().scalars().all()
+        print_info(f"Processing {len(messages)} messages...")
+
+        # Set up batch processing
+        task_pbar, process_pbar, semaphore, queue = await self._setup_batch_processing(
+            messages, "message"
+        )
+
+        batch_size = 25
+
+        async def process_batch(batch: list[Message]) -> None:
+            async with semaphore:
+                try:
+                    # Ensure all objects are bound to the session
+                    for message in batch:
+                        session.add(message)
+                        for attachment in message.attachments:
+                            session.add(attachment)
+                            if attachment.media:
+                                session.add(attachment.media)
+                                if attachment.media.media:
+                                    session.add(attachment.media.media)
+                            if attachment.bundle:
+                                session.add(attachment.bundle)
+                                for account_media in attachment.bundle.accountMedia:
+                                    session.add(account_media)
+                                    if account_media.media:
+                                        session.add(account_media.media)
+
+                    # Refresh account before processing
+                    await session.refresh(account)
+
+                    # Process each message in the batch
+                    for message in batch:
+                        try:
+                            await self._process_items_with_gallery(
+                                account=account,
+                                performer=performer,
+                                studio=studio,
+                                item_type="message",
+                                items=[message],
+                                url_pattern_func=get_message_url,
+                                session=session,
+                            )
+                        except Exception as e:
+                            print_error(f"Error processing message {message.id}: {e}")
+                            logger.exception(
+                                f"Error processing message {message.id}",
+                                exc_info=e,
+                                traceback=True,
+                                stack_info=True,
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - process_creator_messages",
+                                    "status": "message_processing_failed",
+                                    "message_id": message.id,
+                                    "error": str(e),
+                                    "traceback": traceback.format_exc(),
+                                }
+                            )
+                        finally:
+                            process_pbar.update(1)
+                except Exception as e:
+                    print_error(f"Error processing batch: {e}")
+                    logger.exception(
+                        "Error processing batch",
+                        exc_info=e,
+                        traceback=True,
+                        stack_info=True,
+                    )
+                    debug_print(
+                        {
+                            "method": "StashProcessing - process_creator_messages",
+                            "status": "batch_processing_failed",
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                        }
+                    )
+
+        # Run the batch processor
+        await self._run_batch_processor(
+            items=messages,
+            batch_size=batch_size,
+            task_pbar=task_pbar,
+            process_pbar=process_pbar,
+            semaphore=semaphore,
+            queue=queue,
+            process_batch=process_batch,
+        )
+
+    @with_session()
+    async def process_creator_posts(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None = None,
+        session: AsyncSession | None = None,
+    ) -> None:
+        """Process creator post metadata.
+
+        This method:
+        1. Retrieves post information from the database in batches
+        2. Processes posts into Stash galleries
+        3. Handles media attachments and bundles
+
+        Note: This method requires a session and will ensure all objects are properly bound to it.
+        The performer and studio objects are Stash GraphQL types, not SQLAlchemy models.
+        """
+        # Ensure account is bound to the session
+        session.add(account)
+
+        # Get all posts with attachments in one query with relationships
+        # First ensure we have a fresh account instance
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
+
+        # Now get posts with proper eager loading
+        stmt = (
+            select(Post)
+            .join(Post.attachments)  # Join to filter posts with attachments
+            .where(Post.accountId == account.id)
+            .options(
+                # Load attachments and their media content
+                selectinload(Post.attachments)
+                .selectinload(Attachment.media)
+                .selectinload(AccountMedia.media),
+                # Load bundle attachments and their media
+                selectinload(Post.attachments)
+                .selectinload(Attachment.bundle)
+                .selectinload(AccountMediaBundle.accountMedia)
+                .selectinload(AccountMedia.media),
+                # Load account mentions
+                selectinload(Post.accountMentions),
+            )
+        )
+        debug_print(
+            {
+                "status": "building_post_query",
+                "account_id": account.id,
+                "statement": str(stmt.compile(compile_kwargs={"literal_binds": True})),
+            }
+        )
+
+        def get_post_url(post: Post) -> str:
+            return f"https://fansly.com/post/{post.id}"
+
+        result = await session.execute(stmt)
+        posts = result.unique().scalars().all()
+        print_info(f"Processing {len(posts)} posts...")
+
+        # Set up batch processing
+        task_pbar, process_pbar, semaphore, queue = await self._setup_batch_processing(
+            posts, "post"
+        )
+
+        batch_size = 25
+
+        async def process_batch(batch: list[Post]) -> None:
+            async with semaphore:
+                try:
+                    # Ensure all objects are bound to the session
+                    for post in batch:
+                        session.add(post)
+                        for attachment in post.attachments:
+                            session.add(attachment)
+                            if attachment.media:
+                                session.add(attachment.media)
+                                if attachment.media.media:
+                                    session.add(attachment.media.media)
+                            if attachment.bundle:
+                                session.add(attachment.bundle)
+                                for account_media in attachment.bundle.accountMedia:
+                                    session.add(account_media)
+                                    if account_media.media:
+                                        session.add(account_media.media)
+
+                    # Refresh account before processing
+                    await session.refresh(account)
+
+                    # Process each post in the batch
+                    for post in batch:
+                        try:
+                            await self._process_items_with_gallery(
+                                account=account,
+                                performer=performer,
+                                studio=studio,
+                                item_type="post",
+                                items=[post],
+                                url_pattern_func=get_post_url,
+                                session=session,
+                            )
+                        except Exception as e:
+                            print_error(f"Error processing post {post.id}: {e}")
+                            logger.exception(
+                                f"Error processing post {post.id}",
+                                exc_info=e,
+                                traceback=True,
+                                stack_info=True,
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - process_creator_posts",
+                                    "status": "post_processing_failed",
+                                    "post_id": post.id,
+                                    "error": str(e),
+                                    "traceback": traceback.format_exc(),
+                                }
+                            )
+                        finally:
+                            process_pbar.update(1)
+                except Exception as e:
+                    print_error(f"Error processing batch: {e}")
+                    logger.exception(
+                        "Error processing batch",
+                        exc_info=e,
+                        traceback=True,
+                        stack_info=True,
+                    )
+                    debug_print(
+                        {
+                            "method": "StashProcessing - process_creator_posts",
+                            "status": "batch_processing_failed",
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                        }
+                    )
+
+        # Run the batch processor
+        await self._run_batch_processor(
+            items=posts,
+            batch_size=batch_size,
+            task_pbar=task_pbar,
+            process_pbar=process_pbar,
+            semaphore=semaphore,
+            queue=queue,
+            process_batch=process_batch,
+        )
+
+    @with_session()
+    async def _process_items_with_gallery(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None,
+        item_type: str,
+        items: list[Message | Post],
+        url_pattern_func: callable,
+        session: Session | None = None,
+    ) -> None:
+        """Process items (posts or messages) with gallery.
+
+        Args:
+            account: The Account object
+            performer: The Performer object
+            studio: Optional Studio object
+            item_type: Type of item being processed ("post" or "message")
+            items: List of items to process (already loaded with relationships)
+            url_pattern_func: Function to generate URLs for items
+        """
+        debug_print(
+            {
+                "method": f"StashProcessing - process_creator_{item_type}s",
+                "state": "entry",
+                "count": len(items),
+            }
+        )
+
+        # Merge items into current session
+        # First ensure we have a fresh account instance
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
+        session.add(account)
+
+        # Process each item (already merged in process_creator_posts)
+        for item in items:
+            try:
+                debug_print(
+                    {
+                        "method": f"StashProcessing - process_creator_{item_type}s",
+                        "status": f"processing_{item_type}",
+                        f"{item_type}_id": item.id,
+                        "attachment_count": (
+                            len(item.attachments) if hasattr(item, "attachments") else 0
+                        ),
+                    }
+                )
+                await self._process_item_gallery(
+                    item=item,
+                    account=account,
+                    performer=performer,
+                    studio=studio,
+                    item_type=item_type,
+                    url_pattern=url_pattern_func(item),
+                    session=session,
+                )
+                debug_print(
+                    {
+                        "method": f"StashProcessing - process_creator_{item_type}s",
+                        "status": f"{item_type}_processed",
+                        f"{item_type}_id": item.id,
+                        "attachment_count": (
+                            len(item.attachments) if hasattr(item, "attachments") else 0
+                        ),
+                    }
+                )
+            except Exception as e:
+                print_error(f"Failed to process {item_type} {item.id}: {e}")
+                logger.exception(f"Failed to process {item_type} {item.id}", exc_info=e)
+                debug_print(
+                    {
+                        "method": f"StashProcessing - process_creator_{item_type}s",
+                        "status": f"{item_type}_processing_failed",
+                        f"{item_type}_id": item.id,
+                        "attachment_count": (
+                            len(item.attachments) if hasattr(item, "attachments") else 0
+                        ),
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+                continue

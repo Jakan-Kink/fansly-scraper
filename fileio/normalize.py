@@ -21,6 +21,13 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
     - Handles both UTC and non-UTC timestamps
     - Handles hash patterns (_hash_, _hash1_, _hash2_)
     - If created_at is provided and ID matches, uses it to determine correct timezone offset
+
+    Args:
+        filename: The filename to normalize
+        config: Optional config object for database access
+
+    Returns:
+        The normalized filename
     """
     # First check for hash patterns
     hash_match = re.search(r"_(hash2?|hash1)_([a-fA-F0-9]+)", filename)
@@ -48,51 +55,40 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
     minute = int(dt_match.group(3))
     tz_str = dt_match.group(4)  # Will be None if no timezone in filename
 
+    # If already has UTC suffix, return unchanged
+    if tz_str == "UTC":
+        return filename
+
+    # Initialize created_at to None
+    created_at = None
+
     # Parse timestamp
     try:
-        dt = datetime.strptime(f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M")
-        if not tz_str:
-            # For files without timezone indicator
-            created_at = None
-            if config and id_part:
-                # Try to get createdAt from database if we have an ID
-                media_id = int(id_match.group(2))  # Extract just the numeric ID
+        # Parse date but we only need it for validation, not using the actual datetime object
+        datetime.strptime(f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M")
+
+        # For files without timezone indicator
+        if not tz_str and config and id_part:
+            # Try to get createdAt from database if we have an ID
+            id_number_match = re.search(r"(?:preview_)?id_(\d+)", id_part)
+            if id_number_match:
+                media_id = int(id_number_match.group(1))  # Extract just the numeric ID
                 with config._database.session_scope() as session:
                     media = session.execute(
                         select(Media).where(Media.id == media_id)
                     ).scalar_one_or_none()
-                    if media and media.created_at:
-                        created_at = media.created_at
+                    if media and media.createdAt:
+                        created_at = media.createdAt
 
-            if created_at:
-                # If we have createdAt, calculate the actual offset
-                if created_at.hour != hour:
-                    # Calculate offset based on the difference between createdAt (UTC) and local time
-                    offset_hours = (created_at.hour - hour) % 24
-                    # Create a timezone with the calculated offset
-                    local_tz = timezone(timedelta(hours=-offset_hours))
-                    dt = dt.replace(tzinfo=local_tz)
-                else:
-                    # If hours match, assume UTC
-                    dt = dt.replace(tzinfo=timezone.utc)
-            else:
-                # Fallback to US/Eastern if no createdAt available
-                dt = dt.replace(tzinfo=ZoneInfo("America/New_York"))
+        # When we have a database match, use the database timestamp
+        if created_at:
+            # Use the database created_at timestamp for the normalized filename
+            ts_str = created_at.strftime("%Y-%m-%d_at_%H-%M_UTC")
+            return f"{ts_str}_{id_part}.{extension}"
 
-            # Convert to UTC
-            dt = dt.astimezone(timezone.utc)
-            dt = dt.replace(tzinfo=None)  # Remove timezone info after conversion
+        # No database match, return original filename
+        return filename
 
-        # Format the timestamp part consistently in UTC
-        ts_str = dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
-
-        # For comparison purposes, we'll strip the extension to .mp4
-        # since .m3u8 and .ts files are just different formats of the same content
-        if extension in ("m3u8", "ts"):
-            extension = "mp4"
-
-        # Return normalized filename with original ID part
-        return f"{ts_str}_{id_part}.{extension}"
     except ValueError:
         return filename
 

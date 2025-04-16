@@ -2,6 +2,7 @@
 
 from .client import StashClient
 from .context import StashContext
+from .processing import StashProcessing
 from .types import (  # Core types; Support types; Enums
     CircumisedEnum,
     ConfigResult,
@@ -26,6 +27,7 @@ __all__ = [
     # Client and Context
     "StashClient",
     "StashContext",
+    "StashProcessing",
     # Core types
     "Scene",
     "Gallery",
