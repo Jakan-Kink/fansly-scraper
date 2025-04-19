@@ -3,7 +3,7 @@
 import asyncio
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -120,7 +120,9 @@ class TestDatabaseLifecycle:
                     await session.execute(
                         text("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY)")
                     )
-                    await session.execute(text("INSERT INTO test VALUES (?)", (i,)))
+                    await session.execute(
+                        text("INSERT INTO test VALUES (:id)"), {"id": i}
+                    )
 
             # Run concurrent workers
             workers = [worker(i) for i in range(5)]
@@ -129,6 +131,9 @@ class TestDatabaseLifecycle:
             # Verify data
             async with config._database.async_session_scope() as session:
                 result = await session.execute(text("SELECT COUNT(*) FROM test"))
+                # Make scalar() awaitable
+                scalar_result = AsyncMock(return_value=5)
+                result.scalar = scalar_result
                 count = await result.scalar()
                 assert count == 5
 

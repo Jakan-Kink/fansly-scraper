@@ -1,0 +1,261 @@
+{
+    "success": true,
+    "response": {
+        "stories": [
+            {
+                "id": "737344486891335680",
+                "authorId": "737318930569244672",
+                "title": "Story with Poll",
+                "description": "Test story containing a poll",
+                "content": "What's your favorite color?",
+                "createdAt": 1737290980,
+                "updatedAt": 1737290980,
+                "expiresAt": 1737377380,
+                "attachments": [
+                    {
+                        "pos": 0,
+                        "contentType": 1,
+                        "contentId": "737344486891335681"
+                    }
+                ],
+                "pollData": {
+                    "id": "737344486891335682",
+                    "options": [
+                        {
+                            "id": "1",
+                            "text": "Blue",
+                            "votes": 50
+                        },
+                        {
+                            "id": "2",
+                            "text": "Red",
+                            "votes": 30
+                        }
+                    ],
+                    "totalVotes": 80,
+                    "userVote": "1",
+                    "endsAt": 1737377380
+                },
+                "permissions": {
+                    "permissionFlags": [
+                        {
+                            "id": "737344486891335683",
+                            "type": 0,
+                            "flags": 2,
+                            "metadata": ""
+                        }
+                    ],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 2,
+                "access": true,
+                "interactions": {
+                    "viewCount": 100,
+                    "likeCount": 20,
+                    "replyCount": 5
+                }
+            },
+            {
+                "id": "737344486891335684",
+                "authorId": "737318930569244672",
+                "title": "Story with Slider",
+                "description": "Test story containing a slider rating",
+                "content": "Rate this content!",
+                "createdAt": 1737290981,
+                "updatedAt": 1737290981,
+                "expiresAt": 1737377381,
+                "attachments": [
+                    {
+                        "pos": 0,
+                        "contentType": 2,
+                        "contentId": "737344486891335685"
+                    }
+                ],
+                "sliderData": {
+                    "id": "737344486891335686",
+                    "min": 1,
+                    "max": 5,
+                    "step": 1,
+                    "avgRating": 4.2,
+                    "totalRatings": 50,
+                    "userRating": 5
+                },
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 4,
+                        "metadata": "{\"5\":\"{\\\"amount\\\":1000}\"}"
+                    }
+                },
+                "purchased": true,
+                "whitelisted": false,
+                "accountPermissionFlags": 4,
+                "access": true,
+                "interactions": {
+                    "viewCount": 75,
+                    "likeCount": 15,
+                    "replyCount": 3
+                }
+            }
+        ],
+        "accountMedia": [
+            {
+                "id": "737344486891335681",
+                "accountId": "737318930569244672",
+                "mediaId": "737344486891335687",
+                "previewId": null,
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1737290980,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                },
+                "media": {
+                    "id": "737344486891335687",
+                    "type": 1,
+                    "status": 1,
+                    "accountId": "737318930569244672",
+                    "mimetype": "image/jpeg",
+                    "flags": 154,
+                    "location": "/737318930569244672/737344486891335687.jpeg",
+                    "width": 1080,
+                    "height": 1920,
+                    "metadata": "{\"dominant\":{\"r\":128,\"g\":128,\"b\":128},\"resolutionMode\":3}",
+                    "variants": [
+                        {
+                            "id": "737344486891335688",
+                            "type": 1,
+                            "status": 1,
+                            "mimetype": "image/jpeg",
+                            "flags": 0,
+                            "location": "/737318930569244672/737344486891335688.jpeg",
+                            "width": 720,
+                            "height": 1280,
+                            "metadata": "{\"resolutionMode\":3}",
+                            "updatedAt": 1737290980
+                        }
+                    ],
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://cdn3.fansly.com/737318930569244672/737344486891335687.jpeg"
+                        }
+                    ]
+                },
+                "access": true
+            },
+            {
+                "id": "737344486891335685",
+                "accountId": "737318930569244672",
+                "mediaId": "737344486891335689",
+                "previewId": "737344486891335690",
+                "permissionFlags": 0,
+                "price": 1000,
+                "createdAt": 1737290981,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 4,
+                        "metadata": "{\"5\":\"{\\\"amount\\\":1000}\"}"
+                    }
+                },
+                "media": {
+                    "id": "737344486891335689",
+                    "type": 2,
+                    "status": 1,
+                    "accountId": "737318930569244672",
+                    "mimetype": "video/mp4",
+                    "flags": 298,
+                    "location": "/737318930569244672/737344486891335689.mp4",
+                    "width": 1080,
+                    "height": 1920,
+                    "metadata": "{\"originalHeight\":1920,\"originalWidth\":1080,\"duration\":15.0,\"resolutionMode\":3,\"frameRate\":30}",
+                    "variants": [
+                        {
+                            "id": "737344486891335691",
+                            "type": 302,
+                            "status": 1,
+                            "mimetype": "application/vnd.apple.mpegurl",
+                            "flags": 0,
+                            "location": null,
+                            "width": 1080,
+                            "height": 1920,
+                            "metadata": "{\"variants\":[{\"w\":1080,\"h\":1920},{\"w\":720,\"h\":1280},{\"w\":480,\"h\":854},{\"w\":360,\"h\":640}]}",
+                            "updatedAt": 1737290981
+                        }
+                    ],
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://cdn3.fansly.com/737318930569244672/737344486891335689.mp4"
+                        }
+                    ]
+                },
+                "preview": {
+                    "id": "737344486891335690",
+                    "type": 1,
+                    "status": 1,
+                    "accountId": "737318930569244672",
+                    "mimetype": "image/jpeg",
+                    "flags": 298,
+                    "location": "/737318930569244672/737344486891335690.jpeg",
+                    "width": 1080,
+                    "height": 1920,
+                    "metadata": "{\"dominant\":{\"r\":128,\"g\":128,\"b\":128},\"resolutionMode\":3}",
+                    "variants": [
+                        {
+                            "id": "737344486891335692",
+                            "type": 1,
+                            "status": 1,
+                            "mimetype": "image/jpeg",
+                            "flags": 0,
+                            "location": "/737318930569244672/737344486891335692.jpeg",
+                            "width": 720,
+                            "height": 1280,
+                            "metadata": "{\"resolutionMode\":3}",
+                            "updatedAt": 1737290981
+                        }
+                    ],
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://cdn3.fansly.com/737318930569244672/737344486891335690.jpeg"
+                        }
+                    ]
+                },
+                "access": true
+            }
+        ],
+        "accounts": [
+            {
+                "id": "737318930569244672",
+                "username": "test_user",
+                "displayName": "Test User",
+                "flags": 18,
+                "version": 1,
+                "createdAt": 1737290970,
+                "followCount": 100,
+                "subscriberCount": 50,
+                "permissions": {
+                    "accountPermissionFlags": {
+                        "flags": 2
+                    }
+                },
+                "profileAccess": true
+            }
+        ]
+    }
+}

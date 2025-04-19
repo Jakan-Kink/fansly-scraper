@@ -17,19 +17,25 @@ from stash.types import (
 )
 
 
-@pytest.fixture
-def stash_client() -> StashClient:
-    """Create a mock StashClient for testing."""
-    client = create_autospec(StashClient, instance=True)
-    client.log = AsyncMock()
+def create_mock_client() -> StashClient:
+    """Create a base mock StashClient for testing."""
+    from tests.stash.client.client_test_helpers import create_base_mock_client
+
+    # Use the helper to create a base client
+    client = create_base_mock_client()
+
+    # Add cache attributes specific to scene mixin
     client._find_scene_cache = {}
     client._find_scenes_cache = {}
     client.scene_cache = {}
 
-    # Set up base execute mock
-    client.execute = AsyncMock()
+    return client
 
-    # Create decorated mocks that will return Scene instances
+
+def add_scene_find_methods(client: StashClient) -> None:
+    """Add scene find methods to a mock client."""
+
+    # Create decorated mocks for finding scenes
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
     async def mock_find_scene(id: str) -> Scene:
         # Check for invalid scene IDs
@@ -51,7 +57,15 @@ def stash_client() -> StashClient:
             return FindScenesResultType(**result["findScenes"])
         return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
 
-    # Create scene operation mocks
+    # Attach the mocks to the client
+    client.find_scene = mock_find_scene
+    client.find_scenes = mock_find_scenes
+
+
+def add_scene_update_methods(client: StashClient) -> None:
+    """Add scene update methods to a mock client."""
+
+    # Create mocks for scene operations
     async def mock_scene_generate_screenshot(scene_id: str, at: float = None) -> str:
         result = await client.execute({"sceneGenerateScreenshot": None})
         if result and result.get("sceneGenerateScreenshot"):
@@ -84,7 +98,17 @@ def stash_client() -> StashClient:
             del client.scene_cache[scene.id]
         return result.get("sceneUpdate") if result else None
 
-    # Add missing methods for scene filename validations and duplicate scenes
+    # Attach the mocks to the client
+    client.scene_generate_screenshot = mock_scene_generate_screenshot
+    client.scenes_update = mock_scenes_update
+    client.bulk_scene_update = mock_bulk_scene_update
+    client.update_scene = mock_update_scene
+
+
+def add_scene_filename_methods(client: StashClient) -> None:
+    """Add scene filename validation methods to a mock client."""
+
+    # Add methods for scene filename validations
     async def mock_find_duplicate_scenes(
         distance: float = 0.0, duration_diff: float = 0.0, exclude_ids: list = None
     ) -> list[list[Scene]]:
@@ -123,17 +147,35 @@ def stash_client() -> StashClient:
         return date_str, scene_id
 
     # Attach the mocks to the client
-    client.find_scene = mock_find_scene
-    client.find_scenes = mock_find_scenes
-    client.scene_generate_screenshot = mock_scene_generate_screenshot
-    client.scenes_update = mock_scenes_update
-    client.bulk_scene_update = mock_bulk_scene_update
-    client.update_scene = mock_update_scene
     client.find_duplicate_scenes = mock_find_duplicate_scenes
     client.is_valid_scene_filename = is_valid_scene_filename
     client.parse_scene_filename = parse_scene_filename
 
+
+@pytest.fixture
+def scene_mixin_client() -> StashClient:
+    """Create a mock StashClient with SceneClientMixin methods for testing.
+
+    This fixture creates a mock StashClient with all the necessary methods
+    for testing the SceneClientMixin, breaking down the complex setup into
+    smaller, more manageable helper functions.
+    """
+    # Create base client
+    client = create_mock_client()
+
+    # Add specific scene methods
+    add_scene_find_methods(client)
+    add_scene_update_methods(client)
+    add_scene_filename_methods(client)
+
     return client
+
+
+# Keep the old fixture name for backward compatibility with existing tests
+@pytest.fixture
+def stash_client(scene_mixin_client: StashClient) -> StashClient:
+    """Create a mock StashClient for testing (alias for scene_mixin_client)."""
+    return scene_mixin_client  # Return the fixture directly instead of calling it
 
 
 @pytest.fixture
@@ -207,7 +249,14 @@ def mock_graphql():
 @pytest.mark.asyncio
 async def test_find_scene(stash_client: StashClient, mock_scene: Scene) -> None:
     """Test finding a scene by ID."""
-    stash_client.execute.return_value = {"findScene": mock_scene.__dict__}
+    # Clean the data to prevent _dirty_attrs errors
+    clean_data = {
+        k: v
+        for k, v in mock_scene.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
+    stash_client.execute.return_value = {"findScene": clean_data}
 
     scene = await stash_client.find_scene("123")
     assert isinstance(scene, Scene)
@@ -226,12 +275,19 @@ async def test_find_scenes(
     stash_client: StashClient, mock_scene: Scene, mock_result: FindScenesResultType
 ) -> None:
     """Test finding scenes with filters."""
+    # Clean the data to prevent _dirty_attrs errors
+    clean_data = {
+        k: v
+        for k, v in mock_scene.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
     stash_client.execute.return_value = {
         "findScenes": {
             "count": 1,
             "duration": 60.0,
             "filesize": 1024,
-            "scenes": [mock_scene],
+            "scenes": [clean_data],
         }
     }
 
@@ -346,8 +402,9 @@ async def test_create_scene(stash_client: StashClient, mock_scene: Scene) -> Non
 @pytest.mark.asyncio
 async def test_update_scene(stash_client: StashClient, mock_scene: Scene) -> None:
     """Test updating a scene."""
-    # Update mock_scene with new title
-    updated_scene = Scene(**{**mock_scene.__dict__, "title": "Updated Title"})
+    # Update mock_scene with new title - create from dict without _dirty_attrs
+    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    updated_scene = Scene(**{**scene_dict, "title": "Updated Title"})
 
     # Set up the execute mock to return a Scene instance instead of a dict
     stash_client.execute.return_value = {"sceneUpdate": updated_scene}
@@ -359,8 +416,9 @@ async def test_update_scene(stash_client: StashClient, mock_scene: Scene) -> Non
 
     stash_client.update_scene = modified_update_scene
 
-    # Create a scene for updating
-    scene = Scene(**mock_scene.__dict__)
+    # Create a scene for updating - without _dirty_attrs
+    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    scene = Scene(**scene_dict)
     scene.title = "Updated Title"
 
     # Update the scene
@@ -379,8 +437,9 @@ async def test_update_scene(stash_client: StashClient, mock_scene: Scene) -> Non
         }
     }
 
-    # Create a new scene with multiple updates
-    scene = Scene(**mock_scene.__dict__)
+    # Create a new scene with multiple updates - without _dirty_attrs
+    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    scene = Scene(**scene_dict)
     scene.details = "Updated details"
     scene.organized = False
 
@@ -528,7 +587,7 @@ async def test_parse_scene_filenames(
         return_value=mock_result,
     ):
         # Parse with default settings
-        result = await stash_client.parse_scene_filenames()
+        result = await scene_mixin_client.parse_scene_filenames()
         assert result["count"] == 1
         assert len(result["results"]) == 1
         assert result["results"][0]["scene"]["id"] == mock_scene.id
@@ -536,7 +595,7 @@ async def test_parse_scene_filenames(
         assert result["results"][0]["code"] == "ABC123"
 
         # Parse with custom settings
-        result = await stash_client.parse_scene_filenames(
+        result = await scene_mixin_client.parse_scene_filenames(
             filter_={"q": "test"},
             config={
                 "whitespace": True,
@@ -548,25 +607,29 @@ async def test_parse_scene_filenames(
 
 
 @pytest.mark.asyncio
-async def test_parse_scene_filenames_error(stash_client: StashClient) -> None:
+async def test_parse_scene_filenames_error(scene_mixin_client: StashClient) -> None:
     """Test handling errors when parsing scene filenames."""
     # Instead of patching execute, we'll directly test the method that should be called
     # Setup the parse_scene_filenames method to return a consistent empty dict
-    stash_client.parse_scene_filenames = AsyncMock(return_value={})
+    scene_mixin_client.parse_scene_filenames = AsyncMock(return_value={})
 
     # Now test it
-    result = await stash_client.parse_scene_filenames()
+    result = await scene_mixin_client.parse_scene_filenames()
     assert result == {}
     # Verify method was called
-    stash_client.parse_scene_filenames.assert_called_once()
+    scene_mixin_client.parse_scene_filenames.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_scenes_update(stash_client: StashClient, mock_scene: Scene) -> None:
+async def test_scenes_update(
+    scene_mixin_client: StashClient, mock_scene: Scene
+) -> None:
     """Test updating multiple scenes."""
     # Create two different scenes
-    scene1 = Scene(**mock_scene.__dict__)
-    scene2 = Scene(**{**mock_scene.__dict__, "id": "456", "title": "Second Scene"})
+    # Filter out any private attributes (like _dirty_attrs)
+    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    scene1 = Scene(**scene_dict)
+    scene2 = Scene(**{**scene_dict, "id": "456", "title": "Second Scene"})
 
     scenes = [scene1, scene2]
 
@@ -575,47 +638,47 @@ async def test_scenes_update(stash_client: StashClient, mock_scene: Scene) -> No
     updated_scene2 = Scene(**{**scene2.__dict__, "title": "Updated Second"})
 
     # Configure our mocks for caching and find_scene
-    stash_client.execute = AsyncMock()
-    stash_client.execute.return_value = {
+    scene_mixin_client.execute = AsyncMock()
+    scene_mixin_client.execute.return_value = {
         "scenesUpdate": [updated_scene1.__dict__, updated_scene2.__dict__]
     }
 
     # Create a fresh scene_cache for testing
-    stash_client.scene_cache = {}
-    stash_client.scene_cache[scene1.id] = scene1
+    scene_mixin_client.scene_cache = {}
+    scene_mixin_client.scene_cache[scene1.id] = scene1
 
     # Store the original find_scene method to restore it later
-    original_find_scene = stash_client.find_scene
+    original_find_scene = scene_mixin_client.find_scene
 
     # Override find_scene to directly return from cache without using execute
     async def custom_find_scene(id):
-        return stash_client.scene_cache.get(id)
+        return scene_mixin_client.scene_cache.get(id)
 
-    stash_client.find_scene = custom_find_scene
+    scene_mixin_client.find_scene = custom_find_scene
 
     # First, verify cache state before update by calling find_scene
     # This should return the cached value without hitting the API
-    cached_scene = await stash_client.find_scene(scene1.id)
+    cached_scene = await scene_mixin_client.find_scene(scene1.id)
     assert cached_scene is not None
     assert cached_scene.id == scene1.id
 
     # Create a custom scenes_update that properly clears the cache
     async def custom_scenes_update(scenes_list):
-        result = await stash_client.execute({"scenesUpdate": None})
+        result = await scene_mixin_client.execute({"scenesUpdate": None})
         # Manually clear the cache for each scene
         for scene in scenes_list:
-            if hasattr(scene, "id") and scene.id in stash_client.scene_cache:
-                del stash_client.scene_cache[scene.id]
+            if hasattr(scene, "id") and scene.id in scene_mixin_client.scene_cache:
+                del scene_mixin_client.scene_cache[scene.id]
         if result and result.get("scenesUpdate"):
             return [Scene(**scene_data) for scene_data in result["scenesUpdate"]]
         return []
 
     # Temporarily replace the scenes_update method
-    original_scenes_update = stash_client.scenes_update
-    stash_client.scenes_update = custom_scenes_update
+    original_scenes_update = scene_mixin_client.scenes_update
+    scene_mixin_client.scenes_update = custom_scenes_update
 
     # Now update the scenes
-    updated = await stash_client.scenes_update(scenes)
+    updated = await scene_mixin_client.scenes_update(scenes)
 
     # Verify both scenes were updated correctly
     assert len(updated) == 2
@@ -626,22 +689,22 @@ async def test_scenes_update(stash_client: StashClient, mock_scene: Scene) -> No
     assert updated[1].title == "Updated Second"
 
     # Verify scene was removed from cache
-    assert scene1.id not in stash_client.scene_cache
+    assert scene1.id not in scene_mixin_client.scene_cache
 
     # Add something to the cache for the next test
-    stash_client.scene_cache[scene1.id] = None
+    scene_mixin_client.scene_cache[scene1.id] = None
 
     # Verify scene is in the cache but with None value
-    assert stash_client.scene_cache.get(scene1.id) is None
+    assert scene_mixin_client.scene_cache.get(scene1.id) is None
 
     # Restore the original methods
-    stash_client.find_scene = original_find_scene
-    stash_client.scenes_update = original_scenes_update
+    scene_mixin_client.find_scene = original_find_scene
+    scene_mixin_client.scenes_update = original_scenes_update
 
 
 @pytest.mark.asyncio
 async def test_scenes_update_error(
-    stash_client: StashClient,
+    scene_mixin_client: StashClient,
     mock_scene: Scene,
 ) -> None:
     """Test handling errors when updating multiple scenes."""
@@ -698,7 +761,7 @@ async def test_scenes_update_error(
 
 
 @pytest.mark.asyncio
-async def test_parse_scene_filename(stash_client: StashClient) -> None:
+async def test_parse_scene_filename(scene_mixin_client: StashClient) -> None:
     """Test parsing various scene filename formats."""
     # Test valid filename formats
     valid_cases = [
@@ -708,7 +771,7 @@ async def test_parse_scene_filename(stash_client: StashClient) -> None:
     ]
 
     for filename, expected_date, expected_id in valid_cases:
-        date_str, scene_id = stash_client.parse_scene_filename(filename)
+        date_str, scene_id = scene_mixin_client.parse_scene_filename(filename)
         assert date_str == expected_date
         assert scene_id == expected_id
 
@@ -724,28 +787,41 @@ async def test_parse_scene_filename(stash_client: StashClient) -> None:
 
     for invalid_filename in invalid_cases:
         with pytest.raises(ValueError):
-            stash_client.parse_scene_filename(invalid_filename)
+            scene_mixin_client.parse_scene_filename(invalid_filename)
 
 
 @pytest.mark.asyncio
-async def test_scene_filename_validation(stash_client: StashClient) -> None:
+async def test_scene_filename_validation(scene_mixin_client: StashClient) -> None:
     """Test scene filename validation with various formats."""
     # Test valid filenames
-    assert stash_client.is_valid_scene_filename("scene_2024-01-01_123.mp4") is True
-    assert stash_client.is_valid_scene_filename("my_scene_2024-12-31_456.mp4") is True
+    assert (
+        scene_mixin_client.is_valid_scene_filename("scene_2024-01-01_123.mp4") is True
+    )
+    assert (
+        scene_mixin_client.is_valid_scene_filename("my_scene_2024-12-31_456.mp4")
+        is True
+    )
 
     # Test invalid filenames
-    assert stash_client.is_valid_scene_filename("invalid.mp4") is False
+    assert scene_mixin_client.is_valid_scene_filename("invalid.mp4") is False
     # The validation regex doesn't actually check for valid dates, just the pattern
     # Since we're mocking the function to always return True in test setup,
     # we should expect that here
-    assert stash_client.is_valid_scene_filename("scene_2024-13-01_123.mp4") is True
-    assert stash_client.is_valid_scene_filename("scene_2024-12-32_123.mp4") is True
-    assert stash_client.is_valid_scene_filename("scene_not_a_date_123.mp4") is False
+    assert (
+        scene_mixin_client.is_valid_scene_filename("scene_2024-13-01_123.mp4") is True
+    )
+    assert (
+        scene_mixin_client.is_valid_scene_filename("scene_2024-12-32_123.mp4") is True
+    )
+    assert (
+        scene_mixin_client.is_valid_scene_filename("scene_not_a_date_123.mp4") is False
+    )
 
 
 @pytest.mark.asyncio
-async def test_bulk_scene_operations(stash_client: StashClient, mock_graphql) -> None:
+async def test_bulk_scene_operations(
+    scene_mixin_client: StashClient, mock_graphql
+) -> None:
     """Test bulk scene operations and cache invalidation."""
     # Setup mock scenes
     scenes = [
@@ -756,10 +832,10 @@ async def test_bulk_scene_operations(stash_client: StashClient, mock_graphql) ->
 
     # Setup cache with initial scenes
     for scene in scenes:
-        stash_client.scene_cache[scene["id"]] = scene
+        scene_mixin_client.scene_cache[scene["id"]] = scene
 
     # Setup mock response for bulk update
-    stash_client.execute.return_value = {"bulkSceneUpdate": {"id": ["1", "2"]}}
+    scene_mixin_client.execute.return_value = {"bulkSceneUpdate": {"id": ["1", "2"]}}
 
     # Test bulk scene update
     updated_scenes = [
@@ -767,34 +843,36 @@ async def test_bulk_scene_operations(stash_client: StashClient, mock_graphql) ->
         {"id": "2", "details": "Updated details 2"},
     ]
 
-    await stash_client.bulk_scene_update(updated_scenes)
+    await scene_mixin_client.bulk_scene_update(updated_scenes)
 
     # Verify cache invalidation
-    assert stash_client.scene_cache.get("1") is None
-    assert stash_client.scene_cache.get("2") is None
+    assert scene_mixin_client.scene_cache.get("1") is None
+    assert scene_mixin_client.scene_cache.get("2") is None
     assert (
-        stash_client.scene_cache.get("3") is not None
+        scene_mixin_client.scene_cache.get("3") is not None
     )  # Unchanged scene should remain in cache
 
 
 @pytest.mark.asyncio
-async def test_scene_cache_operations(stash_client: StashClient, mock_graphql) -> None:
+async def test_scene_cache_operations(
+    scene_mixin_client: StashClient, mock_graphql
+) -> None:
     """Test scene cache operations during various scene actions."""
     # Setup initial scene
     scene = {"id": "1", "title": "Test Scene", "details": "Original details"}
 
     # Test scene retrieval and caching
-    stash_client.execute.return_value = {"findScene": scene}
-    result = await stash_client.find_scene("1")
+    scene_mixin_client.execute.return_value = {"findScene": scene}
+    result = await scene_mixin_client.find_scene("1")
     assert result is not None
 
     # Manually add to cache since our mock doesn't do this automatically
-    stash_client.scene_cache["1"] = scene
+    scene_mixin_client.scene_cache["1"] = scene
 
     # Test cache hit (no need to setup mock again)
     cached_result = await stash_client.find_scene("1")
     assert cached_result is not None
-    assert stash_client.scene_cache["1"] == scene
+    assert scene_mixin_client.scene_cache["1"] == scene
 
     # Test cache invalidation on update - use a Scene object instead of dict
     updated_scene_obj = Scene(
@@ -814,22 +892,26 @@ async def test_scene_cache_operations(stash_client: StashClient, mock_graphql) -
         sceneStreams=[],
         captions=[],
     )
-    stash_client.execute.return_value = {"sceneUpdate": updated_scene_obj.__dict__}
-    await stash_client.update_scene(updated_scene_obj)
-    assert stash_client.scene_cache.get("1") is None
+    scene_mixin_client.execute.return_value = {
+        "sceneUpdate": updated_scene_obj.__dict__
+    }
+    await scene_mixin_client.update_scene(updated_scene_obj)
+    assert scene_mixin_client.scene_cache.get("1") is None
 
     # Test cache rebuild after update
-    stash_client.execute.return_value = {"findScene": updated_scene_obj.__dict__}
-    new_result = await stash_client.find_scene("1")
+    scene_mixin_client.execute.return_value = {"findScene": updated_scene_obj.__dict__}
+    new_result = await scene_mixin_client.find_scene("1")
     assert new_result is not None
 
     # Manually add updated scene to cache
-    stash_client.scene_cache["1"] = updated_scene_obj.__dict__
-    assert stash_client.scene_cache["1"] == updated_scene_obj.__dict__
+    scene_mixin_client.scene_cache["1"] = updated_scene_obj.__dict__
+    assert scene_mixin_client.scene_cache["1"] == updated_scene_obj.__dict__
 
 
 @pytest.mark.asyncio
-async def test_scene_metadata_handling(stash_client: StashClient, mock_graphql) -> None:
+async def test_scene_metadata_handling(
+    scene_mixin_client: StashClient, mock_graphql
+) -> None:
     """Test handling of complex scene metadata."""
     # Create a clean Scene object directly
     full_scene = Scene(
@@ -891,8 +973,8 @@ async def test_scene_metadata_handling(stash_client: StashClient, mock_graphql) 
     }
 
     # Setup the find scene response with the clean dict
-    stash_client.execute.return_value = {"findScene": scene_dict}
-    result = await stash_client.find_scene("1")
+    scene_mixin_client.execute.return_value = {"findScene": scene_dict}
+    result = await scene_mixin_client.find_scene("1")
     assert result is not None
 
     # Test partial metadata update
@@ -915,20 +997,22 @@ async def test_scene_metadata_handling(stash_client: StashClient, mock_graphql) 
     # Setup the update scene response
     updated_dict = scene_dict.copy()
     updated_dict["organized"] = False
-    stash_client.execute.return_value = {"sceneUpdate": updated_dict}
-    await stash_client.update_scene(partial_update)
+    scene_mixin_client.execute.return_value = {"sceneUpdate": updated_dict}
+    await scene_mixin_client.update_scene(partial_update)
 
     # Manually set and test the cache
-    stash_client.scene_cache["1"] = scene_dict
-    assert stash_client.scene_cache["1"] is not None
+    scene_mixin_client.scene_cache["1"] = scene_dict
+    assert scene_mixin_client.scene_cache["1"] is not None
 
     # Update should clear the cache
-    await stash_client.update_scene(partial_update)
-    assert stash_client.scene_cache.get("1") is None  # Cache should be invalidated
+    await scene_mixin_client.update_scene(partial_update)
+    assert (
+        scene_mixin_client.scene_cache.get("1") is None
+    )  # Cache should be invalidated
 
 
 @pytest.mark.asyncio
-async def test_scene_edge_cases(stash_client: StashClient) -> None:
+async def test_scene_edge_cases(scene_mixin_client: StashClient) -> None:
     """Test edge cases in scene operations."""
     # Test scene with missing optional fields but with required fields
     minimal_scene = {
@@ -1013,7 +1097,7 @@ async def test_scene_edge_cases(stash_client: StashClient) -> None:
         return None
 
     # Replace the find_scene method with our custom implementation
-    stash_client.find_scene = custom_find_scene
+    scene_mixin_client.find_scene = custom_find_scene
 
     # Test non-existent scene
     stash_client.execute.return_value = {"findScene": None}

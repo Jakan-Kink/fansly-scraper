@@ -78,7 +78,9 @@ class TestMediaProcessingIntegration:
 
         # Setup awaitable_attrs
         bundle.awaitable_attrs = MagicMock()
-        bundle.awaitable_attrs.accountMedia = bundle.accountMedia
+        bundle.awaitable_attrs.accountMedia = AsyncMock(
+            return_value=bundle.accountMedia
+        )
 
         # Mock _process_media
         stash_processor._process_media = AsyncMock()
@@ -194,7 +196,7 @@ class TestMediaProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_aggregated_post(
-        self, stash_processor, mock_account, mock_item, mock_attachment, mock_post
+        self, stash_processor, mock_account, mock_item, mock_attachment
     ):
         """Test process_creator_attachment method with aggregated post."""
         # Setup attachment with aggregated post
@@ -211,7 +213,9 @@ class TestMediaProcessingIntegration:
         agg_post.id = "post_456"
         agg_post.attachments = [agg_attachment]
         agg_post.awaitable_attrs = MagicMock()
-        agg_post.awaitable_attrs.attachments = agg_post.attachments
+        agg_post.awaitable_attrs.attachments = AsyncMock(
+            return_value=agg_post.attachments
+        )
 
         mock_attachment.aggregated_post = agg_post
 

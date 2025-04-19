@@ -1,8 +1,18 @@
-"""Tests for gallery lookup methods in GalleryProcessingMixin."""
+"""Tests for gallery lookup functionality."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from stash.processing.mixins.gallery import GalleryProcessingMixin
+
+
+@pytest.fixture
+def test_studio():
+    """Fixture for test studio instance."""
+    studio = MagicMock()
+    studio.id = "test_studio_123"
+    return studio
 
 
 class TestGalleryLookup:
@@ -45,7 +55,7 @@ class TestGalleryLookup:
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_title(
-        self, mixin, mock_item, mock_gallery, mock_studio
+        self, mixin, mock_item, mock_gallery, gallery_mock_studio
     ):
         """Test _get_gallery_by_title method."""
         # Setup for matching gallery
@@ -63,7 +73,7 @@ class TestGalleryLookup:
 
         # Test with matching gallery (with studio)
         gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
 
         # Verify
@@ -81,7 +91,7 @@ class TestGalleryLookup:
         mock_results.galleries = []
 
         gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
 
         # Verify
@@ -103,7 +113,7 @@ class TestGalleryLookup:
         ]
 
         gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
 
         # Verify
@@ -125,7 +135,7 @@ class TestGalleryLookup:
         ]
 
         gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
 
         # Verify
@@ -147,7 +157,7 @@ class TestGalleryLookup:
         ]
 
         gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
 
         # Verify
@@ -272,3 +282,26 @@ class TestGalleryLookup:
         # Verify
         assert gallery is None
         mixin.context.client.find_galleries.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_gallery_by_title_matching_studio(
+    mixin, mock_item, mock_account, test_studio, gallery_mock_studio
+):
+    """Test _get_gallery_by_title with matching studio."""
+    title = "Test Gallery"
+
+    # Mock client find_galleries response
+    mock_galleries_result = MagicMock()
+    mock_galleries_result.count = 1
+    mock_gallery = MagicMock()
+    mock_gallery.id = "gallery_123"
+    mock_gallery.title = title
+    mock_gallery.studio = {"id": test_studio.id}
+    mock_galleries_result.galleries = [mock_gallery]
+
+    mixin.context.client.find_galleries = AsyncMock(return_value=mock_galleries_result)
+
+    result = await mixin._get_gallery_by_title(mock_item, title, gallery_mock_studio)
+    assert result is not None
+    assert result.id == "gallery_123"

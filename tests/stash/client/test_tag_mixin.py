@@ -12,65 +12,140 @@ from stash.client_helpers import async_lru_cache
 from stash.types import FindTagsResultType, Tag, TagsMergeInput
 
 
-@pytest.fixture
-def stash_client() -> StashClient:
-    """Create a mock StashClient for testing."""
-    client = create_autospec(StashClient, instance=True)
-    client.log = AsyncMock()
+def create_mock_client() -> StashClient:
+    """Create a base mock StashClient for testing."""
+    from tests.stash.client.client_test_helpers import create_base_mock_client
+
+    # Use the helper to create a base client
+    client = create_base_mock_client()
+
+    # Add cache attributes specific to tag mixin
     client._find_tag_cache = {}
     client._find_tags_cache = {}
 
-    # Set up base execute mock
-    client.execute = AsyncMock()
+    return client
 
-    # Create decorated mocks that will return Tag instances
+
+def add_tag_find_methods(client: StashClient) -> None:
+    """Add tag find methods to a mock client."""
+
+    # Create decorated mocks for finding tags
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
     async def mock_find_tag(id: str) -> Tag:
         result = await client.execute({"findTag": None})
         if result and result.get("findTag"):
-            return Tag(**result["findTag"])
+            # Filter out problematic fields before creating the tag
+            clean_data = {
+                k: v
+                for k, v in result["findTag"].items()
+                if not k.startswith("_") and k != "client_mutation_id"
+            }
+            return Tag(**clean_data)
         return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
     async def mock_find_tags(filter_=None, tag_filter=None) -> FindTagsResultType:
         result = await client.execute({"findTags": None})
         if result and result.get("findTags"):
-            return FindTagsResultType(**result["findTags"])
+            # Create Tag objects directly
+            clean_tags = []
+            for tag_data in result["findTags"]["tags"]:
+                # Filter problematic fields
+                clean_data = {
+                    k: v
+                    for k, v in vars(tag_data).items()
+                    if not k.startswith("_") and k != "client_mutation_id"
+                }
+                clean_tags.append(Tag(**clean_data))
+            return FindTagsResultType(count=len(clean_tags), tags=clean_tags)
         return FindTagsResultType(count=0, tags=[])
 
+    # Attach the mocks to the client
+    client.find_tag = mock_find_tag
+    client.find_tags = mock_find_tags
+
+
+def add_tag_modification_methods(client: StashClient) -> None:
+    """Add tag modification methods to a mock client."""
+
+    # Create mocks for tag operations
     async def mock_create_tag(tag: Tag) -> Tag:
         result = await client.execute({"tagCreate": None})
         if result and result.get("tagCreate"):
-            return Tag(**result["tagCreate"])
+            clean_data = {
+                k: v
+                for k, v in result["tagCreate"].items()
+                if not k.startswith("_") and k != "client_mutation_id"
+            }
+            return Tag(**clean_data)
         return tag
 
     async def mock_update_tag(tag: Tag) -> Tag:
         result = await client.execute({"tagUpdate": None})
         if result and result.get("tagUpdate"):
-            return Tag(**result["tagUpdate"])
+            clean_data = {
+                k: v
+                for k, v in result["tagUpdate"].items()
+                if not k.startswith("_") and k != "client_mutation_id"
+            }
+            return Tag(**clean_data)
         return tag
 
     async def mock_tags_merge(source: list[str], destination: str) -> Tag:
         result = await client.execute({"tagsMerge": None})
         if result and result.get("tagsMerge"):
-            return Tag(**result["tagsMerge"])
+            clean_data = {
+                k: v
+                for k, v in result["tagsMerge"].items()
+                if not k.startswith("_") and k != "client_mutation_id"
+            }
+            return Tag(**clean_data)
         return None
 
     async def mock_bulk_tag_update(ids: list[str], **kwargs) -> list[Tag]:
         result = await client.execute({"bulkTagUpdate": None})
         if result and result.get("bulkTagUpdate"):
-            return [Tag(**tag_data) for tag_data in result["bulkTagUpdate"]]
+            clean_tags = []
+            for tag_data in result["bulkTagUpdate"]:
+                clean_data = {
+                    k: v
+                    for k, v in tag_data.items()
+                    if not k.startswith("_") and k != "client_mutation_id"
+                }
+                clean_tags.append(Tag(**clean_data))
+            return clean_tags
         return []
 
     # Attach the mocks to the client
-    client.find_tag = mock_find_tag
-    client.find_tags = mock_find_tags
     client.create_tag = mock_create_tag
     client.update_tag = mock_update_tag
     client.tags_merge = mock_tags_merge
     client.bulk_tag_update = mock_bulk_tag_update
 
+
+@pytest.fixture
+def tag_mixin_client() -> StashClient:
+    """Create a mock StashClient with TagClientMixin methods for testing.
+
+    This fixture creates a mock StashClient with all the necessary methods
+    for testing the TagClientMixin, breaking down the complex setup into
+    smaller, more manageable helper functions.
+    """
+    # Create base client
+    client = create_mock_client()
+
+    # Add specific tag methods
+    add_tag_find_methods(client)
+    add_tag_modification_methods(client)
+
     return client
+
+
+# Keep the old fixture name for backward compatibility with existing tests
+@pytest.fixture
+def stash_client(tag_mixin_client: StashClient) -> StashClient:
+    """Create a mock StashClient for testing (alias for tag_mixin_client)."""
+    return tag_mixin_client  # Return the fixture directly instead of calling it
 
 
 @pytest.fixture
@@ -233,7 +308,13 @@ async def test_create_tag_duplicate(stash_client: StashClient, mock_tag: Tag) ->
                 client._find_tag_cache.cache_clear()
                 client._find_tags_cache.cache_clear()
                 # Return the existing tag from find_tags
-                return mock_tag
+                # Filter out problematic fields
+                clean_data = {
+                    k: v
+                    for k, v in vars(mock_tag).items()
+                    if not k.startswith("_") and k != "client_mutation_id"
+                }
+                return Tag(**clean_data)
             raise
 
     # Replace the mocked create_tag with our custom function
@@ -437,10 +518,13 @@ async def test_tag_hierarchy(stash_client: StashClient, mock_tag: Tag) -> None:
     # Set up mock return value
     mock_tag.parents = [parent_tag]
     mock_tag.children = [child_tag]
-    # Fix for TypeError: Tag.__init__() got an unexpected keyword argument 'to_input'
-    # Don't include the to_input in the result's tag update to avoid the error
-    # Create a clean dict without the to_input
-    tag_dict = {k: v for k, v in mock_tag.__dict__.items() if k != "to_input"}
+    # Fix for TypeError: Tag.__init__() got an unexpected keyword argument '_dirty_attrs' and similar
+    # Create a clean dict without any problematic fields
+    tag_dict = {
+        k: v
+        for k, v in mock_tag.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id" and k != "to_input"
+    }
     stash_client.execute.return_value = {"tagUpdate": tag_dict}
 
     # Update tag with parent and child

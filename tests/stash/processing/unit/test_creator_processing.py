@@ -117,25 +117,32 @@ class TestCreatorProcessing:
             mock_account, mock_performer
         )
 
-        # Test with no account found
+        # Reset all mocks before testing the next case
         processor._find_account.reset_mock()
+        processor._find_existing_performer.reset_mock()
+        processor._update_performer_avatar.reset_mock()
+
+        # Test with no account found
         processor._find_account.return_value = None
 
         # Call process_creator and expect ValueError
         with pytest.raises(ValueError):
             await processor.process_creator()
 
-        # Test with no performer found
+        # Reset all mocks again before testing the next case
         processor._find_account.reset_mock()
-        processor._find_account.return_value = mock_account
         processor._find_existing_performer.reset_mock()
+        processor._update_performer_avatar.reset_mock()
+
+        # Test with no performer found
+        processor._find_account.return_value = mock_account
         processor._find_existing_performer.return_value = None
 
         # Mock Performer.from_account
         mock_new_performer = MagicMock(spec=Performer)
         with patch(
             "stash.types.Performer.from_account",
-            AsyncMock(return_value=mock_new_performer),
+            MagicMock(return_value=mock_new_performer),
         ) as mock_from_account:
             # Call process_creator
             account, performer = await processor.process_creator()
@@ -178,7 +185,7 @@ class TestCreatorProcessing:
         processor.config.stash_context_conn = None
 
         # Mock print_warning
-        with patch("stash.processing.print_warning") as mock_print_warning:
+        with patch("stash.processing.base.print_warning") as mock_print_warning:
             # Call start_creator_processing
             await processor.start_creator_processing()
 
@@ -235,7 +242,7 @@ class TestCreatorProcessing:
         # Verify methods were called
         processor.context.client.metadata_scan.assert_called_once()
         assert (
-            processor.state.base_path
+            str(processor.state.base_path)
             in processor.context.client.metadata_scan.call_args[1]["paths"]
         )
         assert processor.context.client.wait_for_job.call_count == 2

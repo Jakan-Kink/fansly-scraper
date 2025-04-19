@@ -285,3 +285,52 @@ async def verify_relationship_integrity(
 
     print(f"Expected count: {expected_count}, Actual count: {count}")
     return count == expected_count
+
+
+async def verify_media_variants(
+    session: AsyncSession, media_id: str, expected_variant_types: list[int]
+) -> bool:
+    """Verify media variants exist and match expected types."""
+    result = await session.execute(
+        text("SELECT variants FROM account_media WHERE id = :media_id"),
+        {"media_id": media_id},
+    )
+    variants = result.scalar()
+
+    if not variants:
+        return False
+
+    variant_types = [v.get("type") for v in variants]
+    return all(t in variant_types for t in expected_variant_types)
+
+
+async def verify_media_bundle_content(
+    session: AsyncSession, bundle_id: str, expected_media_ids: list[str]
+) -> bool:
+    """Verify media bundle contains expected media in correct order."""
+    result = await session.execute(
+        text(
+            "SELECT accountMediaId FROM account_media_bundle_media "
+            "WHERE bundleId = :bundle_id ORDER BY pos"
+        ),
+        {"bundle_id": bundle_id},
+    )
+    stored_media_ids = [row[0] for row in result]
+    return stored_media_ids == expected_media_ids
+
+
+async def verify_preview_variants(
+    session: AsyncSession, preview_id: str, expected_resolutions: list[tuple[int, int]]
+) -> bool:
+    """Verify preview image variants exist with expected resolutions."""
+    result = await session.execute(
+        text("SELECT variants FROM account_media WHERE id = :preview_id"),
+        {"preview_id": preview_id},
+    )
+    variants = result.scalar()
+
+    if not variants:
+        return False
+
+    variant_resolutions = [(v.get("width"), v.get("height")) for v in variants]
+    return all(res in variant_resolutions for res in expected_resolutions)

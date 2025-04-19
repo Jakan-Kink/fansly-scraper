@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Protocol, Tuple
 from sqlalchemy.orm import Session
 
 from metadata import Account, Post
+from metadata.attachment import ContentType
 from textio import print_error
 
 from ...logging import debug_print
@@ -146,9 +147,9 @@ class GalleryProcessingMixin:
         """Try to find gallery by URL."""
         galleries = await self.context.client.find_galleries(
             gallery_filter={
-                "urls": {
+                "url": {
                     "value": url,
-                    "modifier": "INCLUDES",
+                    "modifier": "EQUALS",
                 }
             }
         )
@@ -157,8 +158,8 @@ class GalleryProcessingMixin:
 
         for gallery_dict in galleries.galleries:
             gallery = Gallery(**gallery_dict)
-            # Use urls list instead of deprecated url property
-            if url in gallery.urls:
+            # Check if url matches
+            if gallery.url == url or (hasattr(gallery, "urls") and url in gallery.urls):
                 debug_print(
                     {
                         "method": "StashProcessing - _get_gallery_by_url",
@@ -291,8 +292,8 @@ class GalleryProcessingMixin:
             for attachment in item.attachments:
                 # Direct media content
                 if hasattr(attachment, "contentType") and attachment.contentType in (
-                    "ACCOUNT_MEDIA",
-                    "ACCOUNT_MEDIA_BUNDLE",
+                    ContentType.ACCOUNT_MEDIA,
+                    ContentType.ACCOUNT_MEDIA_BUNDLE,
                 ):
                     debug_print(
                         {
@@ -307,7 +308,7 @@ class GalleryProcessingMixin:
                 # Aggregated posts (which might contain media)
                 if (
                     hasattr(attachment, "contentType")
-                    and attachment.contentType == "AGGREGATED_POSTS"
+                    and attachment.contentType == ContentType.AGGREGATED_POSTS
                 ):
                     if hasattr(attachment, "resolve_content") and (
                         post := await attachment.resolve_content()
@@ -392,7 +393,8 @@ class GalleryProcessingMixin:
             gallery.studio = studio
 
         # Set URL and save
-        gallery.urls = [url_pattern]
+        gallery.url = url
+        gallery.urls = [url]
 
         # Add chapters for aggregated posts
         if hasattr(item, "attachments"):
@@ -400,7 +402,7 @@ class GalleryProcessingMixin:
             for attachment in item.attachments:
                 if (
                     hasattr(attachment, "contentType")
-                    and attachment.contentType == "AGGREGATED_POSTS"
+                    and attachment.contentType == ContentType.AGGREGATED_POSTS
                 ):
                     if hasattr(attachment, "resolve_content") and (
                         post := await attachment.resolve_content()

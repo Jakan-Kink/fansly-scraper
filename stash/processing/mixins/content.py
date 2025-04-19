@@ -13,7 +13,7 @@ from sqlalchemy.sql import select
 
 from metadata import Account, Group, Message, Post
 from metadata.account import AccountMedia, AccountMediaBundle
-from metadata.attachment import Attachment
+from metadata.attachment import Attachment, ContentType
 from metadata.decorators import with_session
 from textio import print_error, print_info
 

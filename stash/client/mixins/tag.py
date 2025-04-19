@@ -7,6 +7,7 @@ from ... import fragments
 from ...client_helpers import async_lru_cache
 from ...types import FindTagsResultType, Tag
 from ..protocols import StashClientProtocol
+from ..utils import sanitize_model_data
 
 
 class TagClientMixin(StashClientProtocol):
@@ -28,7 +29,9 @@ class TagClientMixin(StashClientProtocol):
                 {"id": id},
             )
             if result and result.get("findTag"):
-                return Tag(**result["findTag"])
+                # Sanitize model data before creating Tag
+                clean_data = sanitize_model_data(result["findTag"])
+                return Tag(**clean_data)
             return None
         except Exception as e:
             self.log.error(f"Failed to find tag {id}: {e}")
@@ -96,7 +99,7 @@ class TagClientMixin(StashClientProtocol):
                 fragments.CREATE_TAG_MUTATION,
                 {"input": input_data},
             )
-            return Tag(**result["tagCreate"])
+            return Tag(**sanitize_model_data(result["tagCreate"]))
         except Exception as e:
             error_message = str(e)
             if "tag with name" in error_message and "already exists" in error_message:
@@ -111,7 +114,7 @@ class TagClientMixin(StashClientProtocol):
                     tag_filter={"name": {"value": tag.name, "modifier": "EQUALS"}},
                 )
                 if results.count > 0:
-                    return Tag(**results.tags[0])
+                    return Tag(**sanitize_model_data(results.tags[0]))
                 raise  # Re-raise if we couldn't find the tag
             self.log.error(f"Failed to create tag: {e}")
             raise
@@ -142,7 +145,7 @@ class TagClientMixin(StashClientProtocol):
             # Clear caches since we've modified tags
             self.find_tag.cache_clear()
             self.find_tags.cache_clear()
-            return Tag(**result["tagsMerge"])
+            return Tag(**sanitize_model_data(result["tagsMerge"]))
         except Exception as e:
             self.log.error(f"Failed to merge tags {source} into {destination}: {e}")
             raise
@@ -193,7 +196,7 @@ class TagClientMixin(StashClientProtocol):
             # Clear caches since we've modified tags
             self.find_tag.cache_clear()
             self.find_tags.cache_clear()
-            return [Tag(**tag) for tag in result["bulkTagUpdate"]]
+            return [Tag(**sanitize_model_data(tag)) for tag in result["bulkTagUpdate"]]
         except Exception as e:
             self.log.error(f"Failed to bulk update tags {ids}: {e}")
             raise
@@ -223,7 +226,7 @@ class TagClientMixin(StashClientProtocol):
             # Clear caches since we've modified a tag
             self.find_tag.cache_clear()
             self.find_tags.cache_clear()
-            return Tag(**result["tagUpdate"])
+            return Tag(**sanitize_model_data(result["tagUpdate"]))
         except Exception as e:
             self.log.error(f"Failed to update tag: {e}")
             raise

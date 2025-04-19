@@ -19,7 +19,8 @@ def mock_config():
     config.get_stash_context.return_value = MagicMock(spec=StashContext)
     config.stash_context_conn = {"url": "http://test.com", "api_key": "test_key"}
     config._database = MagicMock()
-    config.get_background_tasks.return_value = []
+    mock_task_list = MagicMock()
+    config.get_background_tasks.return_value = mock_task_list
     return config
 
 

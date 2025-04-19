@@ -3,67 +3,226 @@
   "response": {
     "posts": [
       {
-        "id": "123456789",
-        "accountId": "987654321",
-        "content": "Test post content",
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200,
+        "id": "737344486891335682",
+        "accountId": "737318930569244672",
+        "content": "Sample timeline post #test #example",
+        "fypFlags": 0,
+        "inReplyTo": null,
+        "inReplyToRoot": null,
+        "createdAt": 1737290985,
+        "updatedAt": 1737290987,
+        "expiresAt": null,
         "attachments": [
           {
-            "id": "111111111",
-            "accountId": "987654321",
-            "mediaId": "222222222",
-            "createdAt": 1704067200,
-            "updatedAt": 1704067200,
-            "media": {
-              "id": "222222222",
-              "accountId": "987654321",
-              "mimetype": "video/mp4",
-              "width": 1920,
-              "height": 1080,
-              "duration": 30.5,
-              "createdAt": 1704067200000,
-              "updatedAt": 1704067200000
-            }
+            "pos": 0,
+            "contentType": 2,
+            "contentId": "737344486891335683"
+          },
+          {
+            "pos": 1,
+            "contentType": 2,
+            "contentId": "737344486891335684"
           }
-        ]
-      }
-    ],
-    "aggregatedPosts": [],
-    "accounts": [
-      {
-        "id": "987654321",
-        "username": "test_user",
-        "displayName": "Test User",
-        "about": "Test user bio",
-        "location": "Test Location",
-        "joinDate": 1704067200000,
-        "lastSeen": "2024-01-01T00:00:00Z",
-        "following": true,
-        "subscribed": true
+        ],
+        "likeCount": 5,
+        "timelineReadPermissionFlags": [
+          {
+            "id": "737344486891335685",
+            "accountId": "737318930569244672",
+            "type": 0,
+            "flags": 2,
+            "metadata": ""
+          }
+        ],
+        "accountTimelineReadPermissionFlags": {
+          "flags": 2,
+          "metadata": "{}"
+        },
+        "mediaLikeCount": 2,
+        "totalTipAmount": 0,
+        "attachmentTipAmount": 0,
+        "accountMentions": [],
+        "hashtags": ["test", "example"]
       }
     ],
     "accountMedia": [
       {
-        "id": "111111111",
-        "accountId": "987654321",
-        "mediaId": "222222222",
-        "createdAt": 1704067200,
-        "updatedAt": 1704067200000,
+        "id": "737344486891335683",
+        "accountId": "737318930569244672",
+        "mediaId": "737344486891335683",
+        "previewId": "737344486891335686",
+        "permissionFlags": 0,
+        "price": 0,
+        "createdAt": 1737290986,
+        "deletedAt": null,
+        "deleted": false,
+        "permissions": {
+          "permissionFlags": [
+            {
+              "id": "737344486891335687",
+              "accountMediaId": "737344486891335683",
+              "type": 0,
+              "flags": 2,
+              "price": 0,
+              "metadata": "",
+              "validAfter": null,
+              "validBefore": null,
+              "verificationFlags": 2,
+              "verificationMetadata": "{}"
+            }
+          ],
+          "accountPermissionFlags": {
+            "flags": 6,
+            "metadata": "{\"4\":\"{\\\"subscriptionTierId\\\":\\\"737318930569244674\\\"}\"}"
+          }
+        },
         "media": {
-          "id": "222222222",
-          "accountId": "987654321",
+          "id": "737344486891335683",
+          "type": 2,
+          "status": 1,
+          "accountId": "737318930569244672",
           "mimetype": "video/mp4",
+          "flags": 298,
+          "location": "/737318930569244672/737344486891335683.mp4",
           "width": 1920,
           "height": 1080,
-          "duration": 30.5,
-          "createdAt": 1704067200,
-          "updatedAt": 1704067200
-        }
+          "metadata": "{\"originalHeight\":1080,\"originalWidth\":1920,\"duration\":20.667,\"resolutionMode\":1,\"frameRate\":29.99}",
+          "updatedAt": 1737290987,
+          "createdAt": 1737290986,
+          "variants": [
+            {
+              "id": "737344486891335688",
+              "type": 1,
+              "status": 1,
+              "mimetype": "image/jpeg",
+              "flags": 0,
+              "location": "/737318930569244672/737344486891335688.jpeg",
+              "width": 854,
+              "height": 480,
+              "metadata": "{\"resolutionMode\":1}",
+              "updatedAt": 1737290987
+            },
+            {
+              "id": "737344486891335689",
+              "type": 302,
+              "status": 1,
+              "mimetype": "application/vnd.apple.mpegurl",
+              "flags": 0,
+              "location": null,
+              "width": 1920,
+              "height": 1080,
+              "metadata": "{\"variants\":[{\"w\":1920,\"h\":1080},{\"w\":1280,\"h\":720},{\"w\":854,\"h\":480},{\"w\":640,\"h\":360}]}",
+              "updatedAt": 1737290988
+            }
+          ],
+          "locations": [
+            {
+              "locationId": "1",
+              "location": "https://cdn3.fansly.com/737318930569244672/737344486891335683.mp4"
+            }
+          ]
+        },
+        "preview": {
+          "id": "737344486891335686",
+          "type": 1,
+          "status": 1,
+          "accountId": "737318930569244672",
+          "mimetype": "image/jpeg",
+          "flags": 298,
+          "location": "/737318930569244672/737344486891335686.jpeg",
+          "width": 1920,
+          "height": 1080,
+          "metadata": "{\"resolutionMode\":1}",
+          "variants": [
+            {
+              "id": "737344486891335690",
+              "type": 1,
+              "status": 1,
+              "mimetype": "image/jpeg",
+              "flags": 0,
+              "location": "/737318930569244672/737344486891335690.jpeg",
+              "width": 1280,
+              "height": 720,
+              "metadata": "{\"resolutionMode\":1}"
+            }
+          ]
+        },
+        "likeCount": 2,
+        "purchased": false,
+        "whitelisted": false,
+        "accountPermissionFlags": 6,
+        "access": true
       }
     ],
-    "tips": [],
-    "tipGoals": [],
-    "stories": []
+    "accounts": [
+      {
+        "id": "737318930569244672",
+        "username": "testaccount",
+        "displayName": "Test Account",
+        "about": "This is a test account for API testing purposes",
+        "location": "US",
+        "joinDate": 1737200000,
+        "lastSeen": 1737290990,
+        "flags": 0,
+        "subscriptionTiers": [
+          {
+            "id": "737318930569244674",
+            "price": 1000,
+            "currency": "USD",
+            "description": "Basic subscription tier",
+            "benefits": ["Access to timeline", "Basic messaging"],
+            "flags": 2
+          }
+        ]
+      }
+    ],
+    "accountMediaBundles": [
+      {
+        "id": "737344486891335691",
+        "accountId": "737318930569244672",
+        "previewId": null,
+        "permissionFlags": 0,
+        "price": 0,
+        "createdAt": 1737290989,
+        "deletedAt": null,
+        "deleted": false,
+        "accountMediaIds": [
+          "737344486891335683",
+          "737344486891335684"
+        ],
+        "bundleContent": [
+          {
+            "accountMediaId": "737344486891335683",
+            "pos": 0
+          },
+          {
+            "accountMediaId": "737344486891335684",
+            "pos": 1
+          }
+        ],
+        "permissions": {
+          "permissionFlags": [
+            {
+              "id": "737344486891335692",
+              "accountMediaId": "737344486891335691",
+              "type": 0,
+              "flags": 2,
+              "price": 0,
+              "metadata": "",
+              "verificationFlags": 2,
+              "verificationMetadata": "{}"
+            }
+          ],
+          "accountPermissionFlags": {
+            "flags": 2,
+            "metadata": "{}"
+          }
+        },
+        "purchased": false,
+        "whitelisted": false,
+        "accountPermissionFlags": 2,
+        "access": true
+      }
+    ]
   }
 }

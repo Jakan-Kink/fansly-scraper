@@ -6,6 +6,7 @@ from ... import fragments
 from ...client_helpers import async_lru_cache
 from ...types import FindPerformersResultType, Performer
 from ..protocols import StashClientProtocol
+from ..utils import sanitize_model_data
 
 
 class PerformerClientMixin(StashClientProtocol):
@@ -93,7 +94,9 @@ class PerformerClientMixin(StashClientProtocol):
                     {"id": str(parsed_input)},
                 )
             if result and result.get("findPerformer"):
-                return Performer(**result["findPerformer"])
+                # Sanitize model data before creating Performer
+                clean_data = sanitize_model_data(result["findPerformer"])
+                return Performer(**clean_data)
             return None
         except Exception as e:
             self.log.error(f"Failed to find performer {performer}: {e}")
@@ -271,7 +274,7 @@ class PerformerClientMixin(StashClientProtocol):
                 fragments.CREATE_PERFORMER_MUTATION,
                 {"input": input_data},
             )
-            return Performer(**result["performerCreate"])
+            return Performer(**sanitize_model_data(result["performerCreate"]))
         except Exception as e:
             error_message = str(e)
             if (
@@ -291,7 +294,7 @@ class PerformerClientMixin(StashClientProtocol):
                     },
                 )
                 if result.count > 0:
-                    return Performer(**result.performers[0])
+                    return Performer(**sanitize_model_data(result.performers[0]))
                 raise  # Re-raise if we couldn't find the performer
 
             self.log.error(f"Failed to create performer: {e}")
@@ -364,7 +367,7 @@ class PerformerClientMixin(StashClientProtocol):
                 fragments.UPDATE_PERFORMER_MUTATION,
                 {"input": input_data},
             )
-            return Performer(**result["performerUpdate"])
+            return Performer(**sanitize_model_data(result["performerUpdate"]))
         except Exception as e:
             self.log.error(f"Failed to update performer: {e}")
             raise
@@ -411,7 +414,7 @@ class PerformerClientMixin(StashClientProtocol):
                 fragments.UPDATE_PERFORMER_MUTATION,
                 {"input": input_data},
             )
-            return Performer(**result["performerUpdate"])
+            return Performer(**sanitize_model_data(result["performerUpdate"]))
         except Exception as e:
             self.log.error(f"Failed to update performer image: {e}")
             raise

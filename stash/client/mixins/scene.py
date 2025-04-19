@@ -6,6 +6,7 @@ from ... import fragments
 from ...client_helpers import async_lru_cache
 from ...types import FindScenesResultType, Scene
 from ..protocols import StashClientProtocol
+from ..utils import sanitize_model_data
 
 
 class SceneClientMixin(StashClientProtocol):
@@ -64,7 +65,9 @@ class SceneClientMixin(StashClientProtocol):
                 {"id": id},
             )
             if result and result.get("findScene"):
-                return Scene(**result["findScene"])
+                # Sanitize model data before creating Scene
+                clean_data = sanitize_model_data(result["findScene"])
+                return Scene(**clean_data)
             return None
         except Exception as e:
             self.log.error(f"Failed to find scene {id}: {e}")
@@ -241,7 +244,9 @@ class SceneClientMixin(StashClientProtocol):
             # Clear caches since we've modified scenes
             self.find_scene.cache_clear()
             self.find_scenes.cache_clear()
-            return Scene(**result["sceneCreate"])
+            # Sanitize model data before creating Scene
+            clean_data = sanitize_model_data(result["sceneCreate"])
+            return Scene(**clean_data)
         except Exception as e:
             self.log.error(f"Failed to create scene: {e}")
             raise
@@ -336,7 +341,9 @@ class SceneClientMixin(StashClientProtocol):
                     del self.scene_cache[scene.id]
 
             # Create a Scene instance from the result
-            return Scene(**result["sceneUpdate"])
+            # Sanitize model data before creating Scene
+            clean_data = sanitize_model_data(result["sceneUpdate"])
+            return Scene(**clean_data)
         except Exception as e:
             self.log.error(f"Failed to update scene: {e}")
             raise
@@ -364,7 +371,7 @@ class SceneClientMixin(StashClientProtocol):
                 },
             )
             return [
-                [Scene(**scene) for scene in group]
+                [Scene(**sanitize_model_data(scene)) for scene in group]
                 for group in result["findDuplicateScenes"]
             ]
         except Exception as e:
@@ -415,7 +422,9 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.SCENE_WALL_QUERY,
                 {"q": q},
             )
-            return [Scene(**scene) for scene in result["sceneWall"]]
+            return [
+                Scene(**sanitize_model_data(scene)) for scene in result["sceneWall"]
+            ]
         except Exception as e:
             self.log.error(f"Failed to get scene wall: {e}")
             return []
@@ -439,7 +448,10 @@ class SceneClientMixin(StashClientProtocol):
             # Clear caches since we've modified scenes
             self._find_scene_cache.cache_clear()
             self._find_scenes_cache.cache_clear()
-            return [Scene(**scene) for scene in result["bulkSceneUpdate"]]
+            return [
+                Scene(**sanitize_model_data(scene))
+                for scene in result["bulkSceneUpdate"]
+            ]
         except Exception as e:
             self.log.error(f"Failed to bulk update scenes: {e}")
             raise
@@ -473,7 +485,9 @@ class SceneClientMixin(StashClientProtocol):
                     if hasattr(scene, "id") and scene.id in self.scene_cache:
                         del self.scene_cache[scene.id]
 
-            return [Scene(**scene) for scene in result["scenesUpdate"]]
+            return [
+                Scene(**sanitize_model_data(scene)) for scene in result["scenesUpdate"]
+            ]
         except Exception as e:
             self.log.error(f"Failed to update scenes: {e}")
             raise

@@ -122,10 +122,14 @@ class AccountProcessingMixin:
             account: Account object containing avatar information
             performer: Performer object to update
         """
-        if (
-            not await account.awaitable_attrs.avatar
-            or not (await account.awaitable_attrs.avatar).local_filename
-        ):
+        # Handle case where awaitable_attrs might not have avatar or avatar is None
+        try:
+            avatar = await account.awaitable_attrs.avatar
+            has_avatar = avatar and avatar.local_filename
+        except (AttributeError, TypeError):
+            has_avatar = False
+
+        if not has_avatar:
             debug_print(
                 {
                     "method": "StashProcessing - _update_performer_avatar",

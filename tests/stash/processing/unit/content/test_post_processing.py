@@ -10,11 +10,17 @@ class TestPostProcessing:
 
     @pytest.mark.asyncio
     async def test_process_creator_posts(
-        self, mixin, mock_session, mock_account, mock_performer, mock_studio, mock_posts
+        self,
+        mixin,
+        mock_session,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
+        mock_posts,
     ):
         """Test process_creator_posts method."""
         # Setup session mock to return posts
-        mock_session.execute().scalar_one.return_value = mock_account
+        mock_session.execute().scalar_one.return_value = content_mock_account
         mock_session.execute().unique().scalars().all.return_value = mock_posts
 
         # Setup batch processing
@@ -32,14 +38,14 @@ class TestPostProcessing:
 
         # Call method
         await mixin.process_creator_posts(
-            account=mock_account,
-            performer=mock_performer,
-            studio=mock_studio,
+            account=content_mock_account,
+            performer=content_mock_performer,
+            studio=content_mock_studio,
             session=mock_session,
         )
 
         # Verify session was used
-        mock_session.add.assert_called_with(mock_account)
+        mock_session.add.assert_called_with(content_mock_account)
 
         # Verify batch processing was setup
         mixin._setup_batch_processing.assert_called_once_with(mock_posts, "post")
@@ -63,16 +69,16 @@ class TestPostProcessing:
 
         # Verify session operations
         assert mock_session.add.call_count >= 3  # Account + 2 posts
-        mock_session.refresh.assert_called_with(mock_account)
+        mock_session.refresh.assert_called_with(content_mock_account)
 
         # Verify _process_items_with_gallery was called for each post
         assert mixin._process_items_with_gallery.call_count == 2
 
         # Verify first call arguments
         first_call = mixin._process_items_with_gallery.call_args_list[0]
-        assert first_call[1]["account"] == mock_account
-        assert first_call[1]["performer"] == mock_performer
-        assert first_call[1]["studio"] == mock_studio
+        assert first_call[1]["account"] == content_mock_account
+        assert first_call[1]["performer"] == content_mock_performer
+        assert first_call[1]["studio"] == content_mock_studio
         assert first_call[1]["item_type"] == "post"
         assert first_call[1]["items"] == [test_batch[0]]
         assert callable(first_call[1]["url_pattern_func"])
@@ -90,11 +96,17 @@ class TestPostProcessing:
 
     @pytest.mark.asyncio
     async def test_process_creator_posts_error_handling(
-        self, mixin, mock_session, mock_account, mock_performer, mock_studio, mock_posts
+        self,
+        mixin,
+        mock_session,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
+        mock_posts,
     ):
         """Test process_creator_posts method with error handling."""
         # Setup session mock to return posts
-        mock_session.execute().scalar_one.return_value = mock_account
+        mock_session.execute().scalar_one.return_value = content_mock_account
         mock_session.execute().unique().scalars().all.return_value = mock_posts
 
         # Setup batch processing
@@ -118,9 +130,9 @@ class TestPostProcessing:
 
         # Call method
         await mixin.process_creator_posts(
-            account=mock_account,
-            performer=mock_performer,
-            studio=mock_studio,
+            account=content_mock_account,
+            performer=content_mock_performer,
+            studio=content_mock_studio,
             session=mock_session,
         )
 
@@ -145,7 +157,13 @@ class TestPostProcessing:
 
     @pytest.mark.asyncio
     async def test_process_items_with_gallery(
-        self, mixin, mock_session, mock_account, mock_performer, mock_studio, mock_post
+        self,
+        mixin,
+        mock_session,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
+        mock_post,
     ):
         """Test _process_items_with_gallery method."""
         # Setup original method
@@ -171,9 +189,9 @@ class TestPostProcessing:
 
             # Call the method
             await mixin._process_items_with_gallery(
-                account=mock_account,
-                performer=mock_performer,
-                studio=mock_studio,
+                account=content_mock_account,
+                performer=content_mock_performer,
+                studio=content_mock_studio,
                 item_type="post",
                 items=[mock_post],
                 url_pattern_func=url_pattern_func,
@@ -182,14 +200,14 @@ class TestPostProcessing:
 
             # Verify session operations
             mock_session.execute.assert_called()
-            mock_session.add.assert_called_with(mock_account)
+            mock_session.add.assert_called_with(content_mock_account)
 
             # Verify _process_item_gallery was called
             mock_process_gallery.assert_called_once_with(
                 item=mock_post,
-                account=mock_account,
-                performer=mock_performer,
-                studio=mock_studio,
+                account=content_mock_account,
+                performer=content_mock_performer,
+                studio=content_mock_studio,
                 item_type="post",
                 url_pattern=url_pattern_func(mock_post),
                 session=mock_session,
@@ -200,7 +218,13 @@ class TestPostProcessing:
 
     @pytest.mark.asyncio
     async def test_process_items_with_gallery_error_handling(
-        self, mixin, mock_session, mock_account, mock_performer, mock_studio, mock_posts
+        self,
+        mixin,
+        mock_session,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
+        mock_posts,
     ):
         """Test _process_items_with_gallery method with error handling."""
         # Setup original method
@@ -232,9 +256,9 @@ class TestPostProcessing:
 
             # Call the method with multiple items
             await mixin._process_items_with_gallery(
-                account=mock_account,
-                performer=mock_performer,
-                studio=mock_studio,
+                account=content_mock_account,
+                performer=content_mock_performer,
+                studio=content_mock_studio,
                 item_type="post",
                 items=mock_posts[:2],
                 url_pattern_func=url_pattern_func,

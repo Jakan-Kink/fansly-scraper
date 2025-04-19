@@ -45,15 +45,76 @@ class MediaProcessingMixin:
                     logger.debug(f"Checking visual file: {file_data}")
                     # Convert dict to ImageFile if needed
                     if isinstance(file_data, dict):
-                        # Ensure fingerprints exists
-                        if "fingerprints" not in file_data:
-                            file_data["fingerprints"] = []
-                        # Ensure mod_time exists
-                        if "mod_time" not in file_data:
-                            file_data["mod_time"] = None
+                        # Ensure all required fields exist for ImageFile
+                        required_fields = [
+                            "id",
+                            "path",
+                            "basename",
+                            "parent_folder_id",
+                            "size",
+                            "width",
+                            "height",
+                        ]
+                        missing_fields = [
+                            field for field in required_fields if field not in file_data
+                        ]
+
+                    if missing_fields:
+                        logger.warning(
+                            f"Missing required fields for ImageFile: {missing_fields}. Cannot create ImageFile."
+                        )
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _get_file_from_stash_obj",
+                                "status": "missing_required_fields",
+                                "missing_fields": missing_fields,
+                                "available_fields": list(file_data.keys()),
+                            }
+                        )
+                        continue
+
+                    # Ensure fingerprints exists
+                    if "fingerprints" not in file_data:
+                        file_data["fingerprints"] = []
+                    # Ensure mod_time exists
+                    if "mod_time" not in file_data:
+                        file_data["mod_time"] = None
+
+                    # Create the ImageFile with all required fields
+                    try:
                         file = ImageFile(**file_data)
+                    except Exception as e:
+                        logger.error(f"Error creating ImageFile: {e}")
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _get_file_from_stash_obj",
+                                "status": "image_file_creation_failed",
+                                "error": str(e),
+                                "file_data": file_data,
+                            }
+                        )
+                        continue
                     else:
-                        file = file_data
+                        # Check if file_data is already an ImageFile
+                        if (
+                            hasattr(file_data, "__type_name__")
+                            and file_data.__type_name__ == "ImageFile"
+                        ):
+                            file = file_data
+                        else:
+                            # Not a dict or ImageFile, might be something else
+                            logger.warning(
+                                f"Unexpected file_data type: {type(file_data)}"
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _get_file_from_stash_obj",
+                                    "status": "unexpected_file_data_type",
+                                    "file_data_type": str(type(file_data)),
+                                }
+                            )
+                            continue
+
                     logger.debug(f"Converted to file object: {file}")
                     if isinstance(file, ImageFile):
                         logger.debug(f"Found ImageFile: {file}")
@@ -62,8 +123,46 @@ class MediaProcessingMixin:
                 logger.debug("Image has no visual_files")
         elif isinstance(stash_obj, Scene):
             # Get the primary VideoFile
-            if stash_obj.files:
-                return stash_obj.files[0]
+            if hasattr(stash_obj, "files") and stash_obj.files:
+                try:
+                    # Get the first file, which should be a VideoFile
+                    file = stash_obj.files[0]
+                    if (
+                        hasattr(file, "__type_name__")
+                        and file.__type_name__ == "VideoFile"
+                    ):
+                        return file
+                    else:
+                        logger.warning(
+                            f"First file in scene is not a VideoFile: {type(file)}"
+                        )
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _get_file_from_stash_obj",
+                                "status": "invalid_video_file_type",
+                                "file_type": str(type(file)),
+                                "scene_id": getattr(stash_obj, "id", None),
+                            }
+                        )
+                except Exception as e:
+                    logger.error(f"Error getting VideoFile from scene: {e}")
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _get_file_from_stash_obj",
+                            "status": "video_file_access_failed",
+                            "error": str(e),
+                            "scene_id": getattr(stash_obj, "id", None),
+                        }
+                    )
+            else:
+                logger.debug(f"Scene has no files: {getattr(stash_obj, 'id', None)}")
+                debug_print(
+                    {
+                        "method": "StashProcessing - _get_file_from_stash_obj",
+                        "status": "scene_has_no_files",
+                        "scene_id": getattr(stash_obj, "id", None),
+                    }
+                )
         return None
 
     def _create_nested_path_or_conditions(
@@ -230,21 +329,55 @@ class MediaProcessingMixin:
                     image_filter=path_filter,
                     filter_=filter_params,
                 )
-                logger.info(f"Raw find_images results: {results}")
+                logger.info("Raw find_images results: %s", results)
+
                 if results.count > 0:
+                    valid_files_found = False
                     for image_data in results.images:
-                        logger.info(f"Processing image data: {image_data}")
-                        image = (
-                            Image(**image_data)
-                            if isinstance(image_data, dict)
-                            else image_data
+                        logger.info("Processing image data: %s", image_data)
+
+                        try:
+                            image = (
+                                Image(**image_data)
+                                if isinstance(image_data, dict)
+                                else image_data
+                            )
+                            logger.info("Created image object: %s", image)
+
+                            # Try to get a file from the image object
+                            if file := self._get_file_from_stash_obj(image):
+                                logger.info("Found file in image: %s", file)
+                                found.append((image, file))
+                                valid_files_found = True
+                            else:
+                                logger.info("No file found in image object")
+
+                        except Exception as e:
+                            logger.error(f"Error processing image data: {e}")
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _find_stash_files_by_path",
+                                    "status": "image_processing_failed",
+                                    "error": str(e),
+                                    "image_data": (
+                                        str(image_data)[:100] + "..."
+                                        if len(str(image_data)) > 100
+                                        else str(image_data)
+                                    ),
+                                }
+                            )
+
+                    if not valid_files_found:
+                        logger.warning(
+                            f"Found {results.count} images but no valid image files could be extracted"
                         )
-                        logger.info(f"Created image object: {image}")
-                        if file := self._get_file_from_stash_obj(image):
-                            logger.info(f"Found file in image: {file}")
-                            found.append((image, file))
-                        else:
-                            logger.info("No file found in image object")
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_files_by_path",
+                                "status": "no_valid_files_found",
+                                "image_count": results.count,
+                            }
+                        )
             except Exception as e:
                 debug_print(
                     {
@@ -271,15 +404,51 @@ class MediaProcessingMixin:
                     scene_filter=path_filter,
                     filter_=filter_params,
                 )
+
                 if results.count > 0:
+                    valid_files_found = False
                     for scene_data in results.scenes:
-                        scene = (
-                            Scene(**scene_data)
-                            if isinstance(scene_data, dict)
-                            else scene_data
+                        try:
+                            scene = (
+                                Scene(**scene_data)
+                                if isinstance(scene_data, dict)
+                                else scene_data
+                            )
+
+                            if file := self._get_file_from_stash_obj(scene):
+                                found.append((scene, file))
+                                valid_files_found = True
+                            else:
+                                logger.info(
+                                    f"No file found in scene object: {scene.id}"
+                                )
+
+                        except Exception as e:
+                            logger.error(f"Error processing scene data: {e}")
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _find_stash_files_by_path",
+                                    "status": "scene_processing_failed",
+                                    "error": str(e),
+                                    "scene_data": (
+                                        str(scene_data)[:100] + "..."
+                                        if len(str(scene_data)) > 100
+                                        else str(scene_data)
+                                    ),
+                                }
+                            )
+
+                    if not valid_files_found:
+                        logger.warning(
+                            f"Found {results.count} scenes but no valid scene files could be extracted"
                         )
-                        if file := self._get_file_from_stash_obj(scene):
-                            found.append((scene, file))
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_files_by_path",
+                                "status": "no_valid_scene_files_found",
+                                "scene_count": results.count,
+                            }
+                        )
             except Exception as e:
                 debug_print(
                     {
@@ -321,6 +490,21 @@ class MediaProcessingMixin:
         item_date = item.createdAt.date()  # Get date part of datetime
         current_date_str = getattr(stash_obj, "date", None)
         is_organized = getattr(stash_obj, "organized", False)
+
+        # Log full object details for debugging
+        logger.debug(
+            "\nFull stash object details:\n"
+            + f"Object Type: {stash_obj.__class__.__name__}\n"
+            + f"ID: {stash_obj.id}\n"
+            + f"Title: {getattr(stash_obj, 'title', None)}\n"
+            + f"Date: {current_date_str}\n"
+            + f"Code: {getattr(stash_obj, 'code', None)}\n"
+            + f"Organized: {is_organized}\n"
+            + f"Item date: {item_date}\n"
+            + f"Item ID: {item.id}\n"
+            + f"Media ID: {media_id}\n"
+        )
+
         if is_organized:
             logger.debug(
                 {
@@ -330,6 +514,9 @@ class MediaProcessingMixin:
                     "media_id": media_id,
                     "item_id": item.id,
                     "stash_id": stash_obj.id,
+                    "object_title": getattr(stash_obj, "title", None),
+                    "object_date": current_date_str,
+                    "object_code": getattr(stash_obj, "code", None),
                 }
             )
             return
@@ -382,11 +569,18 @@ class MediaProcessingMixin:
 
         # Add URL only for posts since message URLs won't work for other users
         if hasattr(item, "id") and getattr(item, "__class__", None).__name__ == "Post":
-            if not hasattr(stash_obj, "urls"):
-                stash_obj.urls = []
             post_url = f"https://fansly.com/post/{item.id}"
-            if post_url not in stash_obj.urls:
-                stash_obj.urls.append(post_url)
+
+            # Handle both singular url and plural urls fields
+            # Set singular url property
+            stash_obj.url = post_url
+
+            # Also update the urls list if it exists
+            if hasattr(stash_obj, "urls"):
+                if not stash_obj.urls:
+                    stash_obj.urls = []
+                if post_url not in stash_obj.urls:
+                    stash_obj.urls.append(post_url)
 
         # Add performers (we already have the account)
         performers = []
@@ -490,18 +684,46 @@ class MediaProcessingMixin:
             f"Object ID: {stash_obj.id}"
         )
 
-        # Save changes to Stash only if object is dirty
-        if stash_obj.is_dirty():
-            await stash_obj.save(self.context.client)
+        # Check and log what makes the object dirty
+        if hasattr(stash_obj, "_dirty_attrs") and stash_obj._dirty_attrs:
+            logger.debug("Dirty attributes:\n%s\n", stash_obj._dirty_attrs)
         else:
+            logger.debug("No dirty attributes detected")
+
+        # Log detailed state just before save
+        logger.debug(
+            "State before save:\n"
+            "Title = %s\n"
+            "Date = %s\n"
+            "Code = %s\n"
+            "Dirty = %s\n",
+            getattr(stash_obj, "title", None),
+            getattr(stash_obj, "date", None),
+            getattr(stash_obj, "code", None),
+            stash_obj.is_dirty() if hasattr(stash_obj, "is_dirty") else None,
+        )
+
+        # Force mark as dirty to ensure save is attempted
+        # This is a safety measure in case the dirty detection isn't working correctly
+        stash_obj.mark_dirty()
+        logger.debug("Object marked as dirty to ensure save attempt")
+
+        # Save changes to Stash
+        try:
+            await stash_obj.save(self.context.client)
+            logger.debug("Successfully saved changes to Stash")
+        except Exception as e:
+            logger.error(f"Error saving changes to Stash: {e}")
             debug_print(
                 {
                     "method": "StashProcessing - _update_stash_metadata",
-                    "status": "no_changes",
+                    "status": "save_error",
                     "object_type": stash_obj.__type_name__,
                     "object_id": stash_obj.id,
+                    "error": str(e),
                 }
             )
+            raise
 
     async def _process_media(
         self,
@@ -528,7 +750,7 @@ class MediaProcessingMixin:
                 "method": "StashProcessing - _process_media",
                 "status": "processing_media",
                 "media_id": media.id,
-                "stash_id": media.stash_id if hasattr(media, "stash_id") else None,
+                "stash_id": media.stash_id,
                 "is_downloaded": media.is_downloaded,
                 "variant_count": (
                     len(media.variants) if hasattr(media, "variants") else 0
@@ -543,7 +765,7 @@ class MediaProcessingMixin:
         stash_result = None
 
         # First try by stash_id if available
-        if hasattr(media, "stash_id") and media.stash_id:
+        if media.stash_id:
             stash_result = await self._find_stash_files_by_id(
                 [(media.stash_id, media.mimetype)]
             )

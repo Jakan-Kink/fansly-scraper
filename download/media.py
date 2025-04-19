@@ -166,7 +166,15 @@ async def _verify_existing_file(
             print_info(
                 f"Deduplication [Hash]: {mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
             )
+        # Mark as duplicate but also count as downloaded since we're verifying a good file
         state.add_duplicate()
+
+        # Count verified files too
+        if "image" in mimetype:
+            state.pic_count += 1
+        elif "video" in mimetype:
+            state.vid_count += 1
+
         return True
 
     return False
@@ -254,7 +262,15 @@ async def _verify_temp_download(
                 print_info(
                     f"Deduplication [File]: {mimetype.split('/')[-2]} '{check_path.name}' → skipped (hash verified)"
                 )
+            # Mark as duplicate but also count as downloaded since we're verifying a good file
             state.add_duplicate()
+
+            # Count verified files too
+            if "image" in mimetype:
+                state.pic_count += 1
+            elif "video" in mimetype:
+                state.vid_count += 1
+
             return True
 
     finally:
@@ -403,6 +419,9 @@ async def _download_m3u8_file(
         session.add(media_record)
         await session.flush()
 
+        # Increment video count - since this is m3u8, it's always a video
+        state.vid_count += 1
+
         return False
 
     finally:
@@ -550,10 +569,14 @@ async def download_media(
                 media_record,
             )
 
-            if not is_dupe:
-                # Count only if file was kept
-                state.pic_count += 1 if "image" in media_item.mimetype else 0
-                state.vid_count += 1 if "video" in media_item.mimetype else 0
+            # File was successfully downloaded and processed, increment counts
+            # regardless of deduplication status (since the file was actually downloaded)
+            state.pic_count += 1 if "image" in media_item.mimetype else 0
+            state.vid_count += 1 if "video" in media_item.mimetype else 0
+
+            # If it was a duplicate, also increment duplicate counter
+            if is_dupe:
+                state.add_duplicate()
 
         except M3U8Error as ex:
             print_warning(f"Skipping invalid item: {ex}")

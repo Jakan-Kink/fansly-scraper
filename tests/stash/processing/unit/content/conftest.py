@@ -4,11 +4,34 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy import select
 
 from metadata import Account, Attachment, Group, Message, Post
 from stash.processing.mixins.content import ContentProcessingMixin
 from stash.types import Gallery, Performer, Studio
+
+# Import and re-export fixtures from parent conftest.py
+from ..conftest import (
+    mock_account,
+    mock_gallery,
+    mock_performer,
+    mock_scene,
+    mock_studio,
+)
+
+__all__ = [
+    "mock_account",
+    "mock_gallery",
+    "mock_performer",
+    "mock_studio",
+    "mock_scene",
+    "mock_attachment",
+    "mock_post",
+    "mock_posts",
+    "mock_group",
+    "mock_message",
+    "mock_messages",
+    "mock_session",
+]
 
 
 class TestMixinClass(ContentProcessingMixin):
@@ -18,54 +41,56 @@ class TestMixinClass(ContentProcessingMixin):
         """Initialize test class."""
         self.context = MagicMock()
         self.context.client = MagicMock()
-        self.database = MagicMock()
         self.log = MagicMock()
-        self._process_item_gallery = AsyncMock()
+
+        # Mock methods this mixin needs from others
         self._setup_batch_processing = AsyncMock()
         self._run_batch_processor = AsyncMock()
+        self._get_gallery_metadata = AsyncMock(
+            return_value=("username", "Test Title", "https://test.com")
+        )
+        self._get_or_create_gallery = AsyncMock()
+        self._process_item_gallery = AsyncMock()
+        self._find_existing_performer = AsyncMock()
+        self._find_existing_studio = AsyncMock()
+        self._process_hashtags_to_tags = AsyncMock()
+        self._update_account_stash_id = AsyncMock()
 
 
 @pytest.fixture
 def mixin():
-    """Fixture for ContentProcessingMixin instance."""
+    """Fixture for content mixin test class."""
     return TestMixinClass()
 
 
 @pytest.fixture
-def mock_account():
-    """Fixture for mock account."""
-    account = MagicMock(spec=Account)
-    account.id = 54321
-    account.username = "test_user"
-    account.stash_id = None
-    return account
+def content_mock_account(mock_account):
+    """Fixture for mock account with content-specific attributes."""
+    # Add content-specific attributes & methods
+    mock_account.awaitable_attrs.hashtags = AsyncMock(return_value=[])
+    mock_account.awaitable_attrs.accountMentions = AsyncMock(return_value=[])
+    return mock_account
 
 
 @pytest.fixture
-def mock_performer():
-    """Fixture for mock performer."""
-    performer = MagicMock(spec=Performer)
-    performer.id = "performer_123"
-    performer.name = "test_user"
-    return performer
+def content_mock_performer(mock_performer):
+    """Fixture for mock performer with content-specific attributes."""
+    # Add content-specific attributes
+    mock_performer.awaitable_attrs = MagicMock()
+    mock_performer.awaitable_attrs.id = mock_performer.id
+    return mock_performer
 
 
 @pytest.fixture
-def mock_studio():
-    """Fixture for mock studio."""
-    studio = MagicMock(spec=Studio)
-    studio.id = "studio_123"
-    studio.name = "Test Studio"
-    return studio
+def content_mock_studio(mock_studio):
+    """Fixture for mock studio with content-specific attributes."""
+    # Add content-specific attributes
+    mock_studio.awaitable_attrs = MagicMock()
+    mock_studio.awaitable_attrs.id = mock_studio.id
+    return mock_studio
 
 
-@pytest.fixture
-def mock_gallery():
-    """Fixture for mock gallery."""
-    gallery = MagicMock(spec=Gallery)
-    gallery.id = "gallery_123"
-    gallery.title = "Test Gallery"
-    return gallery
+# Use the parent fixtures but don't redefine them
 
 
 @pytest.fixture
@@ -95,7 +120,7 @@ def mock_post():
 
 
 @pytest.fixture
-def mock_posts(mock_attachment):
+def mock_posts():
     """Fixture for mock posts with attachments."""
     posts = []
     for i in range(3):
@@ -142,7 +167,7 @@ def mock_message(mock_group):
 
 
 @pytest.fixture
-def mock_messages(mock_group, mock_attachment):
+def mock_messages(mock_group):
     """Fixture for mock messages with attachments."""
     messages = []
     for i in range(3):

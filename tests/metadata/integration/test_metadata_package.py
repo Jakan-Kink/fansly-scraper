@@ -16,6 +16,10 @@ from metadata import (
     process_account_data,
     process_media_info,
 )
+from tests.metadata.helpers.utils import (
+    create_test_data_set,
+    verify_relationship_integrity,
+)
 
 
 @pytest.mark.integration
@@ -71,7 +75,6 @@ async def test_full_content_processing(test_database, config, timeline_data):
 @pytest.mark.asyncio
 async def test_relationship_integrity(test_database):
     """Test integrity of relationships between models."""
-    from tests.metadata.utils import create_test_data_set, verify_relationship_integrity
 
     async with test_database.async_session_scope() as session:
         try:

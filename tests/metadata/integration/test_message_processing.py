@@ -27,7 +27,7 @@ from tests.metadata.conftest import TestDatabase
 def conversation_data():
     """Load conversation test data."""
     test_data_dir = os.path.join(os.path.dirname(__file__), "..", "..", "json")
-    with open(os.path.join(test_data_dir, "conversation-sample-account.json")) as f:
+    with open(os.path.join(test_data_dir, "test_message_variants.json")) as f:
         return json.load(f)
 
 
@@ -205,3 +205,123 @@ async def test_process_message_attachments(
             attachment_ids = {str(a.contentId) for a in message.attachments}
             expected_ids = {str(a["contentId"]) for a in msg_data["attachments"]}
             assert attachment_ids == expected_ids
+
+
+@pytest.mark.asyncio
+async def test_process_message_media_variants(
+    test_database: TestDatabase,
+    config,
+    conversation_data,
+):
+    """Test processing messages with media variants like HLS/DASH streams."""
+    messages = conversation_data["response"]["messages"]
+    messages_with_variants = [
+        msg
+        for msg in messages
+        if any(
+            am.get("media", {}).get("variants", [])
+            for am in conversation_data["response"].get("accountMedia", [])
+            if any(
+                att["contentId"] == am["mediaId"] for att in msg.get("attachments", [])
+            )
+        )
+    ]
+
+    if not messages_with_variants:
+        pytest.skip("No messages with media variants found in test data")
+
+    async with test_database.async_session_scope() as session:
+        await process_messages_metadata(
+            config, None, messages_with_variants, session=session
+        )
+
+        # Verify media variants were processed correctly
+        for msg_data in messages_with_variants:
+            stmt = (
+                select(Message)
+                .options(selectinload(Message.attachments))
+                .where(Message.id == msg_data["id"])
+            )
+            result = await session.execute(stmt)
+            message = result.scalar_one()
+
+            for attachment in message.attachments:
+                if hasattr(attachment, "media") and attachment.media:
+                    assert attachment.media.variants is not None
+                    # Verify HLS/DASH variants exist
+                    variants = [
+                        v for v in attachment.media.variants if v.type in (302, 303)
+                    ]
+                    assert len(variants) > 0
+                    # Verify variant metadata
+                    for variant in variants:
+                        metadata = json.loads(variant.metadata)
+                        assert "duration" in metadata
+                        assert "frameRate" in metadata
+                        assert "variants" in metadata
+
+
+@pytest.mark.asyncio
+async def test_process_message_media_bundles(
+    test_database: TestDatabase,
+    config,
+    conversation_data,
+):
+    """Test processing messages with media bundles."""
+    messages = conversation_data["response"]["messages"]
+    bundles = conversation_data["response"].get("accountMediaBundles", [])
+
+    if not bundles:
+        pytest.skip("No media bundles found in test data")
+
+    async with test_database.async_session_scope() as session:
+        # First process messages to create necessary relationships
+        await process_messages_metadata(config, None, messages, session=session)
+
+        # Verify bundles were created and linked correctly
+        for bundle_data in bundles:
+            # Check that all media in bundle exists and is properly ordered
+            media_ids = [
+                content["accountMediaId"] for content in bundle_data["bundleContent"]
+            ]
+            result = await session.execute(
+                text(
+                    "SELECT accountMediaId FROM account_media_bundle_media "
+                    "WHERE bundleId = :bundle_id ORDER BY pos"
+                ),
+                {"bundle_id": bundle_data["id"]},
+            )
+            stored_media_ids = [row[0] for row in result]
+            assert stored_media_ids == media_ids
+
+
+@pytest.mark.asyncio
+async def test_process_message_permissions(
+    test_database: TestDatabase,
+    config,
+    conversation_data,
+):
+    """Test processing message media permissions."""
+    messages = conversation_data["response"]["messages"]
+    media_items = conversation_data["response"].get("accountMedia", [])
+
+    if not media_items:
+        pytest.skip("No media items found in test data")
+
+    async with test_database.async_session_scope() as session:
+        await process_messages_metadata(config, None, messages, session=session)
+
+        # Verify permission flags were processed correctly
+        for media_data in media_items:
+            result = await session.execute(
+                text("SELECT * FROM account_media WHERE id = :media_id"),
+                {"media_id": media_data["id"]},
+            )
+            stored_media = result.fetchone()
+
+            assert stored_media is not None
+            # Verify permission flags match
+            permission_flags = media_data["permissions"]["permissionFlags"]
+            assert stored_media.permissionFlags == permission_flags[0]["flags"]
+            # Verify access status
+            assert stored_media.access == media_data["access"]

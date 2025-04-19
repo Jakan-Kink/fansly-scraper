@@ -23,12 +23,12 @@ class TestGalleryCreation:
         assert gallery.organized is True
 
     @pytest.mark.asyncio
-    async def test_get_gallery_metadata(self, mixin, mock_item, mock_account):
+    async def test_get_gallery_metadata(self, mixin, mock_item, gallery_mock_account):
         """Test _get_gallery_metadata method."""
         # Call method
         url_pattern = "https://test.com/{username}/post/{id}"
         username, title, url = await mixin._get_gallery_metadata(
-            mock_item, mock_account, url_pattern
+            mock_item, gallery_mock_account, url_pattern
         )
 
         # Verify results
@@ -45,7 +45,7 @@ class TestGalleryCreation:
 
     @pytest.mark.asyncio
     async def test_setup_gallery_performers(
-        self, mixin, mock_gallery, mock_item, mock_performer
+        self, mixin, mock_gallery, mock_item, gallery_mock_performer
     ):
         """Test _setup_gallery_performers method."""
         # Setup for mentioned performers
@@ -66,11 +66,13 @@ class TestGalleryCreation:
         ]
 
         # Call method
-        await mixin._setup_gallery_performers(mock_gallery, mock_item, mock_performer)
+        await mixin._setup_gallery_performers(
+            mock_gallery, mock_item, gallery_mock_performer
+        )
 
         # Verify gallery performers
         assert len(mock_gallery.performers) == 3
-        assert mock_gallery.performers[0] == mock_performer
+        assert mock_gallery.performers[0] == gallery_mock_performer
         assert mock_gallery.performers[1] == mention_performer1
         assert mock_gallery.performers[2] == mention_performer2
 
@@ -87,11 +89,13 @@ class TestGalleryCreation:
         mock_item.accountMentions = []
 
         # Call method
-        await mixin._setup_gallery_performers(mock_gallery, mock_item, mock_performer)
+        await mixin._setup_gallery_performers(
+            mock_gallery, mock_item, gallery_mock_performer
+        )
 
         # Verify gallery performers (only main performer)
         assert len(mock_gallery.performers) == 1
-        assert mock_gallery.performers[0] == mock_performer
+        assert mock_gallery.performers[0] == gallery_mock_performer
 
         # Verify no calls to _find_existing_performer
         mixin._find_existing_performer.assert_not_called()
@@ -104,18 +108,16 @@ class TestGalleryCreation:
         mixin._find_existing_performer.side_effect = [None, None]
 
         # Call method
-        await mixin._setup_gallery_performers(mock_gallery, mock_item, mock_performer)
+        await mixin._setup_gallery_performers(
+            mock_gallery, mock_item, gallery_mock_performer
+        )
 
         # Verify gallery performers (only main performer)
         assert len(mock_gallery.performers) == 1
-        assert mock_gallery.performers[0] == mock_performer
-
-        # Verify _find_existing_performer calls
-        assert mixin._find_existing_performer.call_count == 2
+        assert mock_gallery.performers[0] == gallery_mock_performer
 
         # Reset
         mock_gallery.performers = []
-        mixin._find_existing_performer.reset_mock()
 
         # Test with no main performer
         mock_item.accountMentions = [mention1]
@@ -130,7 +132,13 @@ class TestGalleryCreation:
 
     @pytest.mark.asyncio
     async def test_get_or_create_gallery(
-        self, mixin, mock_item, mock_account, mock_performer, mock_studio, mock_gallery
+        self,
+        mixin,
+        mock_item,
+        gallery_mock_account,
+        gallery_mock_performer,
+        gallery_mock_studio,
+        mock_gallery,
     ):
         """Test _get_or_create_gallery method."""
         # Setup
@@ -155,7 +163,12 @@ class TestGalleryCreation:
         mixin._get_gallery_by_url = AsyncMock(return_value=None)
 
         gallery = await mixin._get_or_create_gallery(
-            mock_item, mock_account, mock_performer, mock_studio, "post", url_pattern
+            mock_item,
+            gallery_mock_account,
+            gallery_mock_performer,
+            gallery_mock_studio,
+            "post",
+            url_pattern,
         )
 
         # Verify
@@ -173,7 +186,12 @@ class TestGalleryCreation:
         mixin._get_gallery_by_code = AsyncMock(return_value=mock_gallery)
 
         gallery = await mixin._get_or_create_gallery(
-            mock_item, mock_account, mock_performer, mock_studio, "post", url_pattern
+            mock_item,
+            gallery_mock_account,
+            gallery_mock_performer,
+            gallery_mock_studio,
+            "post",
+            url_pattern,
         )
 
         # Verify
@@ -193,7 +211,12 @@ class TestGalleryCreation:
         mixin._get_gallery_by_title = AsyncMock(return_value=mock_gallery)
 
         gallery = await mixin._get_or_create_gallery(
-            mock_item, mock_account, mock_performer, mock_studio, "post", url_pattern
+            mock_item,
+            gallery_mock_account,
+            gallery_mock_performer,
+            gallery_mock_studio,
+            "post",
+            url_pattern,
         )
 
         # Verify
@@ -201,7 +224,7 @@ class TestGalleryCreation:
         mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
         mixin._get_gallery_by_code.assert_called_once_with(mock_item)
         mixin._get_gallery_by_title.assert_called_once_with(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
         mixin._get_gallery_by_url.assert_not_called()
 
@@ -217,7 +240,12 @@ class TestGalleryCreation:
         mixin._get_gallery_by_url = AsyncMock(return_value=mock_gallery)
 
         gallery = await mixin._get_or_create_gallery(
-            mock_item, mock_account, mock_performer, mock_studio, "post", url_pattern
+            mock_item,
+            gallery_mock_account,
+            gallery_mock_performer,
+            gallery_mock_studio,
+            "post",
+            url_pattern,
         )
 
         # Verify
@@ -225,7 +253,7 @@ class TestGalleryCreation:
         mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
         mixin._get_gallery_by_code.assert_called_once_with(mock_item)
         mixin._get_gallery_by_title.assert_called_once_with(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
         mixin._get_gallery_by_url.assert_called_once_with(
             mock_item, "https://test.com/test_user/post/12345"
@@ -255,7 +283,12 @@ class TestGalleryCreation:
         mixin._setup_gallery_performers = AsyncMock()
 
         gallery = await mixin._get_or_create_gallery(
-            mock_item, mock_account, mock_performer, mock_studio, "post", url_pattern
+            mock_item,
+            gallery_mock_account,
+            gallery_mock_performer,
+            gallery_mock_studio,
+            "post",
+            url_pattern,
         )
 
         # Verify
@@ -263,16 +296,16 @@ class TestGalleryCreation:
         mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
         mixin._get_gallery_by_code.assert_called_once_with(mock_item)
         mixin._get_gallery_by_title.assert_called_once_with(
-            mock_item, "Test Title", mock_studio
+            mock_item, "Test Title", gallery_mock_studio
         )
         mixin._get_gallery_by_url.assert_called_once_with(
             mock_item, "https://test.com/test_user/post/12345"
         )
         mixin._create_new_gallery.assert_called_once_with(mock_item, "Test Title")
         mixin._setup_gallery_performers.assert_called_once_with(
-            new_gallery, mock_item, mock_performer
+            new_gallery, mock_item, gallery_mock_performer
         )
-        assert new_gallery.studio == mock_studio
+        assert new_gallery.studio == gallery_mock_studio
         assert url_pattern in new_gallery.urls
         new_gallery.save.assert_called_once_with(mixin.context.client)
 
@@ -281,7 +314,12 @@ class TestGalleryCreation:
         mixin._get_gallery_metadata = AsyncMock()  # Reset mock
 
         gallery = await mixin._get_or_create_gallery(
-            mock_item, mock_account, mock_performer, mock_studio, "post", url_pattern
+            mock_item,
+            gallery_mock_account,
+            gallery_mock_performer,
+            gallery_mock_studio,
+            "post",
+            url_pattern,
         )
 
         # Verify

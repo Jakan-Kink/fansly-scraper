@@ -223,18 +223,20 @@ def mock_download(mocker):
         # Process each media item
         for media_item in media_items:
             if media_item.download_url:
+                # Use the correct ID based on whether it's a preview or primary media
                 media_id = str(
                     media_item.preview_id
-                    if media_item.is_preview
+                    if media_item.is_preview and media_item.preview_id
                     else media_item.media_id
                 )
 
-                # Categorize based on mimetype
+                # Only add to state if we have a valid download URL
                 if media_item.mimetype.startswith("video"):
                     state.recent_video_media_ids.add(media_id)
                 elif media_item.mimetype.startswith("image"):
                     state.recent_photo_media_ids.add(media_id)
 
+        # Return success
         return True
 
     return mocker.patch("download.media.download_media", side_effect=mock_download)

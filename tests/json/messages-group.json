@@ -3,27 +3,38 @@
   "response": {
     "messages": [
       {
-        "id": "123456789",
-        "senderId": "987654321",
-        "content": "Test message content",
-        "createdAt": 1704067200000,
-        "updatedAt": 1704067200,
+        "id": "737344486891335695",
+        "senderId": "737318930569244672",
+        "content": "This is a test group message!",
+        "createdAt": 1737290991,
+        "updatedAt": 1737290991,
         "attachments": [
           {
-            "id": "111111111",
-            "accountId": "987654321",
-            "mediaId": "222222222",
-            "createdAt": 1704067200,
-            "updatedAt": 1704067200000,
+            "id": "737344486891335696",
+            "accountId": "737318930569244672",
+            "mediaId": "737344486891335697",
+            "createdAt": 1737290992,
+            "updatedAt": 1737290992,
             "media": {
-              "id": "222222222",
-              "accountId": "987654321",
-              "mimetype": "video/mp4",
-              "width": 1920,
-              "height": 1080,
-              "duration": 30.5,
-              "createdAt": 1704067200000,
-              "updatedAt": 1704067200
+              "id": "737344486891335697",
+              "type": 1,
+              "status": 1,
+              "accountId": "737318930569244672",
+              "mimetype": "image/jpeg",
+              "flags": 298,
+              "location": "/737318930569244672/737344486891335697.jpeg",
+              "width": 1280,
+              "height": 720,
+              "metadata": "{\"resolutionMode\":1}",
+              "updatedAt": 1737290992,
+              "createdAt": 1737290992,
+              "variants": [],
+              "locations": [
+                {
+                  "locationId": "1",
+                  "location": "https://cdn3.fansly.com/737318930569244672/737344486891335697.jpeg"
+                }
+              ]
             }
           }
         ]
@@ -31,22 +42,12 @@
     ],
     "groups": [
       {
-        "id": "987654321",
+        "id": "737344486891335698",
         "name": "Test Group",
-        "description": "Test group description",
-        "members": [
-          {
-            "id": "987654321",
-            "username": "test_user",
-            "displayName": "Test User",
-            "about": "Test user bio",
-            "location": "Test Location",
-            "joinDate": 1704067200000,
-            "lastSeen": "2024-01-01T00:00:00Z",
-            "following": true,
-            "subscribed": true
-          }
-        ]
+        "description": "Group for testing message functionality",
+        "userIds": ["737318930569244672", "737344486891335699"],
+        "createdAt": 1737290993,
+        "updatedAt": 1737290993
       }
     ]
   }

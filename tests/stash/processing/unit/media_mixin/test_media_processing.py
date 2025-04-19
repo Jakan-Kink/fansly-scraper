@@ -14,6 +14,23 @@ class TestMediaProcessing:
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
 
+        # Create a coroutine that will be resolved to an empty set
+        async def mock_variants_coro():
+            return set()
+
+        # Create a coroutine that will be resolved to the mimetype
+        async def mock_mimetype_coro():
+            return mock_media.mimetype
+
+        # Create a coroutine that will be resolved to is_downloaded
+        async def mock_is_downloaded_coro():
+            return mock_media.is_downloaded
+
+        # Properly set up awaitable attributes
+        mock_media.awaitable_attrs.variants = mock_variants_coro()
+        mock_media.awaitable_attrs.mimetype = mock_mimetype_coro()
+        mock_media.awaitable_attrs.is_downloaded = mock_is_downloaded_coro()
+
         # Create a mock implementation
         async def mock_find_by_stash_id(stash_files):
             # Return fake results

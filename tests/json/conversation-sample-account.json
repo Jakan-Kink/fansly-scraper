@@ -1,68 +1,44 @@
 {
   "success": true,
   "response": {
-    "messages": [
+    "conversations": [
       {
-        "id": "123456789",
-        "type": 1,
-        "dataVersion": 1,
-        "content": "Test message content",
-        "groupId": "987123456",
-        "senderId": "987654321",
-        "correlationId": "0",
-        "inReplyTo": null,
-        "inReplyToRoot": null,
-        "createdAt": 1704067210,
-        "attachments": [
-          {
-            "messageId": "123456789",
-            "contentType": 1,
-            "contentId": "732187623",
-            "pos": 0
-            }
-        ],
-        "embeds": [],
-        "interactions": [],
-        "likes": [
-            {
-                "id": "722700000006158208",
-                "accountId": "7890345",
-                "type": 1
-            }
-        ],
-        "totalTipAmount": 0
-      },
-      {
-        "id": "123456543",
-        "type": 1,
-        "dataVersion": 1,
-        "content": "received message content",
-        "groupId": "987123456",
-        "senderId": "7890345",
-        "correlationId": "0",
-        "inReplyTo": null,
-        "inReplyToRoot": null,
-        "createdAt": 1704067200,
-        "attachments": [],
-        "embeds": [],
-        "interactions": [
-          {
-            "userId": "987654321",
-            "readAt": 1704067207,
-            "deliveredAt": 1704067205
-          }
-        ],
-        "likes": [],
-        "totalTipAmount": 0
-
+        "id": "737344486891335693",
+        "accountId": "737318930569244672",
+        "lastMessageId": "737344486891335694",
+        "lastMessage": {
+          "id": "737344486891335694",
+          "senderId": "737318930569244672",
+          "content": "Hello, this is a test message from the conversation sample.",
+          "createdAt": 1737290990,
+          "updatedAt": 1737290990,
+          "attachments": []
+        },
+        "createdAt": 1737290990,
+        "updatedAt": 1737290990
       }
     ],
-    "accountMedia":[],
-    "accountMediaBundles":[],
-    "tips":[],
-    "tipGoals":[],
-    "accountMediaOrders":[],
-    "stories":[],
-    "storiesOrders":[]
+    "accounts": [
+      {
+        "id": "737318930569244672",
+        "username": "testaccount",
+        "displayName": "Test Account",
+        "about": "This is a test account for API testing purposes",
+        "location": "US",
+        "joinDate": 1737200000,
+        "lastSeen": 1737290990,
+        "flags": 0,
+        "subscriptionTiers": [
+          {
+            "id": "737318930569244674",
+            "price": 1000,
+            "currency": "USD",
+            "description": "Basic subscription tier",
+            "benefits": ["Access to timeline", "Basic messaging"],
+            "flags": 2
+          }
+        ]
+      }
+    ]
   }
 }

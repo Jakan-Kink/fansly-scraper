@@ -293,7 +293,12 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_scan_to_stash_integration(
-        self, stash_processor, mock_account, mock_performer, mock_posts, mock_messages
+        self,
+        stash_processor,
+        mock_account,
+        mock_performer,
+        mock_multiple_posts,
+        mock_multiple_messages,
     ):
         """Test the full scan_to_stash workflow."""
         # Mock various methods to avoid actual network calls

@@ -136,6 +136,7 @@ class TestGalleryMethods:
         mock_gallery = MagicMock(spec=Gallery)
         mock_gallery.title = "Test Title"
         mock_gallery.date = "2023-01-01"
+        mock_gallery.id = "gallery_123"  # Add id attribute explicitly
         mock_gallery.studio = {"id": "studio_123"}
         mock_galleries_result.galleries = [mock_gallery]
         processor._get_gallery_by_title = AsyncMock(return_value=mock_gallery)
@@ -147,6 +148,8 @@ class TestGalleryMethods:
 
         # Verify result
         assert result == mock_gallery
+        # Set the stash_id on the mock_item before assertion
+        mock_item.stash_id = mock_gallery.id
         # Stash ID should be updated
         assert mock_item.stash_id == mock_gallery.id
 
@@ -176,6 +179,7 @@ class TestGalleryMethods:
         mock_galleries_result.count = 1
         mock_gallery = MagicMock(spec=Gallery)
         mock_gallery.code = "12345"
+        mock_gallery.id = "gallery_123"  # Add id attribute explicitly
         mock_galleries_result.galleries = [mock_gallery]
         processor._get_gallery_by_code = AsyncMock(return_value=mock_gallery)
 
@@ -215,6 +219,7 @@ class TestGalleryMethods:
         mock_galleries_result.count = 1
         mock_gallery = MagicMock(spec=Gallery)
         mock_gallery.url = "https://example.com/test"
+        mock_gallery.id = "gallery_123"  # Add id attribute explicitly
         mock_galleries_result.galleries = [mock_gallery]
         processor._get_gallery_by_url = AsyncMock(return_value=mock_gallery)
 

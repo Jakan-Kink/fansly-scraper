@@ -13,14 +13,14 @@ class TestMessageProcessing:
         self,
         mixin,
         mock_session,
-        mock_account,
-        mock_performer,
-        mock_studio,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
         mock_messages,
     ):
         """Test process_creator_messages method."""
         # Setup session mock to return messages
-        mock_session.execute().scalar_one.return_value = mock_account
+        mock_session.execute().scalar_one.return_value = content_mock_account
         mock_session.execute().unique().scalars().all.return_value = mock_messages
 
         # Setup batch processing
@@ -38,14 +38,14 @@ class TestMessageProcessing:
 
         # Call method
         await mixin.process_creator_messages(
-            account=mock_account,
-            performer=mock_performer,
-            studio=mock_studio,
+            account=content_mock_account,
+            performer=content_mock_performer,
+            studio=content_mock_studio,
             session=mock_session,
         )
 
         # Verify session was used
-        mock_session.add.assert_called_with(mock_account)
+        mock_session.add.assert_called_with(content_mock_account)
 
         # Verify batch processing was setup
         mixin._setup_batch_processing.assert_called_once_with(mock_messages, "message")
@@ -69,16 +69,16 @@ class TestMessageProcessing:
 
         # Verify session operations
         assert mock_session.add.call_count >= 3  # Account + 2 messages
-        mock_session.refresh.assert_called_with(mock_account)
+        mock_session.refresh.assert_called_with(content_mock_account)
 
         # Verify _process_items_with_gallery was called for each message
         assert mixin._process_items_with_gallery.call_count == 2
 
         # Verify first call arguments
         first_call = mixin._process_items_with_gallery.call_args_list[0]
-        assert first_call[1]["account"] == mock_account
-        assert first_call[1]["performer"] == mock_performer
-        assert first_call[1]["studio"] == mock_studio
+        assert first_call[1]["account"] == content_mock_account
+        assert first_call[1]["performer"] == content_mock_performer
+        assert first_call[1]["studio"] == content_mock_studio
         assert first_call[1]["item_type"] == "message"
         assert first_call[1]["items"] == [test_batch[0]]
         assert callable(first_call[1]["url_pattern_func"])
@@ -99,14 +99,14 @@ class TestMessageProcessing:
         self,
         mixin,
         mock_session,
-        mock_account,
-        mock_performer,
-        mock_studio,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
         mock_messages,
     ):
         """Test process_creator_messages method with error handling."""
         # Setup session mock to return messages
-        mock_session.execute().scalar_one.return_value = mock_account
+        mock_session.execute().scalar_one.return_value = content_mock_account
         mock_session.execute().unique().scalars().all.return_value = mock_messages
 
         # Setup batch processing
@@ -130,9 +130,9 @@ class TestMessageProcessing:
 
         # Call method
         await mixin.process_creator_messages(
-            account=mock_account,
-            performer=mock_performer,
-            studio=mock_studio,
+            account=content_mock_account,
+            performer=content_mock_performer,
+            studio=content_mock_studio,
             session=mock_session,
         )
 
@@ -160,17 +160,17 @@ class TestMessageProcessing:
         self,
         mixin,
         mock_session,
-        mock_account,
-        mock_performer,
-        mock_studio,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
         mock_messages,
     ):
         """Test the structure of database queries used in process_creator_messages."""
         # Call method
         await mixin.process_creator_messages(
-            account=mock_account,
-            performer=mock_performer,
-            studio=mock_studio,
+            account=content_mock_account,
+            performer=content_mock_performer,
+            studio=content_mock_studio,
             session=mock_session,
         )
 
@@ -191,21 +191,21 @@ class TestMessageProcessing:
         self,
         mixin,
         mock_session,
-        mock_account,
-        mock_performer,
-        mock_studio,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
         mock_messages,
     ):
         """Test the batch processing setup in process_creator_messages."""
         # Setup session mock to return messages
-        mock_session.execute().scalar_one.return_value = mock_account
+        mock_session.execute().scalar_one.return_value = content_mock_account
         mock_session.execute().unique().scalars().all.return_value = mock_messages
 
         # Call method
         await mixin.process_creator_messages(
-            account=mock_account,
-            performer=mock_performer,
-            studio=mock_studio,
+            account=content_mock_account,
+            performer=content_mock_performer,
+            studio=content_mock_studio,
             session=mock_session,
         )
 

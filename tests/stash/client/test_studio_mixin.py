@@ -29,11 +29,18 @@ def mock_studio() -> Studio:
 @pytest.mark.asyncio
 async def test_find_studio(stash_client: StashClient, mock_studio: Studio) -> None:
     """Test finding a studio by ID."""
+    # Clean the data to prevent _dirty_attrs errors
+    clean_data = {
+        k: v
+        for k, v in mock_studio.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
     with patch.object(
         stash_client,
         "execute",
         new_callable=AsyncMock,
-        return_value={"findStudio": mock_studio.__dict__},
+        return_value={"findStudio": clean_data},
     ):
         studio = await stash_client.find_studio("123")
         assert studio is not None
@@ -111,11 +118,18 @@ async def test_find_studios_error(stash_client: StashClient) -> None:
 @pytest.mark.asyncio
 async def test_create_studio(stash_client: StashClient, mock_studio: Studio) -> None:
     """Test creating a studio."""
+    # Clean the data to prevent _dirty_attrs errors
+    clean_data = {
+        k: v
+        for k, v in mock_studio.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
     with patch.object(
         stash_client,
         "execute",
         new_callable=AsyncMock,
-        return_value={"studioCreate": mock_studio.__dict__},
+        return_value={"studioCreate": clean_data},
     ):
         # Create with minimum fields
         studio = Studio(
@@ -199,11 +213,23 @@ async def test_update_studio(stash_client: StashClient, mock_studio: Studio) -> 
         tags=mock_studio.tags,
     )
 
+    # Clean the data to prevent _dirty_attrs errors
+    clean_name_data = {
+        k: v
+        for k, v in updated_name_studio.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+    clean_fields_data = {
+        k: v
+        for k, v in updated_fields_studio.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
     # Mock execute to return the appropriate updated studio
     studio_update_mock = AsyncMock()
     studio_update_mock.side_effect = [
-        {"studioUpdate": updated_name_studio.__dict__},
-        {"studioUpdate": updated_fields_studio.__dict__},
+        {"studioUpdate": clean_name_data},
+        {"studioUpdate": clean_fields_data},
     ]
 
     with patch.object(stash_client, "execute", studio_update_mock):

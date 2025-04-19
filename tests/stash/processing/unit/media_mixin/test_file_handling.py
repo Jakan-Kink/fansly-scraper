@@ -51,20 +51,22 @@ class TestFileHandling:
         assert file.path == "/path/to/image.jpg"
         assert file.size == 12345
 
-    def test_get_file_from_stash_obj_scene(self, mixin, mock_scene, mock_video_file):
+    def test_get_file_from_stash_obj_scene(
+        self, mixin, media_mock_scene, mock_video_file
+    ):
         """Test _get_file_from_stash_obj method with Scene object."""
         # Test with no files
-        mock_scene.files = []
+        media_mock_scene.files = []
 
-        file = mixin._get_file_from_stash_obj(mock_scene)
+        file = mixin._get_file_from_stash_obj(media_mock_scene)
 
         # Verify no file returned
         assert file is None
 
         # Test with files
-        mock_scene.files = [mock_video_file]
+        media_mock_scene.files = [mock_video_file]
 
-        file = mixin._get_file_from_stash_obj(mock_scene)
+        file = mixin._get_file_from_stash_obj(media_mock_scene)
 
         # Verify first file returned
         assert file == mock_video_file
@@ -72,9 +74,9 @@ class TestFileHandling:
         # Test with multiple files (should return first)
         mock_video_file2 = MagicMock()
         mock_video_file2.id = "file_789"
-        mock_scene.files = [mock_video_file, mock_video_file2]
+        media_mock_scene.files = [mock_video_file, mock_video_file2]
 
-        file = mixin._get_file_from_stash_obj(mock_scene)
+        file = mixin._get_file_from_stash_obj(media_mock_scene)
 
         # Verify first file returned
         assert file == mock_video_file
@@ -100,11 +102,11 @@ class TestFileHandling:
         assert "OR" in result
 
     @pytest.mark.asyncio
-    async def test_find_stash_files_by_id(self, mixin, mock_image, mock_scene):
+    async def test_find_stash_files_by_id(self, mixin, mock_image, media_mock_scene):
         """Test _find_stash_files_by_id method."""
         # Mock the client methods directly
         mixin.context.client.find_image = AsyncMock(return_value=mock_image)
-        mixin.context.client.find_scene = AsyncMock(return_value=mock_scene)
+        mixin.context.client.find_scene = AsyncMock(return_value=media_mock_scene)
 
         # Create our own implementation for this test
         async def mock_find_by_id(stash_files):

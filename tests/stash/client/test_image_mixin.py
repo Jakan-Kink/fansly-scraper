@@ -41,11 +41,18 @@ def mock_image() -> Image:
 @pytest.mark.asyncio
 async def test_find_image(stash_client: StashClient, mock_image: Image) -> None:
     """Test finding an image by ID."""
+    # Clean the data to prevent _dirty_attrs errors
+    clean_data = {
+        k: v
+        for k, v in mock_image.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
     with patch.object(
         stash_client,
         "execute",
         new_callable=AsyncMock,
-        return_value={"findImage": mock_image.__dict__},
+        return_value={"findImage": clean_data},
     ):
         image = await stash_client.find_image("123")
         assert image is not None
@@ -87,15 +94,19 @@ async def test_find_image_error(stash_client: StashClient) -> None:
 @pytest.mark.asyncio
 async def test_find_images(stash_client: StashClient, mock_image: Image) -> None:
     """Test finding images with filters."""
-    # Convert the mock image to a dictionary to simulate the GraphQL response
-    mock_image_dict = mock_image.__dict__
+    # Clean the data to prevent _dirty_attrs errors
+    clean_data = {
+        k: v
+        for k, v in mock_image.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
 
     mock_result = {
         "findImages": {
             "count": 1,
             "megapixels": 2.07,
             "filesize": 512000.0,
-            "images": [mock_image_dict],
+            "images": [clean_data],
         }
     }
 
@@ -202,11 +213,18 @@ async def test_find_images_error_fixed() -> None:
 @pytest.mark.asyncio
 async def test_create_image(stash_client: StashClient, mock_image: Image) -> None:
     """Test creating an image."""
+    # Clean the data to prevent _dirty_attrs errors
+    clean_data = {
+        k: v
+        for k, v in mock_image.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
     with patch.object(
         stash_client,
         "execute",
         new_callable=AsyncMock,
-        return_value={"imageCreate": mock_image.__dict__},
+        return_value={"imageCreate": clean_data},
     ):
         # Create with minimum fields
         image = Image(
@@ -273,11 +291,23 @@ async def test_update_image(stash_client: StashClient, mock_image: Image) -> Non
         performers=mock_image.performers,
     )
 
+    # Clean the data to prevent _dirty_attrs errors
+    clean_title_data = {
+        k: v
+        for k, v in updated_title_image.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+    clean_fields_data = {
+        k: v
+        for k, v in updated_fields_image.__dict__.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+
     # Mock execute to return the appropriate updated image
     image_update_mock = AsyncMock()
     image_update_mock.side_effect = [
-        {"imageUpdate": updated_title_image.__dict__},
-        {"imageUpdate": updated_fields_image.__dict__},
+        {"imageUpdate": clean_title_data},
+        {"imageUpdate": clean_fields_data},
     ]
 
     with patch.object(stash_client, "execute", image_update_mock):

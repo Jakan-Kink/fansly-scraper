@@ -1,10 +1,18 @@
-"""Common test fixtures and configuration."""
+"""Common test fixtures and configuration.
+
+This module provides shared test data and configuration for all tests,
+including database setup, logging configuration, and mock data loading.
+"""
 
 import asyncio
+import json
+import logging
 import os
+import sys
 import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -18,8 +26,43 @@ from alembic.config import Config as AlembicConfig
 from config import FanslyConfig
 from metadata.base import Base
 from metadata.database import Database
+from textio.logging import SizeTimeRotatingHandler
 
-_migrated_dbs = set()  # Track which DBs have had migrations run
+
+# Add helper function to clean object data for tests
+def clean_model_data(data_dict):
+    """Remove problematic fields from dict before creating model instances.
+
+    This prevents issues with _dirty_attrs and other internal fields
+    that might cause problems with mock objects in tests.
+    """
+    if not isinstance(data_dict, dict):
+        return data_dict
+
+    # Remove internal attributes that could cause issues
+    clean_dict = {
+        k: v
+        for k, v in data_dict.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
+    return clean_dict
+
+
+# Export helper functions and fixtures
+__all__ = [
+    # Utility functions
+    "clean_model_data",
+    # Fixtures
+    "json_timeline_data",
+    "json_messages_group_data",
+    "json_conversation_data",
+    "sample_account",
+    "sample_post",
+    "sample_message",
+]
+
+# Set for tracking migrated databases
+_migrated_dbs = set()
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -45,11 +88,6 @@ def setup_test_logging():
     2. Clean up log files after tests
     3. Properly close all file handlers
     """
-    import logging
-    import sys
-
-    from textio.logging import SizeTimeRotatingHandler
-
     # Create a temporary directory for logs
     with TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
@@ -436,3 +474,99 @@ def mock_api_response(request):
         with open(mock_data_path) as f:
             return f.read()
     return None
+
+
+# Load test data from JSON files
+@pytest.fixture
+def json_timeline_data():
+    """Load timeline test data from JSON file."""
+    json_path = Path(__file__).parent / "data" / "timeline.json"
+    if json_path.exists():
+        with open(json_path) as f:
+            return json.load(f)
+    return {}
+
+
+@pytest.fixture
+def json_messages_group_data():
+    """Load messages group test data from JSON file."""
+    json_path = Path(__file__).parent / "data" / "messages_group.json"
+    if json_path.exists():
+        with open(json_path) as f:
+            return json.load(f)
+    return {}
+
+
+@pytest.fixture
+def json_conversation_data():
+    """Load conversation test data from JSON file."""
+    json_path = Path(__file__).parent / "data" / "conversation.json"
+    if json_path.exists():
+        with open(json_path) as f:
+            return json.load(f)
+    return {}
+
+
+@pytest.fixture
+def sample_account(json_timeline_data):
+    """Create a sample account from timeline data."""
+    if not json_timeline_data:
+        return MagicMock()
+    account_data = json_timeline_data.get("account", {})
+    account = MagicMock()
+    account.id = account_data.get("id")
+    account.username = account_data.get("username")
+    return account
+
+
+@pytest.fixture
+def sample_post(json_timeline_data):
+    """Create a sample post from timeline data."""
+    if not json_timeline_data:
+        return MagicMock()
+    posts = json_timeline_data.get("posts", [])
+    if not posts:
+        return MagicMock()
+    post_data = posts[0]
+    post = MagicMock()
+    post.id = post_data.get("id")
+    post.content = post_data.get("content")
+    post.createdAt = post_data.get("createdAt")
+    return post
+
+
+@pytest.fixture
+def sample_message(json_conversation_data):
+    """Create a sample message from conversation data."""
+    if not json_conversation_data:
+        return MagicMock()
+    messages = json_conversation_data.get("messages", [])
+    if not messages:
+        return MagicMock()
+    message_data = messages[0]
+    message = MagicMock()
+    message.id = message_data.get("id")
+    message.content = message_data.get("content")
+    message.createdAt = message_data.get("createdAt")
+    return message
+
+
+@pytest.fixture(autouse=True)
+def mock_aiohttp_session():
+    """Mock aiohttp ClientSession for all tests."""
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock()
+    mock_session.get = AsyncMock()
+    mock_session.post = AsyncMock()
+    mock_session.put = AsyncMock()
+    mock_session.delete = AsyncMock()
+    return mock_session
+
+
+@pytest.fixture(autouse=True)
+def mock_gql():
+    """Mock GQL client for all tests."""
+    mock_client = MagicMock()
+    mock_client.execute = AsyncMock()
+    return mock_client

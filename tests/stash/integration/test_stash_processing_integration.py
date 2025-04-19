@@ -1,10 +1,12 @@
 """Integration tests for stash processing module."""
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from download.core import DownloadState
 from metadata import Account
@@ -98,6 +100,7 @@ async def test_full_creator_processing_flow(
     processor.process_creator_posts = AsyncMock()
     processor.process_creator_messages = AsyncMock()
     processor._safe_background_processing = AsyncMock()
+    processor.process_creator = AsyncMock(return_value=(mock_account, mock_performer))
 
     # Mock database queries
     mock_database.session_scope.return_value.__enter__.return_value.execute.return_value.scalar_one_or_none.return_value = (
@@ -106,6 +109,9 @@ async def test_full_creator_processing_flow(
     mock_database.async_session_scope.return_value.__aenter__.return_value.execute.return_value.scalar_one.return_value = (
         mock_account
     )
+
+    # Mock process_creator as AsyncMock
+    processor.process_creator = AsyncMock(return_value=(mock_account, mock_performer))
 
     # Execute the main method
     with patch("asyncio.get_running_loop") as mock_get_loop:
@@ -174,8 +180,11 @@ async def test_process_creator_to_background(
     processor.process_creator_messages = AsyncMock()
 
     # Mock session scope
-    mock_session = MagicMock()
-    mock_session.execute.return_value.scalar_one.return_value = mock_query_account
+    mock_session = AsyncMock(spec=AsyncSession)
+    mock_session.execute = AsyncMock()
+    mock_session.execute.return_value.scalar_one = AsyncMock(
+        return_value=mock_query_account
+    )
     mock_session.refresh = AsyncMock()
 
     # Test the full process flow
@@ -253,33 +262,50 @@ async def test_safe_background_processing_integration(
         # Mock continue_stash_processing
         processor.continue_stash_processing = AsyncMock(side_effect=case["side_effect"])
 
-        # Try running the method with appropriate exception handling
-        if case["exception"] is None:
-            # No exception expected
+        # Patch logger directly in stash.processing namespace
+        import stash.processing
+
+        stash.processing.logger = logging.getLogger("stash.processing")
+
+        with (
+            patch("stash.processing.logger.debug") as mock_logger_debug,
+            patch("stash.processing.logger.exception") as mock_logger_exception,
+            patch("stash.processing.debug_print") as mock_debug_print,
+        ):
             await processor._safe_background_processing(mock_account, mock_performer)
+
+            # Verify the cleanup event was set
             assert processor._cleanup_event.is_set()
-            processor.continue_stash_processing.assert_called_once_with(
-                mock_account, mock_performer
-            )
-        else:
-            # Exception expected
-            with (
-                pytest.raises(case["exception"]),
-                patch("stash.processing.logger.debug") as mock_logger_debug,
-                patch("stash.processing.logger.exception") as mock_logger_exception,
-                patch("stash.processing.debug_print") as mock_debug_print,
-            ):
+
+            # Verify appropriate logging happened
+            if case["exception"] is None:
+                # No exception expected
                 await processor._safe_background_processing(
                     mock_account, mock_performer
                 )
-
-                # Verify the cleanup event was set
                 assert processor._cleanup_event.is_set()
+                processor.continue_stash_processing.assert_called_once_with(
+                    mock_account, mock_performer
+                )
+            else:
+                # Exception expected
+                with (
+                    pytest.raises(case["exception"]),
+                    patch("stash.processing.logger.debug") as mock_logger_debug,
+                    patch("stash.processing.logger.exception") as mock_logger_exception,
+                    patch("stash.processing.debug_print") as mock_debug_print,
+                ):
+                    await processor._safe_background_processing(
+                        mock_account, mock_performer
+                    )
 
-                # Verify appropriate logging happened
-                if case["exception"] == asyncio.CancelledError:
-                    mock_logger_debug.assert_called_once()
-                    mock_debug_print.assert_called_once()
-                else:
-                    mock_logger_exception.assert_called_once()
-                    mock_debug_print.assert_called_once()
+                    # Verify the cleanup event was set
+                    assert processor._cleanup_event.is_set()
+
+                    # Verify appropriate logging happened
+                    if case["exception"] == asyncio.CancelledError:
+                        mock_logger_debug.assert_called_once()
+                        mock_debug_print.assert_called_once()
+                    else:
+                        mock_logger_exception.assert_called_once()
+                        mock_debug_print.assert_called_once()

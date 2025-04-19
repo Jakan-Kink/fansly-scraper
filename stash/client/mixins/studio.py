@@ -6,6 +6,7 @@ from ... import fragments
 from ...client_helpers import async_lru_cache
 from ...types import FindStudiosResultType, Studio
 from ..protocols import StashClientProtocol
+from ..utils import sanitize_model_data
 
 
 class StudioClientMixin(StashClientProtocol):
@@ -27,7 +28,9 @@ class StudioClientMixin(StashClientProtocol):
                 {"id": id},
             )
             if result and result.get("findStudio"):
-                return Studio(**result["findStudio"])
+                # Sanitize model data before creating Studio
+                clean_data = sanitize_model_data(result["findStudio"])
+                return Studio(**clean_data)
             return None
         except Exception as e:
             self.log.error(f"Failed to find studio {id}: {e}")
@@ -95,7 +98,9 @@ class StudioClientMixin(StashClientProtocol):
             # Clear caches since we've modified studios
             self.find_studio.cache_clear()
             self.find_studios.cache_clear()
-            return Studio(**result["studioCreate"])
+            # Sanitize model data before creating Studio
+            clean_data = sanitize_model_data(result["studioCreate"])
+            return Studio(**clean_data)
         except Exception as e:
             self.log.error(f"Failed to create studio: {e}")
             raise
@@ -125,7 +130,9 @@ class StudioClientMixin(StashClientProtocol):
             # Clear caches since we've modified a studio
             self.find_studio.cache_clear()
             self.find_studios.cache_clear()
-            return Studio(**result["studioUpdate"])
+            # Sanitize model data before creating Studio
+            clean_data = sanitize_model_data(result["studioUpdate"])
+            return Studio(**clean_data)
         except Exception as e:
             self.log.error(f"Failed to update studio: {e}")
             raise

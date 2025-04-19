@@ -420,5 +420,19 @@ def update_logging_config(config, enabled: bool) -> None:
     _config = config  # Update config reference
     _debug_enabled = enabled  # Update debug flag
 
+    # Configure asyncio debug logging
+    if enabled:
+        asyncio_logger = logging.getLogger("asyncio")
+        asyncio_logger.setLevel(logging.DEBUG)
+        # Add handler to redirect to loguru
+        asyncio_logger.addHandler(InterceptHandler())
+    else:
+        # Disable asyncio debug logging
+        asyncio_logger = logging.getLogger("asyncio")
+        asyncio_logger.setLevel(logging.WARNING)
+        # Remove any existing handlers
+        for handler in asyncio_logger.handlers[:]:
+            asyncio_logger.removeHandler(handler)
+
     # Update handlers with new configuration
     setup_handlers()

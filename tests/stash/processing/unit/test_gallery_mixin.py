@@ -7,16 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+# Import modules instead of classes to avoid fixture issues
+import tests.stash.processing.unit.gallery.test_gallery_creation
+import tests.stash.processing.unit.gallery.test_gallery_lookup
+import tests.stash.processing.unit.gallery.test_media_detection
+import tests.stash.processing.unit.gallery.test_process_item_gallery
+import tests.stash.processing.unit.gallery.test_tag_methods
 from stash.processing.mixins.gallery import GalleryProcessingMixin
-from tests.stash.processing.unit.gallery.test_gallery_creation import (
-    TestGalleryCreation,
-)
-from tests.stash.processing.unit.gallery.test_gallery_lookup import TestGalleryLookup
-from tests.stash.processing.unit.gallery.test_media_detection import TestMediaDetection
-from tests.stash.processing.unit.gallery.test_process_item_gallery import (
-    TestProcessItemGallery,
-)
-from tests.stash.processing.unit.gallery.test_tag_methods import TestTagMethods
 
 
 class TestMixinClass(GalleryProcessingMixin):
@@ -49,11 +46,4 @@ def mock_tag():
     return tag
 
 
-# Import and run all gallery tests when this module is imported
-__all__ = [
-    "TestGalleryCreation",
-    "TestGalleryLookup",
-    "TestMediaDetection",
-    "TestProcessItemGallery",
-    "TestTagMethods",
-]
+# No need to import classes directly as they're discovered by pytest

@@ -158,6 +158,7 @@ class Gallery(StashObject):
         "details",
         "photographer",
         "rating100",
+        "url",  # Deprecated but still needed
         "urls",
         "organized",
         "files",
@@ -180,6 +181,7 @@ class Gallery(StashObject):
         None  # Forward reference
     )
     cover: Image | None = None
+    url: str | None = None  # Deprecated, but needed for compatibility
 
     # Required fields
     urls: list[str] = strawberry.field(default_factory=list)
@@ -230,17 +232,21 @@ class Gallery(StashObject):
             New gallery instance
         """
         # Get URL based on content type
+        url = ""
         urls = []
         if isinstance(content, Post):
-            urls = [f"https://fansly.com/post/{content.id}"]
+            url = f"https://fansly.com/post/{content.id}"
+            urls = [url]
         elif isinstance(content, Message):
-            urls = [f"https://fansly.com/message/{content.id}"]
+            url = f"https://fansly.com/message/{content.id}"
+            urls = [url]
 
         # Build gallery
         gallery = cls(
             id="new",  # Will be replaced on save
             title=f"{studio.name} - {content.id}" if studio else str(content.id),
             details=content.content,
+            url=url,  # Set both url and urls for compatibility
             urls=urls,
             date=content.createdAt.strftime(
                 "%Y-%m-%d"
@@ -261,6 +267,7 @@ class Gallery(StashObject):
     __field_conversions__ = {
         "title": str,
         "code": str,
+        "url": str,  # Deprecated but still needed
         "urls": list,
         "details": str,
         "photographer": str,

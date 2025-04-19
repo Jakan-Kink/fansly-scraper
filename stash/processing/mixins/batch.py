@@ -77,6 +77,8 @@ class BatchProcessingMixin:
         """
         # Use same concurrency as semaphore
         max_concurrent = semaphore._value
+        # Track all created tasks for proper cleanup
+        all_tasks = []
 
         async def producer():
             # Process in batches
@@ -91,23 +93,79 @@ class BatchProcessingMixin:
 
         async def consumer():
             while True:
-                batch = await queue.get()
-                if batch is None:  # Sentinel value
-                    queue.task_done()
-                    break
                 try:
-                    await process_batch(batch)
-                finally:
-                    queue.task_done()
+                    batch = await queue.get()
+                    if batch is None:  # Sentinel value
+                        queue.task_done()
+                        break
+                    try:
+                        await process_batch(batch)
+                    except asyncio.CancelledError:
+                        # Handle cancellation gracefully
+                        raise
+                    except Exception as e:
+                        # Log error but continue processing
+                        from ..logging import processing_logger as logger
+
+                        logger.exception(f"Error in batch processing: {e}")
+                    finally:
+                        queue.task_done()
+                except asyncio.CancelledError:
+                    # Allow task to be cancelled while waiting for queue
+                    raise
 
         try:
             # Start consumers
             consumers = [asyncio.create_task(consumer()) for _ in range(max_concurrent)]
+            all_tasks.extend(consumers)
+
             # Start producer
             producer_task = asyncio.create_task(producer())
-            # Wait for all work to complete
-            await queue.join()
-            await producer_task
-            await asyncio.gather(*consumers, return_exceptions=True)
+            all_tasks.append(producer_task)
+
+            # Register tasks with config for cleanup if available
+            if hasattr(self, "config") and hasattr(self.config, "get_background_tasks"):
+                for task in all_tasks:
+                    self.config.get_background_tasks().append(task)
+
+            # Wait for all work to complete with timeout
+            try:
+                # Add timeout to prevent indefinite hanging
+                await asyncio.wait_for(queue.join(), timeout=120)  # 2-minute timeout
+                await producer_task
+                await asyncio.gather(*consumers, return_exceptions=True)
+            except TimeoutError:
+                # If timeout occurs, cancel all tasks
+                for task in all_tasks:
+                    if not task.done():
+                        task.cancel()
+                # Let cancelled tasks clean up
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            # Cancel all child tasks if parent is cancelled
+            for task in all_tasks:
+                if not task.done():
+                    task.cancel()
+            # Let cancelled tasks clean up
+            await asyncio.sleep(0.5)
+            raise
+        except Exception as e:
+            # Handle unexpected errors
+            from ..logging import processing_logger as logger
+
+            logger.exception(f"Unexpected error in batch processing: {e}")
+            # Cancel all tasks in case of unexpected error
+            for task in all_tasks:
+                if not task.done():
+                    task.cancel()
+            # Let cancelled tasks clean up
+            await asyncio.sleep(0.5)
+            raise
         finally:
+            # Clean up tasks if they're still in the background tasks list
+            if hasattr(self, "config") and hasattr(self.config, "get_background_tasks"):
+                for task in all_tasks:
+                    # Remove task from background tasks if it's there
+                    if task in self.config.get_background_tasks():
+                        self.config.get_background_tasks().remove(task)
             process_pbar.close()

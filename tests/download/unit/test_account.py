@@ -38,9 +38,7 @@ class TestValidateDownloadMode:
     def test_invalid_mode_with_creator(self):
         """Test with a creator name and invalid mode."""
         config = MagicMock(spec=FanslyConfig)
-        config.download_mode = (
-            DownloadMode.COLLECTIONS
-        )  # Not in valid modes for creator
+        config.download_mode = DownloadMode.COLLECTION  # Not in valid modes for creator
         state = DownloadState()
         state.creator_name = "testuser"
 
@@ -62,7 +60,7 @@ class TestValidateDownloadMode:
     def test_client_account_any_mode(self):
         """Test with client account (no creator) and any mode."""
         config = MagicMock(spec=FanslyConfig)
-        config.download_mode = DownloadMode.COLLECTIONS  # Any mode should be fine
+        config.download_mode = DownloadMode.COLLECTION  # Any mode should be fine
         state = DownloadState()
         state.creator_name = None  # Client account
 

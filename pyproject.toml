@@ -152,6 +152,7 @@ addopts = [
     "--cov-config=pyproject.toml",
     "--randomly-seed=1234",
     "--timeout=300",
+    "-v",  # Add verbose output for better debugging
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

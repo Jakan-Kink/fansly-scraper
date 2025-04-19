@@ -1,1 +1,1 @@
-"""Integration tests for StashProcessing."""
+"""Integration test package for StashProcessing."""

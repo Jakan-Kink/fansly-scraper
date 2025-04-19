@@ -139,6 +139,11 @@ class StashObject:
         if name in self.__tracked_fields__ and old_value != value:
             self.__is_dirty__ = True
 
+            # Set dirty attribute for better debugging
+            if not hasattr(self, "_dirty_attrs"):
+                self._dirty_attrs = set()
+            self._dirty_attrs.add(name)
+
             # Also update original values to not include this field
             # This ensures to_input_dirty will include this field
             if hasattr(self, "__original_values__"):
@@ -156,6 +161,10 @@ class StashObject:
     def mark_clean(self) -> None:
         """Mark object as having no unsaved changes."""
         self.__is_dirty__ = False
+        # Clear the dirty attributes tracking
+        if hasattr(self, "_dirty_attrs"):
+            self._dirty_attrs = set()
+
         # Store deep copies of current values of tracked fields to detect changes in lists
         self.__original_values__ = {}
         for field in self.__tracked_fields__:

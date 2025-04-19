@@ -14,6 +14,7 @@ from .mixins.scene import SceneClientMixin
 from .mixins.studio import StudioClientMixin
 from .mixins.subscription import SubscriptionClientMixin
 from .mixins.tag import TagClientMixin
+from .utils import sanitize_model_data
 
 
 @strawberry.type

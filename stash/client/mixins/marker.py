@@ -6,6 +6,7 @@ from ... import fragments
 from ...client_helpers import async_lru_cache
 from ...types import FindSceneMarkersResultType, SceneMarker
 from ..protocols import StashClientProtocol
+from ..utils import sanitize_model_data
 
 
 class MarkerClientMixin(StashClientProtocol):
@@ -27,7 +28,9 @@ class MarkerClientMixin(StashClientProtocol):
                 {"id": id},
             )
             if result and result.get("findSceneMarker"):
-                return SceneMarker(**result["findSceneMarker"])
+                # Sanitize model data before creating SceneMarker
+                clean_data = sanitize_model_data(result["findSceneMarker"])
+                return SceneMarker(**clean_data)
             return None
         except Exception as e:
             self.log.error(f"Failed to find marker {id}: {e}")
@@ -97,7 +100,9 @@ class MarkerClientMixin(StashClientProtocol):
             # Clear caches since we've modified markers
             self.find_marker.cache_clear()
             self.find_markers.cache_clear()
-            return SceneMarker(**result["sceneMarkerCreate"])
+            # Sanitize model data before creating SceneMarker
+            clean_data = sanitize_model_data(result["sceneMarkerCreate"])
+            return SceneMarker(**clean_data)
         except Exception as e:
             self.log.error(f"Failed to create marker: {e}")
             raise
@@ -148,7 +153,9 @@ class MarkerClientMixin(StashClientProtocol):
             # Clear caches since we've modified a marker
             self.find_marker.cache_clear()
             self.find_markers.cache_clear()
-            return SceneMarker(**result["sceneMarkerUpdate"])
+            # Sanitize model data before creating SceneMarker
+            clean_data = sanitize_model_data(result["sceneMarkerUpdate"])
+            return SceneMarker(**clean_data)
         except Exception as e:
             self.log.error(f"Failed to update marker: {e}")
             raise
