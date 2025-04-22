@@ -10,7 +10,9 @@ import pytest
 from stash.processing.mixins.batch import BatchProcessingMixin
 
 # Import TestBatchProcessing without importing the fixtures
-from tests.stash.processing.unit.batch.test_batch_processing import TestBatchProcessing
+from tests.stash.processing.unit.batch.test_batch_processing import (
+    TestWorkerPoolProcessing as TestBatchProcessing,
+)
 
 
 class TestMixinClass(BatchProcessingMixin):

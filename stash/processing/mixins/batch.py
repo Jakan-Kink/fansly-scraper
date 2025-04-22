@@ -1,4 +1,4 @@
-"""Batch processing mixin."""
+"""Worker pool processing mixin."""
 
 from __future__ import annotations
 
@@ -9,19 +9,21 @@ from typing import TYPE_CHECKING, Any
 
 from tqdm import tqdm
 
+from ...logging import processing_logger as logger
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class BatchProcessingMixin:
-    """Batch processing utilities."""
+    """Worker pool processing utilities."""
 
-    async def _setup_batch_processing(
+    async def _setup_worker_pool(
         self,
         items: list[Any],
         item_type: str,
     ) -> tuple[tqdm, tqdm, asyncio.Semaphore, asyncio.Queue]:
-        """Set up common batch processing infrastructure.
+        """Set up common worker pool infrastructure.
 
         Args:
             items: List of items to process
@@ -48,66 +50,84 @@ class BatchProcessingMixin:
         # Limited to avoid overwhelming Stash server
         max_concurrent = min(10, (os.cpu_count() // 2) or 1)
         semaphore = asyncio.Semaphore(max_concurrent)
-        queue = asyncio.Queue(
-            maxsize=max_concurrent * 4
-        )  # Quadruple buffer for more throughput
+        # No maximum queue size - allow unlimited buffering
+        queue = asyncio.Queue(maxsize=0)
 
         return task_pbar, process_pbar, semaphore, queue
 
-    async def _run_batch_processor(
+    async def _run_worker_pool(
         self,
         items: list[Any],
-        batch_size: int,
         task_pbar: tqdm,
         process_pbar: tqdm,
         semaphore: asyncio.Semaphore,
         queue: asyncio.Queue,
-        process_batch: Callable,
+        process_item: Callable,
     ) -> None:
-        """Run batch processing with producer/consumer pattern.
+        """Run processing with worker pool pattern.
 
         Args:
             items: List of items to process
-            batch_size: Size of each batch
             task_pbar: Progress bar for task creation
             process_pbar: Progress bar for processing
             semaphore: Semaphore for concurrency control
-            queue: Queue for producer/consumer pattern
-            process_batch: Callback function to process each batch
+            queue: Queue for worker pool pattern
+            process_item: Callback function to process each item
         """
         # Use same concurrency as semaphore
         max_concurrent = semaphore._value
         # Track all created tasks for proper cleanup
         all_tasks = []
+        # Flag to track if consumer tasks are already started
+        consumers_started = asyncio.Event()
+        # Keep track of enqueued items
+        enqueued_count = 0
 
         async def producer():
-            # Process in batches
-            for i in range(0, len(items), batch_size):
-                batch = items[i : i + batch_size]
-                await queue.put(batch)
-                task_pbar.update(len(batch))
+            nonlocal enqueued_count
+
+            # Add items to the queue
+            for item in items:
+                await queue.put(item)
+                task_pbar.update(1)
+                enqueued_count += 1
+
+                # Start consumers when we have 40+ items in the queue
+                # or when all items are queued (for smaller jobs)
+                if (
+                    enqueued_count >= 40 or enqueued_count == len(items)
+                ) and not consumers_started.is_set():
+                    consumers_started.set()
+
+            # Always set the event once all items are queued
+            # This ensures consumers start even with a small number of items
+            if not consumers_started.is_set():
+                consumers_started.set()
+
             # Signal consumers we're done
             for _ in range(max_concurrent):
                 await queue.put(None)
             task_pbar.close()
 
         async def consumer():
+            # Wait until producer signals to start
+            await consumers_started.wait()
+
             while True:
                 try:
-                    batch = await queue.get()
-                    if batch is None:  # Sentinel value
+                    item = await queue.get()
+                    if item is None:  # Sentinel value
                         queue.task_done()
                         break
                     try:
-                        await process_batch(batch)
+                        await process_item(item)
+                        process_pbar.update(1)
                     except asyncio.CancelledError:
                         # Handle cancellation gracefully
                         raise
                     except Exception as e:
                         # Log error but continue processing
-                        from ..logging import processing_logger as logger
-
-                        logger.exception(f"Error in batch processing: {e}")
+                        logger.exception(f"Error in item processing: {e}")
                     finally:
                         queue.task_done()
                 except asyncio.CancelledError:
@@ -151,9 +171,7 @@ class BatchProcessingMixin:
             raise
         except Exception as e:
             # Handle unexpected errors
-            from ..logging import processing_logger as logger
-
-            logger.exception(f"Unexpected error in batch processing: {e}")
+            logger.exception(f"Unexpected error in worker pool processing: {e}")
             # Cancel all tasks in case of unexpected error
             for task in all_tasks:
                 if not task.done():

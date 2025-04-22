@@ -10,12 +10,11 @@ from stash import StashClient
 from stash.client.mixins.tag import TagClientMixin
 from stash.client_helpers import async_lru_cache
 from stash.types import FindTagsResultType, Tag, TagsMergeInput
+from tests.stash.client.client_test_helpers import create_base_mock_client
 
 
 def create_mock_client() -> StashClient:
     """Create a base mock StashClient for testing."""
-    from tests.stash.client.client_test_helpers import create_base_mock_client
-
     # Use the helper to create a base client
     client = create_base_mock_client()
 

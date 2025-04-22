@@ -2,7 +2,7 @@
 
 import pytest
 
-from ..conftest import (
+from tests.stash.processing.integration.conftest import (
     integration_mock_account,
     integration_mock_performer,
     integration_mock_studio,

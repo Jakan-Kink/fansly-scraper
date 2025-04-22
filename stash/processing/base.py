@@ -235,7 +235,6 @@ class StashProcessingBase:
         3. Closes client connection
         4. Cleans up any tracked tasks
         """
-        from ..logging import processing_logger as logger
 
         logger.debug(f"Starting cleanup for {self.__class__.__name__}")
 

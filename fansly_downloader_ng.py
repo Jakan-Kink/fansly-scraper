@@ -89,6 +89,58 @@ from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 # Image.MAX_IMAGE_PIXELS = None
 
 
+async def _safe_cleanup_database(config: FanslyConfig) -> None:
+    """Safely clean up database with timeout protection.
+
+    Args:
+        config: The program configuration that may contain a database instance.
+    """
+    if not hasattr(config, "_database") or config._database is None:
+        print_info("No database to clean up or database already closed.")
+        return
+
+    if (
+        hasattr(config._database, "_cleanup_done")
+        and config._database._cleanup_done.is_set()
+    ):
+        print_info("Database cleanup already performed, skipping")
+        return
+
+    try:
+        # Add timeout for database cleanup
+        cleanup_timeout = 30  # 30 seconds timeout for cleanup
+        try:
+            await asyncio.wait_for(config._database.cleanup(), timeout=cleanup_timeout)
+            print_info("Database connections closed successfully.")
+        except TimeoutError:
+            print_error(f"Database cleanup timed out after {cleanup_timeout} seconds")
+            try:
+                # Force sync cleanup as last resort
+                config._database.close_sync()
+            except Exception as force_e:
+                print_error(f"Forced cleanup also failed: {force_e}")
+        except Exception as detail_e:
+            print_error(f"Detailed error during database cleanup: {detail_e}")
+            try:
+                # Try sync cleanup as fallback
+                config._database.close_sync()
+            except Exception as sync_e:
+                print_error(f"Sync cleanup also failed: {sync_e}")
+    except Exception as e:
+        print_error(f"Error closing database connections: {e}")
+        try:
+            # One final attempt with sync cleanup
+            config._database.close_sync()
+        except Exception:
+            pass  # Give up if this fails
+
+    # Always check for leaked semaphores as a safety measure
+    try:
+        monitor_semaphores(threshold=20)  # Monitor for leaked semaphores
+    except Exception:
+        pass  # Ignore errors in semaphore monitoring
+
+
 async def cleanup_database(config: FanslyConfig) -> None:
     """Clean up database connections when the program exits.
 
@@ -98,110 +150,17 @@ async def cleanup_database(config: FanslyConfig) -> None:
     if hasattr(config, "_database") and config._database is not None:
         try:
             print_info("Closing database connections...")
-            try:
-                # Check if this is a cleanup during interrupt handling
-                is_interrupted = (
-                    hasattr(_handle_interrupt, "interrupted")
-                    and _handle_interrupt.interrupted
-                )
-                if is_interrupted:
-                    print_warning(
-                        "Performing database cleanup during interrupt handling"
-                    )
-
-                print_info("Stopping database sync thread...")
-                if hasattr(config._database, "_stop_sync"):
-                    # Signal sync thread to stop
-                    config._database._stop_sync.set()
-
-                    # Check if sync thread exists and wait for it to exit
-                    if (
-                        hasattr(config._database, "_sync_thread")
-                        and config._database._sync_thread is not None
-                    ):
-                        if config._database._sync_thread.is_alive():
-                            print_info("Waiting for sync thread to exit...")
-                            timeout_sec = (
-                                8 if is_interrupted else 5
-                            )  # Give more time during interrupt
-                            start_time = time.time()
-                            while (
-                                config._database._sync_thread.is_alive()
-                                and time.time() - start_time < timeout_sec
-                            ):
-                                await asyncio.sleep(0.1)
-                            if config._database._sync_thread.is_alive():
-                                print_warning(
-                                    f"Sync thread did not exit within {timeout_sec} seconds. "
-                                    "Proceeding with cleanup anyway."
-                                )
-                                # Don't terminate thread if it won't exit - we'll handle it with close_sync
-                        else:
-                            print_info("Sync thread already exited")
-
-                print_info("Performing final database sync...")
-                if hasattr(config._database, "_sync_to_disk"):
-                    try:
-                        # Create and register task for tracking
-                        sync_timeout = 15  # Increased from 10 to 15 seconds
-                        sync_task = asyncio.create_task(
-                            asyncio.to_thread(config._database._sync_to_disk)
-                        )
-                        # Add to background tasks for tracking
-                        config.get_background_tasks().append(sync_task)
-                        try:
-                            await asyncio.wait_for(sync_task, timeout=sync_timeout)
-                            print_info("Final database sync completed successfully")
-                        except TimeoutError:
-                            print_warning(
-                                f"Database sync timed out after {sync_timeout} seconds"
-                            )
-                            sync_task.cancel()
-                        except Exception as sync_e:
-                            print_error(f"Error during final sync: {sync_e}")
-                        finally:
-                            # Remove task from tracking
-                            if sync_task in config.get_background_tasks():
-                                config.get_background_tasks().remove(sync_task)
-                    except Exception as sync_e:
-                        print_error(f"Error setting up sync task: {sync_e}")
-                else:
-                    print_warning("No sync_to_disk method found on database")
-
-                print_info("Closing database resources...")
-                try:
-                    cleanup_timeout = 20  # Increased from 15 to 20 seconds
-                    cleanup_task = asyncio.create_task(config._database.cleanup())
-                    # Add to background tasks for tracking
-                    config.get_background_tasks().append(cleanup_task)
-                    try:
-                        await asyncio.wait_for(cleanup_task, timeout=cleanup_timeout)
-                        print_info("Database connections closed successfully.")
-                    except TimeoutError:
-                        print_warning(
-                            f"Database cleanup timed out after {cleanup_timeout} seconds"
-                        )
-                        cleanup_task.cancel()
-                    except Exception as cleanup_e:
-                        print_error(f"Error during database cleanup: {cleanup_e}")
-                    finally:
-                        # Remove task from tracking
-                        if cleanup_task in config.get_background_tasks():
-                            config.get_background_tasks().remove(cleanup_task)
-                except Exception as task_e:
-                    print_error(f"Error setting up cleanup task: {task_e}")
-            except Exception as detail_e:
-                print_error(f"Detailed error during database cleanup: {detail_e}")
+            await _safe_cleanup_database(config)
         except Exception as e:
-            print_error(f"Error closing database connections: {e}")
+            print_error(f"Error during database cleanup: {e}")
     else:
         print_info("No database to clean up or database already closed.")
 
-    # Always check for leaked semaphores as a safety measure
+    # Always check for leaked semaphores
     try:
-        monitor_semaphores(threshold=20)  # Monitor for leaked semaphores
+        monitor_semaphores(threshold=20)
     except Exception:
-        pass  # Ignore errors in semaphore monitoring
+        pass
 
 
 def cleanup_database_sync(config: FanslyConfig) -> None:
@@ -211,10 +170,18 @@ def cleanup_database_sync(config: FanslyConfig) -> None:
         config: The program configuration that may contain a database instance.
     """
     if hasattr(config, "_database") and config._database is not None:
+        if (
+            hasattr(config._database, "_cleanup_done")
+            and config._database._cleanup_done.is_set()
+        ):
+            print_info("Database cleanup already performed (sync), skipping")
+            return
+
         try:
             if hasattr(_handle_interrupt, "interrupted"):
-                # Skip if already handling interrupt
+                # Skip if already handling interrupt to avoid deadlocks
                 return
+            # Call close_sync which includes final sync
             config._database.close_sync()
             print_info("Database connections closed successfully.")
         except Exception as e:
@@ -240,9 +207,11 @@ def _handle_interrupt(signum, frame):
     # Set a flag instead of calling sys.exit directly
     if hasattr(_handle_interrupt, "interrupted"):
         # Second interrupt, force exit
+        print_error("Second interrupt received, forcing immediate exit!")
         sys.exit(130)  # 128 + SIGINT(2)
     _handle_interrupt.interrupted = True
-    # Let the main cleanup sequence handle the exit
+    # Raise KeyboardInterrupt to break out of blocking operations
+    raise KeyboardInterrupt("User interrupted operation")
 
 
 def increase_file_descriptor_limit() -> None:
@@ -679,30 +648,20 @@ async def cleanup_with_global_timeout(config: FanslyConfig):
     print_info("Starting database cleanup...")
     try:
         # Calculate remaining time for database cleanup
-        db_timeout = min(15, max_cleanup_time - (time.time() - cleanup_start))
+        db_timeout = min(30, max_cleanup_time - (time.time() - cleanup_start))
         if db_timeout <= 0:
             print_warning("No time remaining for database cleanup")
             return
 
-        try:
-            await asyncio.wait_for(cleanup_database(config), timeout=db_timeout)
+        # Call cleanup directly without a task or timeout
+        # The Database.cleanup method now has built-in progress display
+        if hasattr(config, "_database") and config._database is not None:
+            await cleanup_database(config)
             print_info("Database cleanup completed successfully")
-        except TimeoutError:
-            print_warning(f"Database cleanup timed out after {db_timeout} seconds")
-            # Force sync thread to stop if we can
-            if hasattr(config, "_database") and config._database is not None:
-                if hasattr(config._database, "_stop_sync"):
-                    config._database._stop_sync.set()
-                if hasattr(config._database, "close_sync"):
-                    try:
-                        print_warning("Forcing database close")
-                        config._database.close_sync()
-                    except Exception as e:
-                        print_warning(f"Error forcing database close: {e}")
-        except Exception as db_error:
-            print_error(f"Error during database cleanup: {db_error}")
-    except Exception as e:
-        print_error(f"Fatal error during cleanup: {e}")
+        else:
+            print_info("No database to clean up")
+    except Exception as db_error:
+        print_error(f"Error during database cleanup: {db_error}")
 
     # Finally clean up any remaining semaphores if time allows
     try:
@@ -747,6 +706,9 @@ async def _async_main(config: FanslyConfig) -> int:
         print()
         print_error("Program interrupted by user")
         exit_code = EXIT_ABORT
+        # Make sure we don't try to raise KeyboardInterrupt again in cleanup
+        if hasattr(_handle_interrupt, "interrupted"):
+            print_info("Starting cleanup after interruption...")
     except ApiError as e:
         print()
         print_error(str(e))
@@ -790,8 +752,16 @@ if __name__ == "__main__":
     # Create config at top level so it's available for cleanup
     config = FanslyConfig(program_version=__version__)
 
-    # Set up signal handling
+    # Set up signal handling (for both Unix and Windows)
     signal.signal(signal.SIGINT, _handle_interrupt)
+    # Additional Windows-specific signal handling
+    if sys.platform == "win32":
+        try:
+            # On Windows, CTRL_C_EVENT is more reliable than SIGINT
+            signal.signal(signal.CTRL_C_EVENT, _handle_interrupt)  # type: ignore
+        except (AttributeError, ValueError):
+            # CTRL_C_EVENT not defined or not supported on this platform
+            pass
 
     try:
         # Get event loop
@@ -817,7 +787,7 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-        # Force exit after 5 seconds
-        print_warning("Forcing program exit in 5 seconds...")
-        time.sleep(5)
-        sys.exit(1)
+        # # Force exit after 5 seconds
+        # print_warning("Forcing program exit in 5 seconds...")
+        # time.sleep(5)
+        # sys.exit(1)

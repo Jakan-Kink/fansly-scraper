@@ -1124,41 +1124,65 @@ async def dedupe_media_file(
         # Try by normalized filename
         normalized_path = normalize_filename(filename.name, config=config)
 
-        result = await session.execute(
-            select(Media).filter(
-                Media.local_filename.ilike(normalized_path),
-                Media.is_downloaded,
+        # If original and normalized paths are different, check both
+        paths_to_check = [normalized_path]
+        if normalized_path != filename.name:
+            paths_to_check.append(filename.name)
+
+        # Also check for other files with same media ID but different timestamp format
+        id_part_match = re.search(r"_((?:preview_)?id_\d+)\.[^.]+$", filename.name)
+        if id_part_match:
+            id_part = id_part_match.group(1)
+            # Search for any files with this ID part
+            result = await session.execute(
+                select(Media).filter(
+                    Media.local_filename.like(f"%{id_part}.%"),
+                    Media.is_downloaded,
+                )
             )
-        )
-        existing_by_name = result.scalar_one_or_none()
-        if existing_by_name:
-            # First check if filenames match
-            if existing_by_name.local_filename == get_filename_only(filename):
-                # Same filename - perfect match
-                return True
+            existing_by_id_pattern = result.scalars().all()
+            for existing in existing_by_id_pattern:
+                if existing.local_filename not in paths_to_check:
+                    paths_to_check.append(existing.local_filename)
 
-            # Different filename - check if it's actually the same file
-            if existing_by_name.content_hash:  # Only if we have a hash to compare
-                file_hash = await _calculate_hash_for_file(filename, mimetype)
+        for path_to_check in paths_to_check:
+            result = await session.execute(
+                select(Media).filter(
+                    Media.local_filename.ilike(path_to_check),
+                    Media.is_downloaded,
+                )
+            )
+            existing_by_name = result.scalar_one_or_none()
+            if existing_by_name:
+                # First check if filenames match
+                if existing_by_name.local_filename == get_filename_only(filename):
+                    # Same filename - perfect match
+                    return True
 
-                if file_hash and file_hash == existing_by_name.content_hash:
-                    # Same content but wrong filename - check if DB's file exists
-                    db_file_exists = await _check_file_exists(
-                        state.download_path, existing_by_name.local_filename
-                    )
+                # Different filename - check if it's actually the same file
+                if existing_by_name.content_hash:  # Only if we have a hash to compare
+                    file_hash = await _calculate_hash_for_file(filename, mimetype)
 
-                    if db_file_exists:
-                        # DB's file exists, this is a duplicate - remove it
-                        await asyncio.get_running_loop().run_in_executor(
-                            None, filename.unlink
+                    if file_hash and file_hash == existing_by_name.content_hash:
+                        # Same content but wrong filename - check if DB's file exists
+                        db_file_exists = await _check_file_exists(
+                            state.download_path, existing_by_name.local_filename
                         )
-                        return True
-                    else:
-                        # DB's file is missing but content matches - update DB filename
-                        existing_by_name.local_filename = get_filename_only(filename)
-                        session.add(existing_by_name)
-                        await session.flush()
-                        return True
+
+                        if db_file_exists:
+                            # DB's file exists, this is a duplicate - remove it
+                            await asyncio.get_running_loop().run_in_executor(
+                                None, filename.unlink
+                            )
+                            return True
+                        else:
+                            # DB's file is missing but content matches - update DB filename
+                            existing_by_name.local_filename = get_filename_only(
+                                filename
+                            )
+                            session.add(existing_by_name)
+                            await session.flush()
+                            return True
 
         # If not in DB or no hash match, calculate hash and update DB
         file_hash = await _calculate_hash_for_file(filename, mimetype)

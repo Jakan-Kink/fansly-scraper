@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
@@ -33,6 +34,9 @@ from sqlalchemy.sql.elements import BindParameter
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
 from config import db_logger
+
+# Import textio logger for user-facing progress messages
+from textio import print_error, print_info, print_warning
 from utils.semaphore_monitor import monitor_semaphores
 
 from .logging_config import DatabaseLogger
@@ -77,7 +81,7 @@ def require_database_config(func: Callable[..., RT]) -> Callable[..., RT]:
     async def async_wrapper(*args: Any, **kwargs: Any) -> RT:
         """Async wrapper that checks for database config."""
         config = get_config(*args, **kwargs)
-        if config is None or not hasattr(config, "_database"):
+        if (config is None) or (not hasattr(config, "_database")):
             raise ValueError("Database configuration not found")
         return await func(*args, **kwargs)
 
@@ -85,7 +89,7 @@ def require_database_config(func: Callable[..., RT]) -> Callable[..., RT]:
     def sync_wrapper(*args: Any, **kwargs: Any) -> RT:
         """Sync wrapper that checks for database config."""
         config = get_config(*args, **kwargs)
-        if config is None or not hasattr(config, "_database"):
+        if (config is None) or (not hasattr(config, "_database")):
             raise ValueError("Database configuration not found")
         return func(*args, **kwargs)
 
@@ -125,6 +129,11 @@ class Database:
             creator_name: Optional creator name for separate databases
             skip_migrations: Skip running migrations during initialization
         """
+        # Add cleanup coordination flags
+        self._cleanup_done = threading.Event()
+        self._final_sync_done = (
+            threading.Event()
+        )  # New flag specifically for final sync
         # Initialize all instance variables first to prevent cleanup errors
         self.config = config
         self.creator_name = creator_name
@@ -143,6 +152,7 @@ class Database:
         self._sqlalchemy_connection = None  # Keeps SQLAlchemy connection alive
         self._sync_interval = config.db_sync_seconds or 60
         self._sync_commits = config.db_sync_commits or 1000
+        self._force_sync = False  # Add flag for forced sync during shutdown
 
         # Determine database path
         if creator_name and config.separate_metadata:
@@ -412,7 +422,7 @@ class Database:
         # Register cleanup
         atexit.register(self.close_sync)
 
-    def _sync_to_disk(self) -> None:
+    def _sync_to_disk(self, is_final_sync: bool = False) -> None:
         """Sync in-memory database to disk.
 
         This method performs an atomic write of the in-memory database to disk:
@@ -424,30 +434,132 @@ class Database:
         6. Uses fsync to ensure durability
 
         The operation is protected by a sync lock to prevent concurrent syncs.
+
+        Args:
+            is_final_sync: Whether this is the final sync during program shutdown
         """
-        with self._sync_lock:
+        # Skip if final sync already done
+        if is_final_sync and self._final_sync_done.is_set():
+            db_logger.info("Final sync already performed, skipping")
+            return
+
+        # For final sync during shutdown, use longer timeout to ensure completion
+        lock_timeout = 30 if is_final_sync else 10  # Give more time during final sync
+
+        # Try to acquire lock with timeout
+        acquired_lock = False
+        try:
+            # Check stop conditions first
+            if not is_final_sync and self._stop_sync.is_set():
+                db_logger.info("Skipping sync - stop requested")
+                return
+
+            # Try to acquire the lock first
+            acquired_lock = self._sync_lock.acquire(timeout=lock_timeout)
+            if not acquired_lock:
+                if is_final_sync:
+                    # During shutdown, try to detect if background thread has the lock
+                    if (
+                        hasattr(self, "_sync_thread")
+                        and self._sync_thread
+                        and self._sync_thread.is_alive()
+                    ):
+                        db_logger.warning(
+                            "Background sync thread appears to be active - interrupting"
+                        )
+                        # Force the thread to stop
+                        self._stop_sync.set()
+                        try:
+                            if hasattr(self._sync_thread, "_tstate_lock"):
+                                self._sync_thread._tstate_lock.release()
+                            if hasattr(self._sync_thread, "_stop"):
+                                self._sync_thread._stop()
+                        except Exception:
+                            pass
+
+                        # Short wait for thread to exit
+                        try:
+                            self._sync_thread.join(timeout=1)
+                        except Exception:
+                            pass
+
+                        # Try to acquire lock again
+                        acquired_lock = self._sync_lock.acquire(timeout=1)
+                        if not acquired_lock:
+                            db_logger.warning(
+                                "Could not acquire lock - forcing final sync"
+                            )
+                            self._force_sync = True
+                    else:
+                        # Thread exited but lock is still held - try to recover
+                        try:
+                            # First try a clean release
+                            try:
+                                self._sync_lock.release()
+                                db_logger.info("Successfully released stuck lock")
+                            except Exception:
+                                # If clean release fails, force it
+                                self._sync_lock._value = 1
+                                db_logger.warning("Forcefully released stuck lock")
+
+                            acquired_lock = self._sync_lock.acquire(timeout=1)
+                            if not acquired_lock:
+                                db_logger.error(
+                                    "Still could not acquire lock after force release"
+                                )
+                                self._force_sync = True
+                        except Exception as e:
+                            db_logger.error(f"Error handling stuck lock: {e}")
+                            self._force_sync = True
+                else:
+                    db_logger.error("Could not acquire sync lock, skipping sync")
+                    return
+
+            start_time = time.time()
             try:
                 # Use our existing shared connection as the source
                 if not self._shared_connection:
                     db_logger.error("No shared connection available for sync")
                     return
 
+                # Exit early if stopped and not final
+                if not is_final_sync and self._stop_sync.is_set():
+                    db_logger.info("Skipping sync - stop requested after lock")
+                    return
+
+                # Ensure we're in a good state for backup
+                if is_final_sync:
+                    try:
+                        # Force rollback any pending transactions
+                        self._shared_connection.execute("ROLLBACK")
+                        # Checkpoint WAL if it exists
+                        self._shared_connection.execute(
+                            "PRAGMA wal_checkpoint(TRUNCATE)"
+                        )
+                    except Exception as e:
+                        db_logger.warning(f"Error preparing for final backup: {e}")
+
                 # Create a temp file for atomic writes
                 temp_dir = self.db_file.parent
-                with tempfile.NamedTemporaryFile(
-                    dir=temp_dir, delete=False
-                ) as temp_file:
-                    temp_path = Path(temp_file.name)
+                temp_path = None
+                temp_file = None
 
                 try:
-                    # Create destination connection with proper settings
-                    dest_conn = sqlite3.connect(
-                        temp_path,
-                        isolation_level=None,
-                        detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
-                    )
+                    temp_file = tempfile.NamedTemporaryFile(dir=temp_dir, delete=False)
+                    temp_path = Path(temp_file.name)
+                    temp_file.close()  # Close but don't delete
 
+                    # Create destination connection with proper settings
+                    dest_conn = None
                     try:
+                        dest_conn = sqlite3.connect(
+                            temp_path,
+                            isolation_level=None,
+                            detect_types=sqlite3.PARSE_DECLTYPES
+                            | sqlite3.PARSE_COLNAMES,
+                            timeout=60,  # Higher timeout for backup
+                        )
+
                         # Configure destination for backup
                         dest_conn.execute(
                             "PRAGMA journal_mode=DELETE"
@@ -459,102 +571,217 @@ class Database:
                             "PRAGMA foreign_keys=OFF"
                         )  # Disable FKs for backup
 
-                        db_logger.info(f"Saving in-memory db to file: {self.db_file}")
-                        # Backup with progress reporting
+                        if is_final_sync:
+                            print_info(f"Saving database to file: {self.db_file}")
+                        else:
+                            db_logger.info(
+                                f"Saving in-memory db to file: {self.db_file}"
+                            )
+
+                        # Initialize progress tracking variables
                         total_pages = None
                         remaining_pages = None
+                        last_progress_time = time.time()
+                        last_progress_percent = -1
 
                         def progress(status, remaining, total):
-                            nonlocal total_pages, remaining_pages
-                            total_pages = total
-                            remaining_pages = remaining
-                            if total > 0:
-                                percent = 100.0 * (total - remaining) / total
-                                from config import db_logger
+                            nonlocal total_pages, remaining_pages, last_progress_time, last_progress_percent
 
-                                db_logger.debug(
-                                    f"Backup progress: {percent:.1f}% ({remaining} pages remaining)"
+                            # Check stop flag during backup
+                            if not is_final_sync and self._stop_sync.is_set():
+                                raise InterruptedError(
+                                    "Backup interrupted - stop requested"
                                 )
 
-                        # Perform backup with progress callback
-                        self._shared_connection.backup(
-                            dest_conn, pages=1000, progress=progress
-                        )
+                            total_pages = total
+                            remaining_pages = remaining
 
-                        # Verify backup
-                        source_tables = self._shared_connection.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        ).fetchall()
-                        dest_tables = dest_conn.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        ).fetchall()
+                            # Only report progress if some pages exist
+                            if total > 0:
+                                percent = 100.0 * (total - remaining) / total
+                                current_time = time.time()
 
-                        if {t[0] for t in source_tables} != {t[0] for t in dest_tables}:
-                            raise RuntimeError("Table verification failed after backup")
+                                # For final sync, show progress on console and in debug log
+                                if is_final_sync:
+                                    # Always log to debug for consistent logging
+                                    db_logger.debug(
+                                        f"Backup progress: {percent:.1f}% ({remaining} pages remaining)"
+                                    )
+
+                                    # Show on console if significant change or enough time has passed
+                                    if (
+                                        (current_time - last_progress_time > 0.5)
+                                        or (
+                                            int(percent) > int(last_progress_percent)
+                                            and int(percent) % 5 == 0
+                                        )
+                                        or (
+                                            percent >= 99 and last_progress_percent < 99
+                                        )
+                                    ):
+                                        print_info(
+                                            f"Database sync progress: {percent:.1f}% ({remaining} pages remaining)"
+                                        )
+                                        last_progress_time = current_time
+                                        last_progress_percent = percent
+                                # For normal sync, just log to debug
+                                else:
+                                    db_logger.debug(
+                                        f"Backup progress: {percent:.1f}% ({remaining} pages remaining)"
+                                    )
+
+                        # Check stop flag before starting backup
+                        if not is_final_sync and self._stop_sync.is_set():
+                            db_logger.info("Skipping backup - stop requested")
+                            return
+
+                        # Perform backup with progress callback and larger page size for speed
+                        page_size = 5000  # Process 5000 pages at a time
+                        backup_in_progress = False
+                        try:
+                            backup_in_progress = True
+                            self._shared_connection.backup(
+                                dest_conn, pages=page_size, progress=progress
+                            )
+                            backup_in_progress = False
+                        except InterruptedError:
+                            db_logger.info("Backup interrupted by stop request")
+                            return
+                        except Exception as backup_e:
+                            if (
+                                backup_in_progress
+                                and not is_final_sync
+                                and self._stop_sync.is_set()
+                            ):
+                                db_logger.info("Backup interrupted during stop")
+                                return
+                            raise backup_e
+
+                        # Verify backup only if not interrupted
+                        if not (not is_final_sync and self._stop_sync.is_set()):
+                            source_tables = self._shared_connection.execute(
+                                "SELECT name FROM sqlite_master WHERE type='table'"
+                            ).fetchall()
+                            dest_tables = dest_conn.execute(
+                                "SELECT name FROM sqlite_master WHERE type='table'"
+                            ).fetchall()
+
+                            if {t[0] for t in source_tables} != {
+                                t[0] for t in dest_tables
+                            }:
+                                raise RuntimeError(
+                                    "Table verification failed after backup"
+                                )
 
                         # Ensure all changes are written
                         dest_conn.commit()
                         dest_conn.execute("PRAGMA wal_checkpoint(FULL)")
 
-                    finally:
+                        # Explicitly close destination connection
                         dest_conn.close()
+                        dest_conn = None
 
-                    # Move temp file into place
-                    if self.db_file.exists():
-                        # Create backup of existing file
-                        backup_path = self.db_file.with_suffix(".sqlite3.bak")
-                        shutil.copy2(self.db_file, backup_path)
+                        # Exit if stopped and not final
+                        if not is_final_sync and self._stop_sync.is_set():
+                            db_logger.info("Skipping file move - stop requested")
+                            return
 
-                        # Copy WAL and SHM files if they exist
+                        # Move temp file into place
+                        if self.db_file.exists():
+                            # Create backup of existing file
+                            backup_path = self.db_file.with_suffix(".sqlite3.bak")
+                            shutil.copy2(self.db_file, backup_path)
+
+                            # Copy WAL and SHM files if they exist
+                            for ext in ["-wal", "-shm"]:
+                                old_wal = Path(str(self.db_file) + ext)
+                                if old_wal.exists():
+                                    backup_wal = Path(str(backup_path) + ext)
+                                    shutil.copy2(old_wal, backup_wal)
+
+                        # Move new file into place with fsync
+                        shutil.move(temp_path, self.db_file)
+                        with open(self.db_file, "rb+") as f:
+                            f.flush()
+                            os.fsync(f.fileno())
+
+                        # Handle WAL and SHM files
                         for ext in ["-wal", "-shm"]:
-                            old_wal = Path(str(self.db_file) + ext)
-                            if old_wal.exists():
-                                backup_wal = Path(str(backup_path) + ext)
-                                shutil.copy2(old_wal, backup_wal)
+                            temp_wal = Path(str(temp_path) + ext)
+                            if temp_wal.exists():
+                                dest_wal = Path(str(self.db_file) + ext)
+                                shutil.copy2(temp_wal, dest_wal)
+                                with open(dest_wal, "rb+") as f:
+                                    f.flush()
+                                    os.fsync(f.fileno())
 
-                    # Move new file into place with fsync
-                    shutil.move(temp_path, self.db_file)
-                    with open(self.db_file, "rb+") as f:
-                        f.flush()
-                        os.fsync(f.fileno())
+                        # Report final size and time
+                        final_size = self.db_file.stat().st_size
+                        total_time = time.time() - start_time
 
-                    # Copy WAL and SHM files if they exist
-                    for ext in ["-wal", "-shm"]:
-                        temp_wal = Path(str(temp_path) + ext)
-                        if temp_wal.exists():
-                            dest_wal = Path(str(self.db_file) + ext)
-                            shutil.copy2(temp_wal, dest_wal)
-                            with open(dest_wal, "rb+") as f:
-                                f.flush()
-                                os.fsync(f.fileno())
+                        # For final sync, use textio's print_info for better visibility
+                        if is_final_sync:
+                            print_info(
+                                f"Database save complete. Size: {final_size / (1024*1024):.1f}MB, Time: {total_time:.2f}s"
+                            )
+                        else:
+                            db_logger.info(
+                                f"Save complete. File size: {final_size / (1024*1024):.1f}MB, Time: {total_time:.2f}s"
+                            )
 
-                    # Report final size
-                    final_size = self.db_file.stat().st_size
-                    db_logger.info(
-                        f"Save complete. File size: {final_size / (1024*1024):.1f}MB"
-                    )
+                        # Reset counters
+                        self._commit_count = 0
+                        self._last_sync = time.time()
 
-                    # Reset counters
-                    self._commit_count = 0
-                    self._last_sync = time.time()
+                    finally:
+                        # Clean up temp connection
+                        if dest_conn:
+                            try:
+                                dest_conn.close()
+                            except Exception as close_e:
+                                db_logger.error(
+                                    f"Error closing destination connection: {close_e}"
+                                )
 
                 finally:
                     # Clean up temp files
                     try:
-                        if temp_path.exists():
+                        if temp_path and temp_path.exists():
                             temp_path.unlink()
-                        for ext in ["-wal", "-shm"]:
-                            temp_wal = Path(str(temp_path) + ext)
-                            if temp_wal.exists():
-                                temp_wal.unlink()
+                        if temp_path:
+                            for ext in ["-wal", "-shm"]:
+                                temp_wal = Path(str(temp_path) + ext)
+                                if temp_wal.exists():
+                                    temp_wal.unlink()
                     except Exception as cleanup_error:
                         db_logger.error(
                             f"Error cleaning up temp files: {cleanup_error}"
                         )
 
             except Exception as e:
-                db_logger.error(f"Error syncing to disk: {e}")
-                # Original file and its backup should still be intact
+                if is_final_sync:
+                    print_error(f"Error syncing database to disk: {e}")
+                else:
+                    db_logger.error(f"Error syncing to disk: {e}")
+
+            # Mark final sync as done if this was a final sync
+            if is_final_sync:
+                self._final_sync_done.set()
+
+        finally:
+            # Handle lock release
+            if acquired_lock:
+                try:
+                    self._sync_lock.release()
+                except Exception as release_error:
+                    if is_final_sync:
+                        print_warning(
+                            f"Error releasing sync lock during shutdown: {release_error}"
+                        )
+                    else:
+                        db_logger.error(f"Error releasing sync lock: {release_error}")
+            elif hasattr(self, "_force_sync") and self._force_sync:
+                delattr(self, "_force_sync")  # Clean up force flag
 
     def _sync_task(self) -> None:
         """Background task to sync database to disk.
@@ -562,32 +789,89 @@ class Database:
         This task periodically checks if a sync is needed based on commit count or time elapsed.
         It performs the sync operation and handles any exceptions that might occur during the process.
         """
-        while not self._stop_sync.is_set():
-            try:
-                # Check if sync needed (using a snapshot of current values to avoid race conditions)
-                current_time = time.time()
-                with self._sync_lock:
-                    commit_count = self._commit_count
-                    last_sync = self._last_sync
-                    sync_commits = self._sync_commits
-                    sync_interval = self._sync_interval
+        try:
+            while not self._stop_sync.is_set():
+                try:
+                    # First check stop signal with no wait to exit quickly
+                    if self._stop_sync.is_set():
+                        db_logger.info("Sync thread stopping (immediate exit)")
+                        break
 
-                # Determine if sync is needed based on captured values
-                if (
-                    commit_count >= sync_commits
-                    or current_time - last_sync >= sync_interval
-                ):
-                    self._sync_to_disk()
+                    # Use shorter timeouts to check stop condition more frequently
+                    current_time = time.time()
+                    # Use try/finally to ensure lock is always released
+                    acquired = False
+                    try:
+                        # Try to acquire lock with very short timeout
+                        acquired = self._sync_lock.acquire(timeout=0.1)  # 100ms timeout
+                        if not acquired:
+                            # If stopping, exit immediately
+                            if self._stop_sync.is_set():
+                                db_logger.info("Sync thread stopping (lock busy)")
+                                break
+                            time.sleep(0.1)
+                            continue
 
-                # Sleep briefly
-                time.sleep(1)
+                        commit_count = self._commit_count
+                        last_sync = self._last_sync
+                        sync_commits = self._sync_commits
+                        sync_interval = self._sync_interval
 
-            except Exception as e:
-                db_logger.error(f"Error in sync task: {e}")
-                # Add stack trace for better debugging
-                import traceback
+                    finally:
+                        if acquired:
+                            self._sync_lock.release()
 
-                db_logger.debug(f"Sync task error details: {traceback.format_exc()}")
+                    # Quick exit check after lock release
+                    if self._stop_sync.is_set():
+                        db_logger.info("Sync thread stopping (post-lock check)")
+                        break
+
+                    # Determine if sync is needed
+                    if (
+                        commit_count >= sync_commits
+                        or current_time - last_sync >= sync_interval
+                    ):
+                        # Final check before starting sync
+                        if self._stop_sync.is_set() or self._cleanup_done.is_set():
+                            db_logger.info("Sync thread stopping (pre-sync)")
+                            break
+
+                        try:
+                            # Only perform sync if not stopping
+                            if not self._stop_sync.is_set():
+                                self._sync_to_disk()
+                        except Exception as sync_e:
+                            db_logger.error(f"Error in background sync: {sync_e}")
+                            # Don't retry immediately on error
+                            time.sleep(0.1)  # Shorter sleep after error
+
+                        # Exit immediately if stopped
+                        if self._stop_sync.is_set():
+                            db_logger.info("Sync thread stopping (post-sync)")
+                            break
+
+                    # Sleep in very small intervals while checking stop flag
+                    sleep_until = time.time() + 0.2  # 200ms total sleep
+                    while time.time() < sleep_until:
+                        if self._stop_sync.is_set():
+                            db_logger.info("Sync thread stopping (during sleep)")
+                            return
+                        time.sleep(0.01)  # 10ms intervals
+
+                except Exception as e:
+                    db_logger.error(f"Error in sync task: {e}")
+                    if self._stop_sync.is_set():
+                        db_logger.info("Sync thread stopping (after error)")
+                        break
+                    db_logger.debug(
+                        f"Sync task error details: {traceback.format_exc()}"
+                    )
+                    time.sleep(0.1)  # Brief sleep after error
+
+        finally:
+            db_logger.info("Sync thread exiting")
+            # DON'T try final sync here - let the main thread handle it
+            self._stop_sync.set()  # Ensure stop flag is set
 
     def _get_thread_session(self) -> Session | None:
         """Get existing session for current thread if healthy."""
@@ -717,6 +1001,23 @@ class Database:
                             task_id,
                             task_local,
                         )
+                    # Ensure proper decrement of depth before re-raising
+                    session_wrapper["depth"] -= 1
+                    raise
+                except Exception as e:
+                    # Handle other exceptions in nested sessions
+                    db_logger.error(f"Unexpected error in nested session: {e}")
+                    # Rollback if in transaction
+                    if session_wrapper["session"].in_transaction():
+                        try:
+                            await session_wrapper["session"].rollback()
+                            db_logger.debug("Rolled back nested session transaction")
+                        except Exception as rollback_e:
+                            db_logger.error(
+                                f"Error rolling back nested session: {rollback_e}"
+                            )
+                    # Ensure proper decrement of depth before re-raising
+                    session_wrapper["depth"] -= 1
                     raise
                 return
             except Exception as e:
@@ -817,6 +1118,22 @@ class Database:
                 raise
 
         finally:
+            # Guard against potential KeyError if session_wrapper was removed by error handler
+            if task_id not in task_local or "depth" not in session_wrapper:
+                db_logger.warning(
+                    "Session wrapper missing or incomplete during cleanup"
+                )
+                # Try to close session if it exists and remove from tracking
+                if session and hasattr(session, "close"):
+                    try:
+                        await session.close()
+                    except Exception as e:
+                        db_logger.error(f"Error closing orphaned session: {e}")
+                # Clean up task tracking if needed
+                if task_id in task_local:
+                    del task_local[task_id]
+                return
+
             # Decrease nesting depth; if outermost, remove from tracking and close it
             session_wrapper["depth"] -= 1
             if session_wrapper["depth"] <= 0:
@@ -990,192 +1307,238 @@ class Database:
 
         This method performs a complete cleanup of all database resources:
         1. Stops the background sync thread
-        2. Performs a final sync to disk
-        3. Handles any pending async and sync sessions
-        4. Closes the shared connection for the in-memory database
-        5. Disposes of both sync and async engines
+        2. Performs a final sync to disk (if not already done)
+        3. Cleans up connections and engines
+        4. Handles any pending sessions
 
-        It's designed to be called during application shutdown to ensure
-        all changes are persisted and resources are properly released.
+        This is designed to be called during application shutdown.
+        The sync cleanup path (close_sync) will skip its sync if this has already run.
         """
-        if hasattr(self, "_stop_sync"):  # Check if init completed
-            # Stop sync thread
-            self._stop_sync.set()
-            if self._sync_thread is not None:
-                self._sync_thread.join(timeout=5)
+        # Check if cleanup already done
+        if self._cleanup_done.is_set():
+            db_logger.info("Cleanup already performed, skipping")
+            return
 
-            # Final sync
-            self._sync_to_disk()
+        try:
+            if hasattr(self, "_stop_sync"):  # Check if init completed
+                # Stop sync thread first
+                db_logger.info("Stopping database sync thread...")
+                self._stop_sync.set()
+                if self._sync_thread is not None:
+                    # Try joining with increased timeout
+                    join_timeout = 10  # 10 seconds timeout
+                    db_logger.info(
+                        f"Waiting up to {join_timeout} seconds for sync thread to exit..."
+                    )
+                    self._sync_thread.join(timeout=join_timeout)
 
-            # Handle any pending async sessions before closing
-            try:
-                # Check if there's an active async session and handle pending transactions
-                if hasattr(self._thread_local, "async_session"):
-                    async_session = self._thread_local.async_session
-                    if async_session.is_active:
-                        try:
-                            # Try to rollback any pending transactions
-                            await async_session.rollback()
-                            db_logger.info(
-                                "Rolled back pending async transaction during cleanup"
-                            )
-                        except Exception as rollback_e:
-                            db_logger.error(
-                                f"Error rolling back async transaction during cleanup: {rollback_e}"
-                            )
-                        finally:
-                            # Close the session
-                            await async_session.close()
-                            db_logger.info("Closed active async session during cleanup")
-            except Exception as session_e:
-                db_logger.error(
-                    f"Error handling active async session during cleanup: {session_e}"
-                )
+                    # Check if thread actually terminated
+                    if self._sync_thread.is_alive():
+                        db_logger.warning(
+                            "Sync thread did not exit within timeout, thread may still be running"
+                        )
 
-            # Handle any pending sync sessions before closing
-            try:
-                # Check if there's an active session and handle pending transactions
-                if hasattr(self._thread_local, "session"):
-                    session = self._thread_local.session
-                    if session.is_active:
-                        try:
-                            # Try to rollback any pending transactions
-                            session.rollback()
-                            db_logger.info(
-                                "Rolled back pending transaction during cleanup"
-                            )
-                        except Exception as rollback_e:
-                            db_logger.error(
-                                f"Error rolling back transaction during cleanup: {rollback_e}"
-                            )
-                        finally:
-                            # Close the session
-                            session.close()
-                            db_logger.info("Closed active session during cleanup")
-            except Exception as session_e:
-                db_logger.error(
-                    f"Error handling active session during cleanup: {session_e}"
-                )
-
-            # Close shared connection first to properly close in-memory database
-            if (
-                hasattr(self, "_shared_connection")
-                and self._shared_connection is not None
-            ):
-                try:
-                    # Execute a rollback directly on the connection to clear any pending transactions
+                # Perform final sync if not already done by background thread
+                if not self._final_sync_done.is_set():
+                    db_logger.info("Performing final database sync...")
                     try:
-                        self._shared_connection.execute("ROLLBACK")
+                        print_info("Syncing database to disk...")
+                        sync_start = time.time()
+                        self._sync_to_disk(is_final_sync=True)
+                        sync_time = time.time() - sync_start
                         db_logger.info(
-                            "Executed ROLLBACK on shared connection before closing"
+                            f"Final sync completed in {sync_time:.2f} seconds"
                         )
-                    except Exception as direct_rollback_e:
-                        db_logger.error(
-                            f"Error executing direct ROLLBACK: {direct_rollback_e}"
-                        )
+                    except Exception as sync_e:
+                        db_logger.error(f"Error during final sync: {sync_e}")
+                else:
+                    db_logger.info("Final sync already performed by background thread")
 
-                    # Now close the connection
-                    self._shared_connection.close()
-                    db_logger.info("Closed shared connection successfully")
-                except Exception as e:
-                    db_logger.error(f"Error closing shared connection: {e}")
-
-            # Then close engines
-            if hasattr(self, "_sync_engine") and self._sync_engine is not None:
+                # Handle any pending async sessions
                 try:
-                    self._sync_engine.dispose()
-                    db_logger.info("Disposed sync engine successfully")
-                except Exception as e:
-                    db_logger.error(f"Error disposing sync engine: {e}")
+                    if hasattr(self._thread_local, "async_session"):
+                        async_session = self._thread_local.async_session
+                        if async_session.is_active:
+                            try:
+                                await async_session.rollback()
+                                db_logger.info("Rolled back pending async transaction")
+                            except Exception as rollback_e:
+                                db_logger.error(
+                                    f"Error rolling back async transaction: {rollback_e}"
+                                )
+                            finally:
+                                await async_session.close()
+                                db_logger.info("Closed active async session")
+                except Exception as session_e:
+                    db_logger.error(f"Error handling async session: {session_e}")
 
-            if hasattr(self, "_async_engine") and self._async_engine is not None:
+                # Handle any pending sync sessions
                 try:
-                    await self._async_engine.dispose()
-                    db_logger.info("Disposed async engine successfully")
-                except Exception as e:
-                    db_logger.error(f"Error disposing async engine: {e}")
+                    if hasattr(self._thread_local, "session"):
+                        session = self._thread_local.session
+                        if session.is_active:
+                            try:
+                                session.rollback()
+                                db_logger.info("Rolled back pending sync transaction")
+                            except Exception as rollback_e:
+                                db_logger.error(
+                                    f"Error rolling back sync transaction: {rollback_e}"
+                                )
+                            finally:
+                                session.close()
+                                db_logger.info("Closed active sync session")
+                except Exception as session_e:
+                    db_logger.error(f"Error handling sync session: {session_e}")
+
+                # Close shared connection before engines
+                if (
+                    hasattr(self, "_shared_connection")
+                    and self._shared_connection is not None
+                ):
+                    try:
+                        try:
+                            self._shared_connection.execute("ROLLBACK")
+                            db_logger.info("Executed ROLLBACK on shared connection")
+                        except Exception as direct_rollback_e:
+                            db_logger.error(
+                                f"Error executing ROLLBACK: {direct_rollback_e}"
+                            )
+
+                        self._shared_connection.close()
+                        db_logger.info("Closed shared connection successfully")
+                    except Exception as e:
+                        db_logger.error(f"Error closing shared connection: {e}")
+
+                # Dispose engines
+                if hasattr(self, "_sync_engine") and self._sync_engine is not None:
+                    try:
+                        self._sync_engine.dispose()
+                        db_logger.info("Disposed sync engine successfully")
+                    except Exception as e:
+                        db_logger.error(f"Error disposing sync engine: {e}")
+
+                if hasattr(self, "_async_engine") and self._async_engine is not None:
+                    try:
+                        await self._async_engine.dispose()
+                        db_logger.info("Disposed async engine successfully")
+                    except Exception as e:
+                        db_logger.error(f"Error disposing async engine: {e}")
+
+        finally:
+            # Mark cleanup as done
+            self._cleanup_done.set()
 
     def close_sync(self) -> None:
         """Synchronous cleanup for atexit handler.
 
-        This method provides a synchronous version of the cleanup process
-        that can be safely called from an atexit handler. It performs:
-        1. Stopping the background sync thread
-        2. Handling any pending sync sessions
-        3. Closing the shared connection
-        4. Disposing of the sync engine
-        5. Checking for leaked semaphores
-
-        The async engine is left for Python's garbage collector to handle
-        since async operations can't be done in a synchronous context.
+        This method provides a synchronous version of cleanup that can be safely
+        called from an atexit handler. It will:
+        1. Skip final sync if async cleanup already did it
+        2. Otherwise, stop background thread and perform final sync
+        3. Clean up sync-safe resources
+        4. Leave async cleanup to garbage collector
         """
-        if hasattr(self, "_stop_sync"):  # Check if init completed
-            # Stop sync thread
-            self._stop_sync.set()
-            if self._sync_thread is not None:
-                self._sync_thread.join(timeout=5)
+        # Check if cleanup already done
+        if self._cleanup_done.is_set():
+            db_logger.info("Cleanup already performed (sync), skipping")
+            return
 
-            # Handle any pending sessions before closing
-            try:
-                # Check if there's an active session and handle pending transactions
-                if hasattr(self._thread_local, "session"):
-                    session = self._thread_local.session
-                    if session.is_active:
+        try:
+            if hasattr(self, "_stop_sync"):  # Check if init completed
+                # Stop sync thread
+                db_logger.info("Stopping database sync thread (sync)...")
+                self._stop_sync.set()
+                if self._sync_thread is not None:
+                    join_timeout = 10  # 10 seconds timeout
+                    db_logger.info(
+                        f"Waiting up to {join_timeout} seconds for sync thread to exit (sync)..."
+                    )
+                    self._sync_thread.join(timeout=join_timeout)
+
+                    if self._sync_thread.is_alive():
+                        db_logger.warning(
+                            "Sync thread did not exit within timeout (sync)"
+                        )
+                        # Force interrupt the thread if supported
                         try:
-                            # Try to rollback any pending transactions
-                            session.rollback()
-                            db_logger.info(
-                                "Rolled back pending transaction during cleanup"
-                            )
-                        except Exception as rollback_e:
-                            db_logger.error(
-                                f"Error rolling back transaction during cleanup: {rollback_e}"
-                            )
-                        finally:
-                            # Close the session
-                            session.close()
-                            db_logger.info("Closed active session during cleanup")
-            except Exception as session_e:
-                db_logger.error(
-                    f"Error handling active session during cleanup: {session_e}"
-                )
+                            if hasattr(self._sync_thread, "_tstate_lock"):
+                                self._sync_thread._tstate_lock.release()
+                            if hasattr(self._sync_thread, "_stop"):
+                                self._sync_thread._stop()
+                        except Exception as e:
+                            db_logger.error(f"Failed to force stop sync thread: {e}")
 
-            # Close shared connection first to properly close in-memory database
-            if (
-                hasattr(self, "_shared_connection")
-                and self._shared_connection is not None
-            ):
-                try:
-                    # Execute a rollback directly on the connection to clear any pending transactions
+                # Only do final sync if async cleanup hasn't already done it
+                if not self._final_sync_done.is_set():
+                    db_logger.info("Performing final database sync (sync)...")
                     try:
-                        self._shared_connection.execute("ROLLBACK")
+                        sync_start = time.time()
+                        self._sync_to_disk(is_final_sync=True)
+                        sync_time = time.time() - sync_start
                         db_logger.info(
-                            "Executed ROLLBACK on shared connection before closing"
+                            f"Final sync completed in {sync_time:.2f} seconds (sync)"
                         )
-                    except Exception as direct_rollback_e:
-                        db_logger.error(
-                            f"Error executing direct ROLLBACK: {direct_rollback_e}"
-                        )
+                    except Exception as sync_e:
+                        db_logger.error(f"Error during final sync (sync): {sync_e}")
+                else:
+                    db_logger.info("Final sync already performed by async cleanup")
 
-                    # Now close the connection
-                    self._shared_connection.close()
-                    db_logger.info("Closed shared connection successfully")
-                except Exception as e:
-                    db_logger.error(f"Error closing shared connection: {e}")
-
-            # Then close engines
-            if hasattr(self, "_sync_engine") and self._sync_engine is not None:
+                # Handle any pending sync sessions
                 try:
-                    self._sync_engine.dispose()
-                    db_logger.info("Disposed sync engine successfully")
-                except Exception as e:
-                    db_logger.error(f"Error disposing sync engine: {e}")
+                    if hasattr(self._thread_local, "session"):
+                        session = self._thread_local.session
+                        if session.is_active:
+                            try:
+                                session.rollback()
+                                db_logger.info("Rolled back pending transaction (sync)")
+                            except Exception as rollback_e:
+                                db_logger.error(
+                                    f"Error rolling back transaction (sync): {rollback_e}"
+                                )
+                            finally:
+                                session.close()
+                                db_logger.info("Closed active session (sync)")
+                except Exception as session_e:
+                    db_logger.error(f"Error handling session (sync): {session_e}")
 
-            # Check for leaked semaphores
-            monitor_semaphores(threshold=20)  # Warn if too many semaphores
+                # Close shared connection
+                if (
+                    hasattr(self, "_shared_connection")
+                    and self._shared_connection is not None
+                ):
+                    try:
+                        try:
+                            self._shared_connection.execute("ROLLBACK")
+                            db_logger.info(
+                                "Executed ROLLBACK on shared connection (sync)"
+                            )
+                        except Exception as direct_rollback_e:
+                            db_logger.error(
+                                f"Error executing ROLLBACK (sync): {direct_rollback_e}"
+                            )
 
-            # Don't try to dispose async engine in sync context
-            # It will be cleaned up by Python's GC
+                        self._shared_connection.close()
+                        db_logger.info("Closed shared connection (sync)")
+                    except Exception as e:
+                        db_logger.error(f"Error closing shared connection (sync): {e}")
+
+                # Close sync engine only
+                if hasattr(self, "_sync_engine") and self._sync_engine is not None:
+                    try:
+                        self._sync_engine.dispose()
+                        db_logger.info("Disposed sync engine (sync)")
+                    except Exception as e:
+                        db_logger.error(f"Error disposing sync engine (sync): {e}")
+
+                # Don't try to dispose async engine in sync context
+                # It will be cleaned up by Python's GC
+
+                # Check for leaked semaphores
+                monitor_semaphores(threshold=20)
+
+        finally:
+            # Mark cleanup as done
+            self._cleanup_done.set()
 
     def __del__(self) -> None:
         """Ensure cleanup on deletion."""

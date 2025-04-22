@@ -15,12 +15,11 @@ from stash.types import (
     SceneUpdateInput,
     VideoFile,
 )
+from tests.stash.client.client_test_helpers import create_base_mock_client
 
 
 def create_mock_client() -> StashClient:
     """Create a base mock StashClient for testing."""
-    from tests.stash.client.client_test_helpers import create_base_mock_client
-
     # Use the helper to create a base client
     client = create_base_mock_client()
 

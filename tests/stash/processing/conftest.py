@@ -179,8 +179,8 @@ def mock_semaphore():
 
 
 @pytest.fixture
-def mock_process_batch():
-    """Fixture for mock process_batch function."""
+def mock_process_item():
+    """Fixture for mock process_item function."""
     return AsyncMock()
 
 
@@ -537,7 +537,7 @@ def stash_processor(mock_config, mock_state, mock_context, mock_database):
         patch("stash.processing.print_error"),
     ):
         processor = StashProcessing.from_config(mock_config, mock_state)
-        processor._setup_batch_processing = AsyncMock(
+        processor._setup_worker_pool = AsyncMock(
             return_value=(
                 MagicMock(),
                 MagicMock(),

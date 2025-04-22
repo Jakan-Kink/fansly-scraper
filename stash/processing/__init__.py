@@ -14,6 +14,7 @@ from metadata.decorators import with_session
 from textio import print_error, print_info, print_warning
 
 from ..context import StashContext
+from ..logging import debug_print
 from ..types import Performer, Studio
 from .base import HasMetadata, StashProcessingBase
 from .mixins import (
@@ -165,8 +166,6 @@ class StashProcessing(
             logging.getLogger(__name__).exception(
                 "Error in Stash processing", exc_info=e
             )
-            from ..logging import debug_print
-
             debug_print(
                 {
                     "method": "StashProcessing - continue_stash_processing",

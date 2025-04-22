@@ -210,7 +210,7 @@ def get_media_save_path(
             save_dir = save_dir / "Previews"
 
     # Create full path
-    save_path = save_dir / media_item.get_file_name()
+    save_path = save_dir / media_item.get_file_name(for_preview=media_item.is_preview)
     return save_dir, save_path
 
 

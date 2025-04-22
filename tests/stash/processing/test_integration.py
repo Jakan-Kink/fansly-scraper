@@ -6,7 +6,7 @@ This module imports all the integration tests to ensure they are discovered by p
 from tests.stash.processing.integration.test_content_processing import (
     TestContentProcessingIntegration,
 )
-from tests.stash.processing.integration.test_full_workflow import (
+from tests.stash.processing.integration.test_full_workflow.test_integration import (
     TestFullWorkflowIntegration,
 )
 from tests.stash.processing.integration.test_media_processing import (

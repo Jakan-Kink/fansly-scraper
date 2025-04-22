@@ -68,7 +68,7 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
         datetime.strptime(f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M")
 
         # For files without timezone indicator
-        if not tz_str and config and id_part:
+        if config and id_part:
             # Try to get createdAt from database if we have an ID
             id_number_match = re.search(r"(?:preview_)?id_(\d+)", id_part)
             if id_number_match:
@@ -84,6 +84,20 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
         if created_at:
             # Use the database created_at timestamp for the normalized filename
             ts_str = created_at.strftime("%Y-%m-%d_at_%H-%M_UTC")
+            return f"{ts_str}_{id_part}.{extension}"
+
+        # If we have a local time (no timezone) and config is available, try to convert to UTC
+        if not tz_str and config:
+            # Assume the local time is in EST (UTC-4) if no timezone is specified
+            # This is the most common case for Fansly downloads
+            local_dt = datetime.strptime(
+                f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M"
+            )
+            local_dt = local_dt.replace(
+                tzinfo=ZoneInfo("America/New_York")
+            )  # EST/EDT timezone
+            utc_dt = local_dt.astimezone(timezone.utc)
+            ts_str = utc_dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
             return f"{ts_str}_{id_part}.{extension}"
 
         # No database match, return original filename

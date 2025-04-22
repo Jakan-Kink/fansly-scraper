@@ -90,70 +90,46 @@ class ContentProcessingMixin:
         messages = result.unique().scalars().all()
         print_info(f"Processing {len(messages)} messages...")
 
-        # Set up batch processing
-        task_pbar, process_pbar, semaphore, queue = await self._setup_batch_processing(
+        # Set up worker pool
+        task_pbar, process_pbar, semaphore, queue = await self._setup_worker_pool(
             messages, "message"
         )
 
-        batch_size = 25
-
-        async def process_batch(batch: list[Message]) -> None:
+        async def process_message(message: Message) -> None:
             async with semaphore:
                 try:
-                    # Ensure all objects are bound to the session
-                    for message in batch:
-                        session.add(message)
-                        for attachment in message.attachments:
-                            session.add(attachment)
-                            if attachment.media:
-                                session.add(attachment.media)
-                                if attachment.media.media:
-                                    session.add(attachment.media.media)
-                            if attachment.bundle:
-                                session.add(attachment.bundle)
-                                for account_media in attachment.bundle.accountMedia:
-                                    session.add(account_media)
-                                    if account_media.media:
-                                        session.add(account_media.media)
+                    # Ensure object is bound to the session
+                    session.add(message)
+                    for attachment in message.attachments:
+                        session.add(attachment)
+                        if attachment.media:
+                            session.add(attachment.media)
+                            if attachment.media.media:
+                                session.add(attachment.media.media)
+                        if attachment.bundle:
+                            session.add(attachment.bundle)
+                            for account_media in attachment.bundle.accountMedia:
+                                session.add(account_media)
+                                if account_media.media:
+                                    session.add(account_media.media)
 
                     # Refresh account before processing
                     await session.refresh(account)
 
-                    # Process each message in the batch
-                    for message in batch:
-                        try:
-                            await self._process_items_with_gallery(
-                                account=account,
-                                performer=performer,
-                                studio=studio,
-                                item_type="message",
-                                items=[message],
-                                url_pattern_func=get_message_url,
-                                session=session,
-                            )
-                        except Exception as e:
-                            print_error(f"Error processing message {message.id}: {e}")
-                            logger.exception(
-                                f"Error processing message {message.id}",
-                                exc_info=e,
-                                traceback=True,
-                                stack_info=True,
-                            )
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - process_creator_messages",
-                                    "status": "message_processing_failed",
-                                    "message_id": message.id,
-                                    "error": str(e),
-                                    "traceback": traceback.format_exc(),
-                                }
-                            )
-                        finally:
-                            process_pbar.update(1)
+                    # Process the message
+                    await self._process_items_with_gallery(
+                        account=account,
+                        performer=performer,
+                        studio=studio,
+                        item_type="message",
+                        items=[message],
+                        url_pattern_func=get_message_url,
+                        session=session,
+                    )
                 except Exception as e:
-                    print_error(f"Error processing batch: {e}")
+                    print_error(f"Error processing message {message.id}: {e}")
                     logger.exception(
-                        "Error processing batch",
+                        f"Error processing message {message.id}",
                         exc_info=e,
                         traceback=True,
                         stack_info=True,
@@ -161,21 +137,21 @@ class ContentProcessingMixin:
                     debug_print(
                         {
                             "method": "StashProcessing - process_creator_messages",
-                            "status": "batch_processing_failed",
+                            "status": "message_processing_failed",
+                            "message_id": message.id,
                             "error": str(e),
                             "traceback": traceback.format_exc(),
                         }
                     )
 
-        # Run the batch processor
-        await self._run_batch_processor(
+        # Run the worker pool
+        await self._run_worker_pool(
             items=messages,
-            batch_size=batch_size,
             task_pbar=task_pbar,
             process_pbar=process_pbar,
             semaphore=semaphore,
             queue=queue,
-            process_batch=process_batch,
+            process_item=process_message,
         )
 
     @with_session()
@@ -239,70 +215,46 @@ class ContentProcessingMixin:
         posts = result.unique().scalars().all()
         print_info(f"Processing {len(posts)} posts...")
 
-        # Set up batch processing
-        task_pbar, process_pbar, semaphore, queue = await self._setup_batch_processing(
+        # Set up worker pool
+        task_pbar, process_pbar, semaphore, queue = await self._setup_worker_pool(
             posts, "post"
         )
 
-        batch_size = 25
-
-        async def process_batch(batch: list[Post]) -> None:
+        async def process_post(post: Post) -> None:
             async with semaphore:
                 try:
-                    # Ensure all objects are bound to the session
-                    for post in batch:
-                        session.add(post)
-                        for attachment in post.attachments:
-                            session.add(attachment)
-                            if attachment.media:
-                                session.add(attachment.media)
-                                if attachment.media.media:
-                                    session.add(attachment.media.media)
-                            if attachment.bundle:
-                                session.add(attachment.bundle)
-                                for account_media in attachment.bundle.accountMedia:
-                                    session.add(account_media)
-                                    if account_media.media:
-                                        session.add(account_media.media)
+                    # Ensure object is bound to the session
+                    session.add(post)
+                    for attachment in post.attachments:
+                        session.add(attachment)
+                        if attachment.media:
+                            session.add(attachment.media)
+                            if attachment.media.media:
+                                session.add(attachment.media.media)
+                        if attachment.bundle:
+                            session.add(attachment.bundle)
+                            for account_media in attachment.bundle.accountMedia:
+                                session.add(account_media)
+                                if account_media.media:
+                                    session.add(account_media.media)
 
                     # Refresh account before processing
                     await session.refresh(account)
 
-                    # Process each post in the batch
-                    for post in batch:
-                        try:
-                            await self._process_items_with_gallery(
-                                account=account,
-                                performer=performer,
-                                studio=studio,
-                                item_type="post",
-                                items=[post],
-                                url_pattern_func=get_post_url,
-                                session=session,
-                            )
-                        except Exception as e:
-                            print_error(f"Error processing post {post.id}: {e}")
-                            logger.exception(
-                                f"Error processing post {post.id}",
-                                exc_info=e,
-                                traceback=True,
-                                stack_info=True,
-                            )
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - process_creator_posts",
-                                    "status": "post_processing_failed",
-                                    "post_id": post.id,
-                                    "error": str(e),
-                                    "traceback": traceback.format_exc(),
-                                }
-                            )
-                        finally:
-                            process_pbar.update(1)
+                    # Process the post
+                    await self._process_items_with_gallery(
+                        account=account,
+                        performer=performer,
+                        studio=studio,
+                        item_type="post",
+                        items=[post],
+                        url_pattern_func=get_post_url,
+                        session=session,
+                    )
                 except Exception as e:
-                    print_error(f"Error processing batch: {e}")
+                    print_error(f"Error processing post {post.id}: {e}")
                     logger.exception(
-                        "Error processing batch",
+                        f"Error processing post {post.id}",
                         exc_info=e,
                         traceback=True,
                         stack_info=True,
@@ -310,21 +262,21 @@ class ContentProcessingMixin:
                     debug_print(
                         {
                             "method": "StashProcessing - process_creator_posts",
-                            "status": "batch_processing_failed",
+                            "status": "post_processing_failed",
+                            "post_id": post.id,
                             "error": str(e),
                             "traceback": traceback.format_exc(),
                         }
                     )
 
-        # Run the batch processor
-        await self._run_batch_processor(
+        # Run the worker pool
+        await self._run_worker_pool(
             items=posts,
-            batch_size=batch_size,
             task_pbar=task_pbar,
             process_pbar=process_pbar,
             semaphore=semaphore,
             queue=queue,
-            process_batch=process_batch,
+            process_item=process_post,
         )
 
     @with_session()
