@@ -171,6 +171,7 @@ markers = [
     "functional: marks tests as functional tests",
     "performance: marks tests as performance tests",
     "asyncio: mark a test as an async test",
+    "full_workflow: marks tests that run the complete workflow",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

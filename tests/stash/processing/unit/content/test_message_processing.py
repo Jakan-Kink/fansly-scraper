@@ -4,6 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+)
+
 
 class TestMessageProcessing:
     """Test message processing methods in ContentProcessingMixin."""
@@ -20,8 +24,16 @@ class TestMessageProcessing:
     ):
         """Test process_creator_messages method."""
         # Setup session mock to return messages
-        mock_session.execute().scalar_one.return_value = content_mock_account
-        mock_session.execute().unique().scalars().all.return_value = mock_messages
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=content_mock_account)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        # Set up mock for all() that returns messages
+        mock_scalars_result = AsyncMock()
+        mock_scalars_result.all = AsyncMock(return_value=mock_messages)
+        mock_unique_result = AsyncMock()
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Setup batch processing
         task_pbar = MagicMock()
@@ -29,12 +41,15 @@ class TestMessageProcessing:
         semaphore = MagicMock()
         queue = MagicMock()
 
-        mixin._setup_batch_processing.return_value = (
+        mixin._setup_worker_pool.return_value = (
             task_pbar,
             process_pbar,
             semaphore,
             queue,
         )
+
+        # Make sure mock_session is properly set up for await
+        mock_session.execute = AsyncMock()
 
         # Call method
         await mixin.process_creator_messages(
@@ -48,13 +63,13 @@ class TestMessageProcessing:
         mock_session.add.assert_called_with(content_mock_account)
 
         # Verify batch processing was setup
-        mixin._setup_batch_processing.assert_called_once_with(mock_messages, "message")
+        mixin._setup_worker_pool.assert_called_once_with(mock_messages, "message")
 
         # Verify batch processor was run
-        mixin._run_batch_processor.assert_called_once()
+        mixin._run_worker_pool.assert_called_once()
 
         # Extract process_batch function from the call
-        process_batch = mixin._run_batch_processor.call_args[1]["process_batch"]
+        process_batch = mixin._run_worker_pool.call_args[1]["process_item"]
         assert callable(process_batch)
 
         # Test the process_batch function with a batch of messages
@@ -106,8 +121,16 @@ class TestMessageProcessing:
     ):
         """Test process_creator_messages method with error handling."""
         # Setup session mock to return messages
-        mock_session.execute().scalar_one.return_value = content_mock_account
-        mock_session.execute().unique().scalars().all.return_value = mock_messages
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=content_mock_account)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        # Set up mock for all() that returns messages
+        mock_scalars_result = AsyncMock()
+        mock_scalars_result.all = AsyncMock(return_value=mock_messages)
+        mock_unique_result = AsyncMock()
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Setup batch processing
         task_pbar = MagicMock()
@@ -115,7 +138,7 @@ class TestMessageProcessing:
         semaphore = MagicMock()
         queue = MagicMock()
 
-        mixin._setup_batch_processing.return_value = (
+        mixin._setup_worker_pool.return_value = (
             task_pbar,
             process_pbar,
             semaphore,
@@ -137,7 +160,7 @@ class TestMessageProcessing:
         )
 
         # Extract process_batch function from the call
-        process_batch = mixin._run_batch_processor.call_args[1]["process_batch"]
+        process_batch = mixin._run_worker_pool.call_args[1]["process_item"]
 
         # Make semaphore context manager work in test
         semaphore.__aenter__ = AsyncMock()
@@ -165,26 +188,53 @@ class TestMessageProcessing:
         content_mock_studio,
         mock_messages,
     ):
-        """Test the structure of database queries used in process_creator_messages."""
-        # Call method
+        """Test the database query structure in process_creator_messages."""
+        # Create a proper AccountAccessibleAsyncMock that can be both awaited and accessed directly
+        accessible_account = AccessibleAsyncMock()
+        accessible_account.id = content_mock_account.id
+        accessible_account.username = content_mock_account.username
+        # Copy other attributes as needed
+        accessible_account.__dict__.update(
+            {
+                k: v
+                for k, v in content_mock_account.__dict__.items()
+                if not k.startswith("_")
+            }
+        )
+
+        # Mock query setup
+        mock_result = AsyncMock()
+        mock_scalars_result = AsyncMock()
+        mock_unique_result = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_scalars_result.all = MagicMock(return_value=mock_messages)
+
+        # Mock batch processing
+        mixin._setup_batch_processing = MagicMock()
+        mixin._run_batch_processor = AsyncMock()
+        mixin._process_messages_batch = AsyncMock()
+
+        # Call the method with our accessible account mock
         await mixin.process_creator_messages(
-            account=content_mock_account,
+            account=accessible_account,
             performer=content_mock_performer,
             studio=content_mock_studio,
             session=mock_session,
         )
 
-        # Get the SQL query from the first execute call
-        query_call = mock_session.execute.call_args_list[0]
+        # Verify database query was constructed correctly
+        mock_session.execute.assert_called_once()
+        # Get the first positional argument, which should be the select statement
+        stmt = mock_session.execute.call_args[0][0]
+        # Basic validation that it's a select statement
+        assert hasattr(stmt, "columns")
+        assert hasattr(stmt, "froms")
 
-        # Verify it's not None
-        assert query_call is not None
-
-        # Can't directly test query structure without ORM session, but
-        # we can verify that execute was called twice:
-        # 1. First to get a fresh account
-        # 2. Second to get messages with attachments
-        assert mock_session.execute.call_count >= 2
+        # Verify batch processor was called
+        assert mixin._setup_batch_processing.called
+        assert mixin._run_batch_processor.called
 
     @pytest.mark.asyncio
     async def test_batch_processing_setup(
@@ -198,8 +248,16 @@ class TestMessageProcessing:
     ):
         """Test the batch processing setup in process_creator_messages."""
         # Setup session mock to return messages
-        mock_session.execute().scalar_one.return_value = content_mock_account
-        mock_session.execute().unique().scalars().all.return_value = mock_messages
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=content_mock_account)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        # Set up mock for all() that returns messages
+        mock_scalars_result = AsyncMock()
+        mock_scalars_result.all = AsyncMock(return_value=mock_messages)
+        mock_unique_result = AsyncMock()
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Call method
         await mixin.process_creator_messages(
@@ -210,14 +268,14 @@ class TestMessageProcessing:
         )
 
         # Verify batch processing was setup with the correct parameters
-        mixin._setup_batch_processing.assert_called_once_with(mock_messages, "message")
+        mixin._setup_worker_pool.assert_called_once_with(mock_messages, "message")
 
         # Verify batch processor was run with the correct parameters
-        call_args = mixin._run_batch_processor.call_args[1]
+        call_args = mixin._run_worker_pool.call_args[1]
         assert call_args["items"] == mock_messages
         assert call_args["batch_size"] == 25  # Default batch size
-        assert "process_batch" in call_args
-        assert callable(call_args["process_batch"])
+        assert "process_item" in call_args
+        assert callable(call_args["process_item"])
 
         # Extract and verify batch processing parameters
         items = call_args["items"]

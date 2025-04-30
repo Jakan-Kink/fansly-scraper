@@ -12,6 +12,13 @@ async def test_process_timeline_post(stash_processor, mock_post, mock_performer)
     """Test processing a single timeline post."""
     # Arrange
     mock_post.stash_id = None
+    mock_post.account = MagicMock()
+    mock_post.awaitable_attrs = MagicMock()
+    mock_post.awaitable_attrs.attachments = AsyncMock(
+        return_value=mock_post.attachments
+    )
+    mock_post.awaitable_attrs.hashtags = AsyncMock(return_value=[])
+    mock_post.awaitable_attrs.accountMentions = AsyncMock(return_value=[])
 
     # Mock Stash client responses
     stash_processor.context.client.find_performer.return_value = mock_performer

@@ -95,12 +95,14 @@ class StashProcessingBase:
         cls,
         config: FanslyConfig,
         state: DownloadState,
+        use_batch_processing: bool = True,
     ) -> Any:  # Return type will be the derived class
         """Create processor from config.
 
         Args:
             config: FanslyConfig instance
             state: Current download state
+            use_batch_processing: Whether to use batch processing by mimetype
 
         Returns:
             New processor instance
@@ -118,6 +120,7 @@ class StashProcessingBase:
             _background_task=None,
             _cleanup_event=asyncio.Event(),
             _owns_db=False,  # We don't own the database
+            use_batch_processing=use_batch_processing,
         )
         return instance
 
@@ -203,6 +206,9 @@ class StashProcessingBase:
         """
         try:
             await self.continue_stash_processing(account, performer)
+            print_info(
+                f"Stash processing completed successfully for {performer.name if performer else 'unknown performer'}"
+            )
         except asyncio.CancelledError:
             logger.debug("Background task cancelled")
             # Handle task cancellation
@@ -223,6 +229,20 @@ class StashProcessingBase:
             )
             raise
         finally:
+            # Remove this task from config's background tasks if it's there
+            if hasattr(self, "config") and hasattr(self.config, "get_background_tasks"):
+                background_tasks = self.config.get_background_tasks()
+                current_task = asyncio.current_task()
+                if current_task in background_tasks:
+                    try:
+                        background_tasks.remove(current_task)
+                        logger.debug(
+                            f"Removed completed task {current_task} from background tasks"
+                        )
+                    except ValueError:
+                        pass  # Task was already removed
+
+            # Always set cleanup event so waiting code can proceed
             if self._cleanup_event:
                 self._cleanup_event.set()
 

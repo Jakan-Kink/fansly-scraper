@@ -1,4 +1,13 @@
-"""Media processing mixin."""
+"""Media processing mixin.
+
+This mixin handles processing of media objects into Stash. It includes:
+
+1. Optimized batch processing to handle large numbers of media items efficiently
+2. Batching by mimetype to separate image and scene processing
+3. Limited batch sizes (max 20 items per batch) to prevent SQL parser overflows
+4. Flat SQL condition structure rather than deeply nested conditions
+5. Efficient API usage patterns to minimize calls to Stash
+"""
 
 from __future__ import annotations
 
@@ -8,22 +17,76 @@ import traceback
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import select
 
 from metadata import Account, AccountMedia, AccountMediaBundle, Attachment, Media
 from metadata.decorators import with_session
-from textio import print_error
+from textio import print_error, print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Image, ImageFile, Performer, Scene, Tag, VideoFile
+from ...types import Image, ImageFile, Performer, Scene, Studio, Tag, VideoFile
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    pass
 
 
 class MediaProcessingMixin:
     """Media processing functionality."""
+
+    @with_session()
+    async def fetch_media_by_account_mimetype(
+        self,
+        account: Account,
+        mimetype_filter: str = None,
+        session: AsyncSession | None = None,
+    ) -> list[Media]:
+        """Fetch all media for an account filtered by mimetype.
+
+        This method efficiently retrieves media in batches by account ID and optionally
+        filtered by mimetype pattern. It's designed to enable batch processing of media
+        across multiple posts/messages.
+
+        Args:
+            account: Account to fetch media for
+            mimetype_filter: Optional filter for mimetype (e.g., 'image%' for all images)
+            session: Optional database session to use
+
+        Returns:
+            List of Media objects that match the criteria
+        """
+        # Ensure we have a fresh account instance
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
+
+        # Build query to get all media by accountId
+        media_query = select(Media).where(Media.accountId == account.id)
+
+        # Add mimetype filter if provided
+        if mimetype_filter:
+            media_query = media_query.where(Media.mimetype.like(mimetype_filter))
+
+        # Only get downloaded media
+        media_query = media_query.where(Media.is_downloaded)
+
+        # Execute query and get results
+        result = await session.execute(media_query)
+        media_list = result.scalars().all()
+
+        debug_print(
+            {
+                "method": "StashProcessing - fetch_media_by_account_mimetype",
+                "status": "fetched_media",
+                "account_id": account.id,
+                "mimetype_filter": mimetype_filter,
+                "media_count": len(media_list),
+            }
+        )
+
+        return media_list
 
     def _get_file_from_stash_obj(
         self,
@@ -247,7 +310,7 @@ class MediaProcessingMixin:
         self,
         media_ids: list[str],
     ) -> dict[str, dict]:
-        """Create nested OR conditions for path filters.
+        """Create nested OR conditions for path filters properly formatted for Stash GraphQL.
 
         Args:
             media_ids: List of media IDs to search for
@@ -255,31 +318,183 @@ class MediaProcessingMixin:
         Returns:
             Nested OR conditions for path filter
         """
-        # Create individual path conditions
-        conditions = [
-            {
+        # Handle the single media ID case
+        if len(media_ids) == 1:
+            return {
                 "path": {
                     "modifier": "INCLUDES",
-                    "value": media_id,
+                    "value": media_ids[0],
                 }
             }
-            for media_id in media_ids
-        ]
 
-        if len(conditions) == 1:
-            return conditions[0]
+        # For multiple IDs, create a nested structure compatible with Stash's GraphQL schema
+        # The first condition
+        result = {
+            "path": {
+                "modifier": "INCLUDES",
+                "value": media_ids[0],
+            }
+        }
 
-        # Build nested OR conditions from right to left
-        result = conditions[-1]  # Start with the last condition
-        for condition in reversed(
-            conditions[:-1]
-        ):  # Process remaining conditions right to left
+        # Add remaining conditions as nested OR
+        for media_id in media_ids[1:]:
+            # Each OR needs to have a single condition and can have another OR
             result = {
                 "OR": {
-                    "path": condition["path"],
+                    "path": {
+                        "modifier": "INCLUDES",
+                        "value": media_id,
+                    },
                     "OR": result,
                 }
             }
+
+        return result
+
+    @with_session()
+    async def process_account_media_by_mimetype(
+        self,
+        account: Account,
+        performer: Performer,
+        studio: Studio | None = None,
+        session: AsyncSession | None = None,
+    ) -> dict[str, list[Image | Scene]]:
+        """Process all media for an account grouped by mimetype.
+
+        This method retrieves and processes all media for an account in efficient batches,
+        grouped by mimetype. It processes images and scenes separately to allow for more
+        efficient API usage with StashDB.
+
+        Args:
+            account: Account to process media for
+            performer: Performer object associated with the account
+            studio: Optional Studio object associated with the account
+            session: Optional database session to use
+
+        Returns:
+            Dictionary containing lists of processed Image and Scene objects
+        """
+        result = {"images": [], "scenes": []}
+
+        # Process image media first
+        print_info("Processing image media for account...")
+        image_media = await self.fetch_media_by_account_mimetype(
+            account=account,
+            mimetype_filter="image%",
+            session=session,
+        )
+
+        if image_media:
+            print_info(f"Processing batch of {len(image_media)} images...")
+            # Use dummy item with account info for metadata
+            dummy_item = type(
+                "DummyItem",
+                (),
+                {
+                    "id": f"batch-{account.id}",
+                    "content": f"Media from {account.username}",
+                    "createdAt": datetime.now(),
+                },
+            )
+
+            # Process the batch
+            image_result = await self._process_media_batch_by_mimetype(
+                media_list=image_media,
+                item=dummy_item,
+                account=account,
+            )
+
+            result["images"].extend(image_result["images"])
+            debug_print(
+                {
+                    "method": "StashProcessing - process_account_media_by_mimetype",
+                    "status": "processed_images",
+                    "account_id": account.id,
+                    "image_count": len(image_result["images"]),
+                }
+            )
+
+        # Process video media next
+        print_info("Processing video media for account...")
+        video_media = await self.fetch_media_by_account_mimetype(
+            account=account,
+            mimetype_filter="video%",
+            session=session,
+        )
+
+        if video_media:
+            print_info(f"Processing batch of {len(video_media)} videos...")
+            # Use dummy item with account info for metadata
+            dummy_item = type(
+                "DummyItem",
+                (),
+                {
+                    "id": f"batch-{account.id}",
+                    "content": f"Media from {account.username}",
+                    "createdAt": datetime.now(),
+                },
+            )
+
+            # Process the batch
+            video_result = await self._process_media_batch_by_mimetype(
+                media_list=video_media,
+                item=dummy_item,
+                account=account,
+            )
+
+            result["scenes"].extend(video_result["scenes"])
+            debug_print(
+                {
+                    "method": "StashProcessing - process_account_media_by_mimetype",
+                    "status": "processed_videos",
+                    "account_id": account.id,
+                    "scene_count": len(video_result["scenes"]),
+                }
+            )
+
+        # Process other media types (application/*, etc.)
+        print_info("Processing other media types for account...")
+        other_media = await self.fetch_media_by_account_mimetype(
+            account=account,
+            mimetype_filter="application%",
+            session=session,
+        )
+
+        if other_media:
+            print_info(f"Processing batch of {len(other_media)} application files...")
+            # Use dummy item with account info for metadata
+            dummy_item = type(
+                "DummyItem",
+                (),
+                {
+                    "id": f"batch-{account.id}",
+                    "content": f"Media from {account.username}",
+                    "createdAt": datetime.now(),
+                },
+            )
+
+            # Process the batch
+            other_result = await self._process_media_batch_by_mimetype(
+                media_list=other_media,
+                item=dummy_item,
+                account=account,
+            )
+
+            # These usually become scenes in Stash
+            result["scenes"].extend(other_result["scenes"])
+            debug_print(
+                {
+                    "method": "StashProcessing - process_account_media_by_mimetype",
+                    "status": "processed_application_files",
+                    "account_id": account.id,
+                    "scene_count": len(other_result["scenes"]),
+                }
+            )
+
+        # Return the complete results
+        print_info(
+            f"Finished processing account media: {len(result['images'])} images, {len(result['scenes'])} scenes"
+        )
         return result
 
     async def _find_stash_files_by_id(
@@ -299,59 +514,97 @@ class MediaProcessingMixin:
         # Group by mime type
         image_ids = []
         scene_ids = []
+        image_id_map = {}  # stash_id -> mime_type mapping
+        scene_id_map = {}  # stash_id -> mime_type mapping
+
         for stash_id, mime_type in stash_files:
-            if mime_type.startswith("image"):
+            if mime_type and mime_type.startswith("image"):
                 image_ids.append(stash_id)
+                image_id_map[stash_id] = mime_type
             else:  # video or application -> scenes
                 scene_ids.append(stash_id)
+                scene_id_map[stash_id] = mime_type
 
-        # Find images
+        # Maximum batch size to prevent API overload
+        MAX_BATCH_SIZE = 20
+
+        # Process images in batches
         if image_ids:
+            # Split into batches
+            image_id_batches = self._chunk_list(image_ids, MAX_BATCH_SIZE)
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_id",
-                    "status": "finding_images",
-                    "stash_ids": image_ids,
+                    "status": "finding_images_in_batches",
+                    "total_images": len(image_ids),
+                    "batch_count": len(image_id_batches),
                 }
             )
-            for stash_id in image_ids:
-                try:
-                    image = await self.context.client.find_image(stash_id)
-                    if image and (file := self._get_file_from_stash_obj(image)):
-                        found.append((image, file))
-                except Exception as e:
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _find_stash_files_by_id",
-                            "status": "image_find_failed",
-                            "stash_id": stash_id,
-                            "error": str(e),
-                        }
-                    )
 
-        # Find scenes
+            for batch_index, batch_ids in enumerate(image_id_batches):
+                debug_print(
+                    {
+                        "method": "StashProcessing - _find_stash_files_by_id",
+                        "status": "processing_image_batch",
+                        "batch_index": batch_index + 1,
+                        "batch_size": len(batch_ids),
+                        "stash_ids": batch_ids,
+                    }
+                )
+
+                for stash_id in batch_ids:
+                    try:
+                        image = await self.context.client.find_image(stash_id)
+                        if image and (file := self._get_file_from_stash_obj(image)):
+                            found.append((image, file))
+                    except Exception as e:
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_files_by_id",
+                                "status": "image_find_failed",
+                                "stash_id": stash_id,
+                                "error": str(e),
+                            }
+                        )
+
+        # Process scenes in batches
         if scene_ids:
+            # Split into batches
+            scene_id_batches = self._chunk_list(scene_ids, MAX_BATCH_SIZE)
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_id",
-                    "status": "finding_scenes",
-                    "stash_ids": scene_ids,
+                    "status": "finding_scenes_in_batches",
+                    "total_scenes": len(scene_ids),
+                    "batch_count": len(scene_id_batches),
                 }
             )
-            for stash_id in scene_ids:
-                try:
-                    scene = await self.context.client.find_scene(stash_id)
-                    if scene and (file := self._get_file_from_stash_obj(scene)):
-                        found.append((scene, file))
-                except Exception as e:
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _find_stash_files_by_id",
-                            "status": "scene_find_failed",
-                            "stash_id": stash_id,
-                            "error": str(e),
-                        }
-                    )
+
+            for batch_index, batch_ids in enumerate(scene_id_batches):
+                debug_print(
+                    {
+                        "method": "StashProcessing - _find_stash_files_by_id",
+                        "status": "processing_scene_batch",
+                        "batch_index": batch_index + 1,
+                        "batch_size": len(batch_ids),
+                        "stash_ids": batch_ids,
+                    }
+                )
+
+                for stash_id in batch_ids:
+                    try:
+                        scene = await self.context.client.find_scene(stash_id)
+                        if scene and (file := self._get_file_from_stash_obj(scene)):
+                            found.append((scene, file))
+                    except Exception as e:
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_files_by_id",
+                                "status": "scene_find_failed",
+                                "stash_id": stash_id,
+                                "error": str(e),
+                            }
+                        )
 
         logger.debug(
             {
@@ -362,6 +615,18 @@ class MediaProcessingMixin:
             }
         )
         return found
+
+    def _chunk_list(self, items: list, chunk_size: int) -> list[list]:
+        """Split a list into chunks of specified size.
+
+        Args:
+            items: List to split into chunks
+            chunk_size: Maximum size of each chunk
+
+        Returns:
+            List of chunks
+        """
+        return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
 
     async def _find_stash_files_by_path(
         self,
@@ -384,184 +649,220 @@ class MediaProcessingMixin:
         image_ids = []
         scene_ids = []  # Both video and application use find_scenes
         for media_id, mime_type in media_files:
-            if mime_type.startswith("image"):
+            if mime_type and mime_type.startswith("image"):
                 image_ids.append(media_id)
             else:  # video or application -> scenes
                 scene_ids.append(media_id)
 
         found = []
 
-        # Find images
+        # Maximum batch size to prevent SQL parser stack overflow
+        MAX_BATCH_SIZE = 20
+
+        # Process images in batches
         if image_ids:
-            path_filter = self._create_nested_path_or_conditions(image_ids)
+            # Split image_ids into batches of MAX_BATCH_SIZE
+            image_id_batches = self._chunk_list(image_ids, MAX_BATCH_SIZE)
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_path",
-                    "status": "searching_images",
-                    "media_ids": image_ids,
-                    "filter": path_filter,
+                    "status": "processing_image_batches",
+                    "total_images": len(image_ids),
+                    "batch_count": len(image_id_batches),
+                    "batch_size": MAX_BATCH_SIZE,
                 }
             )
-            try:
-                results = await self.context.client.find_images(
-                    image_filter=path_filter,
-                    filter_=filter_params,
+
+            # Process each batch separately
+            for batch_index, batch_ids in enumerate(image_id_batches):
+                path_filter = self._create_nested_path_or_conditions(batch_ids)
+                debug_print(
+                    {
+                        "method": "StashProcessing - _find_stash_files_by_path",
+                        "status": "searching_images_batch",
+                        "batch_index": batch_index + 1,
+                        "batch_size": len(batch_ids),
+                        "media_ids": batch_ids,
+                    }
                 )
-                logger.info("Raw find_images results: %s", results)
+                try:
+                    results = await self.context.client.find_images(
+                        image_filter=path_filter,
+                        filter_=filter_params,
+                    )
+                    logger.info("Raw find_images results: %s", results)
 
-                if results.count > 0:
-                    valid_files_found = False
-                    for image_data in results.images:
-                        logger.info("Processing image data: %s", image_data)
+                    if results and results.count > 0:
+                        valid_files_found = False
+                        for image_data in results.images:
+                            logger.info("Processing image data: %s", image_data)
 
-                        try:
-                            image = (
-                                Image(**image_data)
-                                if isinstance(image_data, dict)
-                                else image_data
+                            try:
+                                image = (
+                                    Image(**image_data)
+                                    if isinstance(image_data, dict)
+                                    else image_data
+                                )
+                                logger.info("Created image object: %s", image)
+
+                                # Try to get a file from the image object
+                                if file := self._get_file_from_stash_obj(image):
+                                    logger.info("Found file in image: %s", file)
+                                    found.append((image, file))
+                                    valid_files_found = True
+                                else:
+                                    logger.info("No file found in image object")
+
+                            except Exception as e:
+                                logger.error(f"Error processing image data: {e}")
+                                debug_print(
+                                    {
+                                        "method": "StashProcessing - _find_stash_files_by_path",
+                                        "status": "image_processing_failed",
+                                        "error": str(e),
+                                        "image_data": (
+                                            str(image_data)[:100] + "..."
+                                            if len(str(image_data)) > 100
+                                            else str(image_data)
+                                        ),
+                                    }
+                                )
+
+                        if not valid_files_found:
+                            logger.warning(
+                                f"Found {results.count} images but no valid image files could be extracted in batch {batch_index + 1}"
                             )
-                            logger.info("Created image object: %s", image)
-
-                            # Try to get a file from the image object
-                            if file := self._get_file_from_stash_obj(image):
-                                logger.info("Found file in image: %s", file)
-                                found.append((image, file))
-                                valid_files_found = True
-                            else:
-                                logger.info("No file found in image object")
-
-                        except Exception as e:
-                            logger.error(f"Error processing image data: {e}")
                             debug_print(
                                 {
                                     "method": "StashProcessing - _find_stash_files_by_path",
-                                    "status": "image_processing_failed",
-                                    "error": str(e),
-                                    "image_data": (
-                                        str(image_data)[:100] + "..."
-                                        if len(str(image_data)) > 100
-                                        else str(image_data)
-                                    ),
+                                    "status": "no_valid_files_found_in_batch",
+                                    "batch_index": batch_index + 1,
+                                    "image_count": results.count,
                                 }
                             )
-
-                    if not valid_files_found:
-                        logger.warning(
-                            f"Found {results.count} images but no valid image files could be extracted"
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_files_by_path",
-                                "status": "no_valid_files_found",
-                                "image_count": results.count,
-                            }
-                        )
-            except Exception as e:
-                debug_print(
-                    {
-                        "method": "StashProcessing - _find_stash_files_by_path",
-                        "status": "image_search_failed",
-                        "media_ids": image_ids,
-                        "error": str(e),
-                    }
-                )
-
-        # Find scenes (both video and application)
-        if scene_ids:
-            path_filter = self._create_nested_path_or_conditions(scene_ids)
-            debug_print(
-                {
-                    "method": "StashProcessing - _find_stash_files_by_path",
-                    "status": "searching_scenes",
-                    "media_ids": scene_ids,
-                    "filter": path_filter,
-                }
-            )
-            try:
-                # Add detailed debugging for the scene search
-                debug_print(
-                    {
-                        "method": "StashProcessing - _find_stash_files_by_path",
-                        "status": "detailed_scene_search",
-                        "path_filter": path_filter,
-                        "media_ids": scene_ids,
-                    }
-                )
-
-                results = await self.context.client.find_scenes(
-                    scene_filter=path_filter,
-                    filter_=filter_params,
-                )
-
-                # Log results summary
-                logger.info(
-                    "Scene search results: count=%s", getattr(results, "count", 0)
-                )
-
-                # Check if any scenes were found
-                if not results or not hasattr(results, "count") or results.count == 0:
-                    logger.warning(f"No scenes found for media IDs: {scene_ids}")
+                except Exception as e:
                     debug_print(
                         {
                             "method": "StashProcessing - _find_stash_files_by_path",
-                            "status": "no_scenes_found",
-                            "media_ids": scene_ids,
+                            "status": "image_search_failed_for_batch",
+                            "batch_index": batch_index + 1,
+                            "media_ids": batch_ids,
+                            "error": str(e),
                         }
                     )
 
-                elif results.count > 0:
-                    valid_files_found = False
-                    for scene_data in results.scenes:
-                        try:
-                            scene = (
-                                Scene(**scene_data)
-                                if isinstance(scene_data, dict)
-                                else scene_data
-                            )
+        # Process scenes in batches (both video and application)
+        if scene_ids:
+            # Split scene_ids into batches of MAX_BATCH_SIZE
+            scene_id_batches = self._chunk_list(scene_ids, MAX_BATCH_SIZE)
+            debug_print(
+                {
+                    "method": "StashProcessing - _find_stash_files_by_path",
+                    "status": "processing_scene_batches",
+                    "total_scenes": len(scene_ids),
+                    "batch_count": len(scene_id_batches),
+                    "batch_size": MAX_BATCH_SIZE,
+                }
+            )
 
-                            if file := self._get_file_from_stash_obj(scene):
-                                found.append((scene, file))
-                                valid_files_found = True
-                            else:
-                                logger.info(
-                                    f"No file found in scene object: {scene.id}"
-                                )
+            # Process each batch separately
+            for batch_index, batch_ids in enumerate(scene_id_batches):
+                path_filter = self._create_nested_path_or_conditions(batch_ids)
+                debug_print(
+                    {
+                        "method": "StashProcessing - _find_stash_files_by_path",
+                        "status": "searching_scenes_batch",
+                        "batch_index": batch_index + 1,
+                        "batch_size": len(batch_ids),
+                        "media_ids": batch_ids,
+                    }
+                )
+                try:
+                    results = await self.context.client.find_scenes(
+                        scene_filter=path_filter,
+                        filter_=filter_params,
+                    )
 
-                        except Exception as e:
-                            logger.error(f"Error processing scene data: {e}")
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _find_stash_files_by_path",
-                                    "status": "scene_processing_failed",
-                                    "error": str(e),
-                                    "scene_data": (
-                                        str(scene_data)[:100] + "..."
-                                        if len(str(scene_data)) > 100
-                                        else str(scene_data)
-                                    ),
-                                }
-                            )
+                    # Log results summary
+                    logger.info(
+                        "Scene search results for batch %s: count=%s",
+                        batch_index + 1,
+                        getattr(results, "count", 0),
+                    )
 
-                    if not valid_files_found:
+                    # Check if any scenes were found
+                    if (
+                        not results
+                        or not hasattr(results, "count")
+                        or results.count == 0
+                    ):
                         logger.warning(
-                            f"Found {results.count} scenes but no valid scene files could be extracted"
+                            f"No scenes found for media IDs in batch {batch_index + 1}: {batch_ids}"
                         )
                         debug_print(
                             {
                                 "method": "StashProcessing - _find_stash_files_by_path",
-                                "status": "no_valid_scene_files_found",
-                                "scene_count": results.count,
+                                "status": "no_scenes_found_in_batch",
+                                "batch_index": batch_index + 1,
+                                "media_ids": batch_ids,
                             }
                         )
-            except Exception as e:
-                debug_print(
-                    {
-                        "method": "StashProcessing - _find_stash_files_by_path",
-                        "status": "scene_search_failed",
-                        "media_ids": scene_ids,
-                        "error": str(e),
-                    }
-                )
+
+                    elif results.count > 0:
+                        valid_files_found = False
+                        for scene_data in results.scenes:
+                            try:
+                                scene = (
+                                    Scene(**scene_data)
+                                    if isinstance(scene_data, dict)
+                                    else scene_data
+                                )
+
+                                if file := self._get_file_from_stash_obj(scene):
+                                    found.append((scene, file))
+                                    valid_files_found = True
+                                else:
+                                    logger.info(
+                                        f"No file found in scene object: {scene.id}"
+                                    )
+
+                            except Exception as e:
+                                logger.error(f"Error processing scene data: {e}")
+                                debug_print(
+                                    {
+                                        "method": "StashProcessing - _find_stash_files_by_path",
+                                        "status": "scene_processing_failed",
+                                        "error": str(e),
+                                        "scene_data": (
+                                            str(scene_data)[:100] + "..."
+                                            if len(str(scene_data)) > 100
+                                            else str(scene_data)
+                                        ),
+                                    }
+                                )
+
+                        if not valid_files_found:
+                            logger.warning(
+                                f"Found {results.count} scenes but no valid scene files could be extracted in batch {batch_index + 1}"
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _find_stash_files_by_path",
+                                    "status": "no_valid_scene_files_found_in_batch",
+                                    "batch_index": batch_index + 1,
+                                    "scene_count": results.count,
+                                }
+                            )
+                except Exception as e:
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _find_stash_files_by_path",
+                            "status": "scene_search_failed_for_batch",
+                            "batch_index": batch_index + 1,
+                            "media_ids": batch_ids,
+                            "error": str(e),
+                        }
+                    )
 
         logger.debug(
             {
@@ -942,16 +1243,39 @@ class MediaProcessingMixin:
             }
         )
 
-        # Process each media item in the bundle
+        # Collect media for batch processing
+        media_batch = []
+
+        # Collect media from bundle for batch processing
         for account_media in bundle.accountMedia:
             if account_media.media:
-                await self._process_media(account_media.media, item, account, result)
+                media_batch.append(account_media.media)
             if account_media.preview:
-                await self._process_media(account_media.preview, item, account, result)
+                media_batch.append(account_media.preview)
 
-        # Process bundle preview if any
+        # Add bundle preview if any
         if bundle.preview:
-            await self._process_media(bundle.preview, item, account, result)
+            media_batch.append(bundle.preview)
+
+        # Process the collected media batch if any
+        if media_batch:
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_bundle_media",
+                    "status": "processing_media_batch",
+                    "bundle_id": bundle.id,
+                    "media_count": len(media_batch),
+                }
+            )
+
+            # Process media in batches by mimetype using the account passed to the method
+            batch_result = await self._process_media_batch_by_mimetype(
+                media_list=media_batch, item=item, account=account
+            )
+
+            # Add batch results to the overall result
+            result["images"].extend(batch_result["images"])
+            result["scenes"].extend(batch_result["scenes"])
 
     @with_session()
     async def process_creator_attachment(
@@ -994,14 +1318,15 @@ class MediaProcessingMixin:
             }
         )
 
-        # Process direct media and its preview
+        # Collect media for batch processing
+        media_batch = []
+
+        # Add direct media and preview to batch
         if attachment.media:
             if attachment.media.media:
-                await self._process_media(attachment.media.media, item, account, result)
+                media_batch.append(attachment.media.media)
             if attachment.media.preview:
-                await self._process_media(
-                    attachment.media.preview, item, account, result
-                )
+                media_batch.append(attachment.media.preview)
 
         # Handle media bundles
         debug_print(
@@ -1018,7 +1343,20 @@ class MediaProcessingMixin:
         if hasattr(attachment, "awaitable_attrs"):
             await attachment.awaitable_attrs.bundle
         if attachment.bundle:
-            await self._process_bundle_media(attachment.bundle, item, account, result)
+            # Collect media from bundle for batch processing
+            if hasattr(attachment.bundle, "awaitable_attrs"):
+                await attachment.bundle.awaitable_attrs.accountMedia
+                await attachment.bundle.awaitable_attrs.preview
+
+            if hasattr(attachment.bundle, "accountMedia"):
+                for account_media in attachment.bundle.accountMedia:
+                    if account_media.media:
+                        media_batch.append(account_media.media)
+                    if account_media.preview:
+                        media_batch.append(account_media.preview)
+
+            if attachment.bundle.preview:
+                media_batch.append(attachment.bundle.preview)
 
         # Handle aggregated posts
         debug_print(
@@ -1073,5 +1411,284 @@ class MediaProcessingMixin:
                     )
                     result["images"].extend(agg_result["images"])
                     result["scenes"].extend(agg_result["scenes"])
+
+        # Process the collected media batch if any
+        if media_batch:
+            debug_print(
+                {
+                    "method": "StashProcessing - process_creator_attachment",
+                    "status": "processing_media_batch",
+                    "attachment_id": attachment.id,
+                    "media_count": len(media_batch),
+                }
+            )
+
+            # Process media in batches by mimetype using the account passed to the method
+            batch_result = await self._process_media_batch_by_mimetype(
+                media_list=media_batch, item=item, account=account
+            )
+
+            # Add batch results to the overall result
+            result["images"].extend(batch_result["images"])
+            result["scenes"].extend(batch_result["scenes"])
+
+        return result
+
+    async def _process_media_batch_by_mimetype(
+        self,
+        media_list: list[Media],
+        item: Any,
+        account: Account,
+    ) -> dict[str, list[Image | Scene]]:
+        """Process a batch of media objects grouped by mimetype.
+
+        This optimized method processes multiple media objects in batches grouped
+        by mimetype to reduce API calls to Stash. Since StashProcessing is designed
+        to work with a single account/creator at a time, all media is processed using
+        the provided account object.
+
+        Args:
+            media_list: List of Media objects to process
+            item: Post or Message containing the media
+            account: Account that created the content (the creator being processed)
+
+        Returns:
+            Dictionary containing lists of Image and Scene objects
+        """
+        result = {"images": [], "scenes": []}
+        if not media_list:
+            return result
+
+        # Maximum batch size to avoid SQL parser overflow
+        MAX_BATCH_SIZE = 20
+
+        # Split into batches of MAX_BATCH_SIZE for processing
+        if len(media_list) > MAX_BATCH_SIZE:
+            # Process in batches
+            batched_results = {"images": [], "scenes": []}
+            media_batches = self._chunk_list(media_list, MAX_BATCH_SIZE)
+
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_media_batch_by_mimetype",
+                    "status": "splitting_into_batches",
+                    "total_media": len(media_list),
+                    "batch_count": len(media_batches),
+                    "batch_size": MAX_BATCH_SIZE,
+                }
+            )
+
+            # Process each batch
+            for batch_index, batch in enumerate(media_batches):
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_media_batch_by_mimetype",
+                        "status": "processing_batch",
+                        "batch_index": batch_index + 1,
+                        "batch_size": len(batch),
+                    }
+                )
+
+                # Process this batch
+                batch_result = await self._process_batch_internal(
+                    media_list=batch,
+                    item=item,
+                    account=account,
+                )
+
+                # Add results to overall results
+                batched_results["images"].extend(batch_result["images"])
+                batched_results["scenes"].extend(batch_result["scenes"])
+
+            # Return combined results from all batches
+            return batched_results
+
+        # Process as a single batch if under MAX_BATCH_SIZE
+        return await self._process_batch_internal(media_list, item, account)
+
+    async def _process_batch_internal(
+        self,
+        media_list: list[Media],
+        item: Any,
+        account: Account,
+    ) -> dict[str, list[Image | Scene]]:
+        """Process a small batch of media objects internally.
+
+        This internal method handles the actual processing of media objects.
+        It's designed to work with batches small enough to avoid SQL parser overflows.
+
+        Args:
+            media_list: List of Media objects to process (should be limited in size)
+            item: Post or Message containing the media
+            account: Account that created the content
+
+        Returns:
+            Dictionary containing lists of Image and Scene objects
+        """
+        result = {"images": [], "scenes": []}
+        if not media_list:
+            return result
+
+        # Load awaitable attributes for all media in one pass
+        for media in media_list:
+            if hasattr(media, "awaitable_attrs"):
+                await media.awaitable_attrs.mimetype
+                await media.awaitable_attrs.is_downloaded
+                await media.awaitable_attrs.variants
+
+        # Group media by stash_id vs path-based lookup
+        stash_id_media = []
+        path_media = []
+
+        # First pass: separate media with stash_id from those without
+        for media in media_list:
+            if media.stash_id:
+                stash_id_media.append((media.stash_id, media.mimetype, media.id))
+            else:
+                # Start with the media itself
+                path_media.append((str(media.id), media.mimetype, media.id))
+                # Add variants
+                if hasattr(media, "variants") and media.variants:
+                    for variant in media.variants:
+                        path_media.append((str(variant.id), variant.mimetype, media.id))
+
+        debug_print(
+            {
+                "method": "StashProcessing - _process_media_batch_by_mimetype",
+                "status": "batch_processing",
+                "stash_id_count": len(stash_id_media),
+                "path_media_count": len(path_media),
+                "total_media": len(media_list),
+            }
+        )
+
+        # Process stash_id batch
+        if stash_id_media:
+            # Convert to format expected by _find_stash_files_by_id
+            lookup_data = [
+                (stash_id, mimetype) for stash_id, mimetype, _ in stash_id_media
+            ]
+            stash_id_map = {
+                stash_id: media_id for stash_id, _, media_id in stash_id_media
+            }
+
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_media_batch_by_mimetype",
+                    "status": "processing_stash_id_batch",
+                    "lookup_count": len(lookup_data),
+                }
+            )
+
+            stash_results = await self._find_stash_files_by_id(lookup_data)
+
+            # Process results and update metadata
+            for stash_obj, _ in stash_results:
+                # Find the original media_id that corresponds to this stash object
+                media_id = stash_id_map.get(stash_obj.id)
+                if media_id:
+                    await self._update_stash_metadata(
+                        stash_obj=stash_obj,
+                        item=item,
+                        account=account,
+                        media_id=str(media_id),
+                    )
+
+                    # Add to appropriate result list
+                    if isinstance(stash_obj, Image):
+                        result["images"].append(stash_obj)
+                    elif isinstance(stash_obj, Scene):
+                        result["scenes"].append(stash_obj)
+
+        # Process path-based batch
+        if path_media:
+            # Group by mimetype for more efficient lookup
+            image_media = []
+            scene_media = []
+
+            for path, mimetype, media_id in path_media:
+                if mimetype and mimetype.startswith("image"):
+                    image_media.append((path, mimetype, media_id))
+                else:  # video, application, etc. go to scenes
+                    scene_media.append((path, mimetype, media_id))
+
+            # Process images batch
+            if image_media:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_media_batch_by_mimetype",
+                        "status": "processing_image_batch",
+                        "count": len(image_media),
+                    }
+                )
+
+                # Prepare path filter with all image paths
+                lookup_data = [(path, mimetype) for path, mimetype, _ in image_media]
+                media_id_map = {path: media_id for path, _, media_id in image_media}
+
+                stash_results = await self._find_stash_files_by_path(lookup_data)
+
+                # Find corresponding media_id for each result
+                for stash_obj, file_obj in stash_results:
+                    # Look for media_id in path
+                    for path, media_id in media_id_map.items():
+                        if (
+                            path in file_obj.path
+                        ):  # Check if media_id is in the file path
+                            await self._update_stash_metadata(
+                                stash_obj=stash_obj,
+                                item=item,
+                                account=account,
+                                media_id=str(media_id),
+                            )
+
+                            if isinstance(stash_obj, Image):
+                                result["images"].append(stash_obj)
+                                break
+
+            # Process scenes batch
+            if scene_media:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_media_batch_by_mimetype",
+                        "status": "processing_scene_batch",
+                        "count": len(scene_media),
+                    }
+                )
+
+                # Prepare path filter with all scene paths
+                lookup_data = [(path, mimetype) for path, mimetype, _ in scene_media]
+                media_id_map = {path: media_id for path, _, media_id in scene_media}
+
+                stash_results = await self._find_stash_files_by_path(lookup_data)
+
+                # Find corresponding media_id for each result
+                for stash_obj, file_obj in stash_results:
+                    # Look for media_id in path
+                    for path, media_id in media_id_map.items():
+                        if (
+                            path in file_obj.path
+                        ):  # Check if media_id is in the file path
+                            await self._update_stash_metadata(
+                                stash_obj=stash_obj,
+                                item=item,
+                                account=account,
+                                media_id=str(media_id),
+                            )
+
+                            if isinstance(stash_obj, Scene):
+                                result["scenes"].append(stash_obj)
+                                break
+
+        # Log completion summary
+        debug_print(
+            {
+                "method": "StashProcessing - _process_media_batch_by_mimetype",
+                "status": "batch_processing_complete",
+                "images_found": len(result["images"]),
+                "scenes_found": len(result["scenes"]),
+                "total_media_processed": len(media_list),
+            }
+        )
 
         return result

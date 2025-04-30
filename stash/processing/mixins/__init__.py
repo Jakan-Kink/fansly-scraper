@@ -1,4 +1,12 @@
-"""Mixins for StashProcessing."""
+"""Mixins for StashProcessing.
+
+This package provides mixins for the StashProcessing class, enabling:
+
+1. Processing of different types of content (accounts, media, posts, messages)
+2. Efficient batch processing with size limits to prevent SQL parser overflow
+3. Background processing with worker pools
+4. Complete metadata handling and relationships
+"""
 
 from .account import AccountProcessingMixin
 from .batch import BatchProcessingMixin

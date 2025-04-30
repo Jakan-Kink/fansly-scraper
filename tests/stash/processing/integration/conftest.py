@@ -6,7 +6,11 @@ richer mocks suitable for integration testing.
 """
 
 import asyncio
+import gc
+import sys
+import warnings
 from datetime import datetime
+from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from metadata import Account, Attachment, Group, Media, Message, Post
 from stash.processing import StashProcessing
 from stash.types import Gallery, Image, Performer, Scene, Studio
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+)
 
 # Import and re-export fixtures from parent conftest.py
 from ..conftest import (
@@ -78,6 +85,8 @@ __all__ = [
     "stash_processor",
     "mock_multiple_posts",
     "mock_multiple_messages",
+    "await_unawaited_coroutines",
+    "integration_mock_image",
 ]
 
 
@@ -191,7 +200,8 @@ class MockDatabase:
 
     async def async_session_scope(self):
         """Async context manager for database session."""
-        return AsyncSessionContext(self.session)
+        session_context = AsyncSessionContext(self.session)
+        return session_context
 
     def reset_session_mocks(self):
         """Reset all session mocks to clean state."""
@@ -239,7 +249,7 @@ def mock_database():
 @pytest.fixture
 def integration_mock_account():
     """Fixture for mock account in integration tests."""
-    account = MagicMock(spec=Account)
+    account = AccessibleAsyncMock(spec=Account)
     account.id = 54321
     account.username = "test_user"
     account.stash_id = None
@@ -337,7 +347,7 @@ def integration_mock_scene():
 @pytest.fixture
 def mock_item():
     """Fixture for mock item (generic content item like post or message)."""
-    item = MagicMock()
+    item = AccessibleAsyncMock()
     item.id = "item_123"
     item.content = "Test item content"
     item.createdAt = datetime(2024, 4, 1, 12, 0, 0)
@@ -503,7 +513,7 @@ def mock_attachment():
 @pytest.fixture
 def mock_post(mock_attachment, mock_permissions):
     """Updated fixture for mock post with additional fields."""
-    post = MagicMock(spec=Post)
+    post = AccessibleAsyncMock(spec=Post)
     post.id = 12345
     post.accountId = 54321
     post.content = "Test post content #test"
@@ -566,7 +576,7 @@ def mock_posts(mock_account):
         attachment.awaitable_attrs.media = AsyncMock(return_value=attachment.media)
 
         # Create post with the attachment
-        post = MagicMock(spec=Post)
+        post = AccessibleAsyncMock(spec=Post)
         post.id = f"post_{i+1}"
         post.accountId = mock_account.id
         post.content = f"Test post content {i+1}"
@@ -613,7 +623,7 @@ def mock_group(mock_account):
 @pytest.fixture
 def mock_message(mock_group, mock_attachment):
     """Fixture for mock message."""
-    message = MagicMock(spec=Message)
+    message = AccessibleAsyncMock(spec=Message)
     message.id = 67890
     message.content = "Test message content"
     message.createdAt = datetime(2024, 4, 1, 12, 0, 0)
@@ -667,7 +677,7 @@ def mock_messages(mock_group):
         attachment.awaitable_attrs.media = AsyncMock(return_value=attachment.media)
 
         # Create message with the attachment
-        message = MagicMock(spec=Message)
+        message = AccessibleAsyncMock(spec=Message)
         message.id = f"message_{i+1}"
         message.content = f"Test message content {i+1}"
         message.createdAt = datetime(2024, 4, 1, 12, 0, 0)
@@ -874,3 +884,63 @@ def mock_multiple_messages(mock_group):
 
         messages.append(message)
     return messages
+
+
+@pytest.fixture(autouse=True)
+async def await_unawaited_coroutines():
+    """Fixture to collect and await any unawaited coroutines after test execution.
+
+    This helps prevent "coroutine was never awaited" warnings by finding and awaiting
+    any pending coroutines that were created during the test but never awaited.
+    """
+    # Run the test
+    yield
+
+    # Collect and await any leftover coroutines
+    pending_coroutines = []
+
+    # Force garbage collection to ensure all objects are properly accounted for
+    gc.collect()
+
+    # Look for coroutines in all objects tracked by the garbage collector
+    for obj in gc.get_objects():
+        if asyncio.iscoroutine(obj):
+            # Check if the coroutine is from AsyncMock
+            if "AsyncMockMixin._execute_mock_call" in str(obj):
+                pending_coroutines.append(obj)
+
+    # Await any coroutines found
+    if pending_coroutines:
+        for coro in pending_coroutines:
+            try:
+                await asyncio.wait_for(coro, timeout=0.1)
+            except (TimeoutError, asyncio.CancelledError):
+                # Ignore these errors, we just want to avoid the warning
+                pass
+            except Exception:
+                # Silently ignore other errors as we're just cleaning up
+                pass
+
+
+@pytest.fixture
+def integration_mock_image():
+    """Fixture to create a mock image for integration tests."""
+    mock_image = AccessibleAsyncMock(spec=Image)
+    mock_image.id = "image_123"
+    mock_image.title = "Test Image"
+    mock_image.details = None
+    mock_image.rating = 0
+    mock_image.created_at = "2023-01-01"
+    mock_image.updated_at = "2023-01-01"
+    mock_image.organized = False
+    mock_image.o_counter = 0
+    mock_image.path = "/path/to/image.jpg"
+    mock_image.height = 1080
+    mock_image.width = 1920
+    mock_image.file_mod_time = "2023-01-01"
+    mock_image.size = 1024 * 1024  # 1MB in bytes
+    mock_image.save = AsyncMock(return_value=True)
+
+    # Create a method that returns self when called
+    mock_image.update = AsyncMock(return_value=mock_image)
+    return mock_image

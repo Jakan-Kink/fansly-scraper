@@ -14,6 +14,8 @@ from stash.types import Gallery, Image, Performer, Scene, Studio
 class TestFullWorkflowIntegration:
     """Integration tests for the full StashProcessing workflow."""
 
+    @pytest.mark.slow
+    @pytest.mark.full_workflow
     @pytest.mark.asyncio
     async def test_full_workflow(
         self,
@@ -74,6 +76,7 @@ class TestFullWorkflowIntegration:
         assert stash_processor.process_creator_posts.call_count >= 1
         assert stash_processor.process_creator_messages.call_count >= 1
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_full_post_processing_flow(
         self,
@@ -178,6 +181,7 @@ class TestFullWorkflowIntegration:
             # Error should be handled within the method
             # The function should return without calling process_creator_posts
 
+    @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_integration_with_real_batch_processing(
         self,

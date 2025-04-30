@@ -501,6 +501,19 @@ class GalleryProcessingMixin:
                 }
             )
 
+            # Collect all media from attachments for batch processing
+            media_batch = await self._collect_media_from_attachments(attachments)
+
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "collected_media_batch",
+                    "item_id": item.id,
+                    "media_count": len(media_batch),
+                    "account_id": getattr(account, "id", None),
+                }
+            )
+
             debug_print(
                 {
                     "method": "StashProcessing - _process_item_gallery",
@@ -552,68 +565,85 @@ class GalleryProcessingMixin:
                         # Temporarily overwrite tags for testing
                         gallery.tags = tags
 
-            # Process attachments and collect images/scenes
+            # Process media batch
             all_images = []
             all_scenes = []
-            for i, attachment in enumerate(attachments, 1):
-                debug_print(
-                    {
-                        "method": "StashProcessing - _process_item_gallery",
-                        "status": "processing_attachment",
-                        "item_id": item.id,
-                        "attachment_id": attachment.id,
-                        "progress": f"{i}/{len(attachments)}",
-                    }
-                )
+
+            # Only process media if we have a batch
+            if media_batch:
                 try:
+                    # Create batches by mimetype group for more efficient processing
+                    # Group media by mimetype group (image, video, application)
+                    image_media = []
+                    video_media = []
+                    app_media = []
+
+                    for media in media_batch:
+                        if hasattr(media, "awaitable_attrs"):
+                            await media.awaitable_attrs.mimetype
+
+                        mimetype = getattr(media, "mimetype", "")
+                        if mimetype and mimetype.startswith("image/"):
+                            image_media.append(media)
+                        elif mimetype and mimetype.startswith("video/"):
+                            video_media.append(media)
+                        elif mimetype and mimetype.startswith("application/"):
+                            app_media.append(media)
+
+                    # Process each batch separately
                     debug_print(
                         {
                             "method": "StashProcessing - _process_item_gallery",
-                            "status": "attachment_details",
+                            "status": "processing_media_by_mimetype",
                             "item_id": item.id,
-                            "attachment_id": attachment.id,
-                            "content_id": getattr(attachment, "contentId", None),
-                            "content_type": getattr(attachment, "contentType", None),
+                            "image_count": len(image_media),
+                            "video_count": len(video_media),
+                            "application_count": len(app_media),
                         }
                     )
-                    result = await self.process_creator_attachment(
-                        attachment=attachment,
-                        item=item,
-                        account=account,
-                        session=session,
+
+                    # Process images batch
+                    if image_media:
+                        image_result = await self._process_media_batch_by_mimetype(
+                            media_list=image_media,
+                            item=item,
+                            account=account,
+                        )
+                        all_images.extend(image_result["images"])
+
+                    # Process videos batch
+                    if video_media:
+                        video_result = await self._process_media_batch_by_mimetype(
+                            media_list=video_media,
+                            item=item,
+                            account=account,
+                        )
+                        all_scenes.extend(video_result["scenes"])
+
+                    # Process application batch
+                    if app_media:
+                        app_result = await self._process_media_batch_by_mimetype(
+                            media_list=app_media,
+                            item=item,
+                            account=account,
+                        )
+                        all_scenes.extend(app_result["scenes"])
+
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_item_gallery",
+                            "status": "media_batch_processed",
+                            "item_id": item.id,
+                            "images_processed": len(all_images),
+                            "scenes_processed": len(all_scenes),
+                        }
                     )
-                    if result["images"] or result["scenes"]:
-                        all_images.extend(result["images"])
-                        all_scenes.extend(result["scenes"])
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _process_item_gallery",
-                                "status": "attachment_processed",
-                                "item_id": item.id,
-                                "attachment_id": attachment.id,
-                                "progress": f"{i}/{len(attachments)}",
-                                "images_added": len(result["images"]),
-                                "scenes_added": len(result["scenes"]),
-                            }
-                        )
-                    else:
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _process_item_gallery",
-                                "status": "attachment_skipped",
-                                "item_id": item.id,
-                                "attachment_id": attachment.id,
-                                "progress": f"{i}/{len(attachments)}",
-                            }
-                        )
                 except Exception as e:
                     debug_print(
                         {
                             "method": "StashProcessing - _process_item_gallery",
-                            "status": "attachment_failed",
+                            "status": "media_batch_failed",
                             "item_id": item.id,
-                            "attachment_id": attachment.id,
-                            "progress": f"{i}/{len(attachments)}",
                             "error": str(e),
                             "traceback": traceback.format_exc(),
                         }

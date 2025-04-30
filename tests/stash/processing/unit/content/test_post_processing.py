@@ -4,6 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+)
+
 
 class TestPostProcessing:
     """Test post processing methods in ContentProcessingMixin."""
@@ -270,3 +274,61 @@ class TestPostProcessing:
 
         # Restore the original mock
         mixin._process_items_with_gallery = AsyncMock()
+
+    @pytest.mark.asyncio
+    async def test_database_query_structure(
+        self,
+        mixin,
+        content_mock_account,
+        content_mock_performer,
+        content_mock_studio,
+        mock_session,
+        mock_posts,
+    ):
+        """Test the database query structure in process_creator_posts."""
+        # Create a proper AccessibleAsyncMock for account that can be both awaited and accessed
+        accessible_account = AccessibleAsyncMock()
+        accessible_account.id = content_mock_account.id
+        accessible_account.username = content_mock_account.username
+        # Copy other attributes as needed
+        accessible_account.__dict__.update(
+            {
+                k: v
+                for k, v in content_mock_account.__dict__.items()
+                if not k.startswith("_")
+            }
+        )
+
+        # Mock query setup
+        mock_result = AsyncMock()
+        mock_scalars_result = AsyncMock()
+        mock_unique_result = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_scalars_result.all = MagicMock(return_value=mock_posts)
+
+        # Mock batch processing
+        mixin._setup_batch_processing = MagicMock()
+        mixin._run_batch_processor = AsyncMock()
+        mixin._process_posts_batch = AsyncMock()
+
+        # Call method with our accessible account mock
+        await mixin.process_creator_posts(
+            account=accessible_account,
+            performer=content_mock_performer,
+            studio=content_mock_studio,
+            session=mock_session,
+        )
+
+        # Verify database query was constructed correctly
+        mock_session.execute.assert_called_once()
+        # Get the first positional argument, which should be the select statement
+        stmt = mock_session.execute.call_args[0][0]
+        # Basic validation that it's a select statement
+        assert hasattr(stmt, "columns")
+        assert hasattr(stmt, "froms")
+
+        # Verify batch processor was called
+        assert mixin._setup_batch_processing.called
+        assert mixin._run_batch_processor.called

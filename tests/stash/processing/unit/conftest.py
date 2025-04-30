@@ -32,6 +32,9 @@ from stash.types import (
     Tag,
     VideoFile,
 )
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+)
 
 # Import and re-export fixtures from parent conftest.py
 from ..conftest import (
@@ -151,7 +154,7 @@ def mock_queue():
 @pytest.fixture
 def mock_item():
     """Mock item fixture."""
-    item = MagicMock(spec=Post)
+    item = AccessibleAsyncMock(spec=Post)
     item.id = 12345
     item.content = "Test content"
     item.createdAt = datetime(2024, 4, 1, 12, 0, 0)
@@ -387,7 +390,7 @@ def mock_group():
 @pytest.fixture
 def unit_mock_account():
     """Base fixture for mock account in unit tests."""
-    account = MagicMock(spec=Account)
+    account = AccessibleAsyncMock(spec=Account)
     account.id = 54321
     account.username = "test_user"
     account.stash_id = None
@@ -399,7 +402,7 @@ def unit_mock_account():
 @pytest.fixture
 def mock_message():
     """Base fixture for mock message."""
-    message = MagicMock(spec=Message)
+    message = AccessibleAsyncMock(spec=Message)
     message.id = 67890
     message.content = "Test message content"
     message.createdAt = datetime(2024, 4, 1, 12, 0, 0)

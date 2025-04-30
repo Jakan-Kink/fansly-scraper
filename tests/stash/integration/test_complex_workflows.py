@@ -24,6 +24,8 @@ from stash.types import (
 
 
 @pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_workflow
 @pytest.mark.asyncio
 async def test_full_content_workflow(
     stash_client: StashClient,

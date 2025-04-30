@@ -5,6 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+)
+
 
 class TestContentProcessingIntegration:
     """Integration tests for content processing in StashProcessing."""
@@ -22,9 +26,19 @@ class TestContentProcessingIntegration:
         mock_image,
     ):
         """Test process_creator_posts with integration approach."""
+        # Use a realistic butterfly int string for metadata mock ids
+        mock_account.id = "1234567890123456789"
         # Setup session mock to return posts
-        mock_database.session.execute().scalar_one.return_value = mock_account
-        mock_database.session.execute().unique().scalars().all.return_value = mock_posts
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=mock_account)
+        mock_database.session.execute = AsyncMock(return_value=mock_result)
+
+        # Set up mock for all() that returns posts
+        mock_scalars_result = AsyncMock()
+        mock_scalars_result.all = AsyncMock(return_value=mock_posts)
+        mock_unique_result = AsyncMock()
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Setup gallery creation
         stash_processor._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
@@ -38,9 +52,17 @@ class TestContentProcessingIntegration:
         )
         stash_processor._update_stash_metadata = AsyncMock()
 
+        # Create AccessibleAsyncMock for account to prevent "coroutine has no attribute" errors
+        accessible_account = AccessibleAsyncMock()
+        accessible_account.id = mock_account.id
+        accessible_account.username = mock_account.username
+        accessible_account.__dict__.update(
+            {k: v for k, v in mock_account.__dict__.items() if not k.startswith("_")}
+        )
+
         # Call method
         await stash_processor.process_creator_posts(
-            account=mock_account,
+            account=accessible_account,
             performer=mock_performer,
             studio=mock_studio,
             session=mock_database.session,
@@ -81,11 +103,19 @@ class TestContentProcessingIntegration:
         mock_image,
     ):
         """Test process_creator_messages with integration approach."""
+        # Use a realistic butterfly int string for metadata mock ids
+        mock_account.id = "1234567890123456789"
         # Setup session mock to return messages
-        mock_database.session.execute().scalar_one.return_value = mock_account
-        mock_database.session.execute().unique().scalars().all.return_value = (
-            mock_messages
-        )
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=mock_account)
+        mock_database.session.execute = AsyncMock(return_value=mock_result)
+
+        # Set up mock for all() that returns messages
+        mock_scalars_result = AsyncMock()
+        mock_scalars_result.all = AsyncMock(return_value=mock_messages)
+        mock_unique_result = AsyncMock()
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Setup gallery creation
         stash_processor._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
@@ -99,9 +129,17 @@ class TestContentProcessingIntegration:
         )
         stash_processor._update_stash_metadata = AsyncMock()
 
+        # Create AccessibleAsyncMock for account to prevent "coroutine has no attribute" errors
+        accessible_account = AccessibleAsyncMock()
+        accessible_account.id = mock_account.id
+        accessible_account.username = mock_account.username
+        accessible_account.__dict__.update(
+            {k: v for k, v in mock_account.__dict__.items() if not k.startswith("_")}
+        )
+
         # Call method
         await stash_processor.process_creator_messages(
-            account=mock_account,
+            account=accessible_account,
             performer=mock_performer,
             studio=mock_studio,
             session=mock_database.session,
@@ -144,7 +182,9 @@ class TestContentProcessingIntegration:
         stash_processor._process_item_gallery = AsyncMock()
 
         # Setup session mock
-        mock_database.session.execute().scalar_one.return_value = mock_account
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=mock_account)
+        mock_database.session.execute = AsyncMock(return_value=mock_result)
 
         # Define URL pattern function
         def url_pattern_func(item):
@@ -193,7 +233,9 @@ class TestContentProcessingIntegration:
         )
 
         # Setup session mock
-        mock_database.session.execute().scalar_one.return_value = mock_account
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=mock_account)
+        mock_database.session.execute = AsyncMock(return_value=mock_result)
 
         # Define URL pattern function
         def url_pattern_func(item):

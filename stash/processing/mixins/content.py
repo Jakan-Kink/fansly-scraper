@@ -11,10 +11,18 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import select
 
-from metadata import Account, Group, Message, Post
-from metadata.account import AccountMedia, AccountMediaBundle
-from metadata.attachment import Attachment, ContentType
-from metadata.decorators import with_session
+from metadata import (
+    Account,
+    AccountMedia,
+    AccountMediaBundle,
+    Attachment,
+    ContentType,
+    Group,
+    Media,
+    Message,
+    Post,
+    with_session,
+)
 from textio import print_error, print_info
 
 from ...logging import debug_print
@@ -61,12 +69,19 @@ class ContentProcessingMixin:
         account = result.scalar_one()
 
         # Get all messages with attachments in one query with relationships
+        # For an awaitable account, we need to get the id properly
+        account_id = account.id
+        if hasattr(account, "__await__"):
+            # This might be an awaitable, try to access the id directly
+            if hasattr(account, "id"):
+                account_id = account.id
+
         stmt = (
             select(Message)
             .join(Message.attachments)  # Join to filter messages with attachments
             .join(Message.group)
             .join(Group.users)
-            .where(Group.users.any(Account.id == account.id))
+            .where(Group.users.any(Account.id == account_id))
             .options(
                 selectinload(Message.attachments)
                 .selectinload(Attachment.media)
@@ -154,6 +169,33 @@ class ContentProcessingMixin:
             process_item=process_message,
         )
 
+        # We don't need to run batch processing again if it was already done in process_creator_posts
+        # But if this method is called independently and batch processing is enabled, we should do it
+        if (
+            hasattr(self, "use_batch_processing")
+            and self.use_batch_processing
+            and (
+                not hasattr(self, "_batch_processing_done")
+                or not self._batch_processing_done
+            )
+        ):
+            print_info("Starting batch processing of all media by mimetype...")
+            batch_results = await self.process_account_media_by_mimetype(
+                account=account,
+                performer=performer,
+                studio=studio,
+                session=session,
+            )
+            print_info(
+                f"Batch processing completed: {len(batch_results['images'])} images, {len(batch_results['scenes'])} scenes"
+            )
+            # Set flag to avoid duplicate batch processing
+            self._batch_processing_done = True
+        elif not hasattr(self, "use_batch_processing") or not self.use_batch_processing:
+            print_info("Batch processing is disabled, skipping")
+            # Clear the flag just to be sure
+            self._batch_processing_done = False
+
     @with_session()
     async def process_creator_posts(
         self,
@@ -181,11 +223,18 @@ class ContentProcessingMixin:
         result = await session.execute(stmt)
         account = result.scalar_one()
 
+        # Get account ID properly for query
+        account_id = account.id
+        if hasattr(account, "__await__"):
+            # This might be an awaitable, try to access the id directly
+            if hasattr(account, "id"):
+                account_id = account.id
+
         # Now get posts with proper eager loading
         stmt = (
             select(Post)
             .join(Post.attachments)  # Join to filter posts with attachments
-            .where(Post.accountId == account.id)
+            .where(Post.accountId == account_id)
             .options(
                 # Load attachments and their media content
                 selectinload(Post.attachments)
@@ -278,6 +327,89 @@ class ContentProcessingMixin:
             queue=queue,
             process_item=process_post,
         )
+
+        # After processing posts individually, do a batch processing of all media by mimetype if enabled
+        # This will catch any media that might have been missed or not properly linked in the individual processing
+        if hasattr(self, "use_batch_processing") and self.use_batch_processing:
+            print_info("Starting batch processing of all media by mimetype...")
+            batch_results = await self.process_account_media_by_mimetype(
+                account=account,
+                performer=performer,
+                studio=studio,
+                session=session,
+            )
+            print_info(
+                f"Batch processing completed: {len(batch_results['images'])} images, {len(batch_results['scenes'])} scenes"
+            )
+            # Set flag to indicate batch processing has been done
+            self._batch_processing_done = True
+        else:
+            print_info("Batch processing is disabled, skipping")
+            # Clear the flag just to be sure
+            self._batch_processing_done = False
+
+    async def _collect_media_from_attachments(
+        self,
+        attachments: list[Attachment],
+    ) -> list[Media]:
+        """Collect all media objects from a list of attachments.
+
+        This helper method extracts all Media objects from attachments, including
+        direct media, bundles, and their variants, to enable batch processing.
+
+        Args:
+            attachments: List of Attachment objects to process
+
+        Returns:
+            List of Media objects collected from attachments
+        """
+        media_list = []
+
+        for attachment in attachments:
+            # Direct media
+            if attachment.media:
+                if attachment.media.media:
+                    media_list.append(attachment.media.media)
+                if attachment.media.preview:
+                    media_list.append(attachment.media.preview)
+
+            # Media bundles
+            if hasattr(attachment, "bundle") and attachment.bundle:
+                if hasattr(attachment.bundle, "awaitable_attrs"):
+                    await attachment.bundle.awaitable_attrs.accountMedia
+                    await attachment.bundle.awaitable_attrs.preview
+
+                if hasattr(attachment.bundle, "accountMedia"):
+                    for account_media in attachment.bundle.accountMedia:
+                        if account_media.media:
+                            media_list.append(account_media.media)
+                        if account_media.preview:
+                            media_list.append(account_media.preview)
+
+                if attachment.bundle.preview:
+                    media_list.append(attachment.bundle.preview)
+
+            # Aggregated posts (recursively collect media)
+            if hasattr(attachment, "is_aggregated_post") and getattr(
+                attachment, "is_aggregated_post", False
+            ):
+                if hasattr(attachment, "awaitable_attrs"):
+                    await attachment.awaitable_attrs.aggregated_post
+
+                if attachment.aggregated_post:
+                    agg_post = attachment.aggregated_post
+
+                    if hasattr(agg_post, "awaitable_attrs"):
+                        await agg_post.awaitable_attrs.attachments
+
+                    if hasattr(agg_post, "attachments") and agg_post.attachments:
+                        # Recursively collect media from aggregated post attachments
+                        agg_media = await self._collect_media_from_attachments(
+                            agg_post.attachments
+                        )
+                        media_list.extend(agg_media)
+
+        return media_list
 
     @with_session()
     async def _process_items_with_gallery(

@@ -280,7 +280,7 @@ class TestStashProcessingPerformer:
         """Test _update_performer_avatar method."""
         # Mock account with no avatar
         mock_account.awaitable_attrs = MagicMock()
-        mock_account.awaitable_attrs.avatar = None
+        mock_account.awaitable_attrs.avatar = AsyncMock(return_value=None)
 
         # Call _update_performer_avatar
         await processor._update_performer_avatar(mock_account, mock_performer)
@@ -291,7 +291,7 @@ class TestStashProcessingPerformer:
         # Mock account with avatar but no local_filename
         mock_avatar = MagicMock()
         mock_avatar.local_filename = None
-        mock_account.awaitable_attrs.avatar = mock_avatar
+        mock_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
 
         # Call _update_performer_avatar
         await processor._update_performer_avatar(mock_account, mock_performer)
@@ -301,7 +301,7 @@ class TestStashProcessingPerformer:
 
         # Mock account with avatar and local_filename
         mock_avatar.local_filename = "avatar.jpg"
-        mock_account.awaitable_attrs.avatar = mock_avatar
+        mock_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
 
         # Mock performer with default image
         mock_performer.image_path = "default=true"

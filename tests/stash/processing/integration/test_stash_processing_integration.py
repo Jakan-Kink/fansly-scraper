@@ -383,7 +383,7 @@ class TestIntegrationWithError:
         )
 
         # Initialize error handling mocks
-        with patch("stash.processing.content.print_error") as mock_print_error:
+        with patch("stash.processing.mixins.content.print_error") as mock_print_error:
             # Ensure correct structure exists to avoid KeyError
             if hasattr(processing_instance, "_process_media"):
                 original_process_media = processing_instance._process_media

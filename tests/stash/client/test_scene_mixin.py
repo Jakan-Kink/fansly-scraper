@@ -43,7 +43,7 @@ def add_scene_find_methods(client: StashClient) -> None:
 
         result = await client.execute({"findScene": None})
         if result and result.get("findScene"):
-            return Scene(**result["findScene"])
+            return Scene(**clean_scene_dict(result["findScene"]))
         return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
@@ -53,7 +53,16 @@ def add_scene_find_methods(client: StashClient) -> None:
     ) -> FindScenesResultType:
         result = await client.execute({"findScenes": None})
         if result and result.get("findScenes"):
-            return FindScenesResultType(**result["findScenes"])
+            scenes = [
+                Scene(**clean_scene_dict(s))
+                for s in result["findScenes"].get("scenes", [])
+            ]
+            return FindScenesResultType(
+                count=result["findScenes"].get("count", 0),
+                duration=result["findScenes"].get("duration", 0),
+                filesize=result["findScenes"].get("filesize", 0),
+                scenes=scenes,
+            )
         return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
 
     # Attach the mocks to the client
@@ -74,7 +83,10 @@ def add_scene_update_methods(client: StashClient) -> None:
     async def mock_scenes_update(input_: list[Scene]) -> list[Scene]:
         result = await client.execute({"scenesUpdate": None})
         if result and result.get("scenesUpdate"):
-            return [Scene(**scene_data) for scene_data in result["scenesUpdate"]]
+            return [
+                Scene(**clean_scene_dict(scene_data))
+                for scene_data in result["scenesUpdate"]
+            ]
         return []
 
     async def mock_bulk_scene_update(scenes: list[dict]) -> list[str]:
@@ -115,7 +127,7 @@ def add_scene_filename_methods(client: StashClient) -> None:
         result = await client.execute({"findDuplicateScenes": None})
         if result and result.get("findDuplicateScenes"):
             return [
-                [Scene(**scene_data) for scene_data in group]
+                [Scene(**clean_scene_dict(scene_data)) for scene_data in group]
                 for group in result["findDuplicateScenes"]
             ]
         return []
@@ -149,6 +161,15 @@ def add_scene_filename_methods(client: StashClient) -> None:
     client.find_duplicate_scenes = mock_find_duplicate_scenes
     client.is_valid_scene_filename = is_valid_scene_filename
     client.parse_scene_filename = parse_scene_filename
+
+
+def clean_scene_dict(scene_data):
+    """Remove private/internal keys from scene dicts before passing to Scene constructor."""
+    return {
+        k: v
+        for k, v in scene_data.items()
+        if not k.startswith("_") and k != "client_mutation_id"
+    }
 
 
 @pytest.fixture
@@ -249,11 +270,7 @@ def mock_graphql():
 async def test_find_scene(stash_client: StashClient, mock_scene: Scene) -> None:
     """Test finding a scene by ID."""
     # Clean the data to prevent _dirty_attrs errors
-    clean_data = {
-        k: v
-        for k, v in mock_scene.__dict__.items()
-        if not k.startswith("_") and k != "client_mutation_id"
-    }
+    clean_data = clean_scene_dict(mock_scene.__dict__)
 
     stash_client.execute.return_value = {"findScene": clean_data}
 
@@ -275,11 +292,7 @@ async def test_find_scenes(
 ) -> None:
     """Test finding scenes with filters."""
     # Clean the data to prevent _dirty_attrs errors
-    clean_data = {
-        k: v
-        for k, v in mock_scene.__dict__.items()
-        if not k.startswith("_") and k != "client_mutation_id"
-    }
+    clean_data = clean_scene_dict(mock_scene.__dict__)
 
     stash_client.execute.return_value = {
         "findScenes": {
@@ -302,6 +315,7 @@ async def test_find_scenes(
     assert result.duration == 60.0
     assert result.filesize == 1024
     assert len(result.scenes) == 1
+    assert isinstance(result.scenes[0], Scene)
     assert result.scenes[0].id == mock_scene.id
 
     # Test with general filter
@@ -402,7 +416,7 @@ async def test_create_scene(stash_client: StashClient, mock_scene: Scene) -> Non
 async def test_update_scene(stash_client: StashClient, mock_scene: Scene) -> None:
     """Test updating a scene."""
     # Update mock_scene with new title - create from dict without _dirty_attrs
-    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    scene_dict = clean_scene_dict(mock_scene.__dict__)
     updated_scene = Scene(**{**scene_dict, "title": "Updated Title"})
 
     # Set up the execute mock to return a Scene instance instead of a dict
@@ -416,7 +430,7 @@ async def test_update_scene(stash_client: StashClient, mock_scene: Scene) -> Non
     stash_client.update_scene = modified_update_scene
 
     # Create a scene for updating - without _dirty_attrs
-    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    scene_dict = clean_scene_dict(mock_scene.__dict__)
     scene = Scene(**scene_dict)
     scene.title = "Updated Title"
 
@@ -431,13 +445,11 @@ async def test_update_scene(stash_client: StashClient, mock_scene: Scene) -> Non
     updated_scene.details = "Updated details"
     updated_scene.organized = False
     stash_client.execute.return_value = {
-        "sceneUpdate": {
-            k: v for k, v in updated_scene.__dict__.items() if not k.startswith("_")
-        }
+        "sceneUpdate": clean_scene_dict(updated_scene.__dict__)
     }
 
     # Create a new scene with multiple updates - without _dirty_attrs
-    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    scene_dict = clean_scene_dict(mock_scene.__dict__)
     scene = Scene(**scene_dict)
     scene.details = "Updated details"
     scene.organized = False
@@ -518,7 +530,7 @@ async def test_find_duplicate_scenes(
         new_callable=AsyncMock,
         return_value={
             "findDuplicateScenes": [
-                [s.__dict__ for s in group] for group in mock_result
+                [clean_scene_dict(s.__dict__) for s in group] for group in mock_result
             ]
         },
     ):
@@ -559,7 +571,7 @@ async def test_find_duplicate_scenes_error(stash_client: StashClient) -> None:
 
 @pytest.mark.asyncio
 async def test_parse_scene_filenames(
-    stash_client: StashClient, mock_scene: Scene
+    scene_mixin_client: StashClient, mock_scene: Scene
 ) -> None:
     """Test parsing scene filenames."""
     # Create a mock result that matches the expected return type (dictionary)
@@ -580,7 +592,7 @@ async def test_parse_scene_filenames(
     }
 
     with patch.object(
-        stash_client,
+        scene_mixin_client,
         "parse_scene_filenames",
         new_callable=AsyncMock,
         return_value=mock_result,
@@ -626,15 +638,15 @@ async def test_scenes_update(
     """Test updating multiple scenes."""
     # Create two different scenes
     # Filter out any private attributes (like _dirty_attrs)
-    scene_dict = {k: v for k, v in mock_scene.__dict__.items() if not k.startswith("_")}
+    scene_dict = clean_scene_dict(mock_scene.__dict__)
     scene1 = Scene(**scene_dict)
     scene2 = Scene(**{**scene_dict, "id": "456", "title": "Second Scene"})
 
     scenes = [scene1, scene2]
 
     # Mock the response with updated scenes
-    updated_scene1 = Scene(**{**mock_scene.__dict__, "title": "Updated First"})
-    updated_scene2 = Scene(**{**scene2.__dict__, "title": "Updated Second"})
+    updated_scene1 = Scene(**{**scene_dict, "title": "Updated First"})
+    updated_scene2 = Scene(**{**scene_dict, "id": "456", "title": "Updated Second"})
 
     # Configure our mocks for caching and find_scene
     scene_mixin_client.execute = AsyncMock()
@@ -669,7 +681,10 @@ async def test_scenes_update(
             if hasattr(scene, "id") and scene.id in scene_mixin_client.scene_cache:
                 del scene_mixin_client.scene_cache[scene.id]
         if result and result.get("scenesUpdate"):
-            return [Scene(**scene_data) for scene_data in result["scenesUpdate"]]
+            return [
+                Scene(**clean_scene_dict(scene_data))
+                for scene_data in result["scenesUpdate"]
+            ]
         return []
 
     # Temporarily replace the scenes_update method
@@ -723,7 +738,10 @@ async def test_scenes_update_error(
                 raise Exception("Failed to update scenes")
 
             # Process results normally
-            return [Scene(**scene_data) for scene_data in result["scenesUpdate"]]
+            return [
+                Scene(**clean_scene_dict(scene_data))
+                for scene_data in result["scenesUpdate"]
+            ]
 
     # Create a list of scenes to update
     scenes = [mock_scene]
@@ -869,7 +887,7 @@ async def test_scene_cache_operations(
     scene_mixin_client.scene_cache["1"] = scene
 
     # Test cache hit (no need to setup mock again)
-    cached_result = await stash_client.find_scene("1")
+    cached_result = await scene_mixin_client.find_scene("1")
     assert cached_result is not None
     assert scene_mixin_client.scene_cache["1"] == scene
 
@@ -1098,15 +1116,15 @@ async def test_scene_edge_cases(scene_mixin_client: StashClient) -> None:
     # Replace the find_scene method with our custom implementation
     scene_mixin_client.find_scene = custom_find_scene
 
-    # Test non-existent scene
-    stash_client.execute.return_value = {"findScene": None}
-    result = await stash_client.find_scene("999")
+    # Test non-existent scene - using scene_mixin_client instead of stash_client
+    scene_mixin_client.execute = AsyncMock(return_value={"findScene": None})
+    result = await scene_mixin_client.find_scene("999")
     assert result is None
 
     # Test invalid scene ID - should raise ValueError
     with pytest.raises(ValueError, match="Scene ID cannot be empty"):
-        await stash_client.find_scene("")
+        await scene_mixin_client.find_scene("")
 
     # Test None ID - should also raise ValueError
     with pytest.raises(ValueError, match="Scene ID cannot be empty"):
-        await stash_client.find_scene(None)
+        await scene_mixin_client.find_scene(None)

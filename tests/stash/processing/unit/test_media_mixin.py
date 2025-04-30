@@ -93,23 +93,12 @@ class TestMediaProcessingWithRealData:
 
         # Make sure the awaitable_attrs return awaitable coroutines with valid results
         # This is key to avoid the TypeError with the MagicMock
-        async def mock_bundle_coro():
-            return None
-
-        async def mock_is_aggregated_post_coro():
-            return False
-
-        async def mock_aggregated_post_coro():
-            return None
-
-        async def mock_media_coro():
-            return attachment.media
-
-        # Set up proper awaitable coroutines
-        attachment.awaitable_attrs.bundle = mock_bundle_coro()
-        attachment.awaitable_attrs.is_aggregated_post = mock_is_aggregated_post_coro()
-        attachment.awaitable_attrs.aggregated_post = mock_aggregated_post_coro()
-        attachment.awaitable_attrs.media = mock_media_coro()
+        # Create a proper AsyncMock for each awaitable_attrs attribute
+        attachment.awaitable_attrs = MagicMock()
+        attachment.awaitable_attrs.bundle = AsyncMock(return_value=None)
+        attachment.awaitable_attrs.is_aggregated_post = AsyncMock(return_value=False)
+        attachment.awaitable_attrs.aggregated_post = AsyncMock(return_value=None)
+        attachment.awaitable_attrs.media = AsyncMock(return_value=attachment.media)
 
         # Mock Stash client search responses
         mock_image = MagicMock()

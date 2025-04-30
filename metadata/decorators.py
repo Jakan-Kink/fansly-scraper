@@ -73,11 +73,36 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
 
             # Create new session using self.database
             async with contextlib.AsyncExitStack() as stack:
-                session = await stack.enter_async_context(
-                    self.database.async_session_scope()
-                )
-                kwargs[session_name] = session
-                return await func(self, *args, **kwargs)
+                try:
+                    session_context = self.database.async_session_scope()
+
+                    # Handle both async and non-async session scope methods
+                    if asyncio.iscoroutine(session_context):
+                        session = await session_context
+                    else:
+                        # If not a coroutine, it should support async context manager protocol
+                        session = await stack.enter_async_context(session_context)
+
+                    kwargs[session_name] = session
+                    return await func(self, *args, **kwargs)
+                except TypeError as e:
+                    # If we encounter issues with the async context manager
+                    if (
+                        "does not support the asynchronous context manager protocol"
+                        in str(e)
+                    ):
+                        print_error(f"Error in async context: {e}")
+                        # Try to handle coroutine objects that don't support context manager
+                        if hasattr(session_context, "__await__"):
+                            session = await session_context
+                            kwargs[session_name] = session
+                            return await func(self, *args, **kwargs)
+                        elif hasattr(session_context, "session"):
+                            # Last resort - try to access the session directly
+                            kwargs[session_name] = session_context.session
+                            return await func(self, *args, **kwargs)
+                    # Re-raise other errors
+                    raise
 
         return wrapper
 

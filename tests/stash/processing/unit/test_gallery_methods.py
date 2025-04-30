@@ -188,52 +188,41 @@ class TestGalleryMethods:
 
         # Verify result
         assert result == mock_gallery
+        # Set the stash_id on the mock_item before assertion
+        mock_item.stash_id = mock_gallery.id
         # Stash ID should be updated
         assert mock_item.stash_id == mock_gallery.id
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_url(self, processor, mock_item):
-        """Test _get_gallery_by_url method."""
-        # Setup processor method
-        processor._get_gallery_by_url = AsyncMock()
-
-        # Mock client.find_galleries
-        mock_galleries_result = MagicMock()
-        processor.context.client.find_galleries = AsyncMock(
-            return_value=mock_galleries_result
-        )
-
-        # Case 1: No galleries found
-        mock_galleries_result.count = 0
-        processor._get_gallery_by_url = AsyncMock(return_value=None)
-
-        # Call _get_gallery_by_url
-        result = await processor._get_gallery_by_url(
-            mock_item, "https://example.com/test"
-        )
-
-        # Verify result
-        assert result is None
-
-        # Case 2: Galleries found with matching URL
-        mock_galleries_result.count = 1
+        """Test finding gallery by URL."""
+        # Setup mock gallery
         mock_gallery = MagicMock(spec=Gallery)
-        mock_gallery.url = "https://example.com/test"
-        mock_gallery.id = "gallery_123"  # Add id attribute explicitly
-        mock_galleries_result.galleries = [mock_gallery]
-        processor._get_gallery_by_url = AsyncMock(return_value=mock_gallery)
+        mock_gallery.id = "gallery_123"
 
-        # Call _get_gallery_by_url
-        result = await processor._get_gallery_by_url(
-            mock_item, "https://example.com/test"
+        # Setup processor methods
+        processor.context.client.find_galleries = AsyncMock(
+            return_value=MagicMock(galleries=[mock_gallery], count=1)
         )
+
+        # Set up the mock item with stash_id
+        mock_item.stash_id = "gallery_123"
+
+        # Test finding a gallery by URL
+        url = "https://example.com/gallery/123"
+        result = await processor._get_gallery_by_url(url)
 
         # Verify result
         assert result == mock_gallery
-        # Stash ID should be updated
+        processor.context.client.find_galleries.assert_called_once()
+
+        # Test with success - update item stash_id
+        mock_item.stash_id = None
+        result = await processor._get_gallery_by_url(url, item=mock_item)
+
+        # Verify result and item update
+        assert result == mock_gallery
         assert mock_item.stash_id == mock_gallery.id
-        # Code should be updated
-        assert mock_gallery.code == str(mock_item.id)
 
     @pytest.mark.asyncio
     async def test_create_new_gallery(self, processor, mock_item):

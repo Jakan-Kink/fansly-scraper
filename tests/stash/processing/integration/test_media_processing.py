@@ -5,6 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+)
+
 
 class TestMediaProcessingIntegration:
     """Integration tests for media processing in StashProcessing."""
@@ -175,6 +179,21 @@ class TestMediaProcessingIntegration:
         mock_attachment.media = None
         mock_attachment.bundle = mock_bundle
 
+        # Create a proper AccessibleAsyncMock for bundle that can be awaited and accessed
+        bundle_async_mock = AccessibleAsyncMock()
+        bundle_async_mock.id = mock_bundle.id
+        # Copy any other necessary attributes from mock_bundle
+        for key, value in mock_bundle.__dict__.items():
+            if not key.startswith("_"):
+                setattr(bundle_async_mock, key, value)
+
+        # Setup awaitable_attrs with proper awaitable objects
+        mock_attachment.awaitable_attrs = MagicMock()
+        mock_attachment.awaitable_attrs.bundle = AsyncMock(
+            return_value=bundle_async_mock
+        )
+        mock_attachment.awaitable_attrs.media = AsyncMock(return_value=None)
+
         # Mock _process_bundle_media
         stash_processor._process_bundle_media = AsyncMock()
 
@@ -191,7 +210,7 @@ class TestMediaProcessingIntegration:
 
         # Verify _process_bundle_media was called
         stash_processor._process_bundle_media.assert_called_once_with(
-            mock_bundle, mock_item, mock_account, result
+            bundle_async_mock, mock_item, mock_account, result
         )
 
     @pytest.mark.asyncio

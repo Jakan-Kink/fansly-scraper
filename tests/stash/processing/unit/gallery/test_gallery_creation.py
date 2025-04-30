@@ -48,16 +48,27 @@ class TestGalleryCreation:
         self, mixin, mock_gallery, mock_item, gallery_mock_performer
     ):
         """Test _setup_gallery_performers method."""
-        # Setup for mentioned performers
+        # Setup for mentioned performers and mock awaitable attributes
         mention1 = MagicMock()
         mention2 = MagicMock()
         mock_item.accountMentions = [mention1, mention2]
 
+        # Set up awaitable_attrs for performer
+        gallery_mock_performer.awaitable_attrs = MagicMock()
+        gallery_mock_performer.awaitable_attrs.id = AsyncMock(
+            return_value=gallery_mock_performer.id
+        )
+
         # Mock performers for mentions
         mention_performer1 = MagicMock()
         mention_performer1.id = "mention1"
+        mention_performer1.awaitable_attrs = MagicMock()
+        mention_performer1.awaitable_attrs.id = AsyncMock(return_value="mention1")
+
         mention_performer2 = MagicMock()
         mention_performer2.id = "mention2"
+        mention_performer2.awaitable_attrs = MagicMock()
+        mention_performer2.awaitable_attrs.id = AsyncMock(return_value="mention2")
 
         # Setup mixin method to return performers for mentions
         mixin._find_existing_performer.side_effect = [

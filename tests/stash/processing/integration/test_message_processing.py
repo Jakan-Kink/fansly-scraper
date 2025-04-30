@@ -15,6 +15,9 @@ async def test_process_message_with_media(
     # Arrange
     mock_media.stash_id = None  # Not yet processed
     mock_message.attachments[0].media.media = mock_media
+    mock_message.attachments[0].awaitable_attrs.media = AsyncMock(
+        return_value=mock_message.attachments[0].media
+    )
 
     # Mock Stash client responses
     stash_processor.context.client.find_performer.return_value = mock_performer

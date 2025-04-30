@@ -35,6 +35,29 @@ from tests.stash.conftest import (
     stash_context,
     test_query,
 )
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+    make_asyncmock_awaitable,
+)
+
+# Monkey patch AsyncMock to be properly awaitable
+original_asyncmock_init = AsyncMock.__init__
+
+
+def patched_asyncmock_init(self, *args, **kwargs):
+    """Initialize AsyncMock and make it awaitable."""
+    original_asyncmock_init(self, *args, **kwargs)
+    # Add __await__ method if it doesn't exist
+    if not hasattr(self, "__await__"):
+
+        async def _awaitable():
+            return self.return_value
+
+        self.__await__ = lambda: _awaitable().__await__()
+
+
+# Apply the patch
+AsyncMock.__init__ = patched_asyncmock_init
 
 
 # Helper function to sanitize model creation
@@ -199,7 +222,7 @@ def mock_posts():
     """Fixture for mock posts."""
     posts = []
     for i in range(5):
-        post = MagicMock(spec=Post)
+        post = AccessibleAsyncMock(spec=Post)
         post.id = f"post_{i}"
         post.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
         post.content = f"Test post {i}"
@@ -212,7 +235,7 @@ def mock_messages():
     """Fixture for mock messages."""
     messages = []
     for i in range(5):
-        message = MagicMock(spec=Message)
+        message = AccessibleAsyncMock(spec=Message)
         message.id = f"message_{i}"
         message.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
         message.text = f"Test message {i}"
@@ -223,7 +246,7 @@ def mock_messages():
 @pytest.fixture
 def mock_item():
     """Fixture for mock item (post/message)."""
-    item = MagicMock()
+    item = AccessibleAsyncMock()
     item.id = "item_123"
     item.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
     return item
@@ -232,7 +255,7 @@ def mock_item():
 @pytest.fixture
 def mock_media():
     """Fixture for mock media."""
-    media = MagicMock(spec=Media)
+    media = AccessibleAsyncMock(spec=Media)
     media.id = "media_123"
     media.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
     media.variants = []
@@ -242,7 +265,7 @@ def mock_media():
 @pytest.fixture
 def mock_attachment():
     """Fixture for mock attachment."""
-    attachment = MagicMock(spec=Attachment)
+    attachment = AccessibleAsyncMock(spec=Attachment)
     attachment.id = "attachment_123"
     attachment.media = None
     attachment.bundle = None
@@ -289,8 +312,10 @@ def mock_image():
 class MockContext:
     def __init__(self):
         self.client = MagicMock()
+        # Make all client methods proper AsyncMocks
         self.client.find_performer = AsyncMock()
         self.client.find_studio = AsyncMock()
+        self.client.find_studios = AsyncMock()
         self.client.find_gallery = AsyncMock()
         self.client.find_galleries = AsyncMock()
         self.client.find_scene = AsyncMock()
@@ -299,6 +324,7 @@ class MockContext:
         self.client.find_images = AsyncMock()
         self.client.find_tags = AsyncMock()
         self.client.create_tag = AsyncMock()
+        self.client.create_studio = AsyncMock()
         self.client.add_gallery_images = AsyncMock(return_value=True)
 
 
@@ -344,16 +370,28 @@ class MockState:
 
 
 class AsyncSessionContext:
-    """Async session context for mocking database sessions."""
+    """Context manager for AsyncSession that wraps the session.
+
+    This allows session methods to be called directly on the context manager,
+    which delegates to the underlying session object.
+    """
 
     def __init__(self, session):
+        """Initialize with the session to wrap."""
         self.session = session
 
     async def __aenter__(self):
-        return self.session
+        """Enter the async context, returning this context manager."""
+        await self.session.__aenter__()
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
+        """Exit the async context, delegating to the session."""
+        return await self.session.__aexit__(exc_type, exc_val, exc_tb)
+
+    def __getattr__(self, name):
+        """Delegate all method calls to the underlying session."""
+        return getattr(self.session, name)
 
 
 class AsyncResult:
@@ -480,8 +518,9 @@ class MockDatabase:
         self.session.__aenter__ = AsyncMock(side_effect=mock_aenter)
         self.session.__aexit__ = AsyncMock(side_effect=mock_aexit)
 
-    async def async_session_scope(self):
-        """Return async session context."""
+    def async_session_scope(self):
+        """Return async context manager that can be awaited properly."""
+        # This method itself is not async - it returns an object that supports __aenter__ and __aexit__
         return self.session
 
     def session_scope(self):

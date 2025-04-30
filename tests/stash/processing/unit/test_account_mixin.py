@@ -37,6 +37,12 @@ def mock_account():
     account.id = 12345
     account.username = "test_user"
     account.stash_id = "stash_123"
+    # Setup awaitable_attrs for async property access
+    account.awaitable_attrs = MagicMock()
+    # Make sure the avatar is properly mockable
+    avatar_mock = MagicMock()
+    avatar_mock.local_filename = "avatar.jpg"
+    account.awaitable_attrs.avatar = avatar_mock
     return account
 
 
@@ -57,7 +63,10 @@ class TestAccountProcessingMixin:
         """Test _find_account method."""
         # Mock session and execute
         mock_session = MagicMock(spec=Session)
-        mock_session.execute.return_value.scalar_one_or_none.return_value = mock_account
+        mock_session.execute = AsyncMock()
+        mock_session.execute.return_value.scalar_one_or_none = AsyncMock(
+            return_value=mock_account
+        )
 
         # Call _find_account with creator_id
         account = await mixin._find_account(session=mock_session)
@@ -329,7 +338,10 @@ class TestAccountProcessingMixin:
         """Test _update_account_stash_id method."""
         # Create mock session
         mock_session = MagicMock()
-        mock_session.execute.return_value.scalar_one.return_value = mock_account
+        mock_session.execute = AsyncMock()
+        mock_session.execute.return_value.scalar_one = AsyncMock(
+            return_value=mock_account
+        )
         mock_session.flush = AsyncMock()
 
         # Call _update_account_stash_id

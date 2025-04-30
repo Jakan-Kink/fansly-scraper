@@ -541,32 +541,131 @@ async def main(config: FanslyConfig) -> int:
 
     # Wait for all background tasks to complete
     if config.get_background_tasks():
-        print_info("Waiting for background tasks to complete...")
-        try:
-            # Add a timeout for waiting on background tasks
-            background_timeout = 30  # 30 seconds timeout for background tasks
+        print_info(
+            f"Waiting for {len(config.get_background_tasks())} background tasks to complete..."
+        )
 
-            # Instead of using run_until_complete which can cause nested loop issues,
-            # use await with timeout to avoid hanging indefinitely
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        *config.get_background_tasks(), return_exceptions=True
-                    ),
-                    timeout=background_timeout,
+        try:
+            # Categorize tasks to handle Stash processing tasks separately
+            stash_tasks = []
+            other_tasks = []
+
+            for task in config.get_background_tasks():
+                try:
+                    # Check if this is a StashProcessing task by examining the coroutine name
+                    coro_name = task.get_coro().__qualname__
+                    if (
+                        "StashProcessing" in coro_name
+                        or "_safe_background_processing" in coro_name
+                    ):
+                        stash_tasks.append(task)
+                    else:
+                        other_tasks.append(task)
+                except Exception:
+                    # If we can't determine the task type, treat it as other
+                    other_tasks.append(task)
+
+            # Report categorization
+            if stash_tasks:
+                print_info(f"Found {len(stash_tasks)} Stash processing tasks")
+            if other_tasks:
+                print_info(f"Found {len(other_tasks)} other background tasks")
+
+            # First, process Stash tasks with a longer timeout
+            if stash_tasks:
+                stash_timeout = 180  # 3 minutes for Stash tasks
+                print_info(
+                    f"Waiting up to {stash_timeout} seconds for Stash processing tasks..."
                 )
-                print_info("All background tasks completed successfully.")
-            except TimeoutError:
-                print_warning(
-                    f"Background tasks did not complete within {background_timeout} seconds"
+
+                try:
+                    # Wait for Stash tasks with progress reporting
+                    pending_stash = list(stash_tasks)
+
+                    # Check progress every second up to the timeout
+                    for elapsed in range(stash_timeout):
+                        # Check if we're done
+                        if not pending_stash:
+                            break
+
+                        # Update which tasks are still pending
+                        pending_stash = [t for t in pending_stash if not t.done()]
+
+                        # Show progress every 10 seconds
+                        if elapsed > 0 and elapsed % 10 == 0:
+                            print_info(
+                                f"Still waiting on {len(pending_stash)}/{len(stash_tasks)} Stash tasks ({elapsed}s elapsed)"
+                            )
+
+                        # Break if all done
+                        if not pending_stash:
+                            print_info(f"All Stash tasks completed in {elapsed}s")
+                            break
+
+                        # Wait a bit before checking again
+                        await asyncio.sleep(1)
+
+                    # After waiting, check if any tasks are still pending
+                    pending_stash = [t for t in stash_tasks if not t.done()]
+                    if pending_stash:
+                        print_warning(
+                            f"{len(pending_stash)} Stash tasks did not complete within timeout, will cancel them"
+                        )
+                        for task in pending_stash:
+                            if not task.done():
+                                task.cancel()
+
+                        # Give them a short time to handle cancellation
+                        try:
+                            await asyncio.wait(pending_stash, timeout=10)
+                        except Exception as e:
+                            print_warning(f"Error during Stash task cancellation: {e}")
+                    else:
+                        print_info("All Stash processing tasks completed successfully")
+
+                except Exception as e:
+                    print_error(f"Error waiting for Stash tasks: {e}")
+                    # Cancel remaining tasks
+                    for task in stash_tasks:
+                        if not task.done():
+                            task.cancel()
+
+            # Then process other tasks with the original timeout
+            if other_tasks:
+                other_timeout = 30  # Original 30 seconds for other tasks
+                print_info(
+                    f"Waiting up to {other_timeout} seconds for other background tasks..."
                 )
-                print_warning("Cancelling remaining background tasks...")
-                config.cancel_background_tasks()
-                print_warning("Background tasks cancelled due to timeout")
+
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*other_tasks, return_exceptions=True),
+                        timeout=other_timeout,
+                    )
+                    print_info("All other background tasks completed successfully")
+                except TimeoutError:
+                    print_warning(
+                        f"Other tasks did not complete within {other_timeout} seconds"
+                    )
+                    print_warning("Cancelling remaining other tasks...")
+                    for task in other_tasks:
+                        if not task.done():
+                            task.cancel()
+                    print_warning("Other background tasks cancelled due to timeout")
+                except Exception as e:
+                    print_error(f"Error in other background tasks: {e}")
+                    for task in other_tasks:
+                        if not task.done():
+                            task.cancel()
+
+            print_info("All background task processing completed")
+
         except asyncio.CancelledError:
-            print_warning("Background tasks were cancelled")
+            print_warning("Background tasks were cancelled by external signal")
+            config.cancel_background_tasks()
         except Exception as e:
             print_error(f"Error in background tasks: {e}")
+            config.cancel_background_tasks()
         print_info("All background tasks completed or cancelled.")
 
     monitor_semaphores(threshold=20)  # Warn if too many semaphores

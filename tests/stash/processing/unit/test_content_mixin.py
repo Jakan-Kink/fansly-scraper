@@ -80,10 +80,17 @@ class TestContentProcessingWithRealData:
     ):
         """Test processing posts with real data from JSON."""
         # Mock session to return our sample post and account
-        mock_session.execute.return_value.scalar_one.return_value = sample_account
-        mock_session.execute.return_value.unique.return_value.scalars.return_value.all.return_value = [
-            sample_post
-        ]
+        # Properly set up AsyncMock for the scalar_one
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=sample_account)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        # Set up mock for all() that returns posts
+        mock_scalars_result = AsyncMock()
+        mock_scalars_result.all = AsyncMock(return_value=[sample_post])
+        mock_unique_result = AsyncMock()
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Mock batch processing functions
         mixin._setup_batch_processing.return_value = (
@@ -129,10 +136,17 @@ class TestContentProcessingWithRealData:
     ):
         """Test processing messages with real data from JSON."""
         # Mock session to return our sample message and account
-        mock_session.execute.return_value.scalar_one.return_value = sample_account
-        mock_session.execute.return_value.unique.return_value.scalars.return_value.all.return_value = [
-            sample_message
-        ]
+        # Properly set up AsyncMock for the scalar_one
+        mock_result = AsyncMock()
+        mock_result.scalar_one = AsyncMock(return_value=sample_account)
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        # Set up mock for all() that returns messages
+        mock_scalars_result = AsyncMock()
+        mock_scalars_result.all = AsyncMock(return_value=[sample_message])
+        mock_unique_result = AsyncMock()
+        mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
+        mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Mock batch processing functions
         mixin._setup_batch_processing.return_value = (
@@ -177,6 +191,19 @@ class TestContentProcessingWithRealData:
         mock_studio,
     ):
         """Test _process_items_with_gallery with real data from JSON."""
+
+        # Setup awaitable_attrs for sample_post if it doesn't already have them
+        if not hasattr(sample_post, "awaitable_attrs"):
+            sample_post.awaitable_attrs = MagicMock()
+            sample_post.awaitable_attrs.attachments = AsyncMock(
+                return_value=(
+                    sample_post.attachments
+                    if hasattr(sample_post, "attachments")
+                    else []
+                )
+            )
+            sample_post.awaitable_attrs.hashtags = AsyncMock(return_value=[])
+            sample_post.awaitable_attrs.accountMentions = AsyncMock(return_value=[])
 
         # Define URL pattern function
         def get_post_url(post):

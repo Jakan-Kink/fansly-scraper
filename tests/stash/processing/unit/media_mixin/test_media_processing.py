@@ -14,22 +14,14 @@ class TestMediaProcessing:
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
 
-        # Create a coroutine that will be resolved to an empty set
-        async def mock_variants_coro():
-            return set()
-
-        # Create a coroutine that will be resolved to the mimetype
-        async def mock_mimetype_coro():
-            return mock_media.mimetype
-
-        # Create a coroutine that will be resolved to is_downloaded
-        async def mock_is_downloaded_coro():
-            return mock_media.is_downloaded
-
-        # Properly set up awaitable attributes
-        mock_media.awaitable_attrs.variants = mock_variants_coro()
-        mock_media.awaitable_attrs.mimetype = mock_mimetype_coro()
-        mock_media.awaitable_attrs.is_downloaded = mock_is_downloaded_coro()
+        # Properly set up awaitable attributes as AsyncMock coroutines
+        mock_media.awaitable_attrs.variants = AsyncMock(return_value=set())
+        mock_media.awaitable_attrs.mimetype = AsyncMock(
+            return_value=mock_media.mimetype
+        )
+        mock_media.awaitable_attrs.is_downloaded = AsyncMock(
+            return_value=mock_media.is_downloaded
+        )
 
         # Create a mock implementation
         async def mock_find_by_stash_id(stash_files):
@@ -90,6 +82,15 @@ class TestMediaProcessing:
 
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
+
+        # Properly set up awaitable attributes as AsyncMock coroutines
+        mock_media.awaitable_attrs.variants = AsyncMock(return_value=set())
+        mock_media.awaitable_attrs.mimetype = AsyncMock(
+            return_value=mock_media.mimetype
+        )
+        mock_media.awaitable_attrs.is_downloaded = AsyncMock(
+            return_value=mock_media.is_downloaded
+        )
 
         # Create a mock implementation
         async def mock_find_by_stash_id(stash_files):
@@ -159,6 +160,17 @@ class TestMediaProcessing:
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
 
+        # Properly set up awaitable attributes as AsyncMock coroutines
+        mock_media.awaitable_attrs.variants = AsyncMock(
+            return_value=mock_media.variants
+        )
+        mock_media.awaitable_attrs.mimetype = AsyncMock(
+            return_value=mock_media.mimetype
+        )
+        mock_media.awaitable_attrs.is_downloaded = AsyncMock(
+            return_value=mock_media.is_downloaded
+        )
+
         # Create a mock implementation
         async def mock_find_by_path(media_files):
             # Return fake results
@@ -224,6 +236,10 @@ class TestMediaProcessing:
         # Setup bundle with account media
         mock_account_media.media = mock_media
         mock_media_bundle.accountMedia = [mock_account_media]
+        # Properly set up awaitable attribute as AsyncMock coroutine
+        mock_media_bundle.awaitable_attrs.accountMedia = AsyncMock(
+            return_value=[mock_account_media]
+        )
 
         # Setup test harness to avoid awaiting AsyncMock
         processed_media = []
@@ -271,6 +287,10 @@ class TestMediaProcessing:
         # Setup attachment with direct media
         mock_attachment.media = MagicMock()
         mock_attachment.media.media = mock_media
+        # Properly set up awaitable attribute as AsyncMock coroutine
+        mock_attachment.awaitable_attrs.media = AsyncMock(
+            return_value=mock_attachment.media
+        )
 
         # Setup test harness to avoid awaiting AsyncMock
         processed_media = []
@@ -315,8 +335,10 @@ class TestMediaProcessing:
         """Test process_creator_attachment method with media bundle."""
         # Setup attachment with bundle
         mock_attachment.bundle = mock_media_bundle
-        if hasattr(mock_attachment, "awaitable_attrs"):
-            mock_attachment.awaitable_attrs.bundle = mock_media_bundle
+        # Properly set up awaitable attribute as AsyncMock coroutine
+        mock_attachment.awaitable_attrs.bundle = AsyncMock(
+            return_value=mock_media_bundle
+        )
 
         # Setup test harness to avoid awaiting AsyncMock
         processed_bundles = []
@@ -361,20 +383,23 @@ class TestMediaProcessing:
         """Test process_creator_attachment method with aggregated post."""
         # Setup attachment with aggregated post
         mock_attachment.is_aggregated_post = True
-        if hasattr(mock_attachment, "awaitable_attrs"):
-            mock_attachment.awaitable_attrs.is_aggregated_post = True
+        mock_attachment.awaitable_attrs.is_aggregated_post = AsyncMock(
+            return_value=True
+        )
 
         # Create aggregated post with attachments
         agg_post = MagicMock()
         agg_post.id = "agg_post_123"
         agg_attachment = MagicMock()
         agg_post.attachments = [agg_attachment]
-        if hasattr(agg_post, "awaitable_attrs"):
-            agg_post.awaitable_attrs.attachments = agg_post.attachments
+        agg_post.awaitable_attrs.attachments = AsyncMock(
+            return_value=agg_post.attachments
+        )
 
         mock_attachment.aggregated_post = agg_post
-        if hasattr(mock_attachment, "awaitable_attrs"):
-            mock_attachment.awaitable_attrs.aggregated_post = agg_post
+        mock_attachment.awaitable_attrs.aggregated_post = AsyncMock(
+            return_value=agg_post
+        )
 
         # Setup test harness to avoid awaiting AsyncMock
         processed_attachments = []
