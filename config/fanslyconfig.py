@@ -157,14 +157,16 @@ class FanslyConfig(PathConfig):
     async def setup_api(self) -> None:
         """Set up the API instance including async session setup."""
         api = self.get_api()
+
+        # Check if api is None before trying to access its attributes
+        if api is None:
+            raise RuntimeError("Token or user agent error creating Fansly API object.")
+
         if api.session_id == "null":
             await api.setup_session()
 
             # Explicit save - on init of FanslyApi() self._api was None
             self._save_config()
-
-        if self._api is None:
-            raise RuntimeError("Token or user agent error creating Fansly API object.")
 
         return self._api
 

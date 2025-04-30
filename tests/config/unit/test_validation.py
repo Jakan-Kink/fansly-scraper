@@ -271,7 +271,8 @@ def test_validate_adjust_download_mode_interactive_change(mock_config, monkeypat
 def test_validate_adjust_download_mode_invalid_input(mock_config, monkeypatch):
     """Test interactive download mode validation with invalid mode input"""
     mock_config.interactive = True
-    inputs = iter(["y", "INVALID"])  # Yes to change, then invalid mode
+    # Provide enough inputs: 'y' to change, 'INVALID' as invalid input, then 'n' to exit loop
+    inputs = iter(["y", "INVALID", "n"])
     monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
     # Should raise ValueError for invalid mode and keep original mode

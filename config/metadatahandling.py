@@ -13,7 +13,9 @@ class MetadataHandling(StrEnum):
     @classmethod
     def _missing_(cls, value):
         """Handle case-insensitive lookup of enum values."""
-        for member in cls:
-            if member.value.lower() == str(value).lower():
-                return member
+        if isinstance(value, str):
+            # Try to match case-insensitively
+            for member in cls:
+                if member.lower() == value.lower():
+                    return member
         return None

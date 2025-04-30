@@ -291,12 +291,23 @@ def test_get_token_from_firefox_db_locked_interactive(
 
 
 @patch("sqlite3.connect")
-def test_get_token_from_firefox_db_other_sqlite_error(mock_connect):
+@patch("builtins.print")
+@patch("traceback.format_exc", return_value="Traceback: some other error")
+def test_get_token_from_firefox_db_other_sqlite_error(
+    mock_traceback,
+    mock_print,
+    mock_connect,
+):
     """Test handling other SQLite errors."""
     mock_connect.side_effect = sqlite3.Error("some other error")
 
     result = get_token_from_firefox_db("test.sqlite")
+
     assert result is None
+    # Verify error is printed
+    mock_print.assert_called_once_with(
+        "Unexpected Error processing SQLite file:\nTraceback: some other error"
+    )
 
 
 @patch("sqlite3.connect")
