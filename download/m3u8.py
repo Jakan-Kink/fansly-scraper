@@ -14,7 +14,7 @@ from config.fanslyconfig import FanslyConfig
 from errors import M3U8Error
 from helpers.ffmpeg import run_ffmpeg
 from helpers.web import get_file_name_from_url, get_qs_value, split_url
-from textio import print_error, print_warning
+from textio import print_debug, print_error, print_warning
 
 
 def get_m3u8_cookies(m3u8_url: str) -> dict[str, Any]:
@@ -195,8 +195,6 @@ def download_m3u8(
     ffmpeg_list_file = video_path / "_ffmpeg_concat_.ffc"
 
     try:
-        from textio import print_debug
-
         print_debug(f"Starting m3u8 download with {len(segment_files)} segments")
         print_debug(f"First segment: {segment_uris[0] if segment_uris else 'None'}")
         print_debug(f"Target path: {full_path}")

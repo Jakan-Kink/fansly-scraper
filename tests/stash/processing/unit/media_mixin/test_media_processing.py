@@ -4,9 +4,34 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+    AsyncContextManagerMock,
+    async_return,
+    make_asyncmock_awaitable,
+    make_awaitable_mock,
+)
+
 
 class TestMediaProcessing:
     """Test media processing methods in MediaProcessingMixin."""
+
+    @staticmethod
+    def _convert_to_accessible_mock(mock_obj):
+        """Convert a regular mock to an AccessibleAsyncMock with proper attributes."""
+        if mock_obj is None:
+            return None
+
+        accessible_mock = AccessibleAsyncMock()
+
+        # Copy all non-private attributes
+        for key, value in mock_obj.__dict__.items():
+            if not key.startswith("_"):
+                setattr(accessible_mock, key, value)
+
+        # Ensure it's properly awaitable
+        accessible_mock.__await__ = lambda: async_return(accessible_mock)().__await__()
+        return accessible_mock
 
     @pytest.mark.asyncio
     async def test_process_media(self, mixin, mock_item, mock_account, mock_media):
@@ -14,20 +39,32 @@ class TestMediaProcessing:
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
 
-        # Properly set up awaitable attributes as AsyncMock coroutines
-        mock_media.awaitable_attrs.variants = AsyncMock(return_value=set())
-        mock_media.awaitable_attrs.mimetype = AsyncMock(
-            return_value=mock_media.mimetype
+        # Convert mock_media to AccessibleAsyncMock instead of using awaitable_attrs
+        accessible_media = AccessibleAsyncMock()
+        accessible_media.id = mock_media.id
+        accessible_media.mimetype = mock_media.mimetype
+        accessible_media.is_downloaded = mock_media.is_downloaded
+        accessible_media.variants = set()
+        # Copy other attributes as needed
+        accessible_media.__dict__.update(
+            {
+                k: v
+                for k, v in mock_media.__dict__.items()
+                if not k.startswith("_")
+                and k not in ["id", "mimetype", "is_downloaded", "variants"]
+            }
         )
-        mock_media.awaitable_attrs.is_downloaded = AsyncMock(
-            return_value=mock_media.is_downloaded
-        )
+
+        # Ensure the mock media is properly awaitable when returned from a method
+        accessible_media.__await__ = lambda: async_return(
+            accessible_media
+        )().__await__()
 
         # Create a mock implementation
         async def mock_find_by_stash_id(stash_files):
             # Return fake results
-            mock_image = MagicMock()
-            mock_image_file = MagicMock()
+            mock_image = AccessibleAsyncMock()
+            mock_image_file = AccessibleAsyncMock()
             return [(mock_image, mock_image_file)]
 
         # Create a mock update_stash_metadata that records calls
@@ -56,7 +93,7 @@ class TestMediaProcessing:
         try:
             # Call the method
             await mixin._process_media(
-                media=mock_media,
+                media=accessible_media,
                 item=mock_item,
                 account=mock_account,
                 result=result,
@@ -66,7 +103,7 @@ class TestMediaProcessing:
             assert len(found_results) == 1
             assert found_results[0]["item"] == mock_item
             assert found_results[0]["account"] == mock_account
-            assert found_results[0]["media_id"] == str(mock_media.id)
+            assert found_results[0]["media_id"] == str(accessible_media.id)
         finally:
             # Restore original methods
             mixin._find_stash_files_by_id = original_find
@@ -78,25 +115,30 @@ class TestMediaProcessing:
     ):
         """Test _process_media method with stash_id."""
         # Setup media with stash_id
-        mock_media.stash_id = "stash_123"
+        accessible_media = AccessibleAsyncMock()
+        accessible_media.id = mock_media.id
+        accessible_media.mimetype = mock_media.mimetype
+        accessible_media.is_downloaded = mock_media.is_downloaded
+        accessible_media.stash_id = "stash_123"
+        accessible_media.variants = set()
+        # Copy other attributes as needed
+        accessible_media.__dict__.update(
+            {
+                k: v
+                for k, v in mock_media.__dict__.items()
+                if not k.startswith("_")
+                and k not in ["id", "mimetype", "is_downloaded", "variants", "stash_id"]
+            }
+        )
 
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
 
-        # Properly set up awaitable attributes as AsyncMock coroutines
-        mock_media.awaitable_attrs.variants = AsyncMock(return_value=set())
-        mock_media.awaitable_attrs.mimetype = AsyncMock(
-            return_value=mock_media.mimetype
-        )
-        mock_media.awaitable_attrs.is_downloaded = AsyncMock(
-            return_value=mock_media.is_downloaded
-        )
-
         # Create a mock implementation
         async def mock_find_by_stash_id(stash_files):
             # Return fake results
-            mock_image = MagicMock()
-            mock_image_file = MagicMock()
+            mock_image = AccessibleAsyncMock()
+            mock_image_file = AccessibleAsyncMock()
             return [(mock_image, mock_image_file)]
 
         # Create a mock update_stash_metadata that records calls
@@ -125,7 +167,7 @@ class TestMediaProcessing:
         try:
             # Call the method
             await mixin._process_media(
-                media=mock_media,
+                media=accessible_media,
                 item=mock_item,
                 account=mock_account,
                 result=result,
@@ -135,13 +177,11 @@ class TestMediaProcessing:
             assert len(found_results) == 1
             assert found_results[0]["item"] == mock_item
             assert found_results[0]["account"] == mock_account
-            assert found_results[0]["media_id"] == str(mock_media.id)
+            assert found_results[0]["media_id"] == str(accessible_media.id)
         finally:
             # Restore original methods
             mixin._find_stash_files_by_id = original_find
             mixin._update_stash_metadata = original_update
-            # Cleanup
-            mock_media.stash_id = None
 
     @pytest.mark.asyncio
     async def test_process_media_with_variants(
@@ -149,27 +189,31 @@ class TestMediaProcessing:
     ):
         """Test _process_media method with variants."""
         # Setup media with variants
-        variant1 = MagicMock()
+        variant1 = AccessibleAsyncMock()
         variant1.id = "variant_1"
         variant1.mimetype = "image/jpeg"
-        variant2 = MagicMock()
+        variant2 = AccessibleAsyncMock()
         variant2.id = "variant_2"
         variant2.mimetype = "video/mp4"
-        mock_media.variants = [variant1, variant2]
+        variants = [variant1, variant2]
+
+        accessible_media = AccessibleAsyncMock()
+        accessible_media.id = mock_media.id
+        accessible_media.mimetype = mock_media.mimetype
+        accessible_media.is_downloaded = mock_media.is_downloaded
+        accessible_media.variants = variants
+        # Copy other attributes as needed
+        accessible_media.__dict__.update(
+            {
+                k: v
+                for k, v in mock_media.__dict__.items()
+                if not k.startswith("_")
+                and k not in ["id", "mimetype", "is_downloaded", "variants"]
+            }
+        )
 
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
-
-        # Properly set up awaitable attributes as AsyncMock coroutines
-        mock_media.awaitable_attrs.variants = AsyncMock(
-            return_value=mock_media.variants
-        )
-        mock_media.awaitable_attrs.mimetype = AsyncMock(
-            return_value=mock_media.mimetype
-        )
-        mock_media.awaitable_attrs.is_downloaded = AsyncMock(
-            return_value=mock_media.is_downloaded
-        )
 
         # Create a mock implementation
         async def mock_find_by_path(media_files):
@@ -204,7 +248,7 @@ class TestMediaProcessing:
         try:
             # Call the method
             await mixin._process_media(
-                media=mock_media,
+                media=accessible_media,
                 item=mock_item,
                 account=mock_account,
                 result=result,
@@ -214,13 +258,11 @@ class TestMediaProcessing:
             assert len(found_results) == 1
             assert found_results[0]["item"] == mock_item
             assert found_results[0]["account"] == mock_account
-            assert found_results[0]["media_id"] == str(mock_media.id)
+            assert found_results[0]["media_id"] == str(accessible_media.id)
         finally:
             # Restore original methods
             mixin._find_stash_files_by_path = original_find
             mixin._update_stash_metadata = original_update
-            # Cleanup
-            mock_media.variants = []
 
     @pytest.mark.asyncio
     async def test_process_bundle_media(
@@ -233,12 +275,30 @@ class TestMediaProcessing:
         mock_media,
     ):
         """Test _process_bundle_media method."""
-        # Setup bundle with account media
-        mock_account_media.media = mock_media
-        mock_media_bundle.accountMedia = [mock_account_media]
-        # Properly set up awaitable attribute as AsyncMock coroutine
-        mock_media_bundle.awaitable_attrs.accountMedia = AsyncMock(
-            return_value=[mock_account_media]
+        # Create accessible versions of our mocks
+        accessible_media = AccessibleAsyncMock()
+        accessible_media.__dict__.update(
+            {k: v for k, v in mock_media.__dict__.items() if not k.startswith("_")}
+        )
+
+        accessible_account_media = AccessibleAsyncMock()
+        accessible_account_media.media = accessible_media
+        accessible_account_media.__dict__.update(
+            {
+                k: v
+                for k, v in mock_account_media.__dict__.items()
+                if not k.startswith("_") and k != "media"
+            }
+        )
+
+        accessible_media_bundle = AccessibleAsyncMock()
+        accessible_media_bundle.accountMedia = [accessible_account_media]
+        accessible_media_bundle.__dict__.update(
+            {
+                k: v
+                for k, v in mock_media_bundle.__dict__.items()
+                if not k.startswith("_") and k != "accountMedia"
+            }
         )
 
         # Setup test harness to avoid awaiting AsyncMock
@@ -260,7 +320,7 @@ class TestMediaProcessing:
         try:
             # Call the method
             await mixin._process_bundle_media(
-                bundle=mock_media_bundle,
+                bundle=accessible_media_bundle,
                 item=mock_item,
                 account=mock_account,
                 result=result,
@@ -268,28 +328,36 @@ class TestMediaProcessing:
 
             # Verify process_media was called with correct media
             assert len(processed_media) == 1
-            assert processed_media[0]["media"] == mock_media
+            assert processed_media[0]["media"] == accessible_media
             assert processed_media[0]["item"] == mock_item
             assert processed_media[0]["account"] == mock_account
             assert processed_media[0]["result"] == result
         finally:
             # Restore original method
             mixin._process_media = original_process
-            # Cleanup
-            mock_account_media.media = None
-            mock_media_bundle.accountMedia = []
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_direct_media(
         self, mixin, mock_item, mock_account, mock_attachment, mock_media
     ):
         """Test process_creator_attachment method with direct media."""
-        # Setup attachment with direct media
-        mock_attachment.media = MagicMock()
-        mock_attachment.media.media = mock_media
-        # Properly set up awaitable attribute as AsyncMock coroutine
-        mock_attachment.awaitable_attrs.media = AsyncMock(
-            return_value=mock_attachment.media
+        # Create accessible versions of our mocks
+        accessible_media = AccessibleAsyncMock()
+        accessible_media.__dict__.update(
+            {k: v for k, v in mock_media.__dict__.items() if not k.startswith("_")}
+        )
+
+        media_container = AccessibleAsyncMock()
+        media_container.media = accessible_media
+
+        accessible_attachment = AccessibleAsyncMock()
+        accessible_attachment.media = media_container
+        accessible_attachment.__dict__.update(
+            {
+                k: v
+                for k, v in mock_attachment.__dict__.items()
+                if not k.startswith("_") and k != "media"
+            }
         )
 
         # Setup test harness to avoid awaiting AsyncMock
@@ -308,14 +376,14 @@ class TestMediaProcessing:
         try:
             # Call the method
             result = await mixin.process_creator_attachment(
-                attachment=mock_attachment,
+                attachment=accessible_attachment,
                 item=mock_item,
                 account=mock_account,
             )
 
             # Verify process_media was called with correct media
             assert len(processed_media) == 1
-            assert processed_media[0]["media"] == mock_media
+            assert processed_media[0]["media"] == accessible_media
             assert processed_media[0]["item"] == mock_item
             assert processed_media[0]["account"] == mock_account
 
@@ -325,19 +393,30 @@ class TestMediaProcessing:
         finally:
             # Restore original method
             mixin._process_media = original_process
-            # Cleanup
-            mock_attachment.media = None
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_bundle(
         self, mixin, mock_item, mock_account, mock_attachment, mock_media_bundle
     ):
         """Test process_creator_attachment method with media bundle."""
-        # Setup attachment with bundle
-        mock_attachment.bundle = mock_media_bundle
-        # Properly set up awaitable attribute as AsyncMock coroutine
-        mock_attachment.awaitable_attrs.bundle = AsyncMock(
-            return_value=mock_media_bundle
+        # Create accessible versions of our mocks
+        accessible_media_bundle = AccessibleAsyncMock()
+        accessible_media_bundle.__dict__.update(
+            {
+                k: v
+                for k, v in mock_media_bundle.__dict__.items()
+                if not k.startswith("_")
+            }
+        )
+
+        accessible_attachment = AccessibleAsyncMock()
+        accessible_attachment.bundle = accessible_media_bundle
+        accessible_attachment.__dict__.update(
+            {
+                k: v
+                for k, v in mock_attachment.__dict__.items()
+                if not k.startswith("_") and k != "bundle"
+            }
         )
 
         # Setup test harness to avoid awaiting AsyncMock
@@ -356,14 +435,14 @@ class TestMediaProcessing:
         try:
             # Call the method
             result = await mixin.process_creator_attachment(
-                attachment=mock_attachment,
+                attachment=accessible_attachment,
                 item=mock_item,
                 account=mock_account,
             )
 
             # Verify process_bundle_media was called with correct bundle
             assert len(processed_bundles) == 1
-            assert processed_bundles[0]["bundle"] == mock_media_bundle
+            assert processed_bundles[0]["bundle"] == accessible_media_bundle
             assert processed_bundles[0]["item"] == mock_item
             assert processed_bundles[0]["account"] == mock_account
 
@@ -373,32 +452,31 @@ class TestMediaProcessing:
         finally:
             # Restore original method
             mixin._process_bundle_media = original_process
-            # Cleanup
-            mock_attachment.bundle = None
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_aggregated_post(
         self, mixin, mock_item, mock_account, mock_attachment
     ):
         """Test process_creator_attachment method with aggregated post."""
-        # Setup attachment with aggregated post
-        mock_attachment.is_aggregated_post = True
-        mock_attachment.awaitable_attrs.is_aggregated_post = AsyncMock(
-            return_value=True
-        )
+        # Create an accessible attachment with aggregated post
+        accessible_attachment = AccessibleAsyncMock()
+        accessible_attachment.is_aggregated_post = True
 
         # Create aggregated post with attachments
-        agg_post = MagicMock()
-        agg_post.id = "agg_post_123"
-        agg_attachment = MagicMock()
-        agg_post.attachments = [agg_attachment]
-        agg_post.awaitable_attrs.attachments = AsyncMock(
-            return_value=agg_post.attachments
-        )
+        agg_attachment = AccessibleAsyncMock()
 
-        mock_attachment.aggregated_post = agg_post
-        mock_attachment.awaitable_attrs.aggregated_post = AsyncMock(
-            return_value=agg_post
+        agg_post = AccessibleAsyncMock()
+        agg_post.id = "agg_post_123"
+        agg_post.attachments = [agg_attachment]
+
+        accessible_attachment.aggregated_post = agg_post
+        accessible_attachment.__dict__.update(
+            {
+                k: v
+                for k, v in mock_attachment.__dict__.items()
+                if not k.startswith("_")
+                and k not in ["is_aggregated_post", "aggregated_post"]
+            }
         )
 
         # Setup test harness to avoid awaiting AsyncMock
@@ -430,7 +508,7 @@ class TestMediaProcessing:
 
             result = await MediaProcessingMixin.process_creator_attachment(
                 mixin,
-                attachment=mock_attachment,
+                attachment=accessible_attachment,
                 item=mock_item,
                 account=mock_account,
             )
@@ -447,6 +525,3 @@ class TestMediaProcessing:
         finally:
             # Restore original method
             mixin.process_creator_attachment = original_method
-            # Cleanup
-            mock_attachment.is_aggregated_post = False
-            mock_attachment.aggregated_post = None

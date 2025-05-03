@@ -23,9 +23,22 @@ class TestMessageProcessing:
         mock_messages,
     ):
         """Test process_creator_messages method."""
+        # Create a proper AccessibleAsyncMock that can be both awaited and accessed directly
+        accessible_account = AccessibleAsyncMock()
+        accessible_account.id = content_mock_account.id
+        accessible_account.username = content_mock_account.username
+        # Copy other attributes as needed
+        accessible_account.__dict__.update(
+            {
+                k: v
+                for k, v in content_mock_account.__dict__.items()
+                if not k.startswith("_")
+            }
+        )
+
         # Setup session mock to return messages
         mock_result = AsyncMock()
-        mock_result.scalar_one = AsyncMock(return_value=content_mock_account)
+        mock_result.scalar_one = AsyncMock(return_value=accessible_account)
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         # Set up mock for all() that returns messages
@@ -53,14 +66,14 @@ class TestMessageProcessing:
 
         # Call method
         await mixin.process_creator_messages(
-            account=content_mock_account,
+            account=accessible_account,
             performer=content_mock_performer,
             studio=content_mock_studio,
             session=mock_session,
         )
 
         # Verify session was used
-        mock_session.add.assert_called_with(content_mock_account)
+        mock_session.add.assert_called_with(accessible_account)
 
         # Verify batch processing was setup
         mixin._setup_worker_pool.assert_called_once_with(mock_messages, "message")
@@ -84,14 +97,14 @@ class TestMessageProcessing:
 
         # Verify session operations
         assert mock_session.add.call_count >= 3  # Account + 2 messages
-        mock_session.refresh.assert_called_with(content_mock_account)
+        mock_session.refresh.assert_called_with(accessible_account)
 
         # Verify _process_items_with_gallery was called for each message
         assert mixin._process_items_with_gallery.call_count == 2
 
         # Verify first call arguments
         first_call = mixin._process_items_with_gallery.call_args_list[0]
-        assert first_call[1]["account"] == content_mock_account
+        assert first_call[1]["account"] == accessible_account
         assert first_call[1]["performer"] == content_mock_performer
         assert first_call[1]["studio"] == content_mock_studio
         assert first_call[1]["item_type"] == "message"
@@ -189,7 +202,7 @@ class TestMessageProcessing:
         mock_messages,
     ):
         """Test the database query structure in process_creator_messages."""
-        # Create a proper AccountAccessibleAsyncMock that can be both awaited and accessed directly
+        # Create a proper AccessibleAsyncMock that can be both awaited and accessed directly
         accessible_account = AccessibleAsyncMock()
         accessible_account.id = content_mock_account.id
         accessible_account.username = content_mock_account.username
@@ -211,10 +224,21 @@ class TestMessageProcessing:
         mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
         mock_scalars_result.all = MagicMock(return_value=mock_messages)
 
-        # Mock batch processing
-        mixin._setup_batch_processing = MagicMock()
-        mixin._run_batch_processor = AsyncMock()
-        mixin._process_messages_batch = AsyncMock()
+        # Mock batch processing - use compatible mocks
+        mixin._setup_worker_pool = MagicMock()
+        mixin._run_worker_pool = AsyncMock()
+
+        # Create mock tbar, pbar, etc.
+        task_pbar = MagicMock()
+        process_pbar = MagicMock()
+        semaphore = MagicMock()
+        queue = MagicMock()
+        mixin._setup_worker_pool.return_value = (
+            task_pbar,
+            process_pbar,
+            semaphore,
+            queue,
+        )
 
         # Call the method with our accessible account mock
         await mixin.process_creator_messages(
@@ -233,8 +257,8 @@ class TestMessageProcessing:
         assert hasattr(stmt, "froms")
 
         # Verify batch processor was called
-        assert mixin._setup_batch_processing.called
-        assert mixin._run_batch_processor.called
+        assert mixin._setup_worker_pool.called
+        assert mixin._run_worker_pool.called
 
     @pytest.mark.asyncio
     async def test_batch_processing_setup(
@@ -247,9 +271,22 @@ class TestMessageProcessing:
         mock_messages,
     ):
         """Test the batch processing setup in process_creator_messages."""
+        # Create a proper AccessibleAsyncMock that can be both awaited and accessed directly
+        accessible_account = AccessibleAsyncMock()
+        accessible_account.id = content_mock_account.id
+        accessible_account.username = content_mock_account.username
+        # Copy other attributes as needed
+        accessible_account.__dict__.update(
+            {
+                k: v
+                for k, v in content_mock_account.__dict__.items()
+                if not k.startswith("_")
+            }
+        )
+
         # Setup session mock to return messages
         mock_result = AsyncMock()
-        mock_result.scalar_one = AsyncMock(return_value=content_mock_account)
+        mock_result.scalar_one = AsyncMock(return_value=accessible_account)
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         # Set up mock for all() that returns messages
@@ -261,7 +298,7 @@ class TestMessageProcessing:
 
         # Call method
         await mixin.process_creator_messages(
-            account=content_mock_account,
+            account=accessible_account,
             performer=content_mock_performer,
             studio=content_mock_studio,
             session=mock_session,

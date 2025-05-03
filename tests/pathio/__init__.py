@@ -1,1 +1,1 @@
-"""Tests for the pathio module."""
+"""Test package for the pathio module."""

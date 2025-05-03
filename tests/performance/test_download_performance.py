@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 
+import psutil
 import pytest
 from loguru import logger
 
@@ -143,6 +144,10 @@ def test_memory_scaling_performance(
         # Create test file of specified size
         input_file.write_bytes(b"0" * (file_size_mb * 1024 * 1024))
 
+        # Measure baseline memory before processing
+        process = psutil.Process()
+        baseline_memory = process.memory_info().rss / 1024 / 1024  # Convert to MB
+
         with performance_tracker(f"memory_scaling_{file_size_mb}mb") as metrics:
             # Process media and verify success
             processing_result = process_media(
@@ -155,16 +160,23 @@ def test_memory_scaling_performance(
                 processing_result.duration > 0
             ), f"Invalid processing duration for {file_size_mb}MB file"
 
-            # Verify memory scaling
-            # Base memory overhead (Python + test framework) + processing overhead
-            base_memory_overhead = 100  # MB
+            # Verify memory scaling - focusing on the increase over baseline
             processing_factor = 2  # Allow 2x file size for processing
-            expected_max_memory = base_memory_overhead + (
-                file_size_mb * processing_factor
+            max_allowed_increase = file_size_mb * processing_factor
+
+            # Calculate actual memory increase from baseline
+            actual_increase = metrics["max_memory"] - baseline_memory
+
+            assert actual_increase <= max_allowed_increase, (
+                f"Memory increase ({actual_increase:.2f}MB) too high "
+                f"for {file_size_mb}MB file (expected <= {max_allowed_increase}MB)"
             )
-            assert metrics["max_memory"] <= expected_max_memory, (
-                f"Memory usage ({metrics['max_memory']:.2f}MB) too high "
-                f"for {file_size_mb}MB file (expected <= {expected_max_memory}MB)"
+
+            # Also log the baseline for diagnostics
+            logger.info(
+                f"Baseline memory: {baseline_memory:.2f}MB, "
+                f"Max memory: {metrics['max_memory']:.2f}MB, "
+                f"Increase: {actual_increase:.2f}MB"
             )
 
     except Exception as e:

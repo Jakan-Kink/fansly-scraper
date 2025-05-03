@@ -139,7 +139,9 @@ async def download_wall(
     before_cursor = "0"
     attempts = 0
 
-    if config.use_duplicate_threshold and state.fetchedTimelineDuplication:
+    if (
+        config.use_duplicate_threshold or config.use_pagination_duplication
+    ) and state.fetchedTimelineDuplication:
         print_info(
             "Deduplication is enabled and the timeline has been fetched before. "
             "Only new media items will be downloaded."

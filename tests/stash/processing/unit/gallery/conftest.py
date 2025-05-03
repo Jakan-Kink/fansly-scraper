@@ -8,23 +8,22 @@ import pytest
 from metadata import Account, Post
 from stash.processing.mixins.gallery import GalleryProcessingMixin
 from stash.types import Gallery, GalleryChapter, Image, Scene, Studio, Tag
-
-# Import and re-export fixtures from parent conftest.py
-from ..conftest import (
-    mock_account,
-    mock_gallery,
-    mock_image,
-    mock_performer,
-    mock_scene,
-    mock_studio,
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
 )
+
+# Import mock_gallery with different name to avoid collision
+# Import and re-export fixtures from parent conftest.py
+from ..conftest import mock_account
+from ..conftest import mock_gallery as parent_mock_gallery
+from ..conftest import mock_image, mock_performer, mock_scene, mock_studio
 
 __all__ = [
     "mock_account",
     "mock_performer",
     "mock_scene",
     "mock_studio",
-    "mock_gallery",
+    "mock_gallery",  # We'll provide our awaitable version but keep the original name in exports
     "mock_image",
     "mixin",
     "mock_item",
@@ -85,6 +84,36 @@ def mock_item():
     item.awaitable_attrs.accountMentions = AsyncMock(return_value=mentions_list)
     item.__class__.__name__ = "Post"
     return item
+
+
+# Provide an awaitable version of mock_gallery
+@pytest.fixture
+def mock_gallery():
+    """Mock gallery fixture with proper awaitable properties."""
+    gallery = AccessibleAsyncMock(spec=Gallery)
+    gallery.id = "gallery_123"
+    gallery.title = "Test Gallery"
+    gallery.date = "2024-04-01"
+    gallery.studio = {"id": "studio_123"}
+    gallery.save = AsyncMock()  # Make save properly awaitable
+    gallery.urls = []
+    gallery.code = "12345"
+    gallery.performers = []
+    gallery.studio_id = None
+    gallery.tags = []
+
+    # Ensure awaitable_attrs returns the same values as direct access
+    gallery.awaitable_attrs.id = AsyncMock(return_value=gallery.id)
+    gallery.awaitable_attrs.title = AsyncMock(return_value=gallery.title)
+    gallery.awaitable_attrs.date = AsyncMock(return_value=gallery.date)
+    gallery.awaitable_attrs.studio = AsyncMock(return_value=gallery.studio)
+    gallery.awaitable_attrs.urls = AsyncMock(return_value=gallery.urls)
+    gallery.awaitable_attrs.code = AsyncMock(return_value=gallery.code)
+    gallery.awaitable_attrs.performers = AsyncMock(return_value=gallery.performers)
+    gallery.awaitable_attrs.studio_id = AsyncMock(return_value=gallery.studio_id)
+    gallery.awaitable_attrs.tags = AsyncMock(return_value=gallery.tags)
+
+    return gallery
 
 
 @pytest.fixture

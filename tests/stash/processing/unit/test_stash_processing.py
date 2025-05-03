@@ -300,7 +300,10 @@ class TestStashProcessingPerformer:
         assert not mock_performer.update_avatar.called
 
         # Mock account with avatar and local_filename
+        mock_avatar = MagicMock()
         mock_avatar.local_filename = "avatar.jpg"
+        # Make sure the avatar is properly awaitable and has local_filename accessible
+        mock_account.avatar = mock_avatar  # Set directly for access in the method
         mock_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
 
         # Mock performer with default image

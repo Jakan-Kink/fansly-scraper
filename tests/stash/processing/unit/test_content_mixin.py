@@ -14,6 +14,13 @@ import tests.stash.processing.unit.content.test_post_processing
 from metadata import Account, Message, Post
 from stash.processing.mixins.content import ContentProcessingMixin
 from stash.types import Performer, Studio
+from tests.stash.processing.unit.media_mixin.async_mock_helper import (
+    AccessibleAsyncMock,
+    AsyncContextManagerMock,
+    async_return,
+    make_asyncmock_awaitable,
+    make_awaitable_mock,
+)
 
 
 class TestMixinClass(ContentProcessingMixin):
@@ -28,6 +35,11 @@ class TestMixinClass(ContentProcessingMixin):
         self._process_item_gallery = AsyncMock()
         self._setup_batch_processing = AsyncMock()
         self._run_batch_processor = AsyncMock()
+
+        # Make all async mocks properly awaitable
+        make_asyncmock_awaitable(self._process_item_gallery)
+        make_asyncmock_awaitable(self._setup_batch_processing)
+        make_asyncmock_awaitable(self._run_batch_processor)
 
 
 @pytest.fixture
@@ -44,6 +56,12 @@ def mock_session():
     session.add = MagicMock()
     session.refresh = AsyncMock()
     session.flush = AsyncMock()
+
+    # Make async methods properly awaitable
+    make_asyncmock_awaitable(session.execute)
+    make_asyncmock_awaitable(session.refresh)
+    make_asyncmock_awaitable(session.flush)
+
     return session
 
 
@@ -81,14 +99,18 @@ class TestContentProcessingWithRealData:
         """Test processing posts with real data from JSON."""
         # Mock session to return our sample post and account
         # Properly set up AsyncMock for the scalar_one
-        mock_result = AsyncMock()
+        mock_result = AccessibleAsyncMock()
         mock_result.scalar_one = AsyncMock(return_value=sample_account)
+        make_asyncmock_awaitable(mock_result.scalar_one)
         mock_session.execute = AsyncMock(return_value=mock_result)
+        make_asyncmock_awaitable(mock_session.execute)
 
         # Set up mock for all() that returns posts
-        mock_scalars_result = AsyncMock()
+        mock_scalars_result = AccessibleAsyncMock()
         mock_scalars_result.all = AsyncMock(return_value=[sample_post])
-        mock_unique_result = AsyncMock()
+        make_asyncmock_awaitable(mock_scalars_result.all)
+
+        mock_unique_result = AccessibleAsyncMock()
         mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
         mock_result.unique = MagicMock(return_value=mock_unique_result)
 
@@ -137,14 +159,18 @@ class TestContentProcessingWithRealData:
         """Test processing messages with real data from JSON."""
         # Mock session to return our sample message and account
         # Properly set up AsyncMock for the scalar_one
-        mock_result = AsyncMock()
+        mock_result = AccessibleAsyncMock()
         mock_result.scalar_one = AsyncMock(return_value=sample_account)
+        make_asyncmock_awaitable(mock_result.scalar_one)
         mock_session.execute = AsyncMock(return_value=mock_result)
+        make_asyncmock_awaitable(mock_session.execute)
 
         # Set up mock for all() that returns messages
-        mock_scalars_result = AsyncMock()
+        mock_scalars_result = AccessibleAsyncMock()
         mock_scalars_result.all = AsyncMock(return_value=[sample_message])
-        mock_unique_result = AsyncMock()
+        make_asyncmock_awaitable(mock_scalars_result.all)
+
+        mock_unique_result = AccessibleAsyncMock()
         mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
         mock_result.unique = MagicMock(return_value=mock_unique_result)
 
@@ -192,18 +218,31 @@ class TestContentProcessingWithRealData:
     ):
         """Test _process_items_with_gallery with real data from JSON."""
 
-        # Setup awaitable_attrs for sample_post if it doesn't already have them
-        if not hasattr(sample_post, "awaitable_attrs"):
-            sample_post.awaitable_attrs = MagicMock()
-            sample_post.awaitable_attrs.attachments = AsyncMock(
-                return_value=(
-                    sample_post.attachments
-                    if hasattr(sample_post, "attachments")
-                    else []
-                )
+        # Create a properly awaitable post using AccessibleAsyncMock
+        accessible_post = AccessibleAsyncMock()
+
+        # Copy all attributes from sample_post
+        for key, value in sample_post.__dict__.items():
+            if not key.startswith("_"):
+                setattr(accessible_post, key, value)
+
+        # Setup awaitable_attrs with properly awaitable AsyncMock objects
+        accessible_post._awaitable_attrs = MagicMock()
+        accessible_post._awaitable_attrs.attachments = AsyncMock(
+            return_value=(
+                sample_post.attachments if hasattr(sample_post, "attachments") else []
             )
-            sample_post.awaitable_attrs.hashtags = AsyncMock(return_value=[])
-            sample_post.awaitable_attrs.accountMentions = AsyncMock(return_value=[])
+        )
+        accessible_post._awaitable_attrs.hashtags = AsyncMock(return_value=[])
+        accessible_post._awaitable_attrs.accountMentions = AsyncMock(return_value=[])
+
+        # Make the AsyncMock methods properly awaitable
+        make_asyncmock_awaitable(accessible_post._awaitable_attrs.attachments)
+        make_asyncmock_awaitable(accessible_post._awaitable_attrs.hashtags)
+        make_asyncmock_awaitable(accessible_post._awaitable_attrs.accountMentions)
+
+        # Use the accessible post instead of the original
+        sample_post = accessible_post
 
         # Define URL pattern function
         def get_post_url(post):

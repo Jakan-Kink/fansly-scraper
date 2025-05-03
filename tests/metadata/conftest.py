@@ -244,6 +244,20 @@ def timeline_data(test_data_dir: str) -> dict:
         return json.load(f)
 
 
+@pytest.fixture(scope="session")
+def json_conversation_data(test_data_dir: str) -> dict:
+    """Load conversation test data."""
+    with open(os.path.join(test_data_dir, "conversation-sample-account.json")) as f:
+        return json.load(f)
+
+
+@pytest.fixture(scope="session")
+def conversation_data(test_data_dir: str) -> dict:
+    """Load test message variants data for testing media variants and bundles."""
+    with open(os.path.join(test_data_dir, "test_message_variants.json")) as f:
+        return json.load(f)
+
+
 def run_async(func):
     """Decorator to run async functions in sync tests."""
 

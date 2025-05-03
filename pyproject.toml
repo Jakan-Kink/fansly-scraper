@@ -61,6 +61,7 @@ sqlalchemy = {extras = ["asyncio"], version = "^2.0.37"}
 httpx = "^0.28.1"
 strawberry-graphql = "^0.258.0"
 gql = "^3.5.0"
+websocket-client = "^1.8.0"
 
 
 [tool.poetry.group.dev.dependencies]
