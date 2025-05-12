@@ -41,7 +41,7 @@ def json_output(level: int, log_type: str, message: str) -> None:
     formatted_message = f"[{log_type}]\n{message}"
 
     # Use the centralized json logger with mapped level
-    json_logger.log(loguru_level, formatted_message)
+    json_logger.opt(depth=1).log(loguru_level, formatted_message)
 
 
 def print_config(message: str) -> None:
@@ -50,7 +50,7 @@ def print_config(message: str) -> None:
     Args:
         message: The message to print.
     """
-    textio_logger.log("CONFIG", message)
+    textio_logger.opt(depth=1).log("CONFIG", message)
 
 
 def print_debug(message: str) -> None:
@@ -59,7 +59,7 @@ def print_debug(message: str) -> None:
     Args:
         message: The message to print.
     """
-    textio_logger.log("DEBUG", message)
+    textio_logger.opt(depth=1).log("DEBUG", message)
 
 
 def print_error(message: str, number: int = -1) -> None:
@@ -71,9 +71,9 @@ def print_error(message: str, number: int = -1) -> None:
     """
     if number >= 0:
         # Use loguru's color markup to add the error number in red
-        textio_logger.log("ERROR", f"<red>[{number}]</red> {message}")
+        textio_logger.opt(depth=1).log("ERROR", f"<red>[{number}]</red> {message}")
     else:
-        textio_logger.log("ERROR", message)
+        textio_logger.opt(depth=1).log("ERROR", message)
 
 
 def print_info(message: str) -> None:
@@ -82,7 +82,7 @@ def print_info(message: str) -> None:
     Args:
         message: The message to print.
     """
-    textio_logger.log("INFO", message)
+    textio_logger.opt(depth=1).log("INFO", message)
 
 
 def print_info_highlight(message: str) -> None:
@@ -91,7 +91,7 @@ def print_info_highlight(message: str) -> None:
     Args:
         message: The message to print.
     """
-    textio_logger.log("-INFO-", message)
+    textio_logger.opt(depth=1).log("-INFO-", message)
 
 
 def print_update(message: str) -> None:
@@ -100,7 +100,7 @@ def print_update(message: str) -> None:
     Args:
         message: The message to print.
     """
-    textio_logger.log("UPDATE", message)
+    textio_logger.opt(depth=1).log("UPDATE", message)
 
 
 def print_warning(message: str) -> None:
@@ -109,7 +109,7 @@ def print_warning(message: str) -> None:
     Args:
         message: The message to print.
     """
-    textio_logger.log("WARNING", message)
+    textio_logger.opt(depth=1).log("WARNING", message)
 
 
 def input_enter_close(interactive: bool) -> None:
