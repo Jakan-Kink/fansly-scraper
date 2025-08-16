@@ -1,4 +1,8 @@
-"""Unit tests for Stash enums."""
+"""Tests for stash.types.enums module.
+
+Tests all enum definitions to ensure they have correct values,
+proper inheritance, and Strawberry decoration.
+"""
 
 from enum import Enum
 

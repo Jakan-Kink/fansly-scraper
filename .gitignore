@@ -167,4 +167,7 @@ config_args.ini
 config.ini
 *.log*
 *.sqlite3*
-json
+/json
+!tests/json
+
+*.graphql

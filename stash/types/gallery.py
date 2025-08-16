@@ -83,7 +83,7 @@ class GalleryChapter(StashObject):
 
     __relationships__ = {
         # Standard ID relationships
-        "gallery": ("gallery_id", False),  # (target_field, is_list)
+        "gallery": ("gallery_id", False, None),  # (target_field, is_list, transform)
     }
 
 
@@ -286,10 +286,10 @@ class Gallery(StashObject):
 
     __relationships__ = {
         # Standard ID relationships
-        "studio": ("studio_id", False),  # (target_field, is_list)
-        "performers": ("performer_ids", True),
-        "tags": ("tag_ids", True),
-        "scenes": ("scene_ids", True),
+        "studio": ("studio_id", False, None),  # (target_field, is_list)
+        "performers": ("performer_ids", True, None),
+        "tags": ("tag_ids", True, None),
+        "scenes": ("scene_ids", True, None),
     }
 
 

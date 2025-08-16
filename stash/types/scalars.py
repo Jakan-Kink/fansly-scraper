@@ -63,7 +63,9 @@ def _parse_timestamp(value: str) -> datetime:
         elif unit == "m":
             seconds = int(amount) * 60
         else:
-            raise ValueError(f"Invalid time unit: {unit}")
+            raise ValueError(
+                f"Invalid time unit: {unit}. Only 'h' (hours) and 'm' (minutes) are supported."
+            )
 
         # Add/subtract from now
         return datetime.now() + timedelta(seconds=direction * seconds)
@@ -129,17 +131,5 @@ class Int64:
     """Int64 scalar type from schema/types/scalars.graphql.
 
     A 64-bit integer that can represent values from -2^63 to 2^63-1."""
-
-    pass
-
-
-@strawberry.scalar(
-    name="Upload",
-    description="A multipart file upload",
-    serialize=lambda v: v,
-    parse_value=lambda v: v,
-)
-class Upload:
-    """Upload scalar type."""
 
     pass

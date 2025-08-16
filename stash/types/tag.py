@@ -83,7 +83,7 @@ class Tag(StashObject):
         """
         return cls(
             id="new",  # Will be replaced on save
-            name=hashtag.name,
+            name=hashtag.value,
             # Set reasonable defaults
         )
 
@@ -96,8 +96,8 @@ class Tag(StashObject):
 
     __relationships__ = {
         # Standard ID relationships
-        "parents": ("parent_ids", True),  # (target_field, is_list)
-        "children": ("child_ids", True),
+        "parents": ("parent_ids", True, None),  # (target_field, is_list, transform)
+        "children": ("child_ids", True, None),
     }
 
 

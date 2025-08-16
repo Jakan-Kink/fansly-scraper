@@ -2,14 +2,13 @@
 
 import base64
 import mimetypes
-from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, List, Optional
+from typing import TYPE_CHECKING, Annotated, Any
 
 import strawberry
 from strawberry import ID, lazy
 
-from metadata import Account
+from metadata.account import Account
 
 from .base import StashObject
 from .enums import CircumisedEnum, GenderEnum
@@ -220,8 +219,14 @@ class Performer(StashObject):
             New performer instance
         """
         # Filter out fields that aren't part of our class
-        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
-        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        try:
+            valid_fields = {
+                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+            }
+            filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        except AttributeError:
+            # Fallback if strawberry definition is not available
+            filtered_data = data
 
         # created_at and updated_at handled by Stash
 
@@ -244,20 +249,29 @@ class Performer(StashObject):
         Returns:
             New performer instance
         """
+        # Ensure we have a name (fallback to "Unknown" if all are None)
+        performer_name = account.displayName or account.username or "Unknown"
+
+        # Handle alias list with proper None checking
+        alias_list = []
+        if (
+            account.displayName is not None
+            and account.username is not None
+            and account.displayName.lower() != account.username.lower()
+        ):
+            alias_list = [account.username]
+
         return cls(
             id="new",  # Will be replaced on save
-            name=account.displayName or account.username,
-            alias_list=(
-                [account.username]
-                if (
-                    account.displayName
-                    and account.displayName.lower() != account.username.lower()
-                )
+            name=performer_name,
+            alias_list=alias_list,  # Only add username as alias if using display_name and it's different (case-insensitive)
+            urls=(
+                [f"https://fansly.com/{account.username}/posts"]
+                if account.username
                 else []
-            ),  # Only add username as alias if using displayName and it's different (case-insensitive)
-            urls=[f"https://fansly.com/{account.username}/posts"],
-            country=account.location,
-            details=account.about,
+            ),
+            country="",
+            details=account.about or "",
             # Required fields with defaults
             tags=[],  # Empty list of tags to start
             scenes=[],
@@ -292,7 +306,7 @@ class Performer(StashObject):
 
     __relationships__ = {
         # Standard ID relationships
-        "tags": ("tag_ids", True),  # (target_field, is_list)
+        "tags": ("tag_ids", True, None),  # (target_field, is_list, transform)
         # Special case with custom transform
         "stash_ids": (
             "stash_ids",

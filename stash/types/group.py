@@ -139,8 +139,8 @@ class Group(StashObject):
 
     __relationships__ = {
         # Standard ID relationships
-        "studio": ("studio_id", False),  # (target_field, is_list)
-        "tags": ("tag_ids", True),
+        "studio": ("studio_id", False, None),  # (target_field, is_list, transform)
+        "tags": ("tag_ids", True, None),
         # Special case with custom transform for group descriptions
         "containing_groups": (
             "containing_groups",

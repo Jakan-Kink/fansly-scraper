@@ -20,6 +20,7 @@ authors = [
 # ]
 license = "GPL-3.0-only"
 readme = "README.md"
+# package-mode = false
 packages = [
     { include = "alembic" },
     { include = "api" },
@@ -41,8 +42,8 @@ python = ">=3.12,<3.14"
 imagehash = "4.3.1"
 loguru = ">=0.7.2"
 m3u8 = ">=4.0.0"
-pillow = "^10.2"
-plyvel-ci = "^1.5"
+pillow = ">=10.2"
+plyvel-ci = ">=1.5"
 psutil = ">=5.9.8"
 pyffmpeg = ">=2.4.2.18.1,<2.4.3"
 python-dateutil = ">=2.8.2,<3.0.0"
@@ -50,51 +51,51 @@ requests = ">=2.31.0,<3.0.0"
 rich = ">=13.7.0,<14.0.0"
 strenum = ">=0.4.15,<0.5.0"
 websockets = ">=12.0,<13.0"
-alembic = "^1.14.0"
-aiosqlite = "^0.20.0"
-greenlet = "^3.1.1"
-tqdm = "^4.67.1"
-aiohttp = "^3.11.11"
-aiomultiprocess = "^0.9.1"
-toml = "^0.10.2"
-sqlalchemy = {extras = ["asyncio"], version = "^2.0.37"}
-httpx = "^0.28.1"
-strawberry-graphql = "^0.258.0"
-gql = "^3.5.0"
-websocket-client = "^1.8.0"
+alembic = ">=1.14.0"
+aiosqlite = ">=0.20.0"
+greenlet = ">=3.1.1"
+tqdm = ">=4.67.1"
+aiohttp = ">=3.11.11"
+aiomultiprocess = ">=0.9.1"
+toml = ">=0.10.2"
+sqlalchemy = {extras = ["asyncio"], version = ">=2.0.37"}
+httpx = ">=0.28.1"
+strawberry-graphql = ">=0.258.0"
+gql = ">=3.5.0"
+websocket-client = ">=1.8.0"
 
 
 [tool.poetry.group.dev.dependencies]
-pyinstaller = "^6.11.1"
-types-python-dateutil = "^2.9.0.20241206"
-types-requests = "^2.32.0.20241016"
-types-setuptools = "^75.6.0.20241126"
-types-pillow = "^10.2.0"
-memory-profiler = "^0.61.0"
-pylint = "^3.3.3"
-pre-commit = "^4.0.1"
-black = "^24.10.0"
-isort = "^5.13.2"
-flake8 = "^7.1.1"
-flake8-pyproject = "^1.2.3"
-pyupgrade = "^3.19.1"
-bandit = {extras = ["toml"], version = "^1.8.0"}
-mypy = "^1.11.0"
+pyinstaller = ">=6.11.1"
+types-python-dateutil = ">=2.9.0.20241206"
+types-requests = ">=2.32.0.20241016"
+types-setuptools = ">=75.6.0.20241126"
+types-pillow = ">=10.2.0"
+memory-profiler = ">=0.61.0"
+pylint = ">=3.3.3"
+pre-commit = ">=4.0.1"
+black = ">=24.10.0"
+isort = ">=5.13.2"
+flake8 = ">=7.1.1"
+flake8-pyproject = ">=1.2.3"
+pyupgrade = ">=3.19.1"
+bandit = {extras = ["toml"], version = ">=1.8.0"}
+mypy = ">=1.11.0"
 
 [tool.poetry.group.test.dependencies]
-pytest = "^8.0.0"
-pytest-cov = ">=4.0.0"
-pytest-asyncio = ">=0.23.0"
+pytest = ">=8.3"
+pytest-cov = ">=6.0.0"
+pytest-asyncio = ">=0.26.0"
 pytest-timeout = ">=2.3.1"
 pytest-randomly = ">=3.16.0"
 pytest-mock = ">=3.14.0"
 pytest-xdist = ">=3.6.1"
-coverage = {extras = ["toml"], version = ">=7.4.3"}
-psutil = "^6.1.1"
-types-psutil = "^6.1.0.20241221"
-types-tqdm = "^4.67.0.20241221"
-radon = "^6.0.1"
-pytest-loguru = "^0.4.0"
+coverage = {extras = ["toml"], version = ">=7.8"}
+psutil = ">=7.0.0"
+types-psutil = ">=7.0.0.20250401"
+types-tqdm = ">=4.67.0.20241221"
+radon = ">=6.0.1"
+pytest-loguru = ">=0.4.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -141,7 +142,6 @@ namespace-packages = true
 profile = "black"
 
 [tool.pytest.ini_options]
-minversion = "7.0"
 addopts = [
     "--strict-markers",
     "--strict-config",
@@ -160,6 +160,8 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 xfail_strict = true
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning",
@@ -173,9 +175,8 @@ markers = [
     "performance: marks tests as performance tests",
     "asyncio: mark a test as an async test",
     "full_workflow: marks tests that run the complete workflow",
+    "comprehensive: marks tests that check for comprehensive coverage",
 ]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 branch = true

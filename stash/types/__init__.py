@@ -176,9 +176,10 @@ from .performer import (
     PerformerCreateInput,
     PerformerUpdateInput,
 )
-from .scalars import Any, BoolMap, Int64, Map, PluginConfigMap, Time, Timestamp, Upload
+from .scalars import Any, BoolMap, Int64, Map, PluginConfigMap, Time, Timestamp
 from .scene import (
     AssignSceneFileInput,
+    BulkSceneUpdateInput,
     FindScenesResultType,
     HistoryMutationResult,
     ParseSceneFilenameResult,
@@ -218,7 +219,7 @@ from .tag import (
     TagUpdateInput,
 )
 
-__all__ = [
+__all__: list[str] = [
     # Base types
     "BulkUpdateIds",
     "BulkUpdateStrings",
@@ -294,8 +295,6 @@ __all__ = [
     "TimestampCriterionInput",
     # Gallery types
     "BulkGalleryUpdateInput",
-    "BulkUpdateIds",
-    "BulkUpdateStrings",
     "FindGalleriesResultType",
     "FindGalleryChaptersResultType",
     "GalleryAddInput",
@@ -401,7 +400,6 @@ __all__ = [
     "PluginConfigMap",
     "Time",
     "Timestamp",
-    "Upload",
     # Studio types
     "FindStudiosResultType",
     "StudioCreateInput",

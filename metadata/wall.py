@@ -173,8 +173,14 @@ async def process_account_walls(
             session.add(wall)
         # Update fields that have changed
         for key, value in filtered_wall.items():
-            if getattr(wall, key) != value:
-                setattr(wall, key, value)
+            new_value = value
+            if isinstance(value, str):
+                # remove surrogate code units to avoid UnicodeEncodeError
+                new_value = "".join(
+                    ch for ch in value if not (0xD800 <= ord(ch) <= 0xDFFF)
+                )
+            if getattr(wall, key) != new_value:
+                setattr(wall, key, new_value)
         await session.flush()
 
     # Only delete walls if this is a full account data update

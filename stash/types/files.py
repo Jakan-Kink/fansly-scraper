@@ -1,7 +1,7 @@
 """File types from schema/types/file.graphql."""
 
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 
 import strawberry
 from strawberry import ID, lazy
@@ -9,11 +9,30 @@ from strawberry import ID, lazy
 from .base import StashObject
 
 
+def fingerprint_resolver(parent: "BaseFile", type: str) -> str:
+    """Resolver for fingerprint field.
+
+    Args:
+        parent: The BaseFile instance (automatically passed by strawberry)
+        type: The fingerprint type to look for
+
+    Returns:
+        The fingerprint value for the given type, or empty string if not found.
+        This matches the GraphQL schema which defines the return type as String! (non-nullable).
+    """
+    for fp in parent.fingerprints:
+        if fp.type_ == type:
+            return fp.value
+    return ""  # Return empty string instead of None to match GraphQL schema
+
+
 @strawberry.input
 class SetFingerprintsInput:
     """Input for setting fingerprints."""
 
-    type: str  # String!
+    type_: str = strawberry.field(
+        name="type"
+    )  # String! - aliased to avoid built-in conflict
     value: str | None = None  # String
 
 
@@ -39,7 +58,9 @@ class MoveFilesInput:
 class Fingerprint:
     """Fingerprint type from schema/types/file.graphql."""
 
-    type: str  # String!
+    type_: str = strawberry.field(
+        name="type"
+    )  # String! - aliased to avoid built-in conflict
     value: str  # String!
 
 
@@ -61,15 +82,10 @@ class BaseFile(StashObject):
     size: int  # Int64!
     fingerprints: list[Fingerprint]  # [Fingerprint!]!
 
-    @strawberry.field
-    def fingerprint(self, type: str) -> str | None:
-        """Get fingerprint by type."""
-        for fp in self.fingerprints:
-            if fp.type == type:
-                return fp.value
-        return None
+    # Field with resolver for fingerprint lookup
+    fingerprint: str = strawberry.field(resolver=fingerprint_resolver)
 
-    def to_input(self) -> dict[str, Any]:
+    async def to_input(self) -> dict[str, Any]:
         """Convert to GraphQL input.
 
         Returns:
@@ -77,13 +93,13 @@ class BaseFile(StashObject):
         """
         # Files don't have create/update operations, only move and set fingerprints
         if hasattr(self, "id"):
-            # For move operation
-            return MoveFilesInput(
-                ids=[self.id],
-                destination_folder=None,  # Must be set by caller
-                destination_folder_id=None,  # Must be set by caller
-                destination_basename=self.basename,
-            ).__dict__
+            # For move operation - return dict with proper field names
+            return {
+                "ids": [self.id],
+                "destination_folder": None,  # Must be set by caller
+                "destination_folder_id": None,  # Must be set by caller
+                "destination_basename": self.basename,
+            }
         else:
             raise ValueError("File must have an ID")
 
@@ -120,11 +136,7 @@ class VideoFile(BaseFile):
     bit_rate: int  # Int!  # bit_rate in schema
 
 
-@strawberry.union
-class VisualFile:
-    """Union type for visual files from schema/types/file.graphql."""
-
-    types = (VideoFile, ImageFile)
+VisualFile = strawberry.union("VisualFile", (VideoFile, ImageFile))
 
 
 @strawberry.type
@@ -191,7 +203,7 @@ class Folder(StashObject):
     zip_file_id: ID | None = None  # ID
     mod_time: datetime  # Time!
 
-    def to_input(self) -> dict[str, Any]:
+    async def to_input(self) -> dict[str, Any]:
         """Convert to GraphQL input.
 
         Returns:
@@ -199,12 +211,12 @@ class Folder(StashObject):
         """
         # Folders don't have create/update operations, only move
         if hasattr(self, "id"):
-            # For move operation
-            return MoveFilesInput(
-                ids=[self.id],
-                destination_folder=None,  # Must be set by caller
-                destination_folder_id=None,  # Must be set by caller
-                destination_basename=None,  # Not applicable for folders
-            ).__dict__
+            # For move operation - return dict with proper field names
+            return {
+                "ids": [self.id],
+                "destination_folder": None,  # Must be set by caller
+                "destination_folder_id": None,  # Must be set by caller
+                "destination_basename": None,  # Not applicable for folders
+            }
         else:
             raise ValueError("Folder must have an ID")

@@ -1,11 +1,15 @@
 """Metadata types from schema/types/metadata.graphql."""
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import strawberry
 from strawberry import ID, lazy
-from strawberry.file_uploads import Upload
+
+if TYPE_CHECKING:
+    from strawberry.file_uploads import Upload
+else:
+    from strawberry.file_uploads import Upload
 
 from .enums import (
     IdentifyFieldStrategy,
@@ -310,7 +314,7 @@ class ExportObjectsInput:
 class ImportObjectsInput:
     """Input for importing objects from schema/types/metadata.graphql."""
 
-    file: Upload  # Upload!
+    file: Any  # Upload!
     duplicateBehaviour: ImportDuplicateEnum  # ImportDuplicateEnum!
     missingRefBehaviour: ImportMissingRefEnum  # ImportMissingRefEnum!
 

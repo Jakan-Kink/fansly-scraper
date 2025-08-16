@@ -15,8 +15,10 @@ included in this interface.
 from __future__ import annotations
 
 import copy
+import inspect
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Type, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Type, TypeVar, Union, cast
 
 import strawberry
 from strawberry import ID
@@ -72,11 +74,11 @@ class StashObject:
     __type_name__: ClassVar[str]
 
     # Input type for updates (e.g., SceneUpdateInput, PerformerUpdateInput)
-    __update_input_type__: ClassVar[type]
+    __update_input_type__: ClassVar[type[Any]]
 
     # Input type for creation (e.g., SceneCreateInput, PerformerCreateInput)
     # Optional - if not set, the type doesn't support creation
-    __create_input_type__: ClassVar[type | None] = None
+    __create_input_type__: ClassVar[type[Any] | None] = None
 
     # Fields to include in queries
     __field_names__: ClassVar[set[str]]
@@ -84,11 +86,16 @@ class StashObject:
     # Fields to track for changes
     __tracked_fields__: ClassVar[set[str]] = set()
 
-    # Original values for tracked fields
-    __original_values__: dict[str, Any] = strawberry.field(default_factory=dict)
+    # Relationship mappings for converting to input types
+    __relationships__: ClassVar[
+        dict[str, tuple[str, bool, Callable[[Any], Any] | None]]
+    ] = {}
 
-    # Dirty flag
-    __is_dirty__: bool = strawberry.field(default=False)
+    # Field conversion functions
+    __field_conversions__: ClassVar[dict[str, Callable[[Any], Any]]] = {}
+
+    # Note: __original_values__ and __is_dirty__ are initialized in __post_init__
+    # They are not declared as class attributes to avoid Strawberry treating them as dataclass fields
 
     id: str  # Only required field - Stash handles created_at/updated_at internally
 
@@ -102,8 +109,15 @@ class StashObject:
         Returns:
             Dictionary with only valid fields for this class
         """
-        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
-        return {k: v for k, v in kwargs.items() if k in valid_fields}
+        # Try to get fields from strawberry definition, fall back to all kwargs if not available
+        try:
+            valid_fields = {
+                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+            }
+            return {k: v for k, v in kwargs.items() if k in valid_fields}
+        except AttributeError:
+            # Fallback if strawberry definition is not available
+            return kwargs
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize object with filtered keyword arguments.
@@ -120,6 +134,11 @@ class StashObject:
         This is called by strawberry after all fields are initialized, so it's
         the right place to mark the object as clean and store original values.
         """
+        # Initialize internal tracking fields (not part of GraphQL schema)
+        self.__original_values__: dict[str, Any] = {}
+        self.__is_dirty__: bool = False
+
+        # Mark the object as clean and set up tracking
         self.mark_clean()
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -188,11 +207,15 @@ class StashObject:
             Set of field names to include in queries
         """
         if not hasattr(cls, "__field_names__"):
-            # Get all fields from Strawberry type definition
-            fields = cls.__strawberry_definition__.fields
-            cls.__field_names__ = {
-                field.name for field in fields if not field.is_subscription
-            }
+            # Try to get all fields from Strawberry type definition
+            try:
+                fields = cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+                cls.__field_names__ = {
+                    field.name for field in fields if not field.is_subscription
+                }
+            except AttributeError:
+                # Fallback if strawberry definition is not available
+                cls.__field_names__ = {"id"}  # At minimum, include id field
         return cls.__field_names__
 
     @classmethod
@@ -241,11 +264,7 @@ class StashObject:
 
         # Get input data
         try:
-            input_data = self.to_input()
-            # If it's a coroutine, await it
-            if hasattr(input_data, "__await__"):
-                input_data = await input_data
-
+            input_data = await self.to_input()
             # Ensure input_data is a plain dict
             if not isinstance(input_data, dict):
                 raise ValueError(
@@ -313,7 +332,7 @@ class StashObject:
         return getattr(obj, "id", None)
 
     async def _process_single_relationship(
-        self, value: Any, transform: callable
+        self, value: Any, transform: Callable[[Any], Any] | None
     ) -> str | None:
         """Process a single relationship.
 
@@ -326,10 +345,18 @@ class StashObject:
         """
         if not value:
             return None
-        return await transform(value)
+        if transform is not None:
+            # Check if transform is async or sync
+            if inspect.iscoroutinefunction(transform):
+                result = await transform(value)
+            else:
+                result = transform(value)
+            # Ensure we return str | None as declared
+            return str(result) if result is not None else None
+        return None
 
     async def _process_list_relationship(
-        self, value: list[Any], transform: callable
+        self, value: list[Any], transform: Callable[[Any], Any] | None
     ) -> list[str]:
         """Process a list relationship.
 
@@ -345,8 +372,15 @@ class StashObject:
 
         items = []
         for item in value:
-            if transformed := await transform(item):
-                items.append(transformed)
+            if transform is not None:
+                # Check if transform is async or sync
+                if inspect.iscoroutinefunction(transform):
+                    transformed = await transform(item)
+                else:
+                    transformed = transform(item)
+                if transformed:
+                    # Ensure we append a string to the list
+                    items.append(str(transformed))
         return items
 
     async def _process_relationships(
@@ -360,7 +394,7 @@ class StashObject:
         Returns:
             Dictionary of processed relationships
         """
-        data = {}
+        data: dict[str, Any] = {}
 
         for rel_field in fields_to_process:
             # Skip if field is not a relationship or doesn't exist
@@ -370,7 +404,12 @@ class StashObject:
             # Get relationship mapping
             mapping = self.__relationships__[rel_field]
             target_field, is_list = mapping[:2]
-            transform = mapping[2] if len(mapping) == 3 else self._get_id
+            # Use explicit transform if provided and not None, otherwise use default _get_id
+            transform = (
+                mapping[2]
+                if len(mapping) >= 3 and mapping[2] is not None
+                else self._get_id
+            )
 
             # Get and process value
             value = getattr(self, rel_field)
@@ -379,9 +418,8 @@ class StashObject:
                 if items:
                     data[target_field] = items
             else:
-                if transformed := await self._process_single_relationship(
-                    value, transform
-                ):
+                transformed = await self._process_single_relationship(value, transform)
+                if transformed:
                     data[target_field] = transformed
 
         return data
@@ -404,10 +442,12 @@ class StashObject:
                 value = getattr(self, field)
                 if value is not None:
                     try:
-                        converted = self.__field_conversions__[field](value)
-                        if converted is not None:
-                            data[field] = converted
-                    except (ValueError, TypeError):
+                        converter = self.__field_conversions__[field]
+                        if converter is not None and callable(converter):
+                            converted = converter(value)
+                            if converted is not None:
+                                data[field] = converted
+                    except (ValueError, TypeError, ArithmeticError):
                         pass
 
         return data
@@ -458,6 +498,14 @@ class StashObject:
         input_type = (
             self.__create_input_type__ if is_new else self.__update_input_type__
         )
+        if input_type is None:
+            if is_new:
+                raise ValueError(
+                    f"{self.__type_name__} objects cannot be created, only updated"
+                )
+            else:
+                raise NotImplementedError("__update_input_type__ cannot be None")
+
         input_obj = input_type(**data)
 
         # Convert to dict and filter out None values and internal fields
@@ -473,7 +521,10 @@ class StashObject:
         Returns:
             Dictionary of dirty input fields plus ID
         """
-        if not hasattr(self, "__update_input_type__"):
+        if (
+            not hasattr(self, "__update_input_type__")
+            or self.__update_input_type__ is None
+        ):
             raise NotImplementedError("Subclass must define __update_input_type__")
 
         # Start with ID which is always required for updates
@@ -527,7 +578,11 @@ class StashObject:
         data.update(rel_data)
 
         # Convert to update input and dict
-        input_obj = self.__update_input_type__(**data)
+        update_input_type = self.__update_input_type__
+        if update_input_type is None:
+            raise NotImplementedError("__update_input_type__ cannot be None")
+
+        input_obj = update_input_type(**data)
         return {
             k: v
             for k, v in vars(input_obj).items()

@@ -1,7 +1,7 @@
 """Image types from schema/types/image.graphql."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, List, Optional
+from typing import TYPE_CHECKING, Annotated, Any
 
 import strawberry
 from strawberry import ID, lazy
@@ -99,11 +99,11 @@ class Image(StashObject):
     # Required fields
     urls: list[str] = strawberry.field(default_factory=list)  # [String!]!
     organized: bool = False  # Boolean!
-    visual_files: list[VisualFile] = strawberry.field(
+    visual_files: list[Any] = strawberry.field(
         default_factory=list
     )  # [VisualFile!]! - The image files (replaces deprecated 'files' field)
     paths: ImagePathsType = strawberry.field(
-        default_factory=lambda: ImagePathsType(thumbnail="", preview="", image="")
+        default_factory=ImagePathsType
     )  # ImagePathsType! (Resolver)
     galleries: list[Annotated["Gallery", lazy("stash.types.gallery.Gallery")]] = (
         strawberry.field(default_factory=list)
@@ -135,8 +135,14 @@ class Image(StashObject):
             raise ValueError("Image data must contain an ID field")
 
         # Filter out fields that aren't part of our class
-        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
-        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        try:
+            valid_fields = {
+                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+            }
+            filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        except AttributeError:
+            # Fallback if strawberry definition is not available
+            filtered_data = data
 
         # created_at and updated_at handled by Stash
 
@@ -144,27 +150,24 @@ class Image(StashObject):
         image = cls(**filtered_data)
 
         # Convert lists
-        if "files" in filtered_data:
+        if "files" in data:
             # Handle deprecated 'files' field by mapping to visual_files
-            image.visual_files = [VisualFile(**f) for f in filtered_data["files"]]
-            del filtered_data[
-                "files"
-            ]  # Remove so it doesn't try to set files attribute
+            # Since this is Image class, create ImageFile instances specifically
+            image.visual_files = [ImageFile(**f) for f in data["files"]]
 
         if "visual_files" in filtered_data:
             # Handle visual_files field (preferred over deprecated 'files')
-            image.visual_files = [
-                VisualFile(**f) for f in filtered_data["visual_files"]
-            ]
+            # Since this is Image class, create ImageFile instances specifically
+            image.visual_files = [ImageFile(**f) for f in filtered_data["visual_files"]]
 
         return image
 
     # Relationship definitions with their mappings
     __relationships__ = {
-        "studio": ("studio_id", False),  # (target_field, is_list)
-        "performers": ("performer_ids", True),
-        "tags": ("tag_ids", True),
-        "galleries": ("gallery_ids", True),
+        "studio": ("studio_id", False, None),  # (target_field, is_list, transform)
+        "performers": ("performer_ids", True, None),
+        "tags": ("tag_ids", True, None),
+        "galleries": ("gallery_ids", True, None),
     }
 
     # Field definitions with their conversion functions

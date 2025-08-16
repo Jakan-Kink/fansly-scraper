@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Annotated, Any, List, Optional
 import strawberry
 from strawberry import ID, lazy
 
-from metadata import Media, Post
-
 from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
 from .files import StashID, StashIDInput, VideoFile
 
@@ -168,6 +166,8 @@ class Scene(StashObject):
     details: str | None = None  # String
     director: str | None = None  # String
     date: str | None = None  # String
+    rating100: int | None = None  # Int (1-100), not used in this client
+    o_counter: int | None = None  # Int, not used in this client
     studio: Annotated["Studio", lazy("stash.types.studio.Studio")] | None = (
         None  # Studio
     )
@@ -231,11 +231,14 @@ class Scene(StashObject):
         # No field mapping needed - using exact GraphQL names
 
         # Filter out fields that aren't part of our class
-        valid_fields = {field.name for field in cls.__strawberry_definition__.fields}
-        filtered_data = {}
-        for k, v in data.items():
-            if k in valid_fields:
-                filtered_data[k] = v
+        try:
+            valid_fields = {
+                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+            }
+            filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        except AttributeError:
+            # Fallback if strawberry definition is not available
+            filtered_data = data
 
         # created_at and updated_at handled by Stash
 
@@ -253,15 +256,19 @@ class Scene(StashObject):
     # Relationship definitions with their mappings
     __relationships__ = {
         # Standard ID relationships
-        "studio": ("studio_id", False),  # (target_field, is_list)
-        "performers": ("performer_ids", True),
-        "tags": ("tag_ids", True),
-        "galleries": ("gallery_ids", True),
+        "studio": ("studio_id", False, None),  # (target_field, is_list, transform)
+        "performers": ("performer_ids", True, None),
+        "tags": ("tag_ids", True, None),
+        "galleries": ("gallery_ids", True, None),
         # Special case with custom transform
         "stash_ids": (
             "stash_ids",
             True,
-            lambda s: StashID(endpoint=s.endpoint, stash_id=s.stash_id),
+            lambda s: (
+                {"stash_id": s.stash_id, "endpoint": s.endpoint}
+                if hasattr(s, "stash_id")
+                else s
+            ),
         ),
     }
 

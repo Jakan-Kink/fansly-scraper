@@ -104,7 +104,7 @@ class Studio(StashObject):
         """
         return cls(
             id="new",  # Will be replaced on save
-            name=account.displayName or account.username,
+            name=account.displayName or account.username or "Unknown",
             url=f"https://fansly.com/{account.username}",
             details=account.about,
         )
@@ -119,8 +119,12 @@ class Studio(StashObject):
 
     __relationships__ = {
         # Standard ID relationships
-        "parent_studio": ("parent_id", False),  # (target_field, is_list)
-        "tags": ("tag_ids", True),
+        "parent_studio": (
+            "parent_id",
+            False,
+            None,
+        ),  # (target_field, is_list, transform)
+        "tags": ("tag_ids", True, None),
         # Special case with custom transform
         "stash_ids": (
             "stash_ids",

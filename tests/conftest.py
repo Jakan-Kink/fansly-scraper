@@ -28,6 +28,8 @@ from metadata.base import Base
 from metadata.database import Database
 from textio.logging import SizeTimeRotatingHandler
 
+from .fixtures.stash_fixtures import *  # noqa: F403, F401
+
 
 # Add helper function to clean object data for tests
 def clean_model_data(data_dict):

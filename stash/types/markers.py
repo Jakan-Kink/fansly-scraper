@@ -104,9 +104,9 @@ class SceneMarker(StashObject):
 
     __relationships__ = {
         # Standard ID relationships
-        "scene": ("scene_id", False),  # (target_field, is_list)
-        "primary_tag": ("primary_tag_id", False),
-        "tags": ("tag_ids", True),
+        "scene": ("scene_id", False, None),  # (target_field, is_list, transform)
+        "primary_tag": ("primary_tag_id", False, None),
+        "tags": ("tag_ids", True, None),
     }
 
 
