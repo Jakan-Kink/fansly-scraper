@@ -123,6 +123,12 @@ class StudioClientMixin(StashClientProtocol):
         """
         try:
             input_data = await studio.to_input()
+
+            # Skip update if only ID is present (no actual changes)
+            if set(input_data.keys()) <= {"id"}:
+                self.log.debug(f"No changes to update for studio {studio.id}")
+                return studio
+
             result = await self.execute(
                 fragments.UPDATE_STUDIO_MUTATION,
                 {"input": input_data},
@@ -132,7 +138,10 @@ class StudioClientMixin(StashClientProtocol):
             self.find_studios.cache_clear()
             # Sanitize model data before creating Studio
             clean_data = sanitize_model_data(result["studioUpdate"])
-            return Studio(**clean_data)
+            updated_studio = Studio(**clean_data)
+            # Mark as clean since we just saved
+            updated_studio.mark_clean()
+            return updated_studio
         except Exception as e:
             self.log.error(f"Failed to update studio: {e}")
             raise

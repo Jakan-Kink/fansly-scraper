@@ -123,6 +123,12 @@ class GalleryClientMixin(StashClientProtocol):
         """
         try:
             input_data = await gallery.to_input()
+
+            # Skip update if only ID is present (no actual changes)
+            if set(input_data.keys()) <= {"id"}:
+                self.log.debug(f"No changes to update for gallery {gallery.id}")
+                return gallery
+
             result = await self.execute(
                 fragments.UPDATE_GALLERY_MUTATION,
                 {"input": input_data},
@@ -132,7 +138,10 @@ class GalleryClientMixin(StashClientProtocol):
             self.find_galleries.cache_clear()
             # Sanitize model data before creating Gallery
             clean_data = sanitize_model_data(result["galleryUpdate"])
-            return Gallery(**clean_data)
+            updated_gallery = Gallery(**clean_data)
+            # Mark as clean since we just saved
+            updated_gallery.mark_clean()
+            return updated_gallery
         except Exception as e:
             self.log.error(f"Failed to update gallery: {e}")
             raise

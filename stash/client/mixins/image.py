@@ -123,6 +123,12 @@ class ImageClientMixin(StashClientProtocol):
         """
         try:
             input_data = await image.to_input()
+
+            # Skip update if only ID is present (no actual changes)
+            if set(input_data.keys()) <= {"id"}:
+                self.log.debug(f"No changes to update for image {image.id}")
+                return image
+
             result = await self.execute(
                 fragments.UPDATE_IMAGE_MUTATION,
                 {"input": input_data},
@@ -132,7 +138,10 @@ class ImageClientMixin(StashClientProtocol):
             self.find_images.cache_clear()
             # Sanitize model data before creating Image
             clean_data = sanitize_model_data(result["imageUpdate"])
-            return Image(**clean_data)
+            updated_image = Image(**clean_data)
+            # Mark as clean since we just saved
+            updated_image.mark_clean()
+            return updated_image
         except Exception as e:
             self.log.error(f"Failed to update image: {e}")
             raise

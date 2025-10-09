@@ -327,6 +327,12 @@ class SceneClientMixin(StashClientProtocol):
         """
         try:
             input_data = await scene.to_input()
+
+            # Skip update if only ID is present (no actual changes)
+            if set(input_data.keys()) <= {"id"}:
+                self.log.debug(f"No changes to update for scene {scene.id}")
+                return scene
+
             result = await self.execute(
                 fragments.UPDATE_SCENE_MUTATION,
                 {"input": input_data},
@@ -343,7 +349,10 @@ class SceneClientMixin(StashClientProtocol):
             # Create a Scene instance from the result
             # Sanitize model data before creating Scene
             clean_data = sanitize_model_data(result["sceneUpdate"])
-            return Scene(**clean_data)
+            updated_scene = Scene(**clean_data)
+            # Mark as clean since we just saved
+            updated_scene.mark_clean()
+            return updated_scene
         except Exception as e:
             self.log.error(f"Failed to update scene: {e}")
             raise

@@ -219,6 +219,12 @@ class TagClientMixin(StashClientProtocol):
         """
         try:
             input_data = await tag.to_input()
+
+            # Skip update if only ID is present (no actual changes)
+            if set(input_data.keys()) <= {"id"}:
+                self.log.debug(f"No changes to update for tag {tag.id}")
+                return tag
+
             result = await self.execute(
                 fragments.UPDATE_TAG_MUTATION,
                 {"input": input_data},
@@ -226,7 +232,10 @@ class TagClientMixin(StashClientProtocol):
             # Clear caches since we've modified a tag
             self.find_tag.cache_clear()
             self.find_tags.cache_clear()
-            return Tag(**sanitize_model_data(result["tagUpdate"]))
+            updated_tag = Tag(**sanitize_model_data(result["tagUpdate"]))
+            # Mark as clean since we just saved
+            updated_tag.mark_clean()
+            return updated_tag
         except Exception as e:
             self.log.error(f"Failed to update tag: {e}")
             raise

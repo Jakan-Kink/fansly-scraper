@@ -146,6 +146,12 @@ class MarkerClientMixin(StashClientProtocol):
         """
         try:
             input_data = await marker.to_input()
+
+            # Skip update if only ID is present (no actual changes)
+            if set(input_data.keys()) <= {"id"}:
+                self.log.debug(f"No changes to update for marker {marker.id}")
+                return marker
+
             result = await self.execute(
                 fragments.UPDATE_MARKER_MUTATION,
                 {"input": input_data},
@@ -155,7 +161,10 @@ class MarkerClientMixin(StashClientProtocol):
             self.find_markers.cache_clear()
             # Sanitize model data before creating SceneMarker
             clean_data = sanitize_model_data(result["sceneMarkerUpdate"])
-            return SceneMarker(**clean_data)
+            updated_marker = SceneMarker(**clean_data)
+            # Mark as clean since we just saved
+            updated_marker.mark_clean()
+            return updated_marker
         except Exception as e:
             self.log.error(f"Failed to update marker: {e}")
             raise

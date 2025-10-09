@@ -363,11 +363,22 @@ class PerformerClientMixin(StashClientProtocol):
         """
         try:
             input_data = await performer.to_input()
+
+            # Skip update if only ID is present (no actual changes)
+            if set(input_data.keys()) <= {"id"}:
+                self.log.debug(f"No changes to update for performer {performer.id}")
+                return performer
+
             result = await self.execute(
                 fragments.UPDATE_PERFORMER_MUTATION,
                 {"input": input_data},
             )
-            return Performer(**sanitize_model_data(result["performerUpdate"]))
+            updated_performer = Performer(
+                **sanitize_model_data(result["performerUpdate"])
+            )
+            # Mark as clean since we just saved
+            updated_performer.mark_clean()
+            return updated_performer
         except Exception as e:
             self.log.error(f"Failed to update performer: {e}")
             raise
