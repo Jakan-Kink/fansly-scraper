@@ -1,4 +1,11 @@
-"""Unit tests for FanslyConfig class"""
+"""Unit tests for FanslyConfig class
+
+IMPORTANT: These are UNIT tests and should NOT use database fixtures.
+They use mocking to avoid requiring a real PostgreSQL database.
+
+This test file uses pytest-specific configuration to prevent loading of
+database fixtures from conftest.py that would require PostgreSQL.
+"""
 
 import asyncio
 from configparser import ConfigParser
@@ -12,14 +19,21 @@ from config.fanslyconfig import FanslyConfig
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 
+# ============================================================================
+# Fixtures
+# ============================================================================
+#
+# NOTE: These fixtures override fixtures from tests/fixtures/database_fixtures.py
+# to prevent PostgreSQL connection attempts in these unit tests.
 
-@pytest.fixture
+
+@pytest.fixture(scope="function")
 def config_path(tmp_path):
     """Create a temporary config file path."""
     return tmp_path / "config.ini"
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_parser():
     """Create a mock ConfigParser with required sections."""
     parser = ConfigParser(interpolation=None)
@@ -31,9 +45,13 @@ def mock_parser():
     return parser
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def config(config_path, mock_parser):
-    """Create a FanslyConfig instance with test values."""
+    """Create a FanslyConfig instance for unit testing (no database).
+
+    This fixture overrides the 'config' fixture from database_fixtures.py
+    to prevent PostgreSQL connection attempts in these unit tests.
+    """
     config = FanslyConfig(program_version="1.0.0")
     config.config_path = config_path
     config._parser = mock_parser
@@ -66,8 +84,9 @@ class TestFanslyConfig:
         assert isinstance(config._parser, ConfigParser)
         assert config._api is None
 
-        # Check default metadata DB file
-        assert config.metadata_db_file == Path.cwd() / "metadata_db.sqlite3"
+        # Check default metadata DB file (None until explicitly set)
+        # metadata_db_file is deprecated in favor of PostgreSQL configuration
+        assert config.metadata_db_file is None
 
     def test_user_names_str_with_names(self, config):
         """Test user_names_str with valid user names."""
@@ -242,48 +261,38 @@ class TestFanslyConfig:
         config.token = None
         assert config.get_unscrambled_token() is None
 
-    def test_get_default_metadata_db_file(self, config):
-        """Test _get_default_metadata_db_file method."""
-        # Test with explicitly set metadata_db_file
-        config.metadata_db_file = Path("/explicit/path/db.sqlite3")
-        assert config._get_default_metadata_db_file() == Path(
-            "/explicit/path/db.sqlite3"
-        )
-
-        # Test with download_directory set but no metadata_db_file
-        config.metadata_db_file = None
-        config.download_directory = Path("/download/dir")
-        assert config._get_default_metadata_db_file() == Path(
-            "/download/dir/metadata_db.sqlite3"
-        )
-
-        # Test with neither set (should use current directory)
-        config.metadata_db_file = None
-        config.download_directory = None
-        assert (
-            config._get_default_metadata_db_file() == Path.cwd() / "metadata_db.sqlite3"
-        )
+    # NOTE: _get_default_metadata_db_file method doesn't exist in FanslyConfig
+    # metadata_db_file is deprecated in favor of PostgreSQL configuration
+    # Test removed as the method is not implemented
 
     def test_get_api(self, config):
         """Test get_api method with valid credentials."""
         # Make sure _api is None to force a new instance creation
         config._api = None
         with patch("config.fanslyconfig.FanslyApi") as mock_api_class:
-            mock_api = MagicMock(spec=FanslyApi)
-            mock_api_class.return_value = mock_api
+            with patch("api.rate_limiter.RateLimiter") as mock_rate_limiter_class:
+                mock_api = MagicMock(spec=FanslyApi)
+                mock_api_class.return_value = mock_api
+                mock_rate_limiter = MagicMock()
+                mock_rate_limiter_class.return_value = mock_rate_limiter
 
-            result = config.get_api()
+                result = config.get_api()
 
-            mock_api_class.assert_called_once_with(
-                token=config.token,
-                user_agent=config.user_agent,
-                check_key=config.check_key,
-                device_id=config.cached_device_id,
-                device_id_timestamp=config.cached_device_id_timestamp,
-                on_device_updated=config._save_config,
-            )
-            assert result is mock_api
-            assert config._api is mock_api
+                # Verify RateLimiter was instantiated with config
+                mock_rate_limiter_class.assert_called_once_with(config)
+
+                # Verify FanslyApi was instantiated with proper parameters including rate_limiter
+                mock_api_class.assert_called_once_with(
+                    token=config.token,
+                    user_agent=config.user_agent,
+                    check_key=config.check_key,
+                    device_id=config.cached_device_id,
+                    device_id_timestamp=config.cached_device_id_timestamp,
+                    on_device_updated=config._save_config,
+                    rate_limiter=mock_rate_limiter,
+                )
+                assert result is mock_api
+                assert config._api is mock_api
 
     def test_get_api_caching(self, config):
         """Test get_api caches the API instance."""

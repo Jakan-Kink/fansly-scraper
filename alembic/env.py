@@ -1,45 +1,20 @@
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, pool
 
 from alembic import context
-from config import FanslyConfig, load_config
-from metadata import Base, Database
 
 config = context.config
-if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", "sqlite:///:memory:")
 
-target_metadata = Base.metadata
+# Import Base directly to avoid circular imports through metadata/__init__.py
+# This is safe for migrations since we only need the metadata, not the full app
+try:
+    from metadata.base import Base
 
+    target_metadata = Base.metadata
+except ImportError:
+    # Fallback if direct import fails
+    from metadata import Base
 
-def get_sync_engine(creator_name: str | None = None) -> Engine:
-    """Get the sync engine for migrations.
-
-    This should only be used when we don't have a connection passed in
-    via alembic_cfg.attributes["connection"].
-
-    Args:
-        creator_name: Optional creator name for separate memory spaces
-
-    Returns:
-        SQLAlchemy engine configured for the appropriate memory space
-    """
-    from sqlalchemy import create_engine
-
-    # Use appropriate shared memory URI
-    if creator_name:
-        # Use creator-specific shared memory
-        safe_name = "".join(c if c.isalnum() else "_" for c in creator_name)
-        uri = f"sqlite:///file:creator_{safe_name}?mode=memory&cache=shared"
-    else:
-        # Use global shared memory
-        uri = "sqlite:///file:global_db?mode=memory&cache=shared"
-
-    engine = create_engine(
-        uri,
-        echo=True,
-        connect_args={"uri": True},  # Required for shared memory URIs
-    )
-    return engine
+    target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
@@ -52,14 +27,13 @@ def run_migrations_offline() -> None:
 
     Calls to context.execute() here emit the given string to the
     script output.
-
     """
     url = config.get_main_option("sqlalchemy.url")
+
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_name="sqlite",  # Explicitly specify SQLite as the dialect
         dialect_opts={"paramstyle": "named"},
     )
 
@@ -72,15 +46,20 @@ def run_migrations_online() -> None:
 
     In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
+    # Check if connection was passed in via Database class
     if context.config.attributes.get("connection") is None:
-        engine = get_sync_engine()
-        connection = engine.connect()
-    else:
-        connection = context.config.attributes["connection"]
+        # Create engine from config URL
+        connectable = create_engine(
+            config.get_main_option("sqlalchemy.url"),
+            poolclass=pool.NullPool,
+        )
 
-    with connection:
+        with connectable.connect() as connection:
+            do_run_migrations(connection)
+    else:
+        # Use provided connection
+        connection = context.config.attributes["connection"]
         do_run_migrations(connection)
 
 
@@ -89,14 +68,16 @@ def do_run_migrations(connection):
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        dialect_name="sqlite",  # Explicitly specify SQLite as the dialect
         compare_type=True,  # Detect column type changes
         compare_server_default=True,  # Detect server default changes
     )
 
     with context.begin_transaction():
         context.run_migrations()
-    connection.commit()
+
+    # Commit the transaction
+    if connection.in_transaction():
+        connection.commit()
 
 
 if context.is_offline_mode():

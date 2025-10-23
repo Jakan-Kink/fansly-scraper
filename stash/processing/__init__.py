@@ -7,6 +7,7 @@ import logging
 import traceback
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metadata import Account, Database
@@ -127,8 +128,6 @@ class StashProcessing(
                 raise TypeError("performer must be a Stash Performer object or dict")
 
             # Ensure we have a fresh account instance bound to the session
-            from sqlalchemy.sql import select
-
             stmt = select(Account).where(Account.id == account.id)
             result = await session.execute(stmt)
             account = result.scalar_one()

@@ -165,7 +165,7 @@ segment2.ts
 
         # First response - empty playlist
         mock_response.status_code = 200
-        mock_response.text = """#EXTM3U
+        mock_response.text = """#EXTM3U8
 #EXT-X-VERSION:3
 #EXT-X-STREAM-INF:BANDWIDTH=0,RESOLUTION=0x0"""
 
@@ -220,12 +220,284 @@ segment2.ts
         assert "404" in str(excinfo.value)
 
 
+@patch("download.m3u8._try_direct_download")
+@patch("download.m3u8._try_segment_download")
+class TestDownloadM3U8TwoTierStrategy:
+    """Tests for the download_m3u8 function with two-tier strategy."""
+
+    @pytest.fixture
+    def mock_config(self):
+        """Fixture for a mocked FanslyConfig."""
+        config = MagicMock(spec=FanslyConfig)
+        mock_api = MagicMock()
+        config.get_api.return_value = mock_api
+        return config
+
+    def test_download_m3u8_direct_success(
+        self,
+        mock_segment_download,
+        mock_direct_download,
+        mock_config,
+        tmp_path,
+    ):
+        """Test M3U8 download when direct download succeeds (fast path)."""
+        # Setup
+        config = mock_config
+        save_path = tmp_path / "video.mp4"
+        m3u8_url = (
+            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+        )
+
+        # Mock direct download to succeed
+        mock_direct_download.return_value = True
+
+        # Call the function
+        result = download_m3u8(
+            config=config,
+            m3u8_url=m3u8_url,
+            save_path=save_path,
+        )
+
+        # Assertions
+        assert result == save_path.parent / "video.mp4"
+        mock_direct_download.assert_called_once()
+        mock_segment_download.assert_not_called()  # Should not fallback
+
+    def test_download_m3u8_fallback_to_segments(
+        self,
+        mock_segment_download,
+        mock_direct_download,
+        mock_config,
+        tmp_path,
+    ):
+        """Test M3U8 download falls back to segments when direct fails."""
+        # Setup
+        config = mock_config
+        save_path = tmp_path / "video.mp4"
+        m3u8_url = (
+            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+        )
+
+        # Mock direct download to fail
+        mock_direct_download.return_value = False
+
+        # Mock segment download to succeed
+        mock_segment_download.return_value = save_path.parent / "video.mp4"
+
+        # Call the function
+        result = download_m3u8(
+            config=config,
+            m3u8_url=m3u8_url,
+            save_path=save_path,
+        )
+
+        # Assertions
+        assert result == save_path.parent / "video.mp4"
+        mock_direct_download.assert_called_once()
+        mock_segment_download.assert_called_once()
+
+    @patch("os.utime")
+    def test_download_m3u8_with_created_at_direct(
+        self,
+        mock_utime,
+        mock_segment_download,
+        mock_direct_download,
+        mock_config,
+        tmp_path,
+    ):
+        """Test M3U8 download with timestamp when direct download succeeds."""
+        # Setup
+        config = mock_config
+        save_path = tmp_path / "video.mp4"
+        m3u8_url = (
+            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+        )
+        created_at = 1633046400  # October 1, 2021
+
+        # Mock direct download to succeed
+        mock_direct_download.return_value = True
+
+        # Call the function
+        result = download_m3u8(
+            config=config,
+            m3u8_url=m3u8_url,
+            save_path=save_path,
+            created_at=created_at,
+        )
+
+        # Assertions
+        assert result == save_path.parent / "video.mp4"
+        mock_direct_download.assert_called_once()
+        mock_segment_download.assert_not_called()
+
+        # Check that timestamp was set
+        mock_utime.assert_called_once_with(
+            save_path.parent / "video.mp4", (created_at, created_at)
+        )
+
+    def test_download_m3u8_with_created_at_fallback(
+        self,
+        mock_segment_download,
+        mock_direct_download,
+        mock_config,
+        tmp_path,
+    ):
+        """Test M3U8 download with timestamp when falling back to segments."""
+        # Setup
+        config = mock_config
+        save_path = tmp_path / "video.mp4"
+        m3u8_url = (
+            "https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def"
+        )
+        created_at = 1633046400  # October 1, 2021
+
+        # Mock direct download to fail
+        mock_direct_download.return_value = False
+
+        # Mock segment download to succeed
+        mock_segment_download.return_value = save_path.parent / "video.mp4"
+
+        # Call the function
+        result = download_m3u8(
+            config=config,
+            m3u8_url=m3u8_url,
+            save_path=save_path,
+            created_at=created_at,
+        )
+
+        # Assertions
+        assert result == save_path.parent / "video.mp4"
+        mock_direct_download.assert_called_once()
+        mock_segment_download.assert_called_once()
+
+        # Check that created_at was passed to segment download
+        _, kwargs = mock_segment_download.call_args
+        assert kwargs.get("created_at") == created_at
+
+
+@patch("download.m3u8.ffmpeg")
+@patch("download.m3u8.fetch_m3u8_segment_playlist")
+class TestDirectDownload:
+    """Tests for the _try_direct_download function."""
+
+    @pytest.fixture
+    def mock_config(self):
+        """Fixture for a mocked FanslyConfig."""
+        config = MagicMock(spec=FanslyConfig)
+        mock_api = MagicMock()
+        mock_response = MagicMock(spec=Response)
+        mock_response.status_code = 200
+        mock_api.get_with_ngsw.return_value.__enter__.return_value = mock_response
+        config.get_api.return_value = mock_api
+        return config, mock_api, mock_response
+
+    @patch("pathlib.Path.exists")
+    @patch("pathlib.Path.stat")
+    def test_direct_download_success(
+        self,
+        mock_stat,
+        mock_exists,
+        mock_fetch_playlist,
+        mock_ffmpeg,
+        mock_config,
+        tmp_path,
+    ):
+        """Test successful direct HLS download using ffmpeg."""
+        from download.m3u8 import _try_direct_download
+
+        # Setup
+        config, mock_api, mock_response = mock_config
+        output_path = tmp_path / "video.mp4"
+        cookies = {"CloudFront-Policy": "abc", "CloudFront-Key-Pair-Id": "xyz"}
+
+        # Mock master playlist response
+        mock_response.text = """#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080
+video_1080.m3u8"""
+
+        # Mock segment playlist
+        mock_playlist = MagicMock()
+        mock_fetch_playlist.return_value = mock_playlist
+
+        # Mock ffmpeg chain
+        mock_stream = MagicMock()
+        mock_stream.get_args.return_value = ["ffmpeg", "-i", "input.m3u8", "output.mp4"]
+        mock_stream.run.return_value = None
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
+            mock_stream
+        )
+
+        # Mock file existence and size check
+        mock_exists.return_value = True
+        mock_stat_result = MagicMock()
+        mock_stat_result.st_size = 1000000
+        mock_stat.return_value = mock_stat_result
+
+        # Call the function
+        result = _try_direct_download(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies=cookies,
+        )
+
+        # Assertions
+        assert result is True
+        mock_ffmpeg.input.assert_called_once()
+        mock_stream.run.assert_called_once()
+
+    @patch("pathlib.Path.exists")
+    def test_direct_download_ffmpeg_error(
+        self,
+        mock_exists,
+        mock_fetch_playlist,
+        mock_ffmpeg,
+        mock_config,
+        tmp_path,
+    ):
+        """Test direct download handles ffmpeg errors and returns False."""
+        import ffmpeg as ffmpeg_lib
+
+        from download.m3u8 import _try_direct_download
+
+        # Setup
+        config, mock_api, mock_response = mock_config
+        output_path = tmp_path / "video.mp4"
+        cookies = {"CloudFront-Policy": "abc"}
+
+        # Mock master playlist response
+        mock_response.text = """#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080
+video_1080.m3u8"""
+
+        # Mock ffmpeg to raise an error
+        mock_stream = MagicMock()
+        mock_stream.run.side_effect = ffmpeg_lib.Error("ffmpeg", b"", b"Error message")
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
+            mock_stream
+        )
+        mock_ffmpeg.Error = ffmpeg_lib.Error
+
+        # Call the function
+        result = _try_direct_download(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies=cookies,
+        )
+
+        # Assertions
+        assert result is False  # Should return False, not raise
+        mock_stream.run.assert_called_once()
+
+
+@patch("download.m3u8.ffmpeg")
 @patch("download.m3u8.fetch_m3u8_segment_playlist")
 @patch("download.m3u8.concurrent.futures.ThreadPoolExecutor")
 @patch("download.m3u8.get_m3u8_progress")
-@patch("download.m3u8.run_ffmpeg")
-class TestDownloadM3U8:
-    """Tests for the download_m3u8 function."""
+class TestSegmentDownload:
+    """Tests for the _try_segment_download function."""
 
     @pytest.fixture
     def mock_config(self):
@@ -252,28 +524,34 @@ class TestDownloadM3U8:
     @patch("download.m3u8.open", create=True)
     @patch("pathlib.Path.exists")
     @patch("pathlib.Path.unlink")
-    @patch("download.m3u8.print_debug")
-    def test_download_m3u8_success(
+    @patch("pathlib.Path.stat")
+    def test_segment_download_success(
         self,
-        mock_print_debug,
+        mock_stat,
         mock_unlink,
         mock_exists,
         mock_open,
-        mock_run_ffmpeg,
         mock_progress,
         mock_thread_executor,
         mock_fetch_playlist,
+        mock_ffmpeg,
         mock_segment_playlist,
         mock_config,
         tmp_path,
     ):
-        """Test successful download of M3U8 content."""
+        """Test successful segment download and concatenation."""
+        from download.m3u8 import _try_segment_download
+
         # Setup
         config = mock_config
-        save_path = tmp_path / "video.mp4"
+        output_path = tmp_path / "video.mp4"
+        cookies = {"CloudFront-Policy": "abc"}
 
         # Mock file operations
         mock_exists.return_value = True
+        mock_stat_result = MagicMock()
+        mock_stat_result.st_size = 1000000
+        mock_stat.return_value = mock_stat_result
 
         # Set up mock thread executor
         mock_executor = MagicMock()
@@ -286,43 +564,53 @@ class TestDownloadM3U8:
         # Set up mock playlist
         mock_fetch_playlist.return_value = mock_segment_playlist
 
+        # Mock ffmpeg concat
+        mock_stream = MagicMock()
+        mock_stream.get_args.return_value = ["ffmpeg", "-f", "concat", "-i", "list.ffc"]
+        mock_stream.run.return_value = None
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
+            mock_stream
+        )
+
         # Call the function
-        result = download_m3u8(
+        result = _try_segment_download(
             config=config,
-            m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-            save_path=save_path,
+            m3u8_url="https://example.com/video.m3u8",
+            output_path=output_path,
+            cookies=cookies,
         )
 
         # Assertions
-        assert result == save_path.parent / "video.mp4"
+        assert result == output_path
         mock_fetch_playlist.assert_called_once()
         mock_thread_executor.assert_called_once()
         mock_executor.map.assert_called_once()
-        mock_run_ffmpeg.assert_called_once()
-        mock_unlink.assert_called()  # Cleanup of segment files
+        mock_stream.run.assert_called_once()
+        mock_unlink.assert_called()  # Cleanup
 
     @patch("download.m3u8.open", create=True)
     @patch("pathlib.Path.exists")
     @patch("pathlib.Path.unlink")
-    @patch("download.m3u8.print_debug")
-    def test_download_m3u8_missing_segments(
+    def test_segment_download_missing_segments(
         self,
-        mock_print_debug,
         mock_unlink,
         mock_exists,
         mock_open,
-        mock_run_ffmpeg,
         mock_progress,
         mock_thread_executor,
         mock_fetch_playlist,
+        mock_ffmpeg,
         mock_segment_playlist,
         mock_config,
         tmp_path,
     ):
-        """Test handling missing segments during M3U8 download."""
+        """Test segment download handles missing segments."""
+        from download.m3u8 import _try_segment_download
+
         # Setup
         config = mock_config
-        save_path = tmp_path / "video.mp4"
+        output_path = tmp_path / "video.mp4"
+        cookies = {"CloudFront-Policy": "abc"}
 
         # Mock file operations - segments don't exist
         mock_exists.return_value = False
@@ -340,133 +628,14 @@ class TestDownloadM3U8:
 
         # Call the function - should raise an error
         with pytest.raises(M3U8Error) as excinfo:
-            download_m3u8(
+            _try_segment_download(
                 config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                save_path=save_path,
+                m3u8_url="https://example.com/video.m3u8",
+                output_path=output_path,
+                cookies=cookies,
             )
 
         assert "Stream segments failed to download" in str(excinfo.value)
         mock_fetch_playlist.assert_called_once()
         mock_thread_executor.assert_called_once()
         mock_executor.map.assert_called_once()
-        mock_run_ffmpeg.assert_not_called()  # FFMPEG should not be called
-
-    @patch("download.m3u8.open", create=True)
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.unlink")
-    @patch("download.m3u8.print_debug")
-    def test_download_m3u8_ffmpeg_error(
-        self,
-        mock_print_debug,
-        mock_unlink,
-        mock_exists,
-        mock_open,
-        mock_run_ffmpeg,
-        mock_progress,
-        mock_thread_executor,
-        mock_fetch_playlist,
-        mock_segment_playlist,
-        mock_config,
-        tmp_path,
-    ):
-        """Test handling FFMPEG error during M3U8 download."""
-        # Setup
-        config = mock_config
-        save_path = tmp_path / "video.mp4"
-
-        # Mock file operations
-        mock_exists.return_value = True
-
-        # Set up mock thread executor
-        mock_executor = MagicMock()
-        mock_thread_executor.return_value.__enter__.return_value = mock_executor
-
-        # Set up mock progress bar
-        mock_progress_bar = MagicMock()
-        mock_progress.return_value = mock_progress_bar
-
-        # Set up mock playlist
-        mock_fetch_playlist.return_value = mock_segment_playlist
-
-        # Set up ffmpeg to raise an error
-        from subprocess import CalledProcessError
-
-        mock_error = CalledProcessError(1, "ffmpeg", stderr=b"FFMPEG error")
-        mock_run_ffmpeg.side_effect = mock_error
-
-        # Call the function - should raise an error
-        with pytest.raises(M3U8Error) as excinfo:
-            download_m3u8(
-                config=config,
-                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                save_path=save_path,
-            )
-
-        assert "Error running ffmpeg" in str(excinfo.value)
-        mock_fetch_playlist.assert_called_once()
-        mock_thread_executor.assert_called_once()
-        mock_executor.map.assert_called_once()
-        mock_run_ffmpeg.assert_called_once()
-        mock_unlink.assert_called()  # Cleanup should still happen
-
-    @patch("download.m3u8.open", create=True)
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.unlink")
-    @patch("download.m3u8.print_debug")
-    @patch("os.utime")
-    def test_download_m3u8_with_created_at(
-        self,
-        mock_utime,
-        mock_print_debug,
-        mock_unlink,
-        mock_exists,
-        mock_open,
-        mock_run_ffmpeg,
-        mock_progress,
-        mock_thread_executor,
-        mock_fetch_playlist,
-        mock_segment_playlist,
-        mock_config,
-        tmp_path,
-    ):
-        """Test M3U8 download with timestamp setting."""
-        # Setup
-        config = mock_config
-        save_path = tmp_path / "video.mp4"
-        created_at = 1633046400  # October 1, 2021
-
-        # Mock file operations
-        mock_exists.return_value = True
-
-        # Set up mock thread executor
-        mock_executor = MagicMock()
-        mock_thread_executor.return_value.__enter__.return_value = mock_executor
-
-        # Set up mock progress bar
-        mock_progress_bar = MagicMock()
-        mock_progress.return_value = mock_progress_bar
-
-        # Set up mock playlist
-        mock_fetch_playlist.return_value = mock_segment_playlist
-
-        # Call the function
-        result = download_m3u8(
-            config=config,
-            m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-            save_path=save_path,
-            created_at=created_at,
-        )
-
-        # Assertions
-        assert result == save_path.parent / "video.mp4"
-        mock_fetch_playlist.assert_called_once()
-        mock_thread_executor.assert_called_once()
-        mock_executor.map.assert_called_once()
-        mock_run_ffmpeg.assert_called_once()
-        mock_unlink.assert_called()  # Cleanup of segment files
-
-        # Check that timestamp was set
-        mock_utime.assert_called_once_with(
-            save_path.parent / "video.mp4", (created_at, created_at)
-        )

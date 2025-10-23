@@ -11,14 +11,14 @@ class TestMetadataUpdate:
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_basic(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with basic metadata."""
         # Call method
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
         )
 
@@ -32,28 +32,28 @@ class TestMetadataUpdate:
         assert f"https://fansly.com/post/{mock_item.id}" in mock_image.urls
 
         # Verify title generation call
-        mixin._generate_title_from_content.assert_called_once_with(
+        media_mixin._generate_title_from_content.assert_called_once_with(
             content=mock_item.content,
-            username=media_mock_account.username,
+            username=mock_account.username,
             created_at=mock_item.createdAt,
         )
 
         # Verify save was called
-        mock_image.save.assert_called_once_with(mixin.context.client)
+        mock_image.save.assert_called_once_with(media_mixin.context.client)
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_already_organized(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with already organized object."""
         # Mark as already organized
         mock_image.organized = True
 
         # Call method
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
         )
 
@@ -66,17 +66,17 @@ class TestMetadataUpdate:
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_later_date(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with later date."""
         # Setup earlier date in mock_image
         mock_image.date = "2024-03-01"  # Earlier than item date (2024-04-01)
 
         # Call method
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
         )
 
@@ -106,10 +106,10 @@ class TestMetadataUpdate:
         earlier_item.__class__.__name__ = "Post"
 
         # Call method with earlier item
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=earlier_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
         )
 
@@ -121,13 +121,13 @@ class TestMetadataUpdate:
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_performers(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with performers."""
         # Setup main performer
         main_performer = MagicMock()
         main_performer.id = "performer_123"
-        mixin._find_existing_performer.return_value = main_performer
+        media_mixin._find_existing_performer.return_value = main_performer
 
         # Get account mentions from mock_item fixture
         # (We're using the mentions already set up in the fixture)
@@ -141,7 +141,7 @@ class TestMetadataUpdate:
         # We're using account mentions from the fixture, which is already set up correctly
 
         # Mock find_existing_performer to return different values for each call
-        mixin._find_existing_performer.side_effect = [
+        media_mixin._find_existing_performer.side_effect = [
             main_performer,  # For main account
             mention_performer1,  # For first mention
             None,  # For second mention (will need to create)
@@ -152,10 +152,10 @@ class TestMetadataUpdate:
         new_performer.id = "performer_789"
         with patch("stash.types.Performer.from_account", return_value=new_performer):
             # Call method
-            await mixin._update_stash_metadata(
+            await media_mixin._update_stash_metadata(
                 stash_obj=mock_image,
                 item=mock_item,
-                account=media_mock_account,
+                account=mock_account,
                 media_id="media_123",
             )
 
@@ -166,26 +166,28 @@ class TestMetadataUpdate:
         assert mock_image.performers[2] == new_performer
 
         # Verify new performer was saved
-        new_performer.save.assert_called_once_with(mixin.context.client)
+        new_performer.save.assert_called_once_with(media_mixin.context.client)
 
         # Verify account stash ID was updated
-        mixin._update_account_stash_id.assert_called_once_with(mention2, new_performer)
+        media_mixin._update_account_stash_id.assert_called_once_with(
+            mention2, new_performer
+        )
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_studio(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with studio."""
         # Setup studio
         mock_studio = MagicMock()
         mock_studio.id = "studio_123"
-        mixin._find_existing_studio.return_value = mock_studio
+        media_mixin._find_existing_studio.return_value = mock_studio
 
         # Call method
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
         )
 
@@ -193,11 +195,11 @@ class TestMetadataUpdate:
         assert mock_image.studio == mock_studio
 
         # Verify studio finding was called
-        mixin._find_existing_studio.assert_called_once_with(media_mock_account)
+        media_mixin._find_existing_studio.assert_called_once_with(mock_account)
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_tags(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with tags."""
         # Setup hashtags
@@ -212,13 +214,13 @@ class TestMetadataUpdate:
         mock_tag1.id = "tag_123"
         mock_tag2 = MagicMock()
         mock_tag2.id = "tag_456"
-        mixin._process_hashtags_to_tags.return_value = [mock_tag1, mock_tag2]
+        media_mixin._process_hashtags_to_tags.return_value = [mock_tag1, mock_tag2]
 
         # Call method
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
         )
 
@@ -226,53 +228,55 @@ class TestMetadataUpdate:
         assert mock_image.tags == [mock_tag1, mock_tag2]
 
         # Verify hashtag processing was called
-        mixin._process_hashtags_to_tags.assert_called_once_with(mock_item.hashtags)
+        media_mixin._process_hashtags_to_tags.assert_called_once_with(
+            mock_item.hashtags
+        )
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_preview(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with preview flag."""
         # Call method with preview flag
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
             is_preview=True,
         )
 
         # Verify preview tag was added
-        mixin._add_preview_tag.assert_called_once_with(mock_image)
+        media_mixin._add_preview_tag.assert_called_once_with(mock_image)
 
         # Reset for comparison
-        mixin._add_preview_tag.reset_mock()
+        media_mixin._add_preview_tag.reset_mock()
 
         # Call method without preview flag
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
             is_preview=False,
         )
 
         # Verify preview tag was not added
-        mixin._add_preview_tag.assert_not_called()
+        media_mixin._add_preview_tag.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_no_changes(
-        self, mixin, mock_item, media_mock_account, mock_image
+        self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method when no changes are needed."""
         # Mark object as not dirty
         mock_image.is_dirty.return_value = False
 
         # Call method
-        await mixin._update_stash_metadata(
+        await media_mixin._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
-            account=media_mock_account,
+            account=mock_account,
             media_id="media_123",
         )
 

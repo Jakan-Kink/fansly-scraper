@@ -12,13 +12,12 @@ depends_on = None
 def upgrade():
     """Add media locations table and flags.
 
-    Note: Foreign keys are intentionally disabled during this migration
-    because the API data needs to be imported in a specific order that may
-    not match the foreign key constraints. The application handles data
-    integrity at the business logic level.
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level to accommodate API data that
+    may arrive in non-standard order.
     """
-    conn = op.get_bind()
-    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+    # PostgreSQL: Foreign key behavior is controlled at constraint level (DEFERRABLE, etc.)
+    # No PRAGMA equivalent needed
 
     # Add flags and meta_info columns to media table
     op.add_column("media", sa.Column("flags", sa.Integer(), nullable=True))
@@ -44,11 +43,10 @@ def upgrade():
 def downgrade():
     """Remove media locations table and flags.
 
-    Note: Foreign keys remain disabled to maintain consistency with
-    the application's data integrity approach.
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level.
     """
-    conn = op.get_bind()
-    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+    # PostgreSQL: No PRAGMA equivalent needed
 
     # Drop media_locations table
     op.drop_table("media_locations")

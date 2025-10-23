@@ -1,181 +1,259 @@
 """Tests for gallery creation methods in GalleryProcessingMixin."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from metadata import Account, Post, post_mentions
+from stash.types import Gallery, Performer
+from tests.fixtures import AccountFactory, PostFactory
 
 
 class TestGalleryCreation:
     """Test gallery creation methods in GalleryProcessingMixin."""
 
     @pytest.mark.asyncio
-    async def test_create_new_gallery(self, mixin, mock_item):
+    async def test_create_new_gallery(
+        self,
+        factory_async_session,
+        session,
+        gallery_mixin,
+    ):
         """Test _create_new_gallery method."""
+        # Create account first (FK requirement)
+        account = AccountFactory(id=10000, username="test_user")
+
+        # Create real Post object with factory
+        post = PostFactory(
+            id=12345,
+            accountId=10000,
+            content="Test content #test #hashtag",
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+        # Query fresh from async session (use .unique() for joined eager loads)
+        result = await session.execute(select(Post).where(Post.id == 12345))
+        post_item = result.unique().scalar_one()
+
         # Call method
-        gallery = await mixin._create_new_gallery(mock_item, "Test Title")
+        gallery = await gallery_mixin._create_new_gallery(post_item, "Test Title")
 
         # Verify gallery properties
         assert gallery.id == "new"
         assert gallery.title == "Test Title"
-        assert gallery.details == mock_item.content
-        assert gallery.code == str(mock_item.id)
-        assert gallery.date == mock_item.createdAt.strftime("%Y-%m-%d")
+        assert gallery.details == post_item.content
+        assert gallery.code == str(post_item.id)
+        assert gallery.date == post_item.createdAt.strftime("%Y-%m-%d")
         assert gallery.organized is True
 
     @pytest.mark.asyncio
-    async def test_get_gallery_metadata(self, mixin, mock_item, gallery_mock_account):
+    async def test_get_gallery_metadata(
+        self,
+        factory_async_session,
+        session,
+        gallery_mixin,
+    ):
         """Test _get_gallery_metadata method."""
+        # Create real Account and Post with factories
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(
+            id=67890,
+            accountId=12345,
+            content="Test content #test",
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account_obj = result.scalar_one()
+
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
+
         # Call method
         url_pattern = "https://test.com/{username}/post/{id}"
-        username, title, url = await mixin._get_gallery_metadata(
-            mock_item, gallery_mock_account, url_pattern
+        username, title, url = await gallery_mixin._get_gallery_metadata(
+            post_obj, account_obj, url_pattern
         )
 
         # Verify results
         assert username == "test_user"
-        assert title == "Test Title"  # From the mock
-        assert url == "https://test.com/test_user/post/12345"
+        assert title == "Test Title"  # From the mocked _generate_title_from_content
+        assert url == "https://test.com/test_user/post/67890"
 
         # Verify calls
-        mixin._generate_title_from_content.assert_called_once_with(
-            content=mock_item.content,
+        gallery_mixin._generate_title_from_content.assert_called_once_with(
+            content=post_obj.content,
             username="test_user",
-            created_at=mock_item.createdAt,
+            created_at=post_obj.createdAt,
         )
 
     @pytest.mark.asyncio
     async def test_setup_gallery_performers(
-        self, mixin, mock_gallery, mock_item, gallery_mock_performer
+        self,
+        factory_async_session,
+        session,
+        gallery_mixin,
+        mock_gallery,
+        gallery_mock_performer,
     ):
         """Test _setup_gallery_performers method."""
-        # Setup for mentioned performers and mock awaitable attributes
-        mention1 = MagicMock()
-        mention2 = MagicMock()
-        mock_item.accountMentions = [mention1, mention2]
+        # Create post author account (FK requirement)
+        post_author = AccountFactory(id=10000, username="post_author")
 
-        # Set up awaitable_attrs for performer
-        gallery_mock_performer.awaitable_attrs = MagicMock()
-        gallery_mock_performer.awaitable_attrs.id = AsyncMock(
-            return_value=gallery_mock_performer.id
+        # Create real accounts for mentions
+        mention_account1 = AccountFactory(id=20001, username="mention1")
+        mention_account2 = AccountFactory(id=20002, username="mention2")
+
+        # Note: post_mentions has postId as PRIMARY KEY, so only one mention per post.
+        # To test multiple mentions, create a "virtual" post with mentions by testing the relationship.
+        # For this test, we'll focus on testing the method logic with the main post and mock find_existing_performer.
+
+        # Create main post for testing
+        post = PostFactory(id=77777, accountId=10000, content="Test post")
+
+        # Create mention relationship (postId is PK, so only one per post)
+        await session.execute(
+            post_mentions.insert().values(
+                {"postId": 77777, "accountId": 20001, "handle": "mention1"}
+            )
         )
+        await session.commit()
 
-        # Mock performers for mentions
-        mention_performer1 = MagicMock()
-        mention_performer1.id = "mention1"
-        mention_performer1.awaitable_attrs = MagicMock()
-        mention_performer1.awaitable_attrs.id = AsyncMock(return_value="mention1")
+        # Query post with mentions loaded
+        result = await session.execute(
+            select(Post)
+            .where(Post.id == 77777)
+            .options(selectinload(Post.accountMentions))
+        )
+        post_obj = result.unique().scalar_one()
 
-        mention_performer2 = MagicMock()
-        mention_performer2.id = "mention2"
-        mention_performer2.awaitable_attrs = MagicMock()
-        mention_performer2.awaitable_attrs.id = AsyncMock(return_value="mention2")
+        # Verify mention was loaded
+        assert len(post_obj.accountMentions) == 1
 
-        # Setup mixin method to return performers for mentions
-        mixin._find_existing_performer.side_effect = [
-            mention_performer1,  # First mention
-            mention_performer2,  # Second mention
-        ]
+        # Mock Stash performer for mention
+        mention_performer1 = MagicMock(spec=Performer)
+        mention_performer1.id = "stash_mention1"
+
+        # Setup mixin method to return performer for mention
+        gallery_mixin._find_existing_performer.return_value = mention_performer1
 
         # Call method
-        await mixin._setup_gallery_performers(
-            mock_gallery, mock_item, gallery_mock_performer
+        await gallery_mixin._setup_gallery_performers(
+            mock_gallery, post_obj, gallery_mock_performer
         )
 
-        # Verify gallery performers
-        assert len(mock_gallery.performers) == 3
+        # Verify gallery performers (main + 1 mention)
+        assert len(mock_gallery.performers) == 2
         assert mock_gallery.performers[0] == gallery_mock_performer
         assert mock_gallery.performers[1] == mention_performer1
-        assert mock_gallery.performers[2] == mention_performer2
 
-        # Verify _find_existing_performer calls
-        assert mixin._find_existing_performer.call_count == 2
-        mixin._find_existing_performer.assert_any_call(mention1)
-        mixin._find_existing_performer.assert_any_call(mention2)
+        # Verify _find_existing_performer was called for the mention
+        assert gallery_mixin._find_existing_performer.call_count == 1
 
-        # Reset
+        # Test with no mentioned accounts - create separate post
+        post2 = PostFactory(id=99999, accountId=10000, content="Test post no mentions")
+        await session.commit()  # Commit so post2 is visible
+
+        result = await session.execute(
+            select(Post)
+            .where(Post.id == 99999)
+            .options(selectinload(Post.accountMentions))
+        )
+        post_obj2 = result.unique().scalar_one()
+
         mock_gallery.performers = []
-        mixin._find_existing_performer.reset_mock()
+        gallery_mixin._find_existing_performer.reset_mock()
 
-        # Test with no mentioned accounts
-        mock_item.accountMentions = []
-
-        # Call method
-        await mixin._setup_gallery_performers(
-            mock_gallery, mock_item, gallery_mock_performer
+        await gallery_mixin._setup_gallery_performers(
+            mock_gallery, post_obj2, gallery_mock_performer
         )
 
         # Verify gallery performers (only main performer)
         assert len(mock_gallery.performers) == 1
         assert mock_gallery.performers[0] == gallery_mock_performer
-
-        # Verify no calls to _find_existing_performer
-        mixin._find_existing_performer.assert_not_called()
-
-        # Reset
-        mock_gallery.performers = []
+        gallery_mixin._find_existing_performer.assert_not_called()
 
         # Test with mentioned accounts but no performers found
-        mock_item.accountMentions = [mention1, mention2]
-        mixin._find_existing_performer.side_effect = [None, None]
-
-        # Call method
-        await mixin._setup_gallery_performers(
-            mock_gallery, mock_item, gallery_mock_performer
+        mock_gallery.performers = []
+        gallery_mixin._find_existing_performer.reset_mock()
+        gallery_mixin._find_existing_performer.return_value = (
+            None  # No performer found for mention
         )
 
-        # Verify gallery performers (only main performer)
+        await gallery_mixin._setup_gallery_performers(
+            mock_gallery, post_obj, gallery_mock_performer
+        )
+
+        # Verify gallery performers (only main performer when mention not found in Stash)
         assert len(mock_gallery.performers) == 1
         assert mock_gallery.performers[0] == gallery_mock_performer
 
-        # Reset
-        mock_gallery.performers = []
-
         # Test with no main performer
-        mock_item.accountMentions = [mention1]
-        mixin._find_existing_performer.return_value = mention_performer1
+        mock_gallery.performers = []
+        gallery_mixin._find_existing_performer.reset_mock()
+        gallery_mixin._find_existing_performer.return_value = mention_performer1
 
-        # Call method
-        await mixin._setup_gallery_performers(mock_gallery, mock_item, None)
+        await gallery_mixin._setup_gallery_performers(mock_gallery, post_obj, None)
 
-        # Verify gallery performers (only mentioned performer)
+        # Verify gallery performers (only mentioned performer found)
         assert len(mock_gallery.performers) == 1
         assert mock_gallery.performers[0] == mention_performer1
 
     @pytest.mark.asyncio
     async def test_get_or_create_gallery(
         self,
-        mixin,
-        mock_item,
-        gallery_mock_account,
+        factory_async_session,
+        session,
+        gallery_mixin,
         gallery_mock_performer,
         gallery_mock_studio,
         mock_gallery,
     ):
         """Test _get_or_create_gallery method."""
+        # Create real account and post with factory
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(
+            id=67890,
+            accountId=12345,
+            content="Test post content",
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account_obj = result.scalar_one()
+
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
+
         # Setup
         url_pattern = "https://test.com/{username}/post/{id}"
 
         # Mock _has_media_content to return True
-        mixin._has_media_content = AsyncMock(return_value=True)
+        gallery_mixin._has_media_content = AsyncMock(return_value=True)
 
         # Mock _get_gallery_metadata
-        mixin._get_gallery_metadata = AsyncMock(
+        gallery_mixin._get_gallery_metadata = AsyncMock(
             return_value=(
                 "test_user",
                 "Test Title",
-                "https://test.com/test_user/post/12345",
+                "https://test.com/test_user/post/67890",
             )
         )
 
         # Test when gallery found by stash_id
-        mixin._get_gallery_by_stash_id = AsyncMock(return_value=mock_gallery)
-        mixin._get_gallery_by_code = AsyncMock(return_value=None)
-        mixin._get_gallery_by_title = AsyncMock(return_value=None)
-        mixin._get_gallery_by_url = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_stash_id = AsyncMock(return_value=mock_gallery)
+        gallery_mixin._get_gallery_by_code = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_title = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_url = AsyncMock(return_value=None)
 
-        gallery = await mixin._get_or_create_gallery(
-            mock_item,
-            gallery_mock_account,
+        gallery = await gallery_mixin._get_or_create_gallery(
+            post_obj,
+            account_obj,
             gallery_mock_performer,
             gallery_mock_studio,
             "post",
@@ -184,21 +262,21 @@ class TestGalleryCreation:
 
         # Verify
         assert gallery == mock_gallery
-        mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_code.assert_not_called()
-        mixin._get_gallery_by_title.assert_not_called()
-        mixin._get_gallery_by_url.assert_not_called()
+        gallery_mixin._get_gallery_by_stash_id.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_code.assert_not_called()
+        gallery_mixin._get_gallery_by_title.assert_not_called()
+        gallery_mixin._get_gallery_by_url.assert_not_called()
 
         # Reset
-        mixin._get_gallery_by_stash_id.reset_mock()
+        gallery_mixin._get_gallery_by_stash_id.reset_mock()
 
         # Test when gallery found by code
-        mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
-        mixin._get_gallery_by_code = AsyncMock(return_value=mock_gallery)
+        gallery_mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_code = AsyncMock(return_value=mock_gallery)
 
-        gallery = await mixin._get_or_create_gallery(
-            mock_item,
-            gallery_mock_account,
+        gallery = await gallery_mixin._get_or_create_gallery(
+            post_obj,
+            account_obj,
             gallery_mock_performer,
             gallery_mock_studio,
             "post",
@@ -207,23 +285,23 @@ class TestGalleryCreation:
 
         # Verify
         assert gallery == mock_gallery
-        mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_code.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_title.assert_not_called()
-        mixin._get_gallery_by_url.assert_not_called()
+        gallery_mixin._get_gallery_by_stash_id.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_code.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_title.assert_not_called()
+        gallery_mixin._get_gallery_by_url.assert_not_called()
 
         # Reset
-        mixin._get_gallery_by_stash_id.reset_mock()
-        mixin._get_gallery_by_code.reset_mock()
+        gallery_mixin._get_gallery_by_stash_id.reset_mock()
+        gallery_mixin._get_gallery_by_code.reset_mock()
 
         # Test when gallery found by title
-        mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
-        mixin._get_gallery_by_code = AsyncMock(return_value=None)
-        mixin._get_gallery_by_title = AsyncMock(return_value=mock_gallery)
+        gallery_mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_code = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_title = AsyncMock(return_value=mock_gallery)
 
-        gallery = await mixin._get_or_create_gallery(
-            mock_item,
-            gallery_mock_account,
+        gallery = await gallery_mixin._get_or_create_gallery(
+            post_obj,
+            account_obj,
             gallery_mock_performer,
             gallery_mock_studio,
             "post",
@@ -232,27 +310,27 @@ class TestGalleryCreation:
 
         # Verify
         assert gallery == mock_gallery
-        mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_code.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_title.assert_called_once_with(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery_mixin._get_gallery_by_stash_id.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_code.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_title.assert_called_once_with(
+            post_obj, "Test Title", gallery_mock_studio
         )
-        mixin._get_gallery_by_url.assert_not_called()
+        gallery_mixin._get_gallery_by_url.assert_not_called()
 
         # Reset
-        mixin._get_gallery_by_stash_id.reset_mock()
-        mixin._get_gallery_by_code.reset_mock()
-        mixin._get_gallery_by_title.reset_mock()
+        gallery_mixin._get_gallery_by_stash_id.reset_mock()
+        gallery_mixin._get_gallery_by_code.reset_mock()
+        gallery_mixin._get_gallery_by_title.reset_mock()
 
         # Test when gallery found by URL
-        mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
-        mixin._get_gallery_by_code = AsyncMock(return_value=None)
-        mixin._get_gallery_by_title = AsyncMock(return_value=None)
-        mixin._get_gallery_by_url = AsyncMock(return_value=mock_gallery)
+        gallery_mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_code = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_title = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_url = AsyncMock(return_value=mock_gallery)
 
-        gallery = await mixin._get_or_create_gallery(
-            mock_item,
-            gallery_mock_account,
+        gallery = await gallery_mixin._get_or_create_gallery(
+            post_obj,
+            account_obj,
             gallery_mock_performer,
             gallery_mock_studio,
             "post",
@@ -261,41 +339,41 @@ class TestGalleryCreation:
 
         # Verify
         assert gallery == mock_gallery
-        mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_code.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_title.assert_called_once_with(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery_mixin._get_gallery_by_stash_id.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_code.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_title.assert_called_once_with(
+            post_obj, "Test Title", gallery_mock_studio
         )
-        mixin._get_gallery_by_url.assert_called_once_with(
-            mock_item, "https://test.com/test_user/post/12345"
+        gallery_mixin._get_gallery_by_url.assert_called_once_with(
+            post_obj, "https://test.com/test_user/post/67890"
         )
 
         # Reset
-        mixin._get_gallery_by_stash_id.reset_mock()
-        mixin._get_gallery_by_code.reset_mock()
-        mixin._get_gallery_by_title.reset_mock()
-        mixin._get_gallery_by_url.reset_mock()
+        gallery_mixin._get_gallery_by_stash_id.reset_mock()
+        gallery_mixin._get_gallery_by_code.reset_mock()
+        gallery_mixin._get_gallery_by_title.reset_mock()
+        gallery_mixin._get_gallery_by_url.reset_mock()
 
         # Test when no gallery found (create new)
-        mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
-        mixin._get_gallery_by_code = AsyncMock(return_value=None)
-        mixin._get_gallery_by_title = AsyncMock(return_value=None)
-        mixin._get_gallery_by_url = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_stash_id = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_code = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_title = AsyncMock(return_value=None)
+        gallery_mixin._get_gallery_by_url = AsyncMock(return_value=None)
 
-        # Mock create and setup methods
-        new_gallery = MagicMock()
+        # Mock create and setup methods with Stash Gallery object
+        new_gallery = MagicMock(spec=Gallery)
         new_gallery.id = "new"
         new_gallery.performers = []
         new_gallery.urls = []
         new_gallery.chapters = []
         new_gallery.save = AsyncMock()
 
-        mixin._create_new_gallery = AsyncMock(return_value=new_gallery)
-        mixin._setup_gallery_performers = AsyncMock()
+        gallery_mixin._create_new_gallery = AsyncMock(return_value=new_gallery)
+        gallery_mixin._setup_gallery_performers = AsyncMock()
 
-        gallery = await mixin._get_or_create_gallery(
-            mock_item,
-            gallery_mock_account,
+        gallery = await gallery_mixin._get_or_create_gallery(
+            post_obj,
+            account_obj,
             gallery_mock_performer,
             gallery_mock_studio,
             "post",
@@ -304,29 +382,31 @@ class TestGalleryCreation:
 
         # Verify
         assert gallery == new_gallery
-        mixin._get_gallery_by_stash_id.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_code.assert_called_once_with(mock_item)
-        mixin._get_gallery_by_title.assert_called_once_with(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery_mixin._get_gallery_by_stash_id.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_code.assert_called_once_with(post_obj)
+        gallery_mixin._get_gallery_by_title.assert_called_once_with(
+            post_obj, "Test Title", gallery_mock_studio
         )
-        mixin._get_gallery_by_url.assert_called_once_with(
-            mock_item, "https://test.com/test_user/post/12345"
+        gallery_mixin._get_gallery_by_url.assert_called_once_with(
+            post_obj, "https://test.com/test_user/post/67890"
         )
-        mixin._create_new_gallery.assert_called_once_with(mock_item, "Test Title")
-        mixin._setup_gallery_performers.assert_called_once_with(
-            new_gallery, mock_item, gallery_mock_performer
+        gallery_mixin._create_new_gallery.assert_called_once_with(
+            post_obj, "Test Title"
+        )
+        gallery_mixin._setup_gallery_performers.assert_called_once_with(
+            new_gallery, post_obj, gallery_mock_performer
         )
         assert new_gallery.studio == gallery_mock_studio
-        assert url_pattern in new_gallery.urls
-        new_gallery.save.assert_called_once_with(mixin.context.client)
+        assert "https://test.com/test_user/post/67890" in new_gallery.urls
+        new_gallery.save.assert_called_once_with(gallery_mixin.context.client)
 
         # Test when item has no media content
-        mixin._has_media_content = AsyncMock(return_value=False)
-        mixin._get_gallery_metadata = AsyncMock()  # Reset mock
+        gallery_mixin._has_media_content = AsyncMock(return_value=False)
+        gallery_mixin._get_gallery_metadata = AsyncMock()  # Reset mock
 
-        gallery = await mixin._get_or_create_gallery(
-            mock_item,
-            gallery_mock_account,
+        gallery = await gallery_mixin._get_or_create_gallery(
+            post_obj,
+            account_obj,
             gallery_mock_performer,
             gallery_mock_studio,
             "post",
@@ -335,4 +415,4 @@ class TestGalleryCreation:
 
         # Verify
         assert gallery is None
-        mixin._get_gallery_metadata.assert_not_called()  # Should return early
+        gallery_mixin._get_gallery_metadata.assert_not_called()  # Should return early

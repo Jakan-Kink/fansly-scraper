@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sqlite3
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,16 +29,16 @@ from sqlalchemy.orm import Session
 
 from metadata import Account, AccountMedia, Base, Media, Message, Post
 from metadata.database import Database
-from tests.metadata.conftest import TestDatabase  # Add this import
+from tests.fixtures.database_fixtures import TestDatabase  # Add this import
 from textio import print_error, print_info, print_warning
 
 
 @pytest.fixture(autouse=True)
-async def setup_database(database: Database):
+async def setup_database(test_database_sync: Database):
     """Create database tables before each test."""
     try:
         # First, ensure tables are dropped if they exist
-        async with database.async_session_scope() as session:
+        async with test_database_sync.async_session_scope() as session:
             async with session.begin():
                 # Get connection and run DDL operations
                 # conn = await session.connection()
@@ -48,12 +47,8 @@ async def setup_database(database: Database):
                 # # Create all tables
                 # await conn.run_sync(Base.metadata.create_all)
 
-                # Reset SQLite sequences more safely
-                try:
-                    await session.execute(text("DELETE FROM sqlite_sequence"))
-                except Exception:
-                    # sqlite_sequence may not exist if no AUTOINCREMENT tables created yet
-                    pass
+                # PostgreSQL: Reset sequences if needed
+                # Note: PostgreSQL uses SEQUENCE objects instead of sqlite_sequence
                 await session.commit()
 
         yield
@@ -63,7 +58,7 @@ async def setup_database(database: Database):
     finally:
         # Clean up after each test
         # try:
-        # async with database.async_session_scope() as session:
+        # async with test_database_sync.async_session_scope() as session:
         #     async with session.begin():
         #         conn = await session.connection()
         #         # await conn.run_sync(Base.metadata.drop_all)
@@ -71,7 +66,7 @@ async def setup_database(database: Database):
         #     print_error(f"Error during cleanup: {e}")
         #     raise
         # finally:
-        await database.close_async()
+        await test_database_sync.close_async()
 
 
 @pytest.fixture
@@ -98,10 +93,10 @@ def shared_db_path(request):
 
 @pytest.mark.asyncio
 async def test_complex_relationships(
-    database: Database, session: AsyncSession, test_account: Account
+    test_database_sync: Database, session: AsyncSession, test_account: Account
 ):
     """Test complex relationships between multiple models."""
-    async with database.async_session_scope() as session:
+    async with test_database_sync.async_session_scope() as session:
         # Create a new Account instance instead of using the fixture directly
         account = Account(
             id=test_account.id,
@@ -304,15 +299,15 @@ async def test_cascade_operations(test_config, shared_db_path):
             # In real applications, we might want to implement a cleanup job for orphaned media
     finally:
         # Ensure database is properly closed
-        await database.cleanup()
+        await test_database_sync.cleanup()
 
 
 @pytest.mark.asyncio
 async def test_database_constraints(
-    database: Database, session: AsyncSession, test_account: Account
+    test_database_sync: Database, session: AsyncSession, test_account: Account
 ):
     """Test database constraints and integrity."""
-    async with database.async_session_scope() as session:
+    async with test_database_sync.async_session_scope() as session:
         # Create a Media object
         media = Media(
             id=100,
@@ -398,10 +393,10 @@ async def test_database_constraints(
 
 
 @pytest.mark.asyncio
-async def test_transaction_isolation(database: Database):
+async def test_transaction_isolation(test_database_sync: Database):
     """Test transaction isolation levels."""
     # Create test data in first session
-    async with database.async_session_scope() as session1:
+    async with test_database_sync.async_session_scope() as session1:
         account1 = Account(
             id=1,
             username="test_user_1",
@@ -410,7 +405,7 @@ async def test_transaction_isolation(database: Database):
         session1.add(account1)
 
         # Start second transaction before committing first
-        async with database.async_session_scope() as session2:
+        async with test_database_sync.async_session_scope() as session2:
             # Should not see uncommitted data from first session
             result = await session2.execute(select(Account).filter_by(id=1))
             assert result.scalar_one_or_none() is None
@@ -428,7 +423,7 @@ async def test_transaction_isolation(database: Database):
         await session1.commit()
 
     # Verify final state
-    async with database.async_session_scope() as session:
+    async with test_database_sync.async_session_scope() as session:
         result = await session.execute(select(Account).order_by(Account.id))
         accounts = result.scalars().all()
         assert len(accounts) == 2
@@ -437,7 +432,7 @@ async def test_transaction_isolation(database: Database):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_access(database: Database, test_account: Account):
+async def test_concurrent_access(test_database_sync: Database, test_account: Account):
     """Test concurrent database access patterns."""
     num_tasks = 5
     num_messages = 10
@@ -446,9 +441,8 @@ async def test_concurrent_access(database: Database, test_account: Account):
         """Add messages in separate task."""
         message_ids = []
         try:
-            async with database.async_session_scope() as session:
-                # Disable foreign key checks
-                await session.execute(text("PRAGMA foreign_keys = OFF"))
+            async with test_database_sync.async_session_scope() as session:
+                # PostgreSQL: No PRAGMA statements needed
                 for i in range(num_messages):
                     msg = Message(
                         id=start_id + i,
@@ -479,7 +473,7 @@ async def test_concurrent_access(database: Database, test_account: Account):
             message_ids.extend(await task)
 
         # Verify results
-        async with database.async_session_scope() as session:
+        async with test_database_sync.async_session_scope() as session:
             result = await session.execute(
                 select(Message).filter(Message.id.in_(message_ids)).order_by(Message.id)
             )
@@ -500,10 +494,10 @@ async def test_concurrent_access(database: Database, test_account: Account):
 
 @pytest.mark.asyncio
 async def test_query_performance(
-    database: Database, session: AsyncSession, test_account: Account
+    test_database_sync: Database, session: AsyncSession, test_account: Account
 ):
     """Test query performance with indexes."""
-    async with database.async_session_scope() as session:
+    async with test_database_sync.async_session_scope() as session:
         # Create multiple media items
         for i in range(100):
             media = Media(id=i + 1, accountId=test_account.id)
@@ -520,26 +514,28 @@ async def test_query_performance(
         # Create index on accountId
         await session.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS idx_account_media_accountid ON account_media (accountId)"
+                'CREATE INDEX IF NOT EXISTS idx_account_media_accountid ON account_media ("accountId")'
             )
         )
         await session.commit()
 
-        # This should use the index on accountId
+        # PostgreSQL: Use EXPLAIN instead of EXPLAIN QUERY PLAN
         result = await session.execute(
-            text("EXPLAIN QUERY PLAN SELECT * FROM account_media WHERE accountId = 1")
+            text('EXPLAIN SELECT * FROM account_media WHERE "accountId" = 1')
         )
         plan = result.fetchall()
-        # Verify index usage (plan should mention USING INDEX)
+        # Verify index usage (PostgreSQL plan should mention Index Scan)
+        plan_str = str(plan)
         assert any(
-            "USING INDEX" in str(row) for row in plan
-        ), "Query not using index for account_media.accountId"
+            "Index Scan" in str(row) or "idx_account_media_accountid" in str(row)
+            for row in plan
+        ), f"Query not using index for account_media.accountId. Plan: {plan_str}"
 
 
 @pytest.mark.asyncio
-async def test_bulk_operations(database: Database):
+async def test_bulk_operations(test_database_sync: Database):
     """Test bulk database operations with transaction management."""
-    async with database.async_session_scope() as session:
+    async with test_database_sync.async_session_scope() as session:
         await session.rollback()  # Clear any existing transaction
 
         try:
@@ -708,9 +704,9 @@ async def test_database_cleanup_integration(
         async with db1.async_session_scope() as session:
             await session.commit()
 
-            # Check tables
+            # Check tables (PostgreSQL)
             result = await session.execute(
-                text("SELECT name FROM sqlite_master WHERE type='table'")
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
             )
             tables = result.scalars().all()
             print_info(f"Tables in database: {tables}")
@@ -750,9 +746,9 @@ async def test_database_cleanup_integration(
         try:
             # Verify the data persists
             async with db2.async_session_scope() as session:
-                # Verify tables exist
+                # Verify tables exist (PostgreSQL)
                 result = await session.execute(
-                    text("SELECT name FROM sqlite_master WHERE type='table'")
+                    text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
                 tables = result.scalars().all()
                 print_info(f"Tables in second connection: {tables}")

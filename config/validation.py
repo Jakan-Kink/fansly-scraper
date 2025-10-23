@@ -4,8 +4,7 @@
 from pathlib import Path
 from time import sleep
 
-import requests
-from requests.exceptions import RequestException
+import httpx
 
 from config.modes import DownloadMode
 from errors import ConfigError
@@ -38,7 +37,7 @@ def validate_creator_names(config: FanslyConfig) -> bool:
 
     # This is not only nice but also since this is a new list object,
     # we won't be iterating over the list (set) being changed.
-    names = sorted(config.user_names)
+    names = sorted(config.user_names, key=str.lower)
     list_changed = False
 
     for user in names:
@@ -309,12 +308,14 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
 
         try:
             # thanks Jonathan Robson (@jnrbsn) - for continuously providing these up-to-date user-agents
-            user_agent_response = requests.get(
+            user_agent_response = httpx.get(
                 "https://jnrbsn.github.io/user-agents/user-agents.json",
                 headers={
                     "User-Agent": ua_if_failed,
                     "accept-language": "en-US,en;q=0.9",
                 },
+                timeout=30.0,
+                follow_redirects=True,
             )
 
             if user_agent_response.status_code == 200:
@@ -326,7 +327,7 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
             else:
                 config_user_agent = ua_if_failed
 
-        except RequestException:
+        except httpx.HTTPError:
             config_user_agent = ua_if_failed
 
         # save useragent modification to config file

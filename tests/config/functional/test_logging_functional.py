@@ -39,9 +39,14 @@ def log_dir(tmp_path):
 
 
 @pytest.fixture
-def config(log_dir):
-    """Create a test config with log directory set."""
-    config = FanslyConfig(program_version="test")
+def logging_config(log_dir, uuid_test_db_factory):
+    """Create a test config with UUID database and log directory set.
+
+    Renamed from 'config' to avoid shadowing the database config fixture.
+    Uses uuid_test_db_factory to get isolated PostgreSQL database for each test.
+    """
+    # Use the UUID-based config from uuid_test_db_factory
+    config = uuid_test_db_factory
     # Set testing environment flag
     os.environ["TESTING"] = "1"
     # Initialize logging with this config
@@ -68,7 +73,7 @@ def assert_log_contains(log_lines: list[str], message: str, level: str = None) -
     return False
 
 
-def test_textio_logger_output(config, log_dir):
+def test_textio_logger_output(logging_config, log_dir):
     """Test that textio_logger writes to the correct files at correct levels."""
     # INFO level should go to both console and file
     textio_logger.info("Info message")
@@ -111,7 +116,7 @@ def test_textio_logger_output(config, log_dir):
         set_debug_enabled(False)
 
 
-def test_json_logger_output(config, log_dir):
+def test_json_logger_output(logging_config, log_dir):
     """Test that json_logger writes to the correct file at correct levels."""
     # INFO level should go to file only
     json_logger.info("Info message")
@@ -142,7 +147,7 @@ def test_json_logger_output(config, log_dir):
         set_debug_enabled(False)
 
 
-def test_db_logger_output(config, log_dir):
+def test_db_logger_output(logging_config, log_dir):
     """Test that db_logger writes to the correct file at correct levels."""
     # INFO level should go to file only
     db_logger.info("Info message")
@@ -173,7 +178,7 @@ def test_db_logger_output(config, log_dir):
         set_debug_enabled(False)
 
 
-def test_stash_logger_output(config, log_dir):
+def test_stash_logger_output(logging_config, log_dir):
     """Test that stash_logger writes to the correct files at correct levels."""
     # INFO level should go to both console and file
     stash_logger.info("Info message")
@@ -204,8 +209,9 @@ def test_stash_logger_output(config, log_dir):
         set_debug_enabled(False)
 
 
-def test_trace_logger_output(config, log_dir):
+def test_trace_logger_output(logging_config, log_dir, mock_config):
     """Test that trace_logger writes to the correct file only when enabled."""
+    config = mock_config
     # TRACE level should be filtered out by default
     trace_logger.trace("Trace message")
     logger.complete()
@@ -214,7 +220,7 @@ def test_trace_logger_output(config, log_dir):
 
     # With trace enabled, TRACE should appear
     config.trace = True
-    init_logging_config(config)
+    init_logging_config(logging_config)
     try:
         trace_logger.trace("Trace message with trace enabled")
         logger.complete()
@@ -225,10 +231,10 @@ def test_trace_logger_output(config, log_dir):
         assert any("TRACE" in line for line in log_lines)
     finally:
         config.trace = False
-        init_logging_config(config)
+        init_logging_config(logging_config)
 
 
-def test_log_file_rotation(config, log_dir):
+def test_log_file_rotation(logging_config, log_dir):
     """Test that log files are rotated correctly."""
     # Instead of actually writing huge files, let's mock the rotation
 
@@ -248,7 +254,7 @@ def test_log_file_rotation(config, log_dir):
     assert any(f.name.endswith(".gz") for f in log_files)
 
 
-def test_debug_mode_all_loggers(config, log_dir):
+def test_debug_mode_all_loggers(logging_config, log_dir):
     """Test that debug mode affects all non-trace loggers."""
     set_debug_enabled(True)
     try:
@@ -285,10 +291,11 @@ def test_debug_mode_all_loggers(config, log_dir):
         set_debug_enabled(False)
 
 
-def test_trace_mode_only_affects_trace_logger(config, log_dir):
+def test_trace_mode_only_affects_trace_logger(logging_config, log_dir, mock_config):
     """Test that trace mode only affects trace_logger."""
+    config = mock_config
     config.trace = True
-    init_logging_config(config)
+    init_logging_config(logging_config)
     try:
         # trace_logger should output TRACE
         trace_logger.trace("Trace message")
@@ -319,11 +326,12 @@ def test_trace_mode_only_affects_trace_logger(config, log_dir):
         )
     finally:
         config.trace = False
-        init_logging_config(config)
+        init_logging_config(logging_config)
 
 
-def test_console_output(config, capsys):
+def test_console_output(logging_config, capsys, mock_config):
     """Test that only textio and stash loggers write to console."""
+    config = mock_config
     # PART 1: Filter function testing approach (reliable)
     # Create test records for each logger type
     textio_record = {"extra": {"logger": "textio"}}
@@ -419,7 +427,7 @@ def test_console_output(config, capsys):
 
         # trace_logger should NOT write to console even when enabled
         config.trace = True
-        init_logging_config(config)
+        init_logging_config(logging_config)
         trace_logger.trace("Trace NO console message")
         logger.complete()  # Ensure flushing
         sys.stdout.flush()
@@ -436,10 +444,10 @@ def test_console_output(config, capsys):
         # Always reset trace mode
         if config.trace:
             config.trace = False
-            init_logging_config(config)
+            init_logging_config(logging_config)
 
 
-def test_console_level_format(config, caplog):
+def test_console_level_format(logging_config, caplog):
     """Test that console output shows level names correctly."""
 
     # Use direct patching of sys.stdout to capture output
@@ -501,8 +509,9 @@ def test_trace_logger_errors(config):
         set_debug_enabled(False)
 
 
-def test_custom_log_levels(config, log_dir):
+def test_custom_log_levels(logging_config, log_dir, mock_config):
     """Test that custom log levels in config are respected."""
+    config = mock_config
     config.log_levels = {
         "textio": "WARNING",
         "json": "ERROR",
@@ -510,7 +519,7 @@ def test_custom_log_levels(config, log_dir):
         "stash_file": "DEBUG",
         "sqlalchemy": "INFO",
     }
-    init_logging_config(config)
+    init_logging_config(logging_config)
     try:
         # Test each logger at various levels
         textio_logger.info("Info textio")  # Should be filtered
@@ -544,4 +553,4 @@ def test_custom_log_levels(config, log_dir):
             "stash_file": "INFO",
             "sqlalchemy": "INFO",
         }
-        init_logging_config(config)
+        init_logging_config(logging_config)

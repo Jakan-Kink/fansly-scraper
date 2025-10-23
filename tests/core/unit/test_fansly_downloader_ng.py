@@ -251,12 +251,12 @@ def mock_database():
         mock_engine = MagicMock()
         mock_connection = MagicMock()
         mock_dialect = MagicMock()
-        mock_dialect.name = "sqlite"
+        mock_dialect.name = "postgresql"
         mock_connection.dialect = mock_dialect
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_instance = mock.return_value
-        mock_instance.sync_engine = mock_engine
-        mock_instance.db_file = Path("test.db")
+        mock_instance._sync_engine = mock_engine
+        mock_instance.schema_name = "public"
 
         # Explicitly create close method with proper mock
         close_mock = MagicMock()
@@ -273,9 +273,8 @@ def mock_database():
         # Mock database schema
         def mock_execute(statement, *args, **kwargs):
             result = MagicMock()
-            if "sqlite_master" in str(statement):
-                # Return None for first check (table doesn't exist)
-                # Return a value for subsequent checks (table exists)
+            if "information_schema" in str(statement) or "pg_catalog" in str(statement):
+                # PostgreSQL system tables check
                 result.fetchone.return_value = (
                     None
                     if not hasattr(mock_execute, "called")

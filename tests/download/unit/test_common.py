@@ -117,7 +117,7 @@ def test_get_unique_media_ids_none_media():
 async def test_check_page_duplicates_disabled(mock_config, download_state):
     """Test that duplicate checking is skipped when disabled."""
     mock_config.use_pagination_duplication = False
-    page_data = {"posts": [{"id": "post1"}]}
+    page_data = {"posts": [{"id": 1}]}
 
     # Should not raise any exceptions
     await check_page_duplicates(mock_config, page_data, "timeline")
@@ -135,7 +135,7 @@ async def test_check_page_duplicates_empty_posts(mock_config, download_state):
 @pytest.mark.asyncio
 async def test_check_page_duplicates_wall(mock_config, test_async_session):
     """Test duplicate checking for wall pages."""
-    page_data = {"posts": [{"id": "post1"}]}
+    page_data = {"posts": [{"id": 1}]}
 
     # Should not raise exception for new post
     await check_page_duplicates(
@@ -151,13 +151,13 @@ async def test_check_page_duplicates_wall(mock_config, test_async_session):
 @pytest.mark.asyncio
 async def test_check_page_duplicates_all_existing(mock_config, test_async_session):
     """Test duplicate checking when all posts exist."""
-    page_data = {"posts": [{"id": "post1"}]}
+    page_data = {"posts": [{"id": 1}]}
 
     class ExistingPostSession(test_async_session.__class__):
         async def execute(self, statement):
             class Result:
                 def scalar_one_or_none(self):
-                    return "post1"  # Simulates existing post
+                    return 1  # Simulates existing post
 
             return Result()
 

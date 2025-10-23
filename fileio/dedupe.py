@@ -1,7 +1,6 @@
 """Item Deduplication"""
 
 import asyncio
-import contextlib
 import itertools
 import mimetypes
 import multiprocessing
@@ -11,10 +10,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from aiomultiprocess import Pool
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from tqdm import tqdm
 
 from config import FanslyConfig
 from config.decorators import with_database_session
@@ -22,11 +19,12 @@ from download.downloadstate import DownloadState
 from errors import MediaHashMismatchError
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from fileio.normalize import get_id_from_filename, normalize_filename
+from helpers.rich_progress import get_progress_manager
 from metadata.database import require_database_config
 from metadata.decorators import retry_on_locked_db
 from metadata.media import Media
 from pathio import set_create_directory_for_download
-from textio import json_output, print_error, print_info, print_warning
+from textio import json_output, print_info, print_warning
 
 # Module-level variable to track dedupe_init passes
 _dedupe_pass_count = 0
@@ -68,7 +66,7 @@ async def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
         )
         records = (await session.execute(records_query)).fetchall()
 
-        # Update each record
+        # Update each record and commit immediately to prevent data loss
         updated = 0
         for record in records:
             try:
@@ -79,19 +77,18 @@ async def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
                 media = await session.get(Media, record.id)
                 if media:
                     media.local_filename = new_filename
-                updated += 1
-
-                # Commit every 100 records to avoid large transactions
-                if updated % 100 == 0 and not session.in_nested_transaction():
+                    # Commit immediately after each update
                     await session.commit()
-                    print_info(f"Updated {updated} of {count} records...")
+                    updated += 1
+
+                    # Print progress every 100 records
+                    if updated % 100 == 0:
+                        print_info(f"Updated {updated} of {count} records...")
 
             except Exception as e:
                 print_info(f"Error updating record {record.id}: {e}")
-
-        # Final commit for any remaining records
-        if not session.in_nested_transaction():
-            await session.commit()
+                # Rollback the failed transaction
+                await session.rollback()
 
         print_info(f"Migration complete! Updated {updated} of {count} records.")
 
@@ -163,7 +160,7 @@ async def find_media_records(
         query = query.where(and_(*and_conditions))
 
     result = await session.execute(query)
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 async def verify_file_existence(
@@ -205,7 +202,7 @@ async def verify_file_existence(
 # Function to calculate file hash in a separate process
 async def calculate_file_hash(
     file_info: tuple[Path, str],
-) -> tuple[Path, str | None, dict]:
+) -> tuple[Path, str | None, dict[str, Any]]:
     """Calculate hash for a file in a separate process.
 
     Args:
@@ -538,7 +535,9 @@ async def get_account_id(session: AsyncSession, state: DownloadState) -> int | N
     # Then try to find by username
     if state.creator_name:
         account = (
-            await session.execute(select(Account).where(username=state.creator_name))
+            await session.execute(
+                select(Account).where(Account.username == state.creator_name)
+            )
         ).scalar_one_or_none()
         if account:
             # Update state.creator_id for future use
@@ -599,6 +598,12 @@ async def dedupe_init(
     6. Updates the database with file information
     7. Marks files as downloaded in the database
     """
+    # The @with_database_session decorator ensures session is not None
+    if session is None:
+        raise RuntimeError(
+            "Session must be provided by @with_database_session decorator"
+        )
+
     # Use module-level variable to track pass count
     global _dedupe_pass_count
     if not globals().get("_dedupe_pass_count"):
@@ -676,32 +681,32 @@ async def dedupe_init(
         "needs_hash": [],  # (file_path, mimetype)
     }
 
-    # Categorize files
-    tasks = [categorize_file(f, hash2_pattern) for f in all_files]
-    pbar = tqdm(
-        total=len(all_files), desc="Processing files", dynamic_ncols=True, unit="files"
-    )
+    # Categorize files with Rich progress
+    progress_mgr = get_progress_manager()
 
-    for task in asyncio.as_completed(tasks):
-        if result := await task:
-            category, file_info = result
-            file_batches[category].append(file_info)
-        pbar.update(1)
-    pbar.close()
+    with progress_mgr.session():
+        tasks = [categorize_file(f, hash2_pattern) for f in all_files]
+        categorize_task = progress_mgr.add_task(
+            name="categorize_files",
+            description="Categorizing files",
+            total=len(all_files),
+            show_elapsed=False,
+        )
+
+        for task in asyncio.as_completed(tasks):
+            if result := await task:
+                category, file_info = result
+                file_batches[category].append(file_info)
+            progress_mgr.update_task(categorize_task, advance=1)
 
     # Process hash2 files (files with known hashes)
     if file_batches["hash2"]:
-        # Use batch sync settings during high-throughput processing
-        batch_context = (
-            config._database.batch_sync_settings(commit_threshold=10000, interval=60)
-            if config._database is not None
-            else contextlib.nullcontext()
-        )
-        with batch_context:
-            pbar = tqdm(
+        with progress_mgr.session():
+            hash2_task = progress_mgr.add_task(
+                name="process_hash2",
+                description="Processing hash2 files",
                 total=len(file_batches["hash2"]),
-                desc="Processing hash2 files",
-                unit="files",
+                show_elapsed=False,
             )
             for file_path, media_id, mimetype, hash2_value in file_batches["hash2"]:
                 new_name = hash2_pattern.sub("", file_path.name)
@@ -715,28 +720,23 @@ async def dedupe_init(
                     config=config,
                     session=session,
                 )
+                # Commit after each get_or_create_media to prevent autoflush warnings
+                await session.commit()
                 if hash_verified:
                     preserved_count += 1
-                pbar.update(1)
-            pbar.close()
+                progress_mgr.update_task(hash2_task, advance=1)
 
     # Process files with media IDs in parallel
     if file_batches["media_id"]:
-        # Use batch sync settings during high-throughput processing
-        batch_context = (
-            config._database.batch_sync_settings(commit_threshold=1000, interval=60)
-            if config._database is not None
-            else contextlib.nullcontext()
-        )
-        with batch_context:
-            pbar = tqdm(
+        with progress_mgr.session():
+            media_id_task = progress_mgr.add_task(
+                name="process_media_ids",
+                description="Processing media ID files",
                 total=len(file_batches["media_id"]),
-                desc="Processing media ID files",
-                unit="files",
+                show_elapsed=False,
             )
 
             # Create semaphore to limit concurrent tasks
-            # Use a lower number than the chunk size to ensure file handles are released
             max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
             semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -744,6 +744,9 @@ async def dedupe_init(
                 file_path, media_id, mimetype = file_info
                 async with semaphore:
                     try:
+                        # Don't pass session - let get_or_create_media create its own
+                        # session via @with_database_session to avoid concurrent
+                        # access to the same PostgreSQL connection
                         result = await get_or_create_media(
                             file_path=file_path,
                             media_id=media_id,
@@ -751,11 +754,12 @@ async def dedupe_init(
                             state=state,
                             trust_filename=True,
                             config=config,
-                            session=session,
+                            # session=session,  # Not passed - each task gets its own session
                         )
+                        # No commit needed - decorator handles session lifecycle
                         return result
                     finally:
-                        pbar.update(1)
+                        progress_mgr.update_task(media_id_task, advance=1)
 
             # Process in chunks to avoid too many pending tasks
             chunk_size = 50  # Adjust based on testing
@@ -766,79 +770,81 @@ async def dedupe_init(
                 processed_count += sum(
                     1 for _, hash_verified in results if hash_verified
                 )
-        pbar.close()
 
     # Process files needing hashes
     if file_batches["needs_hash"]:
-        # Use multiprocessing for hash calculation
-        pbar = tqdm(
-            total=len(file_batches["needs_hash"]),
-            desc=f"Processing files ({max_workers} workers)",
-            unit="files",
-        )
-        # Process files with a limited number of active tasks
-        active_tasks = max_workers + 4  # Keep only max_workers + 4 tasks in flight
+        with progress_mgr.session():
+            hash_task = progress_mgr.add_task(
+                name="process_hashing",
+                description=f"Hashing files ({max_workers} workers)",
+                total=len(file_batches["needs_hash"]),
+                show_elapsed=False,
+            )
 
-        with multiprocessing.Pool(processes=max_workers) as pool:
-            try:
-                # Create an iterator that will process files as they're needed
-                iterator = pool.imap_unordered(
-                    calculate_file_hash,
-                    file_batches["needs_hash"],
-                    chunksize=1,  # Process one at a time to maintain fine-grained control
-                )
+            # Process files with a limited number of active tasks
+            active_tasks = max_workers + 4
 
-                # Take only active_tasks items at a time from the iterator
-                while True:
-                    # Get the next batch of results (non-blocking)
-                    batch = list(itertools.islice(iterator, active_tasks))
-                    if not batch:  # No more files to process
-                        break
-
-                    # Process the current batch
-                    for file_path, file_hash, debug_info in batch:
-                        if file_hash is None:
-                            pbar.update(1)
-                            continue
-
-                        try:
-                            _, hash_verified = await get_or_create_media(
-                                file_path=file_path,
-                                media_id=get_id_from_filename(file_path.name)[0],
-                                mimetype=mimetypes.guess_type(file_path)[0],
-                                state=state,
-                                file_hash=file_hash,
-                                trust_filename=False,
-                                config=config,
-                                session=session,
-                            )
-                            if hash_verified:
-                                processed_count += 1
-                        except Exception as e:
-                            json_output(
-                                1,
-                                "dedupe_init",
-                                {
-                                    "pass": call_count,
-                                    "state": "file_process_error",
-                                    "file_info": debug_info,
-                                    "error": str(e),
-                                    "error_type": type(e).__name__,
-                                    "traceback": traceback.format_exc(),
-                                },
-                            )
-                        finally:
-                            pbar.update(1)
-            finally:
-                # Clean up resources
-                pbar.close()
+            with multiprocessing.Pool(processes=max_workers) as pool:
                 try:
-                    pool.terminate()  # Force terminate any running workers
-                    pool.join(timeout=1.0)  # Wait up to 1 second for cleanup
-                except Exception as e:
-                    print_warning(f"Error cleaning up process pool: {e}")
+                    # Create an iterator that will process files as needed
+                    iterator = pool.imap_unordered(
+                        calculate_file_hash,
+                        file_batches["needs_hash"],
+                        chunksize=1,
+                    )
+
+                    # Take only active_tasks items at a time from the iterator
+                    while True:
+                        # Get the next batch of results (non-blocking)
+                        batch = list(itertools.islice(iterator, active_tasks))
+                        if not batch:  # No more files to process
+                            break
+
+                        # Process the current batch
+                        for file_path, file_hash, debug_info in batch:
+                            if file_hash is None:
+                                progress_mgr.update_task(hash_task, advance=1)
+                                continue
+
+                            try:
+                                _, hash_verified = await get_or_create_media(
+                                    file_path=file_path,
+                                    media_id=get_id_from_filename(file_path.name)[0],
+                                    mimetype=mimetypes.guess_type(file_path)[0],
+                                    state=state,
+                                    file_hash=file_hash,
+                                    trust_filename=False,
+                                    config=config,
+                                    session=session,
+                                )
+                                # Commit after each get_or_create_media to prevent autoflush warnings
+                                await session.commit()
+                                if hash_verified:
+                                    processed_count += 1
+                            except Exception as e:
+                                json_output(
+                                    1,
+                                    "dedupe_init",
+                                    {
+                                        "pass": call_count,
+                                        "state": "file_process_error",
+                                        "file_info": debug_info,
+                                        "error": str(e),
+                                        "error_type": type(e).__name__,
+                                        "traceback": traceback.format_exc(),
+                                    },
+                                )
+                            finally:
+                                progress_mgr.update_task(hash_task, advance=1)
                 finally:
-                    pool.close()  # Ensure pool is closed even if cleanup fails
+                    # Clean up resources
+                    try:
+                        pool.terminate()
+                        pool.join(timeout=1.0)
+                    except Exception as e:
+                        print_warning(f"Error cleaning up process pool: {e}")
+                    finally:
+                        pool.close()
 
     downloaded_list = await find_media_records(
         session,
@@ -857,11 +863,22 @@ async def dedupe_init(
             "downloaded_count": len(downloaded_list),
         },
     )
-    with tqdm(
-        total=len(downloaded_list), desc="Checking DB files...", dynamic_ncols=True
-    ) as pbar:
-        for media in downloaded_list:
-            pbar.set_description(f"Checking DB - ID: {media.id}", refresh=True)
+
+    with progress_mgr.session():
+        db_check_task = progress_mgr.add_task(
+            name="check_db_files",
+            description="Checking DB files",
+            total=len(downloaded_list),
+            show_elapsed=True,  # Show elapsed time for verification tasks
+        )
+
+        # Process each record and commit immediately to prevent data loss
+        for i, media in enumerate(downloaded_list, 1):
+            # Update progress description with current ID
+            progress_mgr.update_task(
+                db_check_task, description=f"Checking DB - ID: {media.id}"
+            )
+
             # Log each record check
             json_output(
                 2,  # More detailed logging level
@@ -874,9 +891,11 @@ async def dedupe_init(
                     "hash": media.content_hash,
                 },
             )
+
+            needs_update = False
             if media.local_filename:
                 if any(f.name == media.local_filename for f in all_files):
-                    pbar.update(1)
+                    progress_mgr.update_task(db_check_task, advance=1)
                     continue
                 else:
                     # File marked as downloaded but not found - clean up record
@@ -893,11 +912,17 @@ async def dedupe_init(
                     media.is_downloaded = False
                     media.content_hash = None
                     media.local_filename = None
+                    needs_update = True
             else:
                 media.is_downloaded = False
                 media.content_hash = None
-            pbar.update(1)
-    await session.flush()
+                needs_update = True
+
+            # Commit immediately after each update to persist changes
+            if needs_update:
+                await session.commit()
+
+            progress_mgr.update_task(db_check_task, advance=1)
 
     # Get updated counts
     result = await find_media_records(
@@ -1023,6 +1048,12 @@ async def dedupe_media_file(
     Returns:
         bool: True if it is a duplicate or False otherwise
     """
+    # The @with_database_session decorator ensures session is not None
+    if session is None:
+        raise RuntimeError(
+            "Session must be provided by @with_database_session decorator"
+        )
+
     json_output(
         1,
         "dedupe_media_file",
@@ -1199,15 +1230,29 @@ async def dedupe_media_file(
                 )
 
                 if db_file_exists:
+                    # Update current record to reference the existing duplicate file
+                    media_record.content_hash = file_hash
+                    media_record.local_filename = media.local_filename
+                    media_record.is_downloaded = True
+                    session.add(media_record)
+                    await session.flush()
+
                     # DB's file exists, this is a duplicate - remove it
                     await asyncio.get_running_loop().run_in_executor(
                         None, filename.unlink
                     )
                     return True
                 else:
-                    # DB's file is missing but this is the same content - update DB filename
+                    # DB's file is missing but this is the same content - keep new file
+                    # Update both the old record and current record to point to new file
                     media.local_filename = get_filename_only(filename)
+                    media.is_downloaded = True
                     session.add(media)
+
+                    media_record.content_hash = file_hash
+                    media_record.local_filename = get_filename_only(filename)
+                    media_record.is_downloaded = True
+                    session.add(media_record)
                     await session.flush()
                     return True
 

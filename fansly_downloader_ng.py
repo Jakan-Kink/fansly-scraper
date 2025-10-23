@@ -20,9 +20,8 @@ import traceback
 
 # from memory_profiler import profile
 from datetime import datetime
-from time import monotonic, sleep
+from time import monotonic
 
-from alembic.config import Config as AlembicConfig
 from config import (
     DownloadMode,
     FanslyConfig,
@@ -69,9 +68,8 @@ from fileio.dedupe import dedupe_init
 from helpers.common import open_location
 from helpers.timer import Timer
 from metadata.account import process_account_data
-from pathio import delete_temporary_pyinstaller_files, get_creator_database_path
+from pathio import delete_temporary_pyinstaller_files
 from textio import (
-    input_enter_close,
     input_enter_continue,
     json_output,
     print_error,
@@ -323,7 +321,10 @@ async def main(config: FanslyConfig) -> int:
     if config.separate_metadata:
         print_info("Using separate metadata databases per creator")
     else:
-        print_info(f"Using global metadata database: {config.metadata_db_file}")
+        print_info(
+            f"Using global PostgreSQL database: {config.pg_database} "
+            f"at {config.pg_host}:{config.pg_port}"
+        )
         config._database = Database(config, creator_name=None)
         # Register cleanup function to ensure database is closed on exit
         atexit.register(cleanup_database_sync, config)
@@ -385,25 +386,31 @@ async def main(config: FanslyConfig) -> int:
                 return 1
 
     # Process each creator
-    for creator_name in sorted(config.user_names):
+    creators_list = sorted(
+        config.user_names, key=str.lower, reverse=config.reverse_order
+    )
+    if config.reverse_order:
+        print_info("Processing creators in reverse order")
+    for creator_name in creators_list:
         with Timer(creator_name):
             try:
                 state = DownloadState(creator_name=creator_name)
 
                 # Initialize database-related variables
                 creator_database = None
-                orig_db_file = None
                 orig_database = None
 
                 # Handle per-creator database if enabled
+                # Note: With PostgreSQL, this still uses the same database connection
+                # but allows for per-creator schema isolation if needed in future
                 if config.separate_metadata:
-                    db_path = get_creator_database_path(config, creator_name)
-                    print_info(f"Using creator database: {db_path}")
-                    # Store original config values
-                    orig_db_file = config.metadata_db_file
+                    print_info(
+                        f"Using per-creator metadata for: {creator_name} "
+                        f"(PostgreSQL: {config.pg_database} at {config.pg_host}:{config.pg_port})"
+                    )
+                    # Store original database instance
                     orig_database = config._database
-                    # Set up creator database
-                    config.metadata_db_file = db_path
+                    # Set up creator database context
                     creator_database = Database(config, creator_name=creator_name)
                     config._database = creator_database
                     # Load client account into separate database
@@ -505,25 +512,19 @@ async def main(config: FanslyConfig) -> int:
 
                         # Clean up processor
                         await stash_processor.cleanup()
-
-                    # Ensure at least 30 seconds between creators
-                    time_since_start = monotonic() - creator_start_monotonic
-                    if time_since_start < 30:
-                        time_remaining = 30 - time_since_start
-                        print_info(
-                            f"Waiting {time_remaining:.1f}s until next creator loop, to not hit Fansly API rate limits"
-                        )
-                        await asyncio.sleep(time_remaining)
-
                     monitor_semaphores(threshold=20)  # Warn if too many semaphores
                     cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
                 finally:
-                    # Only restore the file path - don't cleanup the database
+                    # Log creator processing time
+                    creator_elapsed = monotonic() - creator_start_monotonic
+                    print_info(
+                        f"Completed processing @{state.creator_name} in {creator_elapsed:.1f}s"
+                    )
+
+                    # Restore the original database instance - don't cleanup the database
                     # since stash might still be using the shared memory
                     if config.separate_metadata:
-                        if orig_db_file is not None:
-                            config.metadata_db_file = orig_db_file
                         if orig_database is not None:
                             config._database = orig_database
 

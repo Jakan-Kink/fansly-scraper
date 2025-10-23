@@ -119,17 +119,19 @@ def upgrade() -> None:
                 conn.execute(delete_stmt)
 
     # Now we can safely add the case-insensitive unique index
-    with op.batch_alter_table("hashtags", schema=None) as batch_op:
-        batch_op.drop_index("ix_hashtags_value")
-        # Create new case-insensitive unique index
-        # SQLite collation needs to be part of the column name with COLLATE NOCASE
-        batch_op.create_index(
-            "ix_hashtags_value", [sa.text("value COLLATE NOCASE")], unique=True
-        )
+    # Drop the old unique constraint first
+    op.drop_constraint("uq_hashtags_value", "hashtags", type_="unique")
+
+    # Drop the old index if it exists
+    op.execute("DROP INDEX IF EXISTS ix_hashtags_value")
+
+    # PostgreSQL: Use functional index with LOWER() for case-insensitive uniqueness
+    # This is the PostgreSQL equivalent of SQLite's COLLATE NOCASE
+    op.execute("CREATE UNIQUE INDEX ix_hashtags_value_lower ON hashtags (LOWER(value))")
 
 
 def downgrade() -> None:
     # Revert to case-sensitive unique constraint
-    with op.batch_alter_table("hashtags", schema=None) as batch_op:
-        batch_op.drop_index("ix_hashtags_value")
-        batch_op.create_index("ix_hashtags_value", ["value"], unique=True)
+    op.execute("DROP INDEX IF EXISTS ix_hashtags_value_lower")
+    op.create_index("ix_hashtags_value", "hashtags", ["value"], unique=True)
+    op.create_unique_constraint("uq_hashtags_value", "hashtags", ["value"])

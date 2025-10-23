@@ -11,6 +11,73 @@ from pathlib import Path
 from typing import Any
 
 # Import all fixtures from modules
+from .api_fixtures import (
+    create_mock_response,
+    fansly_api,
+    fansly_api_factory,
+    mock_http_session,
+)
+from .cleanup_fixtures import (
+    cleanup_global_config_state,
+    cleanup_http_sessions,
+    cleanup_loguru_handlers,
+    cleanup_mock_patches,
+    cleanup_rich_progress_state,
+    cleanup_unawaited_coroutines,
+)
+from .database_fixtures import (
+    cleanup_database,
+    config,
+    conversation_data,
+    factory_async_session,
+    factory_session,
+    json_conversation_data,
+    mock_account,
+    safe_name,
+    session,
+    session_factory,
+    session_sync,
+    test_account,
+    test_account_media,
+    test_async_session,
+    test_bundle,
+    test_data_dir,
+    test_database,
+    test_database_sync,
+    test_engine,
+    test_media,
+    test_message,
+    test_post,
+    test_sync_engine,
+    test_wall,
+    timeline_data,
+    uuid_test_db_factory,
+)
+from .metadata_factories import (
+    AccountFactory,
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
+    AttachmentFactory,
+    GroupFactory,
+    MediaFactory,
+    MediaLocationFactory,
+    MessageFactory,
+    PostFactory,
+)
+from .stash_api_fixtures import (
+    enable_scene_creation,
+    mock_account,
+    mock_client,
+    mock_performer,
+    mock_scene,
+    mock_session,
+    mock_studio,
+    mock_transport,
+    stash_cleanup_tracker,
+    stash_client,
+    stash_context,
+    test_query,
+)
 from .stash_fixtures import (
     MockTag,
     TestStashCreateInput,
@@ -34,11 +101,90 @@ from .stash_fixtures import (
     test_stash_object_no_create,
     test_stash_object_no_strawberry,
 )
+from .stash_integration_fixtures import (
+    base_mock_performer,
+    base_mock_scene,
+    base_mock_studio,
+    integration_mock_account,
+    integration_mock_performer,
+    integration_mock_scene,
+    integration_mock_studio,
+    mock_account_media,
+    mock_attachment,
+    mock_context,
+    mock_gallery,
+    mock_group,
+    mock_image,
+    mock_media,
+    mock_media_bundle,
+    mock_message,
+    mock_messages,
+    mock_permissions,
+    mock_post,
+    mock_posts,
+    mock_state,
+    stash_mock_account,
+    stash_processor,
+)
+from .stash_mixin_fixtures import (
+    batch_mixin,
+    content_mixin,
+    gallery_mixin,
+    gallery_mock_performer,
+    gallery_mock_studio,
+    media_mixin,
+    mock_client_mixin,
+    mock_gallery,
+    mock_image,
+    mock_image_file,
+    mock_item,
+    mock_items,
+    mock_performer,
+    mock_process_batch,
+    mock_progress_bars,
+    mock_queue,
+    mock_scene,
+    mock_semaphore,
+    mock_studio,
+    mock_tag,
+    mock_video_file,
+    tag_mixin,
+)
+from .stash_processing_fixtures import (
+    AsyncResult,
+    AsyncSessionContext,
+    MockDatabase,
+    mixin,
+    mock_database,
+    processing_mock_attachment,
+    processing_mock_media,
+    processing_mock_messages,
+    processing_mock_multiple_messages,
+    processing_mock_multiple_posts,
+    processing_mock_posts,
+    safe_image_create,
+    safe_scene_create,
+    safe_scene_marker_create,
+    safe_studio_create,
+    safe_tag_create,
+    sanitize_model_data,
+)
 
-# Base directory for fixtures
 FIXTURES_DIR = Path(__file__).parent
 
 # Module-specific exports
+mod_metadata_factories = [
+    "AccountFactory",
+    "MediaFactory",
+    "MediaLocationFactory",
+    "PostFactory",
+    "GroupFactory",
+    "MessageFactory",
+    "AttachmentFactory",
+    "AccountMediaFactory",
+    "AccountMediaBundleFactory",
+]
+
 mod_stash_fixtures = [
     "reset_stash_field_names_cache",
     "MockTag",
@@ -63,6 +209,31 @@ mod_stash_fixtures = [
     "test_stash_object_no_strawberry",
 ]
 
+mod_stash_mixin_fixtures = [
+    "batch_mixin",
+    "content_mixin",
+    "gallery_mixin",
+    "media_mixin",
+    "tag_mixin",
+    "mock_items",
+    "mock_progress_bars",
+    "mock_semaphore",
+    "mock_process_batch",
+    "mock_queue",
+    "mock_client_mixin",
+    "mock_image",
+    "mock_scene",
+    "mock_performer",
+    "mock_studio",
+    "mock_tag",
+    "mock_gallery",
+    "mock_image_file",
+    "mock_video_file",
+    "gallery_mock_performer",
+    "gallery_mock_studio",
+    "mock_item",
+]
+
 # Local utility functions
 mod_init = [
     "load_json_fixture",
@@ -72,8 +243,130 @@ mod_init = [
     "FIXTURES_DIR",
 ]
 
+# Fixture names from database_fixtures
+mod_database_fixtures = [
+    "uuid_test_db_factory",
+    "test_data_dir",
+    "timeline_data",
+    "json_conversation_data",
+    "conversation_data",
+    "safe_name",
+    # "temp_db_path" - REMOVED: Legacy SQLite fixture, no longer used
+    "test_engine",
+    "test_async_session",
+    "config",
+    "test_sync_engine",
+    "session_factory",
+    "test_database_sync",
+    "test_database",
+    "cleanup_database",
+    "session",
+    "session_sync",
+    "test_account",
+    "mock_account",
+    "test_media",
+    "test_account_media",
+    "test_post",
+    "test_wall",
+    "test_message",
+    "test_bundle",
+    "factory_session",
+    "factory_async_session",
+]
+
+# Fixture names from stash_processing_fixtures
+mod_stash_processing_fixtures = [
+    "sanitize_model_data",
+    "safe_scene_marker_create",
+    "safe_tag_create",
+    "safe_studio_create",
+    "safe_image_create",
+    "safe_scene_create",
+    "AsyncResult",
+    "AsyncSessionContext",
+    "MockDatabase",
+    "mixin",
+    "mock_database",
+    "processing_mock_posts",
+    "processing_mock_messages",
+    "processing_mock_media",
+    "processing_mock_attachment",
+    "processing_mock_multiple_posts",
+    "processing_mock_multiple_messages",
+]
+
+# Fixture names from stash_api_fixtures
+mod_stash_api_fixtures = [
+    "stash_context",
+    "stash_client",
+    "enable_scene_creation",
+    "stash_cleanup_tracker",
+    "mock_session",
+    "mock_transport",
+    "mock_client",
+    "test_query",
+    "mock_account",
+    "mock_performer",
+    "mock_studio",
+    "mock_scene",
+]
+
+# Fixture names from stash_integration_fixtures
+mod_stash_integration_fixtures = [
+    "stash_mock_account",
+    "base_mock_performer",
+    "base_mock_studio",
+    "base_mock_scene",
+    "mock_context",
+    "mock_state",
+    "integration_mock_account",
+    "integration_mock_performer",
+    "integration_mock_studio",
+    "integration_mock_scene",
+    "mock_media",
+    "mock_group",
+    "mock_attachment",
+    "mock_post",
+    "mock_posts",
+    "mock_message",
+    "mock_messages",
+    "mock_permissions",
+    "mock_account_media",
+    "mock_media_bundle",
+    "stash_processor",
+]
+
+# Fixture names from cleanup_fixtures
+mod_cleanup_fixtures = [
+    "cleanup_rich_progress_state",
+    "cleanup_loguru_handlers",
+    "cleanup_http_sessions",
+    "cleanup_global_config_state",
+    "cleanup_unawaited_coroutines",
+    "cleanup_mock_patches",
+]
+
+# Fixture names from api_fixtures
+mod_api_fixtures = [
+    "mock_http_session",
+    "fansly_api",
+    "fansly_api_factory",
+    "create_mock_response",
+]
+
 # Combined __all__ from all modules
-__all__ = mod_stash_fixtures + mod_init
+__all__ = (
+    mod_metadata_factories
+    + mod_stash_fixtures
+    + mod_stash_mixin_fixtures
+    + mod_database_fixtures
+    + mod_stash_processing_fixtures
+    + mod_stash_api_fixtures
+    + mod_stash_integration_fixtures
+    + mod_cleanup_fixtures
+    + mod_api_fixtures
+    + mod_init
+)
 
 
 def load_json_fixture(filename: str) -> dict[str, Any]:

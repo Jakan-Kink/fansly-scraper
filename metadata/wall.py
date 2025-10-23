@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     ForeignKey,
@@ -30,6 +31,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm.attributes import set_committed_value
 
 from config.decorators import with_database_session
 from textio import json_output
@@ -71,15 +73,14 @@ class Wall(Base):
 
     __tablename__ = "walls"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     accountId = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=False, index=True
+        BigInteger, ForeignKey("accounts.id"), nullable=False, index=True
     )
     account: Mapped[Account] = relationship(
         "Account",
         foreign_keys=[accountId],
         back_populates="walls",
-        lazy="selectin",
     )
     pos: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=True)
@@ -90,7 +91,6 @@ class Wall(Base):
         "Post",
         secondary="wall_posts",
         back_populates="walls",
-        lazy="selectin",
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -98,8 +98,8 @@ class Wall(Base):
 wall_posts = Table(
     "wall_posts",
     Base.metadata,
-    Column("wallId", Integer, ForeignKey("walls.id"), primary_key=True),
-    Column("postId", Integer, ForeignKey("posts.id"), primary_key=True),
+    Column("wallId", BigInteger, ForeignKey("walls.id"), primary_key=True),
+    Column("postId", BigInteger, ForeignKey("posts.id"), primary_key=True),
     # Add indexes for efficient lookups
     Index("idx_wall_posts_post", "postId"),
     Index("idx_wall_posts_wall_post", "wallId", "postId"),
@@ -180,7 +180,7 @@ async def process_account_walls(
                     ch for ch in value if not (0xD800 <= ord(ch) <= 0xDFFF)
                 )
             if getattr(wall, key) != new_value:
-                setattr(wall, key, new_value)
+                set_committed_value(wall, key, new_value)
         await session.flush()
 
     # Only delete walls if this is a full account data update
@@ -247,8 +247,11 @@ async def process_wall_posts(
     else:
         posts = raw_posts
 
+    # Load existing posts via awaitable_attrs to avoid greenlet errors
+    existing_posts = await wall.awaitable_attrs.posts
+    existing_post_ids = {p.id for p in existing_posts}
+
     # Add new posts to wall's posts list without removing existing ones
-    existing_post_ids = {p.id for p in wall.posts}
     for post in posts:
         if post.id not in existing_post_ids:
             wall.posts.append(post)

@@ -264,7 +264,7 @@ class TestMediaProcessingComponents:
         integration_mock_account,
         mock_posts,
         mock_media,
-        integration_mock_image,
+        mock_image,
     ):
         """Test just the media processing functionality."""
         # Setup mock item
@@ -273,7 +273,7 @@ class TestMediaProcessingComponents:
         # Setup mocks
         stash_processor._find_stash_files_by_id = AsyncMock(return_value=[])
         stash_processor._find_stash_files_by_path = AsyncMock(
-            return_value=[(integration_mock_image, MagicMock())]
+            return_value=[(mock_image, MagicMock())]
         )
         stash_processor._update_stash_metadata = AsyncMock()
 
@@ -285,7 +285,7 @@ class TestMediaProcessingComponents:
 
         # Verify results
         assert len(result["images"]) == 1
-        assert result["images"][0] == integration_mock_image
+        assert result["images"][0] == mock_image
         stash_processor._find_stash_files_by_id.assert_called_once()
         stash_processor._find_stash_files_by_path.assert_called_once()
         stash_processor._update_stash_metadata.assert_called_once()
@@ -299,7 +299,7 @@ class TestMediaProcessingComponents:
         mock_posts,
         mock_attachment,
         mock_media,
-        integration_mock_image,
+        mock_image,
     ):
         """Test just the attachment processing functionality."""
         # Setup mock item
@@ -316,7 +316,7 @@ class TestMediaProcessingComponents:
 
         # Mock process_media to add an image to the result
         async def mock_process_media(media, item, account, result):
-            result["images"].append(integration_mock_image)
+            result["images"].append(mock_image)
 
         stash_processor._process_media = AsyncMock(side_effect=mock_process_media)
 
@@ -329,7 +329,7 @@ class TestMediaProcessingComponents:
 
         # Verify results
         assert len(result["images"]) == 1
-        assert result["images"][0] == integration_mock_image
+        assert result["images"][0] == mock_image
         stash_processor._process_media.assert_called()
 
 

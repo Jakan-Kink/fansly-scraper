@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -48,9 +49,9 @@ class Group(Base):
     """
 
     __tablename__ = "groups"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     createdBy: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=False
+        BigInteger, ForeignKey("accounts.id"), nullable=False
     )
     users: Mapped[set[Account]] = relationship(
         "Account", secondary="group_users", collection_class=set
@@ -59,7 +60,7 @@ class Group(Base):
         "Message", cascade="all, delete-orphan", foreign_keys="[Message.groupId]"
     )
     lastMessageId: Mapped[int | None] = mapped_column(
-        Integer,
+        BigInteger,
         nullable=True,
     )
     last_message: Mapped[Message | None] = relationship(
@@ -74,8 +75,8 @@ class Group(Base):
 group_users = Table(
     "group_users",
     Base.metadata,
-    Column("groupId", Integer, ForeignKey("groups.id"), primary_key=True),
-    Column("accountId", Integer, ForeignKey("accounts.id"), primary_key=True),
+    Column("groupId", BigInteger, ForeignKey("groups.id"), primary_key=True),
+    Column("accountId", BigInteger, ForeignKey("accounts.id"), primary_key=True),
 )
 
 
@@ -100,15 +101,15 @@ class Message(Base):
     """
 
     __tablename__ = "messages"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     groupId: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("groups.id"), nullable=True, index=True
+        BigInteger, ForeignKey("groups.id"), nullable=True, index=True
     )
     senderId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=False
+        BigInteger, ForeignKey("accounts.id"), nullable=False
     )
     recipientId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=True
+        BigInteger, ForeignKey("accounts.id"), nullable=True
     )
     content: Mapped[str] = mapped_column(String, nullable=False)
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -135,7 +136,10 @@ class Message(Base):
         back_populates="received_messages",
     )
     group: Mapped[Group] = relationship(
-        "Group", foreign_keys=[groupId], lazy="selectin", overlaps="messages"
+        "Group",
+        foreign_keys=[groupId],
+        lazy="noload",
+        overlaps="messages",  # Don't auto-load group to reduce SQL queries
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -165,7 +169,7 @@ async def _process_single_message(
     )
 
     # Validate required fields
-    required_fields = {"senderId", "createdAt"}
+    required_fields = {"id", "senderId", "createdAt"}
     missing_required = {
         field for field in required_fields if field not in filtered_message
     }
@@ -178,15 +182,16 @@ async def _process_single_message(
             )
         return None
 
-    # Get or create message
+    # Get or create message - use ID as primary filter
     message, created = await Message.async_get_or_create(
         session,
+        {
+            "id": filtered_message["id"],
+        },
         {
             "senderId": filtered_message["senderId"],
             "recipientId": filtered_message.get("recipientId"),
             "createdAt": filtered_message["createdAt"],
-        },
-        {
             "content": filtered_message.get("content", ""),
             "deleted": filtered_message.get("deleted", False),
         },
@@ -389,6 +394,10 @@ async def _process_group_users(
         if not user_id:
             continue
 
+        # Convert string IDs to integers for PostgreSQL
+        if isinstance(user_id, str):
+            user_id = int(user_id)
+
         # Track missing user accounts
         await log_missing_relationship(
             session=session,
@@ -399,12 +408,12 @@ async def _process_group_users(
             context={"groupId": group.id, "source": "group_users"},
         )
 
-        # Add user to group_users table using direct insertion
-        await session.execute(
-            group_users.insert()
-            .prefix_with("OR IGNORE")
-            .values(groupId=group.id, accountId=user_id)
-        )
+        # Add user to group_users table using PostgreSQL upsert
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        insert_stmt = pg_insert(group_users).values(groupId=group.id, accountId=user_id)
+        upsert_stmt = insert_stmt.on_conflict_do_nothing()
+        await session.execute(upsert_stmt)
 
     await session.flush()
 

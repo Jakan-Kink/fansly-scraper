@@ -44,6 +44,15 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "-r",
+        "--reverse-order",
+        action="store_true",
+        default=False,
+        help="Process creators in reverse order (applies to following list and targeted creators)",
+        required=False,
+    )
+
+    parser.add_argument(
         "-u",
         "--user",
         required=False,
@@ -324,6 +333,19 @@ def parse_args() -> argparse.Namespace:
         "(without download time and extra retries) will last at minimum: "
         "NUMBER_OF_CREATORS * TIMELINE_RETRIES * TIMELINE_DELAY_SECONDS",
     )
+    parser.add_argument(
+        "-ar",
+        "--api-max-retries",
+        required=False,
+        default=None,
+        type=int,
+        dest="api_max_retries",
+        help="Maximum number of retries for API requests that fail with 429 (rate limit). "
+        "Defaults to 10. "
+        "Higher values allow exponential backoff to reach maximum backoff time "
+        "(30s → 60s → 120s → 240s → 300s max) before giving up. "
+        "Lower values may cause downloads to fail during sustained rate limiting.",
+    )
 
     parser.add_argument(
         "--db-sync-commits",
@@ -331,9 +353,9 @@ def parse_args() -> argparse.Namespace:
         default=None,
         type=int,
         dest="db_sync_commits",
-        help="Number of commits before syncing database to remote location. "
+        help="[DEPRECATED - SQLite only] Number of commits before syncing database to remote location. "
         "Only applies to databases larger than --db-sync-min-size. "
-        "If not specified, defaults to 1000.",
+        "PostgreSQL manages transactions natively.",
     )
     parser.add_argument(
         "--db-sync-seconds",
@@ -341,9 +363,9 @@ def parse_args() -> argparse.Namespace:
         default=None,
         type=int,
         dest="db_sync_seconds",
-        help="Number of seconds between database syncs to remote location. "
+        help="[DEPRECATED - SQLite only] Number of seconds between database syncs to remote location. "
         "Only applies to databases larger than --db-sync-min-size. "
-        "If not specified, defaults to 60.",
+        "PostgreSQL manages transactions natively.",
     )
     parser.add_argument(
         "--db-sync-min-size",
@@ -351,9 +373,9 @@ def parse_args() -> argparse.Namespace:
         default=None,
         type=int,
         dest="db_sync_min_size",
-        help="Minimum database size in MB to enable background syncing. "
+        help="[DEPRECATED - SQLite only] Minimum database size in MB to enable background syncing. "
         "Smaller databases are synced immediately. "
-        "If not specified, defaults to 50.",
+        "PostgreSQL manages transactions natively.",
     )
     parser.add_argument(
         "--metadata-db-file",
@@ -361,9 +383,49 @@ def parse_args() -> argparse.Namespace:
         default=None,
         type=str,
         dest="metadata_db_file",
-        help="Custom path for the metadata database file. "
-        "If not specified, uses download_directory/metadata_db.sqlite3 "
-        "or ./metadata_db.sqlite3 in current directory.",
+        help="[DEPRECATED - SQLite only] Custom path for the metadata database file. "
+        "Use PostgreSQL connection parameters (--pg-host, --pg-database, etc.) instead.",
+    )
+    # PostgreSQL arguments
+    parser.add_argument(
+        "--pg-host",
+        required=False,
+        default=None,
+        type=str,
+        dest="pg_host",
+        help="PostgreSQL host (default: localhost)",
+    )
+    parser.add_argument(
+        "--pg-port",
+        required=False,
+        default=None,
+        type=int,
+        dest="pg_port",
+        help="PostgreSQL port (default: 5432)",
+    )
+    parser.add_argument(
+        "--pg-database",
+        required=False,
+        default=None,
+        type=str,
+        dest="pg_database",
+        help="PostgreSQL database name (default: fansly_metadata)",
+    )
+    parser.add_argument(
+        "--pg-user",
+        required=False,
+        default=None,
+        type=str,
+        dest="pg_user",
+        help="PostgreSQL username (default: fansly_user)",
+    )
+    parser.add_argument(
+        "--pg-password",
+        required=False,
+        default=None,
+        type=str,
+        dest="pg_password",
+        help="PostgreSQL password (prefer FANSLY_PG_PASSWORD environment variable)",
     )
     parser.add_argument(
         "--temp-folder",
@@ -614,6 +676,12 @@ def _handle_not_none_settings(args: argparse.Namespace, config: FanslyConfig) ->
         "db_sync_min_size",
         "metadata_db_file",
         "temp_folder",
+        # PostgreSQL settings
+        "pg_host",
+        "pg_port",
+        "pg_database",
+        "pg_user",
+        "pg_password",
     ]
 
     for attr_name in not_none_settings:
@@ -635,6 +703,7 @@ def _handle_boolean_settings(args: argparse.Namespace, config: FanslyConfig) -> 
         "use_duplicate_threshold",
         "use_pagination_duplication",
         "separate_metadata",
+        "reverse_order",
     ]
 
     for attr_name in positive_bools:
@@ -675,6 +744,7 @@ def _handle_unsigned_ints(args: argparse.Namespace, config: FanslyConfig) -> boo
     unsigned_ints = [
         "timeline_retries",
         "timeline_delay_seconds",
+        "api_max_retries",
     ]
 
     for attr_name in unsigned_ints:

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -19,12 +20,13 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    event,
     exc,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from config.decorators import with_database_session
 from textio import json_output
@@ -126,7 +128,7 @@ class Account(Base):
 
     __tablename__ = "accounts"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     displayName: Mapped[str | None] = mapped_column(String, nullable=True)
     flags: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -160,7 +162,7 @@ class Account(Base):
     avatar: Mapped[Media | None] = relationship(
         "Media",
         secondary="account_avatar",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load avatar to reduce SQL queries
     )
     banner: Mapped[Media | None] = relationship(
         "Media",
@@ -188,7 +190,7 @@ class Account(Base):
     accountMedia: Mapped[set[AccountMedia]] = relationship(
         "AccountMedia",
         back_populates="account",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load accountMedia to reduce SQL queries
         collection_class=set,
         cascade="all, delete",  # Use delete to ensure child objects are deleted
         passive_deletes=True,  # Allow database-level cascade
@@ -206,7 +208,7 @@ class Account(Base):
     stories: Mapped[set[Story]] = relationship(
         "Story",
         back_populates="author",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load stories to reduce SQL queries
         collection_class=set,
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -230,7 +232,7 @@ class MediaStoryState(Base):
 
     __tablename__ = "media_story_states"
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), primary_key=True
+        BigInteger, ForeignKey("accounts.id"), primary_key=True
     )
     account: Mapped[Account] = relationship("Account", back_populates="mediaStoryState")
     status: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -271,7 +273,7 @@ class TimelineStats(Base):
 
     __tablename__ = "timeline_stats"
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), primary_key=True
+        BigInteger, ForeignKey("accounts.id"), primary_key=True
     )
     account: Mapped[Account] = relationship("Account", back_populates="timelineStats")
     imageCount: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
@@ -291,15 +293,15 @@ class TimelineStats(Base):
 account_avatar = Table(
     "account_avatar",
     Base.metadata,
-    Column("accountId", Integer, ForeignKey("accounts.id")),
-    Column("mediaId", Integer, ForeignKey("media.id")),
+    Column("accountId", BigInteger, ForeignKey("accounts.id")),
+    Column("mediaId", BigInteger, ForeignKey("media.id")),
     UniqueConstraint("accountId", "mediaId"),
 )
 account_banner = Table(
     "account_banner",
     Base.metadata,
-    Column("accountId", Integer, ForeignKey("accounts.id")),
-    Column("mediaId", Integer, ForeignKey("media.id")),
+    Column("accountId", BigInteger, ForeignKey("accounts.id")),
+    Column("mediaId", BigInteger, ForeignKey("media.id")),
     UniqueConstraint("accountId", "mediaId"),
 )
 account_media_bundle_media = Table(
@@ -307,13 +309,13 @@ account_media_bundle_media = Table(
     Base.metadata,
     Column(
         "bundle_id",
-        Integer,
+        BigInteger,
         ForeignKey("account_media_bundles.id", ondelete="CASCADE"),
         primary_key=True,
     ),
     Column(
         "media_id",
-        Integer,
+        BigInteger,
         ForeignKey("account_media.id", ondelete="CASCADE"),
         primary_key=True,
     ),
@@ -344,11 +346,11 @@ class AccountMedia(Base):
     """
 
     __tablename__ = "account_media"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     accountId: Mapped[int] = mapped_column(
-        Integer,
+        BigInteger,
         ForeignKey("accounts.id", ondelete="CASCADE"),
-        primary_key=True,
+        nullable=False,
         index=True,
     )
     account: Mapped[Account] = relationship(
@@ -365,7 +367,6 @@ class AccountMedia(Base):
     @classmethod
     def __declare_last__(cls):
         """Set up event listeners after all configuration is complete."""
-        from sqlalchemy import event
 
         @event.listens_for(Account, "after_delete")
         def delete_account_media(mapper, connection, target):
@@ -373,7 +374,7 @@ class AccountMedia(Base):
             connection.execute(cls.__table__.delete().where(cls.accountId == target.id))
 
     mediaId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("media.id", ondelete="CASCADE"), primary_key=True
+        BigInteger, ForeignKey("media.id", ondelete="CASCADE"), nullable=False
     )
     media: Mapped[Media] = relationship(
         "Media",
@@ -381,10 +382,10 @@ class AccountMedia(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load media to reduce SQL queries
     )
     previewId: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("media.id"), nullable=True
+        BigInteger, ForeignKey("media.id"), nullable=True
     )
     preview: Mapped[Media] = relationship(
         "Media",
@@ -392,7 +393,7 @@ class AccountMedia(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load preview to reduce SQL queries
     )
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deletedAt: Mapped[datetime | None] = mapped_column(
@@ -434,13 +435,13 @@ class AccountMediaBundle(Base):
     """
 
     __tablename__ = "account_media_bundles"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=False
+        BigInteger, ForeignKey("accounts.id"), nullable=False
     )
     account: Mapped[Account] = relationship("Account")
     previewId: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("media.id"), nullable=True
+        BigInteger, ForeignKey("media.id"), nullable=True
     )
     preview: Mapped[Media] = relationship(
         "Media", foreign_keys=[previewId], lazy="select"
@@ -456,7 +457,7 @@ class AccountMediaBundle(Base):
         primaryjoin="AccountMediaBundle.id == account_media_bundle_media.c.bundle_id",
         secondaryjoin="AccountMedia.id == account_media_bundle_media.c.media_id",
         collection_class=set,
-        lazy="selectin",  # Use selectin loading for better performance
+        lazy="noload",  # Don't auto-load accountMedia to reduce SQL queries
         order_by=account_media_bundle_media.c.pos,
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -479,8 +480,6 @@ class AccountMediaBundle(Base):
         )
 
         # Return the ordered list of media IDs
-        from sqlalchemy.orm import object_session
-
         sess = object_session(self)
         if sess is None:
             return []
@@ -697,11 +696,21 @@ async def process_avatar(
     # Process avatar media
     await _process_media_item_dict_inner(config, avatar_data, session=session)
 
-    # Link avatar to account
+    # Convert mediaId to int if it's a string
+    media_id = (
+        int(avatar_data["id"])
+        if isinstance(avatar_data["id"], str)
+        else avatar_data["id"]
+    )
+
+    # Remove existing avatar associations for this account (an account can only have one avatar)
     await session.execute(
-        account_avatar.insert()
-        .prefix_with("OR IGNORE")
-        .values(accountId=account.id, mediaId=avatar_data["id"])
+        account_avatar.delete().where(account_avatar.c.accountId == account.id)
+    )
+
+    # Link new avatar to account
+    await session.execute(
+        account_avatar.insert().values(accountId=account.id, mediaId=media_id)
     )
     await session.flush()
 
@@ -728,11 +737,21 @@ async def process_banner(
     # Process banner media
     await _process_media_item_dict_inner(config, banner_data, session=session)
 
-    # Link banner to account
+    # Convert mediaId to int if it's a string
+    media_id = (
+        int(banner_data["id"])
+        if isinstance(banner_data["id"], str)
+        else banner_data["id"]
+    )
+
+    # Remove existing banner associations for this account (an account can only have one banner)
     await session.execute(
-        account_banner.insert()
-        .prefix_with("OR IGNORE")
-        .values(accountId=account.id, mediaId=banner_data["id"])
+        account_banner.delete().where(account_banner.c.accountId == account.id)
+    )
+
+    # Link new banner to account
+    await session.execute(
+        account_banner.insert().values(accountId=account.id, mediaId=media_id)
     )
     await session.flush()
 

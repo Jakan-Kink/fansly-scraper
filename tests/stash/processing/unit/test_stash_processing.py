@@ -2,8 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +13,14 @@ from metadata import Account
 from stash.client import StashClient
 from stash.context import StashContext
 from stash.processing import StashProcessing
-from stash.types import Image, Performer, Studio
+from stash.types import Image, Performer
+
+# Note: These unit tests use Mock objects for Account instead of Factories because:
+# 1. These are pure unit tests that don't interact with a database
+# 2. The code needs to mock async properties (awaitable_attrs) that real Account
+#    objects can't provide without a database session
+# 3. Using Mocks is appropriate here since we're testing the processing logic in isolation
+# 4. Integration tests would use real Account instances from Factories
 
 
 @pytest.fixture
@@ -60,8 +66,14 @@ def mock_database():
 
 
 @pytest.fixture
-def mock_account():
-    """Fixture for mock account."""
+def test_account():
+    """Fixture for mock account.
+
+    Uses MagicMock instead of Factory because:
+    - Unit test without database
+    - Needs to mock async properties (awaitable_attrs)
+    - Real Account requires database session for properties
+    """
     account = MagicMock(spec=Account)
     account.id = 12345
     account.username = "test_user"
@@ -73,7 +85,7 @@ def mock_account():
 def mock_performer():
     """Fixture for mock performer."""
     performer = MagicMock(spec=Performer)
-    performer.id = "performer_123"
+    performer.id = "123"  # Use numeric string since code converts to int
     performer.name = "test_user"
     return performer
 
@@ -164,17 +176,17 @@ class TestStashProcessingAccount:
     """Test the account-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_account(self, processor, mock_account):
+    async def test_find_account(self, processor, test_account):
         """Test _find_account method."""
         # Mock session and execute
         mock_session = MagicMock(spec=Session)
-        mock_session.execute.return_value.scalar_one_or_none.return_value = mock_account
+        mock_session.execute.return_value.scalar_one_or_none.return_value = test_account
 
         # Call _find_account
         account = await processor._find_account(session=mock_session)
 
         # Verify account and session.execute was called
-        assert account == mock_account
+        assert account == test_account
         mock_session.execute.assert_called_once()
 
         # Test with no account found
@@ -191,24 +203,24 @@ class TestStashProcessingAccount:
 
     @pytest.mark.asyncio
     async def test_update_account_stash_id(
-        self, processor, mock_account, mock_performer
+        self, processor, test_account, mock_performer
     ):
         """Test _update_account_stash_id method."""
         # Create mock session
         mock_session = MagicMock(spec=AsyncSession)
-        mock_session.execute.return_value.scalar_one.return_value = mock_account
+        mock_session.execute.return_value.scalar_one.return_value = test_account
         mock_session.flush = AsyncMock()
 
         # Call _update_account_stash_id
         await processor._update_account_stash_id(
-            mock_account, mock_performer, session=mock_session
+            test_account, mock_performer, session=mock_session
         )
 
         # Verify session operations
         mock_session.execute.assert_called_once()
         assert "12345" in str(mock_session.execute.call_args)
-        assert mock_account.stash_id == mock_performer.id
-        mock_session.add.assert_called_once_with(mock_account)
+        assert test_account.stash_id == mock_performer.id
+        mock_session.add.assert_called_once_with(test_account)
         mock_session.flush.assert_called_once()
 
 
@@ -216,17 +228,17 @@ class TestStashProcessingPerformer:
     """Test the performer-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer(self, processor, mock_account):
+    async def test_find_existing_performer(self, processor, test_account):
         """Test _find_existing_performer method."""
         # Mock context.client.find_performer
         mock_performer = MagicMock(spec=Performer)
         processor.context.client.find_performer = AsyncMock(return_value=mock_performer)
 
         # Case 1: Account has stash_id
-        mock_account.stash_id = "stash_123"
+        test_account.stash_id = "stash_123"
 
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(mock_account)
+        performer = await processor._find_existing_performer(test_account)
 
         # Verify performer and find_performer was called with stash_id
         assert performer == mock_performer
@@ -234,15 +246,15 @@ class TestStashProcessingPerformer:
 
         # Case 2: Account has no stash_id
         processor.context.client.find_performer.reset_mock()
-        mock_account.stash_id = None
+        test_account.stash_id = None
 
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(mock_account)
+        performer = await processor._find_existing_performer(test_account)
 
         # Verify performer and find_performer was called with username
         assert performer == mock_performer
         processor.context.client.find_performer.assert_called_once_with(
-            mock_account.username
+            test_account.username
         )
 
         # Case 3: find_performer returns None
@@ -250,12 +262,12 @@ class TestStashProcessingPerformer:
         processor.context.client.find_performer.return_value = None
 
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(mock_account)
+        performer = await processor._find_existing_performer(test_account)
 
         # Verify performer is None
         assert performer is None
         processor.context.client.find_performer.assert_called_once_with(
-            mock_account.username
+            test_account.username
         )
 
         # Case 4: find_performer returns a coroutine
@@ -268,22 +280,22 @@ class TestStashProcessingPerformer:
         processor.context.client.find_performer.return_value = mock_coroutine()
 
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(mock_account)
+        performer = await processor._find_existing_performer(test_account)
 
         # Verify performer
         assert performer == mock_performer
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar(
-        self, processor, mock_account, mock_performer
+        self, processor, test_account, mock_performer
     ):
         """Test _update_performer_avatar method."""
         # Mock account with no avatar
-        mock_account.awaitable_attrs = MagicMock()
-        mock_account.awaitable_attrs.avatar = AsyncMock(return_value=None)
+        test_account.awaitable_attrs = MagicMock()
+        test_account.awaitable_attrs.avatar = AsyncMock(return_value=None)
 
         # Call _update_performer_avatar
-        await processor._update_performer_avatar(mock_account, mock_performer)
+        await processor._update_performer_avatar(test_account, mock_performer)
 
         # Verify no avatar update was attempted
         assert not mock_performer.update_avatar.called
@@ -291,10 +303,10 @@ class TestStashProcessingPerformer:
         # Mock account with avatar but no local_filename
         mock_avatar = MagicMock()
         mock_avatar.local_filename = None
-        mock_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
+        test_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
 
         # Call _update_performer_avatar
-        await processor._update_performer_avatar(mock_account, mock_performer)
+        await processor._update_performer_avatar(test_account, mock_performer)
 
         # Verify no avatar update was attempted
         assert not mock_performer.update_avatar.called
@@ -303,8 +315,8 @@ class TestStashProcessingPerformer:
         mock_avatar = MagicMock()
         mock_avatar.local_filename = "avatar.jpg"
         # Make sure the avatar is properly awaitable and has local_filename accessible
-        mock_account.avatar = mock_avatar  # Set directly for access in the method
-        mock_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
+        test_account.avatar = mock_avatar  # Set directly for access in the method
+        test_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
 
         # Mock performer with default image
         mock_performer.image_path = "default=true"
@@ -324,7 +336,7 @@ class TestStashProcessingPerformer:
         mock_performer.update_avatar = AsyncMock()
 
         # Call _update_performer_avatar
-        await processor._update_performer_avatar(mock_account, mock_performer)
+        await processor._update_performer_avatar(test_account, mock_performer)
 
         # Verify avatar update was attempted
         processor.context.client.find_images.assert_called_once()
@@ -339,7 +351,7 @@ class TestStashProcessingPerformer:
         mock_performer.update_avatar.reset_mock()
 
         # Call _update_performer_avatar
-        await processor._update_performer_avatar(mock_account, mock_performer)
+        await processor._update_performer_avatar(test_account, mock_performer)
 
         # Verify no avatar update was attempted
         processor.context.client.find_images.assert_called_once()
@@ -359,7 +371,7 @@ class TestStashProcessingPerformer:
             patch("stash.processing.debug_print") as mock_debug_print,
         ):
             # Call _update_performer_avatar
-            await processor._update_performer_avatar(mock_account, mock_performer)
+            await processor._update_performer_avatar(test_account, mock_performer)
 
             # Verify error handling
             mock_print_error.assert_called_once()

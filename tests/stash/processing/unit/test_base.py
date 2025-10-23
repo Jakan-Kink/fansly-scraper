@@ -150,7 +150,7 @@ class TestStashProcessingBase:
         mock_context = MagicMock(spec=StashContext)
         mock_config.get_stash_context.return_value = mock_context
 
-        # Call from_config
+        # Call from_config - use_batch_processing is handled in derived classes only
         processor = TestProcessor.from_config(
             config=mock_config,
             state=mock_state,
@@ -321,60 +321,3 @@ class TestStashProcessingBase:
 
         # Verify position is appended
         assert title == "This is the title - 2/5"
-
-    @pytest.mark.asyncio
-    async def test_setup_batch_processing(self, base_processor):
-        """Test _setup_batch_processing method."""
-        # Create test items
-        items = ["item1", "item2", "item3"]
-        item_type = "test"
-
-        # Call method
-        with patch("stash.processing.base.tqdm") as mock_tqdm:
-            task_pbar, process_pbar, semaphore, queue = (
-                await base_processor._setup_batch_processing(items, item_type)
-            )
-
-            # Verify tqdm calls
-            assert mock_tqdm.call_count == 2
-            assert "Adding 3 test tasks" in str(mock_tqdm.call_args_list[0])
-            assert "Processing 3 tests" in str(mock_tqdm.call_args_list[1])
-
-            # Verify semaphore and queue
-            assert isinstance(semaphore, asyncio.Semaphore)
-            assert isinstance(queue, asyncio.Queue)
-
-    @pytest.mark.asyncio
-    async def test_run_batch_processor(self, base_processor):
-        """Test _run_batch_processor method."""
-        # Create mock objects
-        items = ["item1", "item2", "item3", "item4", "item5"]
-        batch_size = 2
-        task_pbar = MagicMock()
-        process_pbar = MagicMock()
-        semaphore = asyncio.Semaphore(2)
-        queue = asyncio.Queue()
-
-        # Mock process_batch function
-        process_batch = AsyncMock()
-
-        # Call method
-        await base_processor._run_batch_processor(
-            items=items,
-            batch_size=batch_size,
-            task_pbar=task_pbar,
-            process_pbar=process_pbar,
-            semaphore=semaphore,
-            queue=queue,
-            process_batch=process_batch,
-        )
-
-        # Verify process_batch calls (should be called for each batch)
-        assert process_batch.call_count == 3  # 5 items with batch size 2 = 3 batches
-        process_batch.assert_any_call(["item1", "item2"])
-        process_batch.assert_any_call(["item3", "item4"])
-        process_batch.assert_any_call(["item5"])
-
-        # Verify progress bars closed
-        task_pbar.close.assert_called_once()
-        process_pbar.close.assert_called_once()

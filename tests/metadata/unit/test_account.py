@@ -1,47 +1,53 @@
 """Unit tests for metadata.account module."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.orm import contains_eager, joinedload, selectinload
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from metadata.account import (
     Account,
-    AccountMedia,
     AccountMediaBundle,
     TimelineStats,
     account_media_bundle_media,
     process_media_bundles,
 )
-from metadata.base import Base
+from tests.fixtures import (
+    AccountFactory,
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
+)
 
 
 @pytest.mark.asyncio
-async def test_account_media_bundle_creation(session):
-    """Test creating an AccountMediaBundle with ordered content."""
-    # Create account
-    account = Account(id=1, username="test_user")
-    session.add(account)
-    await session.commit()
+async def test_account_media_bundle_creation(session, session_sync):
+    """Test creating an AccountMediaBundle with ordered content.
 
-    # Create media items
-    media1 = AccountMedia(
-        id=1, accountId=1, mediaId=101, createdAt=datetime.now(timezone.utc)
-    )
-    media2 = AccountMedia(
-        id=2, accountId=1, mediaId=102, createdAt=datetime.now(timezone.utc)
-    )
-    session.add_all([media1, media2])
-    await session.commit()
+    Note: Uses both async session (for queries) and sync session (for factories).
+    FactoryBoy requires sync sessions, but the test logic uses async.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account using factory (sync)
+    AccountFactory(id=1, username="test_user")
 
-    # Create bundle
-    bundle = AccountMediaBundle(id=1, accountId=1, createdAt=datetime.now(timezone.utc))
-    session.add(bundle)
-    await session.commit()
+    # Create Media records first (required by foreign key constraints)
+    from tests.fixtures import MediaFactory
 
-    # Add media to bundle with positions
+    MediaFactory(id=101, accountId=1)
+    MediaFactory(id=102, accountId=1)
+
+    # Create AccountMedia items linking to Media records
+    AccountMediaFactory(id=1, accountId=1, mediaId=101)
+    AccountMediaFactory(id=2, accountId=1, mediaId=102)
+
+    # Create bundle using factory
+    AccountMediaBundleFactory(id=1, accountId=1)
+
+    # Expire all objects in the async session so it fetches fresh data from the database
+    session.expire_all()
+
+    # Add media to bundle with positions (this is async, so use session)
     await session.execute(
         account_media_bundle_media.insert().values(
             [
@@ -69,17 +75,19 @@ async def test_account_media_bundle_creation(session):
 
 
 @pytest.mark.asyncio
-async def test_update_optimization(session):
-    """Test that attributes are only updated when values actually change."""
-    # Create initial account
-    account = Account(id=1, username="test_user", displayName="Test User")
-    session.add(account)
-    await session.commit()
+async def test_update_optimization(session, session_sync, config):
+    """Test that attributes are only updated when values actually change.
 
-    # Create mock config
-    mock_config = MagicMock()
-    mock_config._database = MagicMock()
-    mock_config._database.async_session = AsyncMock(return_value=session)
+    Uses real config fixture instead of mock, and AccountFactory for initial data.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    from metadata.account import process_account_data
+
+    # Create initial account using factory (sync)
+    account = AccountFactory(id=1, username="test_user", displayName="Test User")
+
+    # Expire all objects in the async session so it fetches fresh data from the database
+    session.expire_all()
 
     # Update with same values
     data = {
@@ -91,9 +99,8 @@ async def test_update_optimization(session):
             "videoCount": 0,
         },
     }
-    from metadata.account import process_account_data
 
-    await process_account_data(mock_config, data, session=session)
+    await process_account_data(config, data, session=session)
 
     # Get initial state
     result = await session.execute(select(Account).filter_by(id=1))
@@ -102,9 +109,10 @@ async def test_update_optimization(session):
 
     # Update with different values
     data["displayName"] = "New Name"
-    await process_account_data(mock_config, data, session=session)
+    await process_account_data(config, data, session=session)
 
-    # Check that UPDATE was performed
+    # Expire and re-query to ensure we get the latest data
+    session.expire_all()
     result = await session.execute(select(Account).filter_by(id=1))
     account = result.scalar_one_or_none()
     assert account.displayName == "New Name", "Value should be updated"
@@ -112,28 +120,29 @@ async def test_update_optimization(session):
 
 
 @pytest.mark.asyncio
-async def test_timeline_stats_optimization(session):
-    """Test that timeline stats are only updated when values change."""
+async def test_timeline_stats_optimization(session, session_sync, config):
+    """Test that timeline stats are only updated when values change.
+
+    Uses real config fixture instead of mock, and AccountFactory for initial data.
+    factory_session is autouse=True so it's automatically applied.
+    """
     from metadata.account import process_account_data
 
-    # Create initial account and timeline stats
-    account = Account(id=1, username="test_user")
-    session.add(account)
-    await session.commit()
+    # Create initial account using factory (sync)
+    account = AccountFactory(id=1, username="test_user")
 
+    # Create timeline stats manually using sync session
     stats = TimelineStats(
         accountId=1,
         imageCount=10,
         videoCount=5,
         fetchedAt=datetime.now(timezone.utc),
     )
-    session.add(stats)
-    await session.commit()
+    session_sync.add(stats)
+    session_sync.commit()
 
-    # Create mock config
-    mock_config = MagicMock()
-    mock_config._database = MagicMock()
-    mock_config._database.async_session = AsyncMock(return_value=session)
+    # Expire all objects in the async session so it fetches fresh data from the database
+    session.expire_all()
 
     # Update with same values
     data = {
@@ -145,7 +154,7 @@ async def test_timeline_stats_optimization(session):
             "fetchedAt": int(datetime(2023, 10, 10, tzinfo=timezone.utc).timestamp()),
         },
     }
-    await process_account_data(mock_config, data, session=session)
+    await process_account_data(config, data, session=session)
 
     # Get initial state
     stmt = select(TimelineStats).filter_by(accountId=1)
@@ -155,9 +164,10 @@ async def test_timeline_stats_optimization(session):
 
     # Update with different values
     data["timelineStats"]["imageCount"] = 15
-    await process_account_data(mock_config, data, session=session)
+    await process_account_data(config, data, session=session)
 
-    # Check that UPDATE was performed
+    # Expire and re-query to ensure we get the latest data
+    session.expire_all()
     stmt = select(TimelineStats).filter_by(accountId=1)
     result = await session.execute(stmt)
     stats = result.scalar_one_or_none()
@@ -166,23 +176,26 @@ async def test_timeline_stats_optimization(session):
 
 
 @pytest.mark.asyncio
-async def test_process_media_bundles(session):
-    """Test processing media bundles from API response."""
-    # Create account and media first
-    account = Account(id=1, username="test_user")
-    media1 = AccountMedia(
-        id=101, accountId=1, mediaId=1001, createdAt=datetime.now(timezone.utc)
-    )
-    media2 = AccountMedia(
-        id=102, accountId=1, mediaId=1002, createdAt=datetime.now(timezone.utc)
-    )
-    session.add_all([account, media1, media2])
-    await session.commit()
+async def test_process_media_bundles(session, session_sync, config):
+    """Test processing media bundles from API response.
 
-    # Create mock config
-    mock_config = MagicMock()
-    mock_config._database = MagicMock()
-    mock_config._database.async_session = AsyncMock(return_value=session)
+    Uses real config fixture and factories for test data creation.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    from tests.fixtures import MediaFactory
+
+    # Create account using factory
+    AccountFactory(id=1, username="test_user")
+
+    # Create Media records first (required by foreign key constraints)
+    MediaFactory(id=1001, accountId=1)
+    MediaFactory(id=1002, accountId=1)
+
+    # Create AccountMedia items linking to Media records
+    AccountMediaFactory(id=101, accountId=1, mediaId=1001)
+    AccountMediaFactory(id=102, accountId=1, mediaId=1002)
+
+    await session.flush()  # Sync factory data to async session
 
     # Process bundles
     bundles_data = [
@@ -197,7 +210,7 @@ async def test_process_media_bundles(session):
         }
     ]
 
-    await process_media_bundles(mock_config, 1, bundles_data, session=session)
+    await process_media_bundles(config, 1, bundles_data, session=session)
 
     # Verify bundle was created
     # Use a single query with eager loading of the relationship

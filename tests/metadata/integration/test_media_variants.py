@@ -3,7 +3,7 @@
 import pytest
 
 from metadata.messages import process_messages_metadata
-from tests.metadata.conftest import TestDatabase
+from tests.fixtures.database_fixtures import TestDatabase
 from tests.metadata.helpers.utils import (
     verify_media_bundle_content,
     verify_media_variants,

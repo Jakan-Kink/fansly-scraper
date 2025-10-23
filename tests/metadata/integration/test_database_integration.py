@@ -19,197 +19,11 @@ from fansly_downloader_ng import cleanup_database, cleanup_database_sync
 from metadata.account import Account
 from metadata.database import Database
 
-
-@pytest.fixture
-def config(tmp_path: Path) -> FanslyConfig:
-    """Create test configuration."""
-    config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = tmp_path / "test.db"
-    config.download_mode = DownloadMode.NORMAL
-    config.user_names = ["test_user"]
-    return config
-
-
-class TestDatabaseCleanup:
-    """Test database cleanup functionality."""
-
-    @pytest.fixture
-    def database(self):
-        """Create a temporary database for testing."""
-        # Create a temporary database file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-        temp_file.close()
-
-        # Create a config with the temporary file
-        config = FanslyConfig(program_version="test")
-        config.metadata_db_file = Path(temp_file.name)
-
-        # Create the database using the config
-        database = Database(config)
-
-        # Set up the schema
-        with Session(database._sync_engine) as session:
-            session.execute(
-                text(
-                    "CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY, username TEXT)"
-                )
-            )
-            session.commit()
-
-            # Insert a test account
-            session.execute(
-                text("INSERT INTO accounts (id, username) VALUES (1, 'test_user')")
-            )
-            session.commit()
-
-        yield database
-
-        # Clean up temporary file
-        try:
-            os.unlink(temp_file.name)
-        except Exception as e:
-            # Log or handle the specific exception
-            print(f"Error deleting temporary file: {e}")
-
-    @pytest.mark.asyncio
-    async def test_async_cleanup(self, database):
-        """Test that async cleanup works properly."""
-        # Verify database is working initially
-        async with AsyncSession(database._async_engine) as session:
-            # Check that we can query data
-            result = await session.execute(
-                select(Account.username).where(Account.id == 1)
-            )
-            account = result.scalar_one_or_none()
-            assert account == "test_user"
-
-        # Now clean up the database
-        await database.cleanup()
-
-        # Simply verify that the database file exists after cleanup
-        assert os.path.exists(database.db_file)
-
-    def test_sync_cleanup(self, database):
-        """Test that sync cleanup works properly."""
-        # Verify database is working initially
-        with Session(database._sync_engine) as session:
-            # Check that we can query data
-            result = session.execute(select(Account.username).where(Account.id == 1))
-            account = result.scalar_one()
-            assert account == "test_user"
-
-        # Now clean up the database
-        database.close_sync()
-
-        # Simply verify that the database file exists after cleanup
-        assert os.path.exists(database.db_file)
-
-        # Note: We don't attempt to verify that the database connection is closed
-        # as the behavior varies across SQLAlchemy versions and SQLite configurations
-
-
-class TestPerCreatorDatabase:
-    """Test per-creator database functionality."""
-
-    @pytest.mark.asyncio
-    async def test_creator_database_lifecycle(
-        self, config: FanslyConfig, tmp_path: Path
-    ):
-        """Test creation and cleanup of per-creator database."""
-        # Add debug prints to verify tmp_path is unique
-        print(f"\nDEBUG: tmp_path is {tmp_path}")
-        print(f"DEBUG: tmp_path exists: {os.path.exists(tmp_path)}")
-        print(f"DEBUG: tmp_path contents: {list(os.listdir(tmp_path))}")
-
-        config.separate_metadata = True
-        config.base_directory = str(tmp_path)
-        creator_name = "test_user"
-
-        # Create the metadata directory structure first
-        metadata_dir = tmp_path / "metadata"
-        metadata_dir.mkdir(parents=True, exist_ok=True)
-
-        # Mock API response
-        api_mock = MagicMock()
-        api_mock.get_creator_account_info.return_value.json.return_value = {
-            "response": [{"id": 1, "username": creator_name}]
-        }
-
-        # Calculate the correct database path based on the implementation
-        safe_name = "".join(c if c.isalnum() else "_" for c in creator_name)
-        creator_db_path = metadata_dir / f"{safe_name}_metadata.sqlite3"
-        print(f"DEBUG: creator_db_path: {creator_db_path}")
-        print(
-            f"DEBUG: creator_db_path exists before creation: {os.path.exists(creator_db_path)}"
-        )
-
-        # Make sure no old database exists (in case tmp_path wasn't cleaned up)
-        if os.path.exists(creator_db_path):
-            print("DEBUG: Removing existing database file")
-            os.unlink(creator_db_path)
-
-        # Set the database file path in config
-        config.metadata_db_file = creator_db_path
-
-        # Create the database with the creator name parameter
-        creator_database = Database(config, creator_name=creator_name)
-
-        # Create some test data - use if not exists to avoid errors with existing tables
-        async with creator_database.async_session_scope() as session:
-            try:
-                await session.execute(
-                    text("CREATE TABLE test (id INTEGER PRIMARY KEY)")
-                )
-                print("DEBUG: Successfully created table")
-            except Exception as e:
-                print(f"DEBUG: Error creating table: {e}")
-
-            await session.execute(text("INSERT INTO test VALUES (1)"))
-
-        # Clean up
-        await creator_database.cleanup()
-        print(
-            f"DEBUG: After cleanup, creator_db_path exists: {os.path.exists(creator_db_path)}"
-        )
-
-        # Verify cleanup - database file should still exist
-        assert os.path.exists(
-            creator_db_path
-        ), f"Database file does not exist at {creator_db_path}"
-
-
-class TestDatabaseMigrations:
-    """Test database migration handling."""
-
-    def test_automatic_migrations(self, tmp_path: Path):
-        """Test migrations are run automatically."""
-        # Create database with migrations
-        db_path = tmp_path / "test.db"
-        database = Database(
-            FanslyConfig(program_version="test", metadata_db_file=db_path)
-        )
-
-        # Verify alembic_version table exists
-        with database.session_scope() as session:
-            result = session.execute(
-                text(
-                    "SELECT name FROM sqlite_master "
-                    "WHERE type='table' AND name='alembic_version'"
-                )
-            ).scalar()
-            assert result == "alembic_version"
-
-    @pytest.mark.asyncio
-    async def test_migration_error_handling(self, tmp_path: Path):
-        """Test handling of migration errors."""
-        # Create invalid migration version
-        db_path = tmp_path / "test.db"
-        with open(db_path, "w") as f:
-            f.write("invalid database")
-
-        # Should handle invalid database gracefully
-        with pytest.raises(Exception):
-            Database(FanslyConfig(program_version="test", metadata_db_file=db_path))
+# Removed deprecated SQLite-specific fixtures and test classes:
+# - config_sqlite fixture
+# - TestDatabaseCleanup (cleanup now tested in TestDatabaseThreading)
+# - TestPerCreatorDatabase (PostgreSQL uses schema-based isolation)
+# - TestDatabaseMigrations (PostgreSQL migration tests covered elsewhere)
 
 
 class TestDatabaseThreading:
@@ -217,26 +31,71 @@ class TestDatabaseThreading:
 
     @pytest.fixture
     def thread_test_database(self):
-        """Create a temporary database for threading tests."""
-        # Create a temporary database file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-        temp_file.close()
+        """Create a temporary database for threading tests using PostgreSQL with UUID isolation."""
+        import uuid
 
-        # Create a config with the temporary file
+        from sqlalchemy import create_engine, text
+
+        # Generate unique database name
+        test_db_name = f"test_{uuid.uuid4().hex[:16]}"
+
+        # Connect to postgres database to create test database
+        admin_config = FanslyConfig(program_version="test")
+        admin_config.pg_host = os.getenv("FANSLY_PG_HOST", "localhost")
+        admin_config.pg_port = int(os.getenv("FANSLY_PG_PORT", "5432"))
+        admin_config.pg_database = "postgres"  # Connect to default postgres DB
+        admin_config.pg_user = os.getenv("FANSLY_PG_USER", "fansly_user")
+        admin_config.pg_password = os.getenv("FANSLY_PG_PASSWORD", "")
+
+        # Build admin connection URL
+        password = admin_config.pg_password or ""
+        from urllib.parse import quote_plus
+
+        password_encoded = quote_plus(password)
+        admin_url = f"postgresql://{admin_config.pg_user}:{password_encoded}@{admin_config.pg_host}:{admin_config.pg_port}/postgres"
+
+        # Create the test database
+        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{test_db_name}"'))
+        admin_engine.dispose()
+
+        # Now create config pointing to our test database
         config = FanslyConfig(program_version="test")
-        config.metadata_db_file = Path(temp_file.name)
+        config.pg_host = admin_config.pg_host
+        config.pg_port = admin_config.pg_port
+        config.pg_database = test_db_name
+        config.pg_user = admin_config.pg_user
+        config.pg_password = admin_config.pg_password
+        config.metadata_db_file = None
 
-        # Create the database using the config
-        database = Database(config)
+        # Create the database instance (with migrations)
+        database = Database(config, skip_migrations=False)
 
         yield database
 
-        # Clean up temporary file
+        # Clean up - close connections and drop database
         try:
-            os.unlink(temp_file.name)
+            database.close_sync()
+
+            # Reconnect to postgres database to drop test database
+            admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+            with admin_engine.connect() as conn:
+                # Terminate any remaining connections
+                conn.execute(
+                    text(
+                        f"""
+                    SELECT pg_terminate_backend(pg_stat_activity.pid)
+                    FROM pg_stat_activity
+                    WHERE pg_stat_activity.datname = '{test_db_name}'
+                    AND pid <> pg_backend_pid()
+                """
+                    )
+                )
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{test_db_name}"'))
+            admin_engine.dispose()
         except Exception as e:
-            # Log or handle the specific exception
-            print(f"Error deleting temporary file: {e}")
+            print(f"Error during database cleanup: {e}")
 
     @pytest.mark.asyncio
     async def test_concurrent_access(self, thread_test_database):
@@ -261,29 +120,28 @@ class TestDatabaseThreading:
             assert count == 5
 
     def test_thread_local_connections(self, thread_test_database):
-        """Test thread-local connection management."""
-        # Skip this test because SQLite has inconsistent threading behavior
-        # that causes unpredictable errors in CI environments
-        pytest.skip(
-            "Skipping thread_local_connections test due to SQLite threading limitations"
-        )
+        """Test thread-local connection management.
 
-        # The original test below is kept for reference but not executed
+        PostgreSQL has robust threading support, so this test is now enabled.
         """
+        from sqlalchemy.exc import ProgrammingError
+
         results = []
         errors = []
+
+        # Create table once before threading to avoid race condition
+        with thread_test_database.session_scope() as session:
+            session.execute(
+                text("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY)")
+            )
 
         def worker(worker_id):
             try:
                 with thread_test_database.session_scope() as session:
-                    # Create the table if it doesn't exist
+                    # PostgreSQL: Use parameterized queries
                     session.execute(
-                        text("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY)")
+                        text("INSERT INTO test (id) VALUES (:id)"), {"id": worker_id}
                     )
-
-                    # Use a simpler approach - no parameter binding, just direct values
-                    # This is less ideal but more likely to work across SQLite versions
-                    session.execute(text(f"INSERT INTO test VALUES ({worker_id})"))
 
                     # Successfully completed
                     results.append(True)
@@ -313,4 +171,3 @@ class TestDatabaseThreading:
         with thread_test_database.session_scope() as session:
             count = session.execute(text("SELECT COUNT(*) FROM test")).scalar()
             assert count == 3, f"Expected 3 records in the database, got {count}"
-        """

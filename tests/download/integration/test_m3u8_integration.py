@@ -37,11 +37,17 @@ class TestM3U8Integration:
         with tempfile.TemporaryDirectory() as tmpdirname:
             yield Path(tmpdirname)
 
-    @patch("download.m3u8.run_ffmpeg")
-    def test_full_m3u8_download_workflow(self, mock_run_ffmpeg, mock_config, temp_dir):
-        """Test the full M3U8 download workflow with mocked segments."""
+    @patch("download.m3u8.ffmpeg")
+    @patch("download.m3u8._try_direct_download")
+    def test_full_m3u8_download_workflow(
+        self, mock_direct_download, mock_ffmpeg, mock_config, temp_dir
+    ):
+        """Test the full M3U8 download workflow with segment download fallback."""
         # Setup config and mock responses
         config, mock_api, mock_response = mock_config
+
+        # Mock direct download to fail (forces segment download)
+        mock_direct_download.return_value = False
 
         # First response - master playlist
         master_playlist = """#EXTM3U
@@ -80,10 +86,12 @@ segment2.ts
         mock_segment_response1 = MagicMock(spec=requests.Response)
         mock_segment_response1.status_code = 200
         mock_segment_response1.iter_content.return_value = [segment_content]
+        mock_segment_response1.iter_bytes.return_value = [segment_content]
 
         mock_segment_response2 = MagicMock(spec=requests.Response)
         mock_segment_response2.status_code = 200
         mock_segment_response2.iter_content.return_value = [segment_content]
+        mock_segment_response2.iter_bytes.return_value = [segment_content]
 
         # Configure the API mock to return the sequence of responses
         mock_api.get_with_ngsw.return_value.__enter__.side_effect = [
@@ -92,6 +100,14 @@ segment2.ts
             mock_segment_response1,  # 3. First segment
             mock_segment_response2,  # 4. Second segment
         ]
+
+        # Mock ffmpeg concat
+        mock_stream = MagicMock()
+        mock_stream.get_args.return_value = ["ffmpeg", "-f", "concat", "-i", "list.ffc"]
+        mock_stream.run.return_value = None
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
+            mock_stream
+        )
 
         # Mock exists check for segments
         with patch("pathlib.Path.exists", return_value=True):
@@ -110,7 +126,8 @@ segment2.ts
 
                 # Verify results
                 assert result == save_path.parent / "video.mp4"
-                mock_run_ffmpeg.assert_called_once()
+                mock_direct_download.assert_called_once()  # Tried direct first
+                mock_stream.run.assert_called_once()  # Then fell back to segment concat
 
                 # Check API calls
                 assert (
@@ -118,16 +135,20 @@ segment2.ts
                 )  # At minimum we should call for master, playlist, and segments
 
                 # Verify the segment response was handled correctly
-                mock_segment_response1.iter_content.assert_called_once()
-                mock_segment_response2.iter_content.assert_called_once()
+                assert mock_segment_response1.iter_bytes.called
+                assert mock_segment_response2.iter_bytes.called
 
-    @patch("download.m3u8.run_ffmpeg")
+    @patch("download.m3u8.ffmpeg")
+    @patch("download.m3u8._try_direct_download")
     def test_m3u8_download_with_error_handling(
-        self, mock_run_ffmpeg, mock_config, temp_dir
+        self, mock_direct_download, mock_ffmpeg, mock_config, temp_dir
     ):
         """Test M3U8 download with error handling for missing segments."""
         # Setup config and mock responses
         config, mock_api, mock_response = mock_config
+
+        # Mock direct download to fail (forces segment download)
+        mock_direct_download.return_value = False
 
         # Segment playlist with segment links
         segment_playlist = """#EXTM3U
@@ -152,6 +173,7 @@ segment2.ts
         mock_segment_response1 = MagicMock(spec=requests.Response)
         mock_segment_response1.status_code = 200
         mock_segment_response1.iter_content.return_value = [segment_content]
+        mock_segment_response1.iter_bytes.return_value = [segment_content]
 
         # Second segment fails
         mock_segment_response2 = MagicMock(spec=requests.Response)
@@ -192,15 +214,21 @@ segment2.ts
                     )
 
                 assert "Stream segments failed to download" in str(excinfo.value)
-                mock_run_ffmpeg.assert_not_called()  # FFMPEG should not be called
+                mock_direct_download.assert_called_once()
 
-    @patch("download.m3u8.run_ffmpeg")
+    @patch("download.m3u8.ffmpeg")
+    @patch("download.m3u8._try_direct_download")
     def test_m3u8_download_with_ffmpeg_error(
-        self, mock_run_ffmpeg, mock_config, temp_dir
+        self, mock_direct_download, mock_ffmpeg, mock_config, temp_dir
     ):
         """Test M3U8 download with error handling for FFMPEG failure."""
+        import ffmpeg as ffmpeg_lib
+
         # Setup config and mock responses
         config, mock_api, mock_response = mock_config
+
+        # Mock direct download to fail (forces segment download)
+        mock_direct_download.return_value = False
 
         # Segment playlist with segment links
         segment_playlist = """#EXTM3U
@@ -225,10 +253,12 @@ segment2.ts
         mock_segment_response1 = MagicMock(spec=requests.Response)
         mock_segment_response1.status_code = 200
         mock_segment_response1.iter_content.return_value = [segment_content]
+        mock_segment_response1.iter_bytes.return_value = [segment_content]
 
         mock_segment_response2 = MagicMock(spec=requests.Response)
         mock_segment_response2.status_code = 200
         mock_segment_response2.iter_content.return_value = [segment_content]
+        mock_segment_response2.iter_bytes.return_value = [segment_content]
 
         # Configure the API mock to return the sequence of responses
         mock_api.get_with_ngsw.return_value.__enter__.side_effect = [
@@ -238,10 +268,12 @@ segment2.ts
         ]
 
         # Set up ffmpeg to raise an error
-        from subprocess import CalledProcessError
-
-        mock_error = CalledProcessError(1, "ffmpeg", stderr=b"FFMPEG error")
-        mock_run_ffmpeg.side_effect = mock_error
+        mock_stream = MagicMock()
+        mock_stream.run.side_effect = ffmpeg_lib.Error("ffmpeg", b"", b"FFMPEG error")
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
+            mock_stream
+        )
+        mock_ffmpeg.Error = ffmpeg_lib.Error
 
         # Mock exists check for segments
         with patch("pathlib.Path.exists", return_value=True):
@@ -260,7 +292,7 @@ segment2.ts
                     )
 
                 assert "Error running ffmpeg" in str(excinfo.value)
-                mock_run_ffmpeg.assert_called_once()
+                mock_stream.run.assert_called_once()
 
     def test_m3u8_error_propagation(self, mock_config):
         """Test proper error propagation when API returns an error."""
@@ -282,11 +314,17 @@ segment2.ts
         assert "403" in str(excinfo.value)
         mock_api.get_with_ngsw.assert_called_once()
 
-    @patch("download.m3u8.run_ffmpeg")
-    def test_m3u8_with_timestamp_setting(self, mock_run_ffmpeg, mock_config, temp_dir):
+    @patch("download.m3u8.ffmpeg")
+    @patch("download.m3u8._try_direct_download")
+    def test_m3u8_with_timestamp_setting(
+        self, mock_direct_download, mock_ffmpeg, mock_config, temp_dir
+    ):
         """Test M3U8 download with timestamp setting."""
         # Setup config and mock responses
         config, mock_api, mock_response = mock_config
+
+        # Mock direct download to fail (forces segment download)
+        mock_direct_download.return_value = False
 
         # Segment playlist
         segment_playlist = """#EXTM3U
@@ -311,10 +349,12 @@ segment2.ts
         mock_segment_response1 = MagicMock(spec=requests.Response)
         mock_segment_response1.status_code = 200
         mock_segment_response1.iter_content.return_value = [segment_content]
+        mock_segment_response1.iter_bytes.return_value = [segment_content]
 
         mock_segment_response2 = MagicMock(spec=requests.Response)
         mock_segment_response2.status_code = 200
         mock_segment_response2.iter_content.return_value = [segment_content]
+        mock_segment_response2.iter_bytes.return_value = [segment_content]
 
         # Configure the API mock to return the sequence of responses
         mock_api.get_with_ngsw.return_value.__enter__.side_effect = [
@@ -322,6 +362,14 @@ segment2.ts
             mock_segment_response1,  # First segment
             mock_segment_response2,  # Second segment
         ]
+
+        # Mock ffmpeg concat
+        mock_stream = MagicMock()
+        mock_stream.get_args.return_value = ["ffmpeg", "-f", "concat", "-i", "list.ffc"]
+        mock_stream.run.return_value = None
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
+            mock_stream
+        )
 
         # Created timestamp
         created_at = 1633046400  # October 1, 2021
@@ -344,9 +392,37 @@ segment2.ts
 
                 # Verify results
                 assert result == save_path.parent / "video.mp4"
-                mock_run_ffmpeg.assert_called_once()
+                mock_stream.run.assert_called_once()
 
                 # Check that timestamp was set
                 mock_utime.assert_called_once_with(
                     save_path.parent / "video.mp4", (created_at, created_at)
                 )
+
+    @patch("download.m3u8._try_direct_download")
+    @patch("download.m3u8._try_segment_download")
+    def test_m3u8_direct_download_success(
+        self, mock_segment_download, mock_direct_download, mock_config, temp_dir
+    ):
+        """Test M3U8 download when direct download succeeds (fast path)."""
+        # Setup config
+        config, mock_api, mock_response = mock_config
+
+        # Mock direct download to succeed
+        mock_direct_download.return_value = True
+
+        # Create directory for test
+        save_path = temp_dir / "video.ts"
+        save_path.parent.mkdir(exist_ok=True)
+
+        # Run the download
+        result = download_m3u8(
+            config=config,
+            m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+            save_path=save_path,
+        )
+
+        # Verify results
+        assert result == save_path.parent / "video.mp4"
+        mock_direct_download.assert_called_once()  # Tried direct
+        mock_segment_download.assert_not_called()  # Did NOT fall back

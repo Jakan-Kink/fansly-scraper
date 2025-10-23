@@ -32,27 +32,7 @@ from fileio.normalize import normalize_filename
 from metadata.account import Account
 from metadata.media import Media
 
-
-@pytest.fixture
-def mock_config():
-    """Create a mock FanslyConfig with configured database."""
-    config = MagicMock(spec=FanslyConfig)
-    config._database = MagicMock()
-    config._database.async_session_scope = MagicMock()
-
-    # Create an AsyncMock for the context manager
-    mock_context = AsyncMock()
-    mock_context.__aenter__.return_value = AsyncMock(spec=AsyncSession)
-    config._database.async_session_scope.return_value = mock_context
-
-    # Set up batch_sync_settings context manager
-    config._database.batch_sync_settings = MagicMock()
-    mock_batch_context = MagicMock()
-    config._database.batch_sync_settings.return_value = mock_batch_context
-    mock_batch_context.__enter__ = MagicMock()
-    mock_batch_context.__exit__ = MagicMock()
-
-    return config
+# Removed local mock_config fixture - use centralized 'config' fixture from conftest.py
 
 
 @pytest.fixture
@@ -383,59 +363,76 @@ async def test_categorize_file(temp_dir):
 
 
 @pytest.mark.asyncio
-async def test_migrate_full_paths_to_filenames(mock_config):
-    """Test migrate_full_paths_to_filenames function."""
-    # Create mock session
-    mock_session = AsyncMock(spec=AsyncSession)
-    mock_context = AsyncMock()
-    mock_context.__aenter__.return_value = mock_session
-    mock_config._database.async_session_scope.return_value = mock_context
+async def test_migrate_full_paths_to_filenames(config, test_database):
+    """Test migrate_full_paths_to_filenames function with real database."""
+    # Attach database to config (required by migrate_full_paths_to_filenames)
+    config._database = test_database
 
     # Test case 1: No records need migration
-    mock_count_result = MagicMock()
-    mock_count_result.scalar.return_value = 0
-    mock_session.execute.return_value = mock_count_result
+    async with test_database.async_session_scope() as session:
+        # Verify no media records exist
+        result = await session.execute(select(Media))
+        media_list = result.scalars().all()
+        assert len(media_list) == 0
 
-    # Patch the select query creation to avoid SQLAlchemy type checking
-    with patch("fileio.dedupe.select", autospec=True) as mock_select:
-        mock_select.return_value = MagicMock(name="select_query")
+    # Should complete without error when no records exist
+    await migrate_full_paths_to_filenames(config)
 
-        await migrate_full_paths_to_filenames(mock_config)
+    # Test case 2: Records need migration (full paths)
+    async with test_database.async_session_scope() as session:
+        # First create an account (required foreign key)
+        account = Account(
+            id=10001,
+            username="test_user",
+            displayName="Test User",
+        )
+        session.add(account)
+        await session.flush()
 
-        # Should have checked count and then exited
-        mock_session.execute.assert_called_once()
-        mock_select.assert_called()
+        # Create media records with full paths (Unix style)
+        media1 = Media(
+            id=1001,
+            accountId=10001,
+            local_filename="/path/to/file1.jpg",
+            mimetype="image/jpeg",
+        )
+        # Create media record with nested Unix path (more realistic)
+        media2 = Media(
+            id=1002,
+            accountId=10001,
+            local_filename="/another/path/to/file2.jpg",
+            mimetype="image/jpeg",
+        )
+        # Create media record with just filename (no migration needed)
+        media3 = Media(
+            id=1003,
+            accountId=10001,
+            local_filename="file3.jpg",
+            mimetype="image/jpeg",
+        )
 
-    # Reset mocks
-    mock_session.execute.reset_mock()
+        session.add_all([media1, media2, media3])
+        await session.commit()
 
-    # Test case 2: Records need migration
-    mock_count_result = MagicMock()
-    mock_count_result.scalar.return_value = 2
-    mock_records = MagicMock()
-    mock_records.fetchall.return_value = [
-        MagicMock(id=1, local_filename="/path/to/file1.jpg"),
-        MagicMock(id=2, local_filename="C:\\path\\to\\file2.jpg"),
-    ]
-    mock_session.execute.side_effect = [mock_count_result, mock_records]
+    # Run migration
+    await migrate_full_paths_to_filenames(config)
 
-    # Mock Media retrieval
-    mock_media1 = MagicMock(spec=Media)
-    mock_media2 = MagicMock(spec=Media)
-    mock_session.get.side_effect = [mock_media1, mock_media2]
+    # Verify migration results
+    async with test_database.async_session_scope() as session:
+        # Check media1 - should have path stripped
+        result = await session.execute(select(Media).where(Media.id == 1001))
+        updated_media1 = result.scalar_one()
+        assert updated_media1.local_filename == "file1.jpg"
 
-    # Execute function - patch select again to avoid SQLAlchemy type checking
-    with patch("fileio.dedupe.select", autospec=True) as mock_select:
-        mock_select.return_value = MagicMock(name="select_query")
-        with patch(
-            "fileio.dedupe.get_filename_only", side_effect=["file1.jpg", "file2.jpg"]
-        ):
-            await migrate_full_paths_to_filenames(mock_config)
+        # Check media2 - should have nested path stripped
+        result = await session.execute(select(Media).where(Media.id == 1002))
+        updated_media2 = result.scalar_one()
+        assert updated_media2.local_filename == "file2.jpg"
 
-    # Should have made calls to update both records
-    assert mock_session.get.call_count == 2
-    assert mock_media1.local_filename == "file1.jpg"
-    assert mock_media2.local_filename == "file2.jpg"
+        # Check media3 - should be unchanged
+        result = await session.execute(select(Media).where(Media.id == 1003))
+        updated_media3 = result.scalar_one()
+        assert updated_media3.local_filename == "file3.jpg"
 
 
 @pytest.mark.asyncio
@@ -449,7 +446,7 @@ async def test_get_or_create_media(mock_config, mock_state, temp_dir):
 
     # Test case 1: Media found by ID with hash
     mock_media = MagicMock(spec=Media)
-    mock_media.id = "12345"
+    mock_media.id = 12345
     mock_media.content_hash = "existing_hash"
     mock_media.local_filename = "2023-05-01_id_12345.jpg"
     mock_result = MagicMock()
@@ -458,7 +455,7 @@ async def test_get_or_create_media(mock_config, mock_state, temp_dir):
 
     media, hash_verified = await get_or_create_media(
         file_path=file_path,
-        media_id="12345",
+        media_id=12345,  # Use integer not string
         mimetype="image/jpeg",
         state=mock_state,
         file_hash="new_hash",  # Different hash to test hash verification
@@ -468,34 +465,37 @@ async def test_get_or_create_media(mock_config, mock_state, temp_dir):
     )
 
     # Should have returned the existing media
-    assert media == mock_media
+    assert media.id == mock_media.id
+    assert media.content_hash == "existing_hash"  # Unchanged due to trust_filename
     assert hash_verified is True
 
     # Reset mocks
     mock_session.execute.reset_mock()
 
     # Test case 2: Media found but needs hash calculation
-    mock_media = MagicMock(spec=Media)
-    mock_media.id = "12345"
-    mock_media.content_hash = None
-    mock_media.local_filename = "different_filename.jpg"
+    mock_media2 = MagicMock(spec=Media)
+    mock_media2.id = 12345
+    mock_media2.content_hash = None
+    mock_media2.local_filename = "different_filename.jpg"
+    mock_media2.accountId = None
     mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_media]
+    mock_result.scalars.return_value.all.return_value = [mock_media2]
     mock_session.execute.return_value = mock_result
 
     with patch("fileio.dedupe.get_hash_for_image", return_value="calculated_hash"):
-        media, hash_verified = await get_or_create_media(
-            file_path=file_path,
-            media_id="12345",
-            mimetype="image/jpeg",
-            state=mock_state,
-            trust_filename=False,
-            config=mock_config,
-            session=mock_session,
-        )
+        with patch("fileio.dedupe.get_account_id", return_value=12345):
+            media, hash_verified = await get_or_create_media(
+                file_path=file_path,
+                media_id=12345,  # Use integer not string
+                mimetype="image/jpeg",
+                state=mock_state,
+                trust_filename=False,
+                config=mock_config,
+                session=mock_session,
+            )
 
     # Should have updated the existing media
-    assert media == mock_media
+    assert media.id == mock_media2.id
     assert media.content_hash == "calculated_hash"
     assert media.local_filename == "2023-05-01_id_12345.jpg"
     assert hash_verified is True
@@ -514,7 +514,7 @@ async def test_get_or_create_media(mock_config, mock_state, temp_dir):
     ):
         media, hash_verified = await get_or_create_media(
             file_path=file_path,
-            media_id="12345",
+            media_id=12345,  # Use integer not string
             mimetype="image/jpeg",
             state=mock_state,
             trust_filename=False,
@@ -524,7 +524,7 @@ async def test_get_or_create_media(mock_config, mock_state, temp_dir):
 
     # Should have created a new media
     assert mock_session.add.call_count == 1
-    assert media.id == "12345"
+    assert media.id == 12345
     assert media.content_hash == "calculated_hash"
     assert media.local_filename == "2023-05-01_id_12345.jpg"
     assert hash_verified is True
@@ -533,8 +533,14 @@ async def test_get_or_create_media(mock_config, mock_state, temp_dir):
 @pytest.mark.asyncio
 async def test_dedupe_init(mock_config, mock_state, temp_dir):
     """Test dedupe_init function."""
+    # Set up mock config with required download_directory
+    mock_config.download_directory = temp_dir
+
     # Set up mock state
     mock_state.download_path = temp_dir
+    mock_state.creator_name = (
+        "test_creator"  # Also required by set_create_directory_for_download
+    )
 
     # Create test files
     hash2_file = create_test_file(temp_dir, "file_hash2_abc123.jpg")
@@ -584,7 +590,7 @@ async def test_dedupe_media_file(mock_config, mock_state, temp_dir):
 
     # Create mock media record
     mock_media = MagicMock(spec=Media)
-    mock_media.id = "12345"
+    mock_media.id = 12345
     mock_media.content_hash = None
     mock_media.local_filename = None
     mock_media.is_downloaded = False
@@ -622,7 +628,7 @@ async def test_dedupe_media_file(mock_config, mock_state, temp_dir):
 
     # Test case 2: Media found by hash (duplicate)
     mock_media_by_hash = MagicMock(spec=Media)
-    mock_media_by_hash.id = "67890"  # Different ID
+    mock_media_by_hash.id = 67890  # Different ID
     mock_media_by_hash.content_hash = "hash123"
     mock_media_by_hash.local_filename = "existing.jpg"
     mock_media_by_hash.is_downloaded = True

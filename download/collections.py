@@ -22,11 +22,11 @@ async def download_collections(config: FanslyConfig, state: DownloadState):
     collections_response = config.get_api().get_media_collections()
 
     if collections_response.status_code == 200:
-        collections = collections_response.json()
-        json_output(1, "Download Collections", collections)
-        process_timeline_posts(config, state, collections["response"])
+        json_output(1, "Download Collections", collections_response.json())
+        collections = config.get_api().get_json_response_contents(collections_response)
+        await process_timeline_posts(config, state, collections)
 
-        account_media_orders = collections["response"]["accountMediaOrders"]
+        account_media_orders = collections["accountMediaOrders"]
         account_media_ids = [order["accountMediaId"] for order in account_media_orders]
 
         # Splitting the list into batches and making separate API calls for each
@@ -37,7 +37,9 @@ async def download_collections(config: FanslyConfig, state: DownloadState):
             media_info_response = config.get_api().get_account_media(batched_ids)
 
             if media_info_response.status_code == 200:
-                media_info = media_info_response.json()["response"]
+                media_info = config.get_api().get_json_response_contents(
+                    media_info_response
+                )
 
                 json_output(1, "Collection Media Info", media_info)
 

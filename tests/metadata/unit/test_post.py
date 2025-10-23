@@ -4,126 +4,116 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from metadata.account import Account
 from metadata.attachment import Attachment, ContentType
 from metadata.post import Post, pinned_posts, post_mentions, process_pinned_posts
-
-
-@pytest_asyncio.fixture
-async def test_account(session):
-    """Create a test account."""
-    account = Account(id=1, username="test_user")
-    session.add(account)
-    await session.commit()
-    await session.refresh(account)
-    return account
-
-
-@pytest_asyncio.fixture
-async def session(test_engine):
-    """Create a test database session."""
-    # Create session factory
-    async_session_factory = async_sessionmaker(
-        bind=test_engine,
-        expire_on_commit=False,
-        class_=AsyncSession,
-    )
-
-    # Create session
-    async with async_session_factory() as session:
-        # Configure session
-        await session.execute(text("PRAGMA foreign_keys=OFF"))
-        await session.execute(text("PRAGMA journal_mode=WAL"))
-        yield session
+from tests.fixtures import AccountFactory, PostFactory
 
 
 @pytest.mark.asyncio
-async def test_post_model_basic(session, test_account):
-    """Test basic Post model functionality."""
-    # Create a test post
-    post = Post(
+async def test_post_model_basic(session: AsyncSession, session_sync):
+    """Test basic Post model functionality.
+
+    Uses AccountFactory and PostFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and post using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    post = PostFactory(
         id=1,
-        accountId=test_account.id,
+        accountId=account_id,
         content="Test post content",
         fypFlag=0,
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(post)
-    await session.commit()
+    session.expire_all()
 
     # Query and verify
     result = await session.execute(select(Post).where(Post.id == 1))
     queried_post = result.unique().scalar_one_or_none()
     assert queried_post is not None
     assert queried_post.content == "Test post content"
-    assert queried_post.accountId == test_account.id
+    assert queried_post.accountId == account_id
 
 
 @pytest.mark.asyncio
-async def test_post_with_attachments(session, test_account):
-    """Test Post with attachments relationship."""
-    post = Post(
-        id=1,
-        accountId=test_account.id,
-        content="Post with attachments",
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(post)
+async def test_post_with_attachments(session: AsyncSession, session_sync):
+    """Test Post with attachments relationship.
 
-    # Add attachments
-    attachments = [
-        Attachment(
+    Uses AccountFactory and PostFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and post using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    post = PostFactory(
+        id=1,
+        accountId=account_id,
+        content="Post with attachments",
+    )
+    post_id = post.id
+
+    # Add attachments using sync session context
+    from tests.fixtures import AttachmentFactory
+
+    for i in range(3):
+        AttachmentFactory(
             id=i,
-            postId=post.id,
-            contentId=f"content_{i}",
+            postId=post_id,
+            contentId=i + 1000,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=i,
         )
-        for i in range(3)
-    ]
-    post.attachments.extend(attachments)
-    await session.commit()
+    session_sync.commit()
 
-    # Verify attachments
-    result = await session.execute(select(Post).where(Post.id == 1))
+    # Verify attachments - expire sessions to ensure fresh data
+    session.expire_all()
+    result = await session.execute(
+        select(Post).options(selectinload(Post.attachments)).where(Post.id == post_id)
+    )
     queried_post = result.unique().scalar_one_or_none()
     assert len(queried_post.attachments) == 3
     assert all(isinstance(a, Attachment) for a in queried_post.attachments)
-    assert [a.pos for a in queried_post.attachments] == [0, 1, 2]
+    assert sorted([a.pos for a in queried_post.attachments]) == [0, 1, 2]
 
 
 @pytest.mark.asyncio
-async def test_post_mentions(session, test_account):
-    """Test post mentions relationship."""
-    post = Post(
+async def test_post_mentions(session: AsyncSession, session_sync):
+    """Test post mentions relationship.
+
+    Uses AccountFactory and PostFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and post using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    post = PostFactory(
         id=1,
-        accountId=test_account.id,
+        accountId=account_id,
         content="Post with mentions",
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(post)
-    await session.commit()
+    post_id = post.id
+    session.expire_all()
 
     # Add mention
     await session.execute(
         post_mentions.insert().values(
-            postId=post.id,
-            accountId=test_account.id,
+            postId=post_id,
+            accountId=account_id,
             handle="test_handle",
         )
     )
     await session.commit()
 
     # Verify mention
+    session.expire_all()
     result = await session.execute(
         select(Post)
         .options(selectinload(Post.accountMentions))
-        .where(Post.id == 1)
+        .where(Post.id == post_id)
         .execution_options(populate_existing=True)
     )
     queried_post = result.unique().scalar_one_or_none()
@@ -132,21 +122,31 @@ async def test_post_mentions(session, test_account):
         lambda s: s.refresh(queried_post, attribute_names=["accountMentions"])
     )
     assert len(queried_post.accountMentions) == 1
-    assert queried_post.accountMentions[0].id == test_account.id
+    assert queried_post.accountMentions[0].id == account_id
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts(session, test_account, config):
-    """Test processing pinned posts."""
-    # Create a test post first
-    post = Post(
+async def test_process_pinned_posts(session: AsyncSession, session_sync, config):
+    """Test processing pinned posts.
+
+    Uses AccountFactory and PostFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and post using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    post = PostFactory(
         id=1,
-        accountId=test_account.id,
+        accountId=account_id,
         content="Test pinned post",
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(post)
-    await session.commit()
+    session.expire_all()
+
+    # Query account in async session
+    from metadata.account import Account
+
+    result = await session.execute(select(Account).where(Account.id == account_id))
+    account = result.scalar_one()
 
     # Test data for pinned posts
     pinned_data = [
@@ -158,23 +158,41 @@ async def test_process_pinned_posts(session, test_account, config):
     ]
 
     # Process pinned posts
-    await process_pinned_posts(config, test_account, pinned_data, session=session)
+    await process_pinned_posts(config, account, pinned_data, session=session)
 
     # Verify pinned post
+    session.expire_all()
     result = await session.execute(
         select(pinned_posts).where(
             pinned_posts.c.postId == 1,
-            pinned_posts.c.accountId == test_account.id,
+            pinned_posts.c.accountId == account_id,
         )
     )
-    result_row = result.mappings().first()  # Get the row as a mapping
+    result_row = result.mappings().first()
     assert result_row is not None
     assert result_row["pos"] == 0
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts_nonexistent(session, test_account, config):
-    """Test processing pinned posts with nonexistent post."""
+async def test_process_pinned_posts_nonexistent(
+    session: AsyncSession, session_sync, config
+):
+    """Test processing pinned posts with nonexistent post.
+
+    Uses AccountFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account using factory
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    session.expire_all()
+
+    # Query account in async session
+    from metadata.account import Account
+
+    result = await session.execute(select(Account).where(Account.id == account_id))
+    account = result.scalar_one()
+
     with patch("metadata.post.json_output") as mock_json_output:
         pinned_data = [
             {
@@ -184,7 +202,7 @@ async def test_process_pinned_posts_nonexistent(session, test_account, config):
             }
         ]
 
-        await process_pinned_posts(config, test_account, pinned_data, session=session)
+        await process_pinned_posts(config, account, pinned_data, session=session)
 
         # Verify logging
         mock_json_output.assert_any_call(
@@ -192,24 +210,34 @@ async def test_process_pinned_posts_nonexistent(session, test_account, config):
             "meta/post - p_p_p - skipping_missing_post",
             {
                 "postId": 999,
-                "accountId": test_account.id,
+                "accountId": account_id,
                 "reason": "Post does not exist in database",
             },
         )
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts_update(session, test_account, config):
-    """Test updating existing pinned post."""
-    # Create a test post
-    post = Post(
+async def test_process_pinned_posts_update(session: AsyncSession, session_sync, config):
+    """Test updating existing pinned post.
+
+    Uses AccountFactory and PostFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and post using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    post = PostFactory(
         id=1,
-        accountId=test_account.id,
+        accountId=account_id,
         content="Test pinned post",
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(post)
-    await session.commit()
+    session.expire_all()
+
+    # Query account in async session
+    from metadata.account import Account
+
+    result = await session.execute(select(Account).where(Account.id == account_id))
+    account = result.scalar_one()
 
     # Initial pinned post data
     initial_data = [
@@ -219,7 +247,7 @@ async def test_process_pinned_posts_update(session, test_account, config):
             "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
         }
     ]
-    await process_pinned_posts(config, test_account, initial_data, session=session)
+    await process_pinned_posts(config, account, initial_data, session=session)
 
     # Update with new position
     updated_data = [
@@ -229,49 +257,55 @@ async def test_process_pinned_posts_update(session, test_account, config):
             "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
         }
     ]
-    await process_pinned_posts(config, test_account, updated_data, session=session)
+    await process_pinned_posts(config, account, updated_data, session=session)
 
-    # Verify update - use mappings().first() to get a row as a dict/mapping
+    # Verify update
+    session.expire_all()
     result = await session.execute(
         select(pinned_posts).where(
             pinned_posts.c.postId == 1,
-            pinned_posts.c.accountId == test_account.id,
+            pinned_posts.c.accountId == account_id,
         )
     )
-    result_row = result.mappings().first()  # Get row as a mapping
+    result_row = result.mappings().first()
     assert result_row is not None
-    assert result_row["pos"] == 1  # Access by key rather than attribute
+    assert result_row["pos"] == 1
 
 
 @pytest.mark.asyncio
-async def test_post_reply_fields(session, test_account):
-    """Test post reply-related fields."""
+async def test_post_reply_fields(session: AsyncSession, session_sync):
+    """Test post reply-related fields.
+
+    Uses AccountFactory and PostFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and posts using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+
     # Create parent post
-    parent_post = Post(
+    parent_post = PostFactory(
         id=1,
-        accountId=test_account.id,
+        accountId=account_id,
         content="Parent post",
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(parent_post)
+    parent_id = parent_post.id
 
     # Create reply post
-    reply_post = Post(
+    reply_post = PostFactory(
         id=2,
-        accountId=test_account.id,
+        accountId=account_id,
         content="Reply post",
-        inReplyTo=parent_post.id,
-        inReplyToRoot=parent_post.id,
-        createdAt=datetime.now(timezone.utc),
+        inReplyTo=parent_id,
+        inReplyToRoot=parent_id,
     )
-    session.add(reply_post)
-    await session.commit()
+    session.expire_all()
 
     # Verify reply relationships
     result = await session.execute(select(Post).where(Post.id == 2))
     queried_reply = result.unique().scalar_one_or_none()
-    assert queried_reply.inReplyTo == parent_post.id
-    assert queried_reply.inReplyToRoot == parent_post.id
+    assert queried_reply.inReplyTo == parent_id
+    assert queried_reply.inReplyToRoot == parent_id
 
 
 @pytest.mark.parametrize(
@@ -282,17 +316,22 @@ async def test_post_reply_fields(session, test_account):
     ],
 )
 @pytest.mark.asyncio
-async def test_post_expiration(session, test_account, expires_at):
-    """Test post expiration field."""
-    post = Post(
+async def test_post_expiration(session: AsyncSession, session_sync, expires_at):
+    """Test post expiration field.
+
+    Uses AccountFactory and PostFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and post using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    post = PostFactory(
         id=1,
-        accountId=test_account.id,
+        accountId=account_id,
         content="Test post",
-        createdAt=datetime.now(timezone.utc),
         expiresAt=expires_at,
     )
-    session.add(post)
-    await session.commit()
+    session.expire_all()
 
     result = await session.execute(select(Post).where(Post.id == 1))
     queried_post = result.unique().scalar_one_or_none()
@@ -304,51 +343,62 @@ async def test_post_expiration(session, test_account, expires_at):
 
 
 @pytest.mark.asyncio
-async def test_post_cascade_delete(session, test_account):
-    """Test cascade deletion of post relationships."""
-    # Create post with attachments and mentions
-    post = Post(
-        id=1,
-        accountId=test_account.id,
-        content="Test post",
-        createdAt=datetime.now(timezone.utc),
-    )
-    session.add(post)
-    await session.flush()
+async def test_post_cascade_delete(session: AsyncSession, session_sync):
+    """Test cascade deletion of post relationships.
 
-    # Add attachment
-    attachment = Attachment(
+    Uses AccountFactory, PostFactory, and AttachmentFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create account and post using factories
+    account = AccountFactory(id=1, username="test_user")
+    account_id = account.id
+    post = PostFactory(
         id=1,
-        postId=post.id,
-        contentId="content_1",
+        accountId=account_id,
+        content="Test post",
+    )
+    post_id = post.id
+
+    # Add attachment using factory
+    from tests.fixtures import AttachmentFactory
+
+    AttachmentFactory(
+        id=1,
+        postId=post_id,
+        contentId=1001,
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
-    session.add(attachment)
-    await session.flush()
+    session_sync.commit()
+    session.expire_all()
 
-    # Add mention
+    # Add mention in async session
     await session.execute(
         post_mentions.insert().values(
-            postId=post.id,
-            accountId=test_account.id,
+            postId=post_id,
+            accountId=account_id,
             handle="test_handle",
         )
     )
     await session.commit()
 
-    # Delete post
+    # Query and delete post in async session
+    result = await session.execute(select(Post).where(Post.id == post_id))
+    post = result.unique().scalar_one()
     await session.delete(post)
     await session.commit()
 
     # Verify cascade deletion
-    result = await session.execute(select(Post).where(Post.id == 1))
-    assert result.unique().scalar_one_or_none() is None
-
-    result = await session.execute(select(Attachment).where(Attachment.postId == 1))
+    session.expire_all()
+    result = await session.execute(select(Post).where(Post.id == post_id))
     assert result.unique().scalar_one_or_none() is None
 
     result = await session.execute(
-        select(post_mentions).where(post_mentions.c.postId == 1)
+        select(Attachment).where(Attachment.postId == post_id)
+    )
+    assert result.unique().scalar_one_or_none() is None
+
+    result = await session.execute(
+        select(post_mentions).where(post_mentions.c.postId == post_id)
     )
     assert result.unique().first() is None

@@ -215,6 +215,8 @@ def _handle_boolean_options(config: FanslyConfig, section: str) -> None:
         "use_pagination_duplication": False,  # Check each page for duplicates
         "debug": False,  # Debug mode
         "trace": False,  # Very detailed logging
+        "rate_limiting_enabled": True,  # Enable rate limiting
+        "rate_limiting_adaptive": True,  # Enable adaptive rate limiting
     }
 
     for option, default in boolean_options.items():
@@ -276,11 +278,73 @@ def _handle_numeric_options(config: FanslyConfig, section: str) -> None:
         section, "timeline_delay_seconds", fallback=60
     )
 
-    # Handle database sync settings
+    # Handle API retry settings
+    config.api_max_retries = config._parser.getint(
+        section, "api_max_retries", fallback=10
+    )
+
+    # Handle database sync settings (SQLite only - deprecated)
     db_sync_options = ["db_sync_commits", "db_sync_seconds", "db_sync_min_size"]
     for option in db_sync_options:
         if config._parser.has_option(section, option):
             setattr(config, option, config._parser.getint(section, option))
+
+    # Handle rate limiting settings with proper fallback defaults
+    config.rate_limiting_requests_per_minute = config._parser.getint(
+        section, "rate_limiting_requests_per_minute", fallback=60
+    )
+    config.rate_limiting_burst_size = config._parser.getint(
+        section, "rate_limiting_burst_size", fallback=10
+    )
+    config.rate_limiting_retry_after_seconds = config._parser.getint(
+        section, "rate_limiting_retry_after_seconds", fallback=30
+    )
+    config.rate_limiting_max_backoff_seconds = config._parser.getint(
+        section, "rate_limiting_max_backoff_seconds", fallback=300
+    )
+    config.rate_limiting_backoff_factor = config._parser.getfloat(
+        section, "rate_limiting_backoff_factor", fallback=1.5
+    )
+
+
+def _handle_postgresql_options(config: FanslyConfig, section: str) -> None:
+    """Handle PostgreSQL options in a section."""
+    # Connection settings
+    config.pg_host = config._parser.get(section, "pg_host", fallback="localhost")
+    config.pg_port = config._parser.getint(section, "pg_port", fallback=5432)
+    config.pg_database = config._parser.get(
+        section, "pg_database", fallback="fansly_metadata"
+    )
+    config.pg_user = config._parser.get(section, "pg_user", fallback="fansly_user")
+
+    # Password from environment variable (preferred) or config file
+    config.pg_password = os.getenv("FANSLY_PG_PASSWORD") or config._parser.get(
+        section, "pg_password", fallback=None
+    )
+
+    # SSL/TLS settings
+    config.pg_sslmode = config._parser.get(section, "pg_sslmode", fallback="prefer")
+
+    pg_sslcert_path = config._parser.get(section, "pg_sslcert", fallback=None)
+    if pg_sslcert_path:
+        config.pg_sslcert = Path(pg_sslcert_path)
+
+    pg_sslkey_path = config._parser.get(section, "pg_sslkey", fallback=None)
+    if pg_sslkey_path:
+        config.pg_sslkey = Path(pg_sslkey_path)
+
+    pg_sslrootcert_path = config._parser.get(section, "pg_sslrootcert", fallback=None)
+    if pg_sslrootcert_path:
+        config.pg_sslrootcert = Path(pg_sslrootcert_path)
+
+    # Connection pool settings
+    config.pg_pool_size = config._parser.getint(section, "pg_pool_size", fallback=5)
+    config.pg_max_overflow = config._parser.getint(
+        section, "pg_max_overflow", fallback=10
+    )
+    config.pg_pool_timeout = config._parser.getint(
+        section, "pg_pool_timeout", fallback=30
+    )
 
 
 def _handle_options_section(config: FanslyConfig) -> None:
@@ -308,6 +372,9 @@ def _handle_options_section(config: FanslyConfig) -> None:
 
     # Handle numeric options
     _handle_numeric_options(config, options_section)
+
+    # Handle PostgreSQL options
+    _handle_postgresql_options(config, options_section)
 
     # Handle renamed options
     _handle_renamed_options(config, options_section)

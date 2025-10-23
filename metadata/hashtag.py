@@ -4,6 +4,7 @@ import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     ForeignKey,
     Index,
@@ -14,7 +15,7 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
@@ -32,9 +33,9 @@ if TYPE_CHECKING:
 class Hashtag(Base):
     __tablename__ = "hashtags"
     __table_args__ = (
-        UniqueConstraint("value", name="uq_hashtags_value"),
-        # Case-insensitive hashtag lookup
-        Index("ix_hashtags_value_lower", func.lower("value")),
+        # Case-insensitive unique index using LOWER()
+        # This is defined in migration 0c4cb91b36d5
+        Index("ix_hashtags_value_lower", func.lower("value"), unique=True),
     )
 
     id: Mapped[int] = mapped_column(
@@ -44,16 +45,14 @@ class Hashtag(Base):
     )
     value: Mapped[str] = mapped_column(
         String,
-        unique=True,
         nullable=False,
-        index=True,
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     posts: Mapped[list[Post]] = relationship(
         "Post",
         secondary="post_hashtags",
         back_populates="hashtags",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load posts to reduce SQL queries
     )
 
 
@@ -62,7 +61,10 @@ post_hashtags = Table(
     "post_hashtags",
     Base.metadata,
     Column(
-        "postId", Integer, ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True
+        "postId",
+        BigInteger,
+        ForeignKey("posts.id", ondelete="CASCADE"),
+        primary_key=True,
     ),
     Column(
         "hashtagId",
@@ -176,8 +178,14 @@ async def process_post_hashtags(
     if not hashtag_values:
         return
 
-    # Get all existing hashtags in one query using optimized function
-    existing_rows = config._database.find_hashtags_batch(hashtag_values)
+    # Get all existing hashtags in one query
+    # Use case-insensitive matching with LOWER() function
+    result = await session.execute(
+        select(Hashtag.id, Hashtag.value).where(
+            func.lower(Hashtag.value).in_([v.lower() for v in hashtag_values])
+        )
+    )
+    existing_rows = result.all()
     existing_hashtags = {
         row[1].lower(): Hashtag(id=row[0], value=row[1]) for row in existing_rows
     }
@@ -185,16 +193,28 @@ async def process_post_hashtags(
     # Create missing hashtags in one batch
     missing_values = [v for v in hashtag_values if v.lower() not in existing_hashtags]
     if missing_values:
-        # Batch insert missing hashtags
-        insert_stmt = sqlite_insert(Hashtag.__table__).values(
-            [{"value": v} for v in missing_values]
+        # Batch insert missing hashtags with ON CONFLICT on the functional index
+        # PostgreSQL requires the functional expression in ON CONFLICT clause
+        # We use a text construct to ensure the exact SQL matches the index
+        from sqlalchemy import text
+
+        # Build the INSERT statement with ON CONFLICT
+        values_clause = ", ".join([f"(:value_{i})" for i in range(len(missing_values))])
+        sql = text(
+            f"INSERT INTO hashtags (value) VALUES {values_clause} "
+            "ON CONFLICT (LOWER(value)) DO NOTHING"
         )
-        update_stmt = insert_stmt.on_conflict_do_nothing()
-        await session.execute(update_stmt)
+        params = {f"value_{i}": v for i, v in enumerate(missing_values)}
+        await session.execute(sql, params)
         await session.flush()
 
-        # Get the newly created hashtags using optimized function
-        new_rows = config._database.find_hashtags_batch(missing_values)
+        # Get the newly created hashtags
+        result = await session.execute(
+            select(Hashtag.id, Hashtag.value).where(
+                func.lower(Hashtag.value).in_([v.lower() for v in missing_values])
+            )
+        )
+        new_rows = result.all()
         new_hashtags = {
             row[1].lower(): Hashtag(id=row[0], value=row[1]) for row in new_rows
         }
@@ -209,6 +229,8 @@ async def process_post_hashtags(
         for v in hashtag_values
     ]
     if associations:
-        insert_stmt = sqlite_insert(post_hashtags).values(associations)
-        update_stmt = insert_stmt.on_conflict_do_nothing()
+        insert_stmt = insert(post_hashtags).values(associations)
+        update_stmt = insert_stmt.on_conflict_do_nothing(
+            index_elements=["postId", "hashtagId"]
+        )
         await session.execute(update_stmt)

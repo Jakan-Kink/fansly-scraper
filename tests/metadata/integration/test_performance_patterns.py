@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 
 from metadata import Account, Message, Post
-from tests.metadata.integration.test_migration_patterns import clean_database
 
 if TYPE_CHECKING:
     from metadata.database import Database
@@ -269,26 +268,27 @@ class TestPerformancePatterns:
         """Test index usage and performance."""
         async with test_database.async_session_scope() as session:
             # Test queries with and without indexes
+            # Note: PostgreSQL requires exact case for quoted identifiers like "accountId"
             queries = [
                 ("Index scan on primary key", "SELECT * FROM posts WHERE id = 1"),
                 (
                     "Index scan on foreign key",
-                    "SELECT * FROM posts WHERE accountId = 1",
+                    'SELECT * FROM posts WHERE "accountId" = 1',
                 ),
                 ("Full table scan", "SELECT * FROM posts WHERE content LIKE '%test%'"),
                 (
                     "Index scan with join",
                     """
                     SELECT p.* FROM posts p
-                    JOIN accounts a ON p.accountId = a.id
+                    JOIN accounts a ON p."accountId" = a.id
                     WHERE a.username = 'perf_user_1'
                     """,
                 ),
             ]
 
             for description, query in queries:
-                # Get query plan
-                result = await session.execute(text(f"EXPLAIN QUERY PLAN {query}"))
+                # Get query plan (PostgreSQL uses EXPLAIN, not EXPLAIN QUERY PLAN)
+                result = await session.execute(text(f"EXPLAIN {query}"))
                 plan = result.fetchall()
                 plan_str = "\n".join(str(row) for row in plan)
                 print(f"\n{description} plan:\n{plan_str}")

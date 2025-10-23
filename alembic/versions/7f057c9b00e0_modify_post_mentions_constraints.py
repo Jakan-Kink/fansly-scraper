@@ -9,6 +9,7 @@ Create Date: 2025-01-09 00:33:29.442274
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -20,71 +21,80 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Create a new temporary table with the new structure
-    op.create_table(
-        "post_mentions_new",
-        sa.Column("postId", sa.Integer(), nullable=False),
-        sa.Column("accountId", sa.Integer(), nullable=True),  # Changed to nullable
-        sa.Column("handle", sa.String(), nullable=False),  # Changed to non-nullable
-        sa.ForeignKeyConstraint(
-            ["accountId"],
-            ["accounts.id"],
-        ),
-        sa.ForeignKeyConstraint(
-            ["postId"],
-            ["posts.id"],
-        ),
-        sa.PrimaryKeyConstraint("postId", "handle"),  # Changed primary key
-        sa.UniqueConstraint("postId", "accountId", name="uix_post_mentions_account"),
-        sa.UniqueConstraint("postId", "handle", name="uix_post_mentions_handle"),
+    # Check for existing constraints before attempting to drop them
+    conn = op.get_bind()
+    inspector = inspect(conn)
+
+    # Get primary key info
+    pk_constraint = inspector.get_pk_constraint("post_mentions")
+    has_pk = (
+        pk_constraint.get("name") == "post_mentions_pkey" if pk_constraint else False
     )
 
-    # Copy data from the old table to the new table
-    # We'll need to handle any NULL handles by using a default value
-    op.execute(
-        "INSERT INTO post_mentions_new (postId, accountId, handle) "
-        "SELECT postId, accountId, COALESCE(handle, '') as handle "
-        "FROM post_mentions "
-        "WHERE handle IS NOT NULL OR accountId IS NOT NULL"
-    )
+    # Get unique constraints
+    unique_constraints = {
+        uc["name"] for uc in inspector.get_unique_constraints("post_mentions")
+    }
 
-    # Drop the old table
-    op.drop_table("post_mentions")
+    # Update post_mentions structure using batch_alter_table
+    with op.batch_alter_table(
+        "post_mentions", schema=None, recreate="always"
+    ) as batch_op:
+        # Update handle column to be non-nullable with default for existing NULL values
+        batch_op.alter_column(
+            "handle", existing_type=sa.String(), nullable=False, server_default=""
+        )
 
-    # Rename the new table to the original name
-    op.rename_table("post_mentions_new", "post_mentions")
+        # Update accountId to be nullable
+        batch_op.alter_column("accountId", existing_type=sa.Integer(), nullable=True)
+
+        # Drop old constraints only if they exist
+        if has_pk:
+            batch_op.drop_constraint("post_mentions_pkey", type_="primary")
+        if "post_mentions_postId_accountId_key" in unique_constraints:
+            batch_op.drop_constraint(
+                "post_mentions_postId_accountId_key", type_="unique"
+            )
+
+        # Create new constraints
+        batch_op.create_primary_key("post_mentions_pkey", ["postId", "handle"])
+        batch_op.create_unique_constraint(
+            "uix_post_mentions_account", ["postId", "accountId"]
+        )
+        batch_op.create_unique_constraint(
+            "uix_post_mentions_handle", ["postId", "handle"]
+        )
 
 
 def downgrade() -> None:
-    # Create a new temporary table with the old structure
-    op.create_table(
-        "post_mentions_old",
-        sa.Column("postId", sa.Integer(), nullable=False),
-        sa.Column("accountId", sa.Integer(), nullable=False),
-        sa.Column("handle", sa.String(), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["accountId"],
-            ["accounts.id"],
-        ),
-        sa.ForeignKeyConstraint(
-            ["postId"],
-            ["posts.id"],
-        ),
-        sa.PrimaryKeyConstraint("postId", "accountId"),
-        sa.UniqueConstraint("postId", "accountId"),
-    )
+    # Revert post_mentions structure using batch_alter_table
+    with op.batch_alter_table(
+        "post_mentions", schema=None, recreate="always"
+    ) as batch_op:
+        # Drop new constraints
+        try:
+            batch_op.drop_constraint("uix_post_mentions_handle", type_="unique")
+        except Exception:
+            pass
+        try:
+            batch_op.drop_constraint("uix_post_mentions_account", type_="unique")
+        except Exception:
+            pass
+        try:
+            batch_op.drop_constraint("post_mentions_pkey", type_="primary")
+        except Exception:
+            pass
 
-    # Copy data from the current table to the old structure
-    # We'll only copy records that have an accountId since that's required in the old structure
-    op.execute(
-        "INSERT INTO post_mentions_old (postId, accountId, handle) "
-        "SELECT postId, accountId, handle "
-        "FROM post_mentions "
-        "WHERE accountId IS NOT NULL"
-    )
+        # Revert accountId to be non-nullable
+        batch_op.alter_column("accountId", existing_type=sa.Integer(), nullable=False)
 
-    # Drop the current table
-    op.drop_table("post_mentions")
+        # Revert handle to be nullable
+        batch_op.alter_column(
+            "handle", existing_type=sa.String(), nullable=True, server_default=None
+        )
 
-    # Rename the old structure table to the original name
-    op.rename_table("post_mentions_old", "post_mentions")
+        # Create original constraints
+        batch_op.create_primary_key("post_mentions_pkey", ["postId", "accountId"])
+        batch_op.create_unique_constraint(
+            "post_mentions_postId_accountId_key", ["postId", "accountId"]
+        )

@@ -1,5 +1,7 @@
 """Path handling types and protocols."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Protocol
 
@@ -38,6 +40,6 @@ class PathConfig(Protocol):
         ...
 
     @property
-    def metadata_db_file(self) -> str | None:
+    def metadata_db_file(self) -> Path | None:
         """Path to the global metadata database file if set."""
         ...

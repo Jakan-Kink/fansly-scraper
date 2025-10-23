@@ -32,35 +32,43 @@ def reset_stash_field_names_cache():
     preserved_field_names = {}
 
     for obj in gc.get_objects():
-        if isinstance(obj, type) and issubclass(obj, StashObject):
-            try:
-                # Only preserve __field_names__ if it's defined directly in this class
-                # (not inherited) and is a ClassVar definition
-                if "__field_names__" in obj.__dict__:
-                    preserved_field_names[obj] = obj.__field_names__
-                elif hasattr(obj, "__field_names__"):
-                    # This is likely dynamically generated or inherited, safe to clear
-                    delattr(obj, "__field_names__")
-            except (AttributeError, TypeError):
-                continue
+        try:
+            if isinstance(obj, type) and issubclass(obj, StashObject):
+                try:
+                    # Only preserve __field_names__ if it's defined directly in this class
+                    # (not inherited) and is a ClassVar definition
+                    if "__field_names__" in obj.__dict__:
+                        preserved_field_names[obj] = obj.__field_names__
+                    elif hasattr(obj, "__field_names__"):
+                        # This is likely dynamically generated or inherited, safe to clear
+                        delattr(obj, "__field_names__")
+                except (AttributeError, TypeError):
+                    continue
+        except ReferenceError:
+            # Object was garbage collected, skip it
+            continue
 
     yield
 
     # After test: restore preserved field names and clear any new dynamic ones
     for obj in gc.get_objects():
-        if isinstance(obj, type) and issubclass(obj, StashObject):
-            try:
-                # Restore preserved manually defined field names
-                if obj in preserved_field_names:
-                    obj.__field_names__ = preserved_field_names[obj]
-                # Clear dynamically generated ones that weren't preserved
-                elif (
-                    hasattr(obj, "__field_names__")
-                    and "__field_names__" not in obj.__dict__
-                ):
-                    delattr(obj, "__field_names__")
-            except (AttributeError, TypeError):
-                continue
+        try:
+            if isinstance(obj, type) and issubclass(obj, StashObject):
+                try:
+                    # Restore preserved manually defined field names
+                    if obj in preserved_field_names:
+                        obj.__field_names__ = preserved_field_names[obj]
+                    # Clear dynamically generated ones that weren't preserved
+                    elif (
+                        hasattr(obj, "__field_names__")
+                        and "__field_names__" not in obj.__dict__
+                    ):
+                        delattr(obj, "__field_names__")
+                except (AttributeError, TypeError):
+                    continue
+        except ReferenceError:
+            # Object was garbage collected, skip it
+            continue
 
 
 # =============================================================================

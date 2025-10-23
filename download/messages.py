@@ -25,15 +25,14 @@ async def download_messages(config: FanslyConfig, state: DownloadState):
     groups_response = config.get_api().get_group()
 
     if groups_response.status_code == 200:
-        await process_groups_response(config, state, groups_response.json()["response"])
-        groups_response = groups_response.json()["response"]["aggregationData"][
-            "groups"
-        ]
+        groups_data = config.get_api().get_json_response_contents(groups_response)
+        await process_groups_response(config, state, groups_data)
+        groups_list = groups_data["aggregationData"]["groups"]
 
         # go through messages and check if we even have a chat history with the creator
         group_id = None
 
-        for group in groups_response:
+        for group in groups_list:
             for user in group["users"]:
                 if user["userId"] == state.creator_id:
                     group_id = group["id"]
@@ -60,7 +59,9 @@ async def download_messages(config: FanslyConfig, state: DownloadState):
                 if messages_response.status_code == 200:
 
                     # Object contains: messages, accountMedia, accountMediaBundles, tips, tipGoals, stories
-                    messages = messages_response.json()["response"]
+                    messages = config.get_api().get_json_response_contents(
+                        messages_response
+                    )
 
                     await process_messages_metadata(config, state, messages["messages"])
 

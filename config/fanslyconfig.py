@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
-from pathio import PathConfig
 
 if TYPE_CHECKING:
     from metadata import Base, Database
@@ -19,7 +18,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class FanslyConfig(PathConfig):
+class FanslyConfig:
     # region Fields
 
     # region File-Independent Fields
@@ -28,8 +27,16 @@ class FanslyConfig(PathConfig):
     # This should be set to __version__ in the main script.
     program_version: str
 
+    # Private fields - initialized as None but set through methods
+    # The getters will ensure they're not None when accessed
+    _api: FanslyApi | None = None
+    _database: Database | None = None
+    _base: Base | None = None
+    _stash: Any = None  # StashContext | None
+
     # Command line flags
     use_following: bool = False
+    reverse_order: bool = False
 
     # Define base threshold (used for when modules don't provide vars)
     DUPLICATE_THRESHOLD: int = 50
@@ -51,10 +58,6 @@ class FanslyConfig(PathConfig):
 
     # Objects
     _parser = ConfigParser(interpolation=None)
-    _api: FanslyApi | None = None
-    _database: Database | None = None
-    _base: Base | None = None
-    _stash: Any | None = None  # StashContext | None
     _background_tasks: list[asyncio.Task] = field(default_factory=list)
 
     # endregion File-Independent
@@ -73,7 +76,7 @@ class FanslyConfig(PathConfig):
     # Options
     # "Normal" | "Timeline" | "Messages" | "Single" | "Collection"
     download_mode: DownloadMode = DownloadMode.NORMAL
-    download_directory: None | Path = None
+    download_directory: Path | None = None
     download_media_previews: bool = True
     # "Advanced" | "Simple"
     metadata_handling: MetadataHandling = MetadataHandling.ADVANCED
@@ -93,18 +96,44 @@ class FanslyConfig(PathConfig):
     # This helps for semi-automated runs (interactive=False) when coming back
     # to the computer and wanting to see what happened in the console window.
     prompt_on_exit: bool = True
+    # Note: metadata_db_file is deprecated in favor of PostgreSQL configuration
+    # Only kept for backwards compatibility with SQLite-based configs
     metadata_db_file: Path | None = None
 
     # Number of retries to get a timeline
     timeline_retries: int = 1
     # Anti-rate-limiting delay in seconds
     timeline_delay_seconds: int = 60
-    # Database sync settings
+    # Maximum number of retries for API requests that fail with 429 (rate limit)
+    # Allows exponential backoff progression: 30s → 60s → 120s → 240s → 300s (max)
+    api_max_retries: int = 10
+
+    # Rate limiting configuration
+    rate_limiting_enabled: bool = True
+    rate_limiting_adaptive: bool = True
+    rate_limiting_requests_per_minute: int = 60  # 1 request per second
+    rate_limiting_burst_size: int = 10  # Allow bursts of 10 requests
+    rate_limiting_retry_after_seconds: int = 30  # Base backoff duration
+    rate_limiting_backoff_factor: float = 1.5  # Exponential backoff multiplier
+    rate_limiting_max_backoff_seconds: int = 300  # Cap backoff at 5 minutes
+    # Database sync settings (SQLite only - deprecated for PostgreSQL)
     db_sync_commits: int | None = None  # Sync after this many commits (default: 1000)
     db_sync_seconds: int | None = None  # Sync after this many seconds (default: 60)
     db_sync_min_size: int | None = (
         None  # Only use background sync for DBs larger than this MB (default: 50)
     )
+
+    # PostgreSQL configuration
+    pg_host: str = "localhost"
+    pg_port: int = 5432
+    pg_database: str = "fansly_metadata"
+    pg_user: str = "fansly_user"
+    pg_password: str | None = None  # Prefer using FANSLY_PG_PASSWORD env var
+
+    # PostgreSQL connection pool settings
+    pg_pool_size: int = 5
+    pg_max_overflow: int = 10
+    pg_pool_timeout: int = 30
 
     # Temporary folder for downloads
     temp_folder: Path | None = None  # When None, use system default temp folder
@@ -143,6 +172,11 @@ class FanslyConfig(PathConfig):
             user_agent = self.user_agent
 
             if token and user_agent and self.check_key:
+                # Initialize rate limiter
+                from api.rate_limiter import RateLimiter
+
+                rate_limiter = RateLimiter(self)
+
                 self._api = FanslyApi(
                     token=token,
                     user_agent=user_agent,
@@ -150,11 +184,12 @@ class FanslyConfig(PathConfig):
                     device_id=self.cached_device_id,
                     device_id_timestamp=self.cached_device_id_timestamp,
                     on_device_updated=self._save_config,
+                    rate_limiter=rate_limiter,
                 )
 
         return self._api
 
-    async def setup_api(self) -> None:
+    async def setup_api(self) -> FanslyApi:
         """Set up the API instance including async session setup."""
         api = self.get_api()
 
@@ -168,7 +203,7 @@ class FanslyConfig(PathConfig):
             # Explicit save - on init of FanslyApi() self._api was None
             self._save_config()
 
-        return self._api
+        return api
 
     def user_names_str(self) -> str:
         """Returns a nicely formatted and alphabetically sorted list of
@@ -182,7 +217,7 @@ class FanslyConfig(PathConfig):
         if self.user_names is None:
             return "ReplaceMe"
 
-        return ", ".join(sorted(self.user_names))
+        return ", ".join(sorted(self.user_names, key=str.lower))
 
     def download_mode_str(self) -> str:
         """Gets the string representation of `download_mode`."""
@@ -252,9 +287,16 @@ class FanslyConfig(PathConfig):
         self._parser.set("Options", "separate_previews", str(self.separate_previews))
         self._parser.set("Options", "separate_timeline", str(self.separate_timeline))
         self._parser.set("Options", "separate_metadata", str(self.separate_metadata))
-        # Only save metadata_db_file if explicitly configured
-        if self.metadata_db_file is not None:
-            self._parser.set("Options", "metadata_db_file", str(self.metadata_db_file))
+        # Don't save metadata_db_file - it's deprecated in favor of PostgreSQL
+        # Only preserve it if it already exists in the config file
+        if self._parser.has_option("Options", "metadata_db_file"):
+            if self.metadata_db_file is not None:
+                self._parser.set(
+                    "Options", "metadata_db_file", str(self.metadata_db_file)
+                )
+            else:
+                # Remove the option if it's None to clean up config
+                self._parser.remove_option("Options", "metadata_db_file")
         self._parser.set(
             "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
         )
@@ -278,14 +320,25 @@ class FanslyConfig(PathConfig):
         self._parser.set(
             "Options", "timeline_delay_seconds", str(self.timeline_delay_seconds)
         )
+        self._parser.set("Options", "api_max_retries", str(self.api_max_retries))
 
-        # Database sync settings - only save if explicitly set
+        # Database sync settings - only save if explicitly set (SQLite only)
         if self.db_sync_commits is not None:
             self._parser.set("Options", "db_sync_commits", str(self.db_sync_commits))
         if self.db_sync_seconds is not None:
             self._parser.set("Options", "db_sync_seconds", str(self.db_sync_seconds))
         if self.db_sync_min_size is not None:
             self._parser.set("Options", "db_sync_min_size", str(self.db_sync_min_size))
+
+        # PostgreSQL settings
+        self._parser.set("Options", "pg_host", self.pg_host)
+        self._parser.set("Options", "pg_port", str(self.pg_port))
+        self._parser.set("Options", "pg_database", self.pg_database)
+        self._parser.set("Options", "pg_user", self.pg_user)
+        # Don't save password to config file - use environment variable
+        self._parser.set("Options", "pg_pool_size", str(self.pg_pool_size))
+        self._parser.set("Options", "pg_max_overflow", str(self.pg_max_overflow))
+        self._parser.set("Options", "pg_pool_timeout", str(self.pg_pool_timeout))
 
         # Temp folder
         if self.temp_folder is not None:
@@ -389,23 +442,6 @@ class FanslyConfig(PathConfig):
         return self.token
 
     # endregion
-    def __post_init__(self):
-        # If no metadata_db_file is set, determine fallback
-        if self.metadata_db_file is None:
-            self.metadata_db_file = self._get_default_metadata_db_file()
-
-    def _get_default_metadata_db_file(self) -> Path:
-        """
-        Determine the database file location.
-        1. Use explicitly configured path if provided
-        2. Otherwise use download directory if available
-        3. Finally fall back to current directory
-        """
-        if self.metadata_db_file:
-            return Path(self.metadata_db_file)
-        if self.download_directory:
-            return self.download_directory / "metadata_db.sqlite3"
-        return Path.cwd() / "metadata_db.sqlite3"
 
     def get_stash_context(self) -> StashContext:
         """Get Stash context.

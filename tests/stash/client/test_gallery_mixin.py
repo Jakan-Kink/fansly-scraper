@@ -57,7 +57,7 @@ def mock_gallery() -> Gallery:
                 parent_folder_id="123",
                 mod_time=datetime.now(),
                 size=1024,
-                fingerprints=[Fingerprint(type="md5", value="abc123")],
+                fingerprints=[Fingerprint(type_="md5", value="abc123")],
             )
         ],
     )

@@ -33,13 +33,13 @@ class TestMixinClass(ContentProcessingMixin):
         self.database = MagicMock()
         self.log = MagicMock()
         self._process_item_gallery = AsyncMock()
-        self._setup_batch_processing = AsyncMock()
-        self._run_batch_processor = AsyncMock()
+        self._setup_worker_pool = AsyncMock()
+        self._run_worker_pool = AsyncMock()
 
         # Make all async mocks properly awaitable
         make_asyncmock_awaitable(self._process_item_gallery)
-        make_asyncmock_awaitable(self._setup_batch_processing)
-        make_asyncmock_awaitable(self._run_batch_processor)
+        make_asyncmock_awaitable(self._setup_worker_pool)
+        make_asyncmock_awaitable(self._run_worker_pool)
 
 
 @pytest.fixture
@@ -114,10 +114,10 @@ class TestContentProcessingWithRealData:
         mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
         mock_result.unique = MagicMock(return_value=mock_unique_result)
 
-        # Mock batch processing functions
-        mixin._setup_batch_processing.return_value = (
-            MagicMock(),  # task_pbar
-            MagicMock(),  # process_pbar
+        # Mock worker pool functions
+        mixin._setup_worker_pool.return_value = (
+            "task_name",  # task_name
+            "process_name",  # process_name
             MagicMock(),  # semaphore
             MagicMock(),  # queue
         )
@@ -134,17 +134,16 @@ class TestContentProcessingWithRealData:
         mock_session.add.assert_called_with(sample_account)
         mock_session.execute.assert_called()
 
-        # Verify batch processing setup
-        mixin._setup_batch_processing.assert_called_once()
-        assert "post" in str(mixin._setup_batch_processing.call_args)
+        # Verify worker pool setup
+        mixin._setup_worker_pool.assert_called_once()
+        assert "post" in str(mixin._setup_worker_pool.call_args)
 
-        # Verify batch processor execution
-        mixin._run_batch_processor.assert_called_once()
-        batch_args = mixin._run_batch_processor.call_args[1]
+        # Verify worker pool execution
+        mixin._run_worker_pool.assert_called_once()
+        batch_args = mixin._run_worker_pool.call_args[1]
         assert "items" in batch_args
         assert batch_args["items"] == [sample_post]
-        assert batch_args["batch_size"] == 25
-        assert "process_batch" in batch_args
+        assert "process_item" in batch_args
 
     @pytest.mark.asyncio
     async def test_process_messages_with_real_data(
@@ -174,10 +173,10 @@ class TestContentProcessingWithRealData:
         mock_unique_result.scalars = MagicMock(return_value=mock_scalars_result)
         mock_result.unique = MagicMock(return_value=mock_unique_result)
 
-        # Mock batch processing functions
-        mixin._setup_batch_processing.return_value = (
-            MagicMock(),  # task_pbar
-            MagicMock(),  # process_pbar
+        # Mock worker pool functions
+        mixin._setup_worker_pool.return_value = (
+            "task_name",  # task_name
+            "process_name",  # process_name
             MagicMock(),  # semaphore
             MagicMock(),  # queue
         )
@@ -194,17 +193,16 @@ class TestContentProcessingWithRealData:
         mock_session.add.assert_called_with(sample_account)
         mock_session.execute.assert_called()
 
-        # Verify batch processing setup
-        mixin._setup_batch_processing.assert_called_once()
-        assert "message" in str(mixin._setup_batch_processing.call_args)
+        # Verify worker pool setup
+        mixin._setup_worker_pool.assert_called_once()
+        assert "message" in str(mixin._setup_worker_pool.call_args)
 
-        # Verify batch processor execution
-        mixin._run_batch_processor.assert_called_once()
-        batch_args = mixin._run_batch_processor.call_args[1]
+        # Verify worker pool execution
+        mixin._run_worker_pool.assert_called_once()
+        batch_args = mixin._run_worker_pool.call_args[1]
         assert "items" in batch_args
         assert batch_args["items"] == [sample_message]
-        assert batch_args["batch_size"] == 25
-        assert "process_batch" in batch_args
+        assert "process_item" in batch_args
 
     @pytest.mark.asyncio
     async def test_process_items_with_gallery_real_data(

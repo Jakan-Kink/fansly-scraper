@@ -38,7 +38,7 @@ from stash.types import (
 def base_client(mock_transport, mock_client):
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch(
             "gql.transport.websockets.WebsocketsTransport", return_value=mock_transport
         ),
@@ -72,7 +72,7 @@ async def test_client_create(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         # Test with minimal conn
@@ -160,7 +160,7 @@ async def test_client_execute(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()
@@ -248,7 +248,7 @@ async def test_datetime_conversion(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()
@@ -298,7 +298,7 @@ async def test_get_configuration_defaults(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()
@@ -548,7 +548,7 @@ async def test_metadata_generate(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()
@@ -775,7 +775,7 @@ async def test_metadata_scan(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()
@@ -845,7 +845,7 @@ async def test_find_job(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()
@@ -1008,7 +1008,7 @@ async def test_wait_for_job(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()
@@ -1096,7 +1096,7 @@ async def test_context_manager(mock_session, mock_client) -> None:
 
     with (
         patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.aiohttp.AIOHTTPTransport", return_value=mock_transport),
+        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
         patch("gql.transport.websockets.WebsocketsTransport"),
     ):
         client = await StashClientBase.create()

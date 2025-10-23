@@ -5,8 +5,7 @@ import traceback
 from asyncio import sleep
 from typing import Any
 
-from requests import Response
-from sqlalchemy import select
+from httpx import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import FanslyConfig, with_database_session
@@ -121,6 +120,8 @@ async def download_wall(
         wall_id: ID of the wall to download
         session: Optional AsyncSession for database operations
     """
+    if session is None:
+        raise RuntimeError("Database session is required for wall download")
     # Get wall name from database
     wall = await session.get(Wall, wall_id)
     wall_name = wall.name if wall and wall.name else None
@@ -162,7 +163,7 @@ async def download_wall(
                 f"Inspecting wall posts from {wall_info} before: {before_cursor} [CID: {state.creator_id}]"
             )
 
-        wall_response = Response()
+        wall_response: Response | None = None
 
         try:
             if state.creator_id is None:
@@ -175,7 +176,7 @@ async def download_wall(
             wall_response.raise_for_status()
 
             if wall_response.status_code == 200:
-                wall_data = wall_response.json()["response"]
+                wall_data = config.get_api().get_json_response_contents(wall_response)
 
                 # Process the wall data with transaction handling
                 await in_transaction_or_new(

@@ -7,7 +7,7 @@ from collections import OrderedDict, namedtuple
 from typing import NamedTuple
 from urllib.parse import parse_qs, urlparse
 
-import requests
+import httpx
 
 from textio import print_error, print_warning
 
@@ -142,9 +142,11 @@ def guess_check_key(
     }
 
     try:
-        html_response = requests.get(
+        html_response = httpx.get(
             fansly_url,
             headers=headers,
+            timeout=30.0,
+            follow_redirects=True,
         )
 
         if html_response.status_code == 200:
@@ -162,9 +164,11 @@ def guess_check_key(
 
                     main_js_url = f"{fansly_url}/{main_js}"
 
-                    js_response = requests.get(
+                    js_response = httpx.get(
                         main_js_url,
                         headers=headers,
+                        timeout=30.0,
+                        follow_redirects=True,
                     )
 
                     if js_response.status_code == 200:
@@ -256,13 +260,14 @@ def get_release_info_from_github(current_program_version: str) -> dict | None:
     try:
         url = "https://api.github.com/repos/prof79/fansly-downloader-ng/releases/latest"
 
-        response = requests.get(
+        response = httpx.get(
             url,
-            allow_redirects=True,
+            follow_redirects=True,
             headers={
                 "user-agent": f"Fansly Downloader NG {current_program_version}",
                 "accept-language": "en-US,en;q=0.9",
             },
+            timeout=30.0,
         )
 
         response.raise_for_status()

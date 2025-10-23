@@ -11,42 +11,15 @@ import requests
 from api.fansly import FanslyApi
 
 
-@pytest.fixture
-def mock_session():
-    with patch("requests.Session") as mock:
-        # Configure default mock response for device ID request
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "success": "true",
-            "response": "test_device_id",
-        }
-        mock.return_value.get.return_value = mock_response
-        yield mock
-
-
-@pytest.fixture
-def fansly_api(mock_session):
-    # Initialize with test device ID to avoid real request
-    api = FanslyApi(
-        token="test_token",
-        user_agent="test_user_agent",
-        check_key="test_check_key",
-        device_id="test_device_id",  # Provide device_id to avoid initial request
-        device_id_timestamp=int(
-            datetime.now(timezone.utc).timestamp() * 1000
-        ),  # Current timestamp
-    )
-    return api
-
-
 class TestFanslyApiAdditional:
     """Additional tests for FanslyApi class to increase coverage."""
 
-    def test_get_account_media_response(self, fansly_api, mock_session):
+    def test_get_account_media_response(self, fansly_api, mock_http_session):
         """Test get_account_media returns the response from get_with_ngsw"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         result = fansly_api.get_account_media("media123")
 
@@ -54,17 +27,18 @@ class TestFanslyApiAdditional:
         assert result is mock_response
 
         # Verify the correct URL was used
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert "account/media" in args[1]["url"]
         assert args[1]["params"]["ids"] == "media123"
 
-    def test_account_media_validation_flow(self, fansly_api, mock_session):
+    def test_account_media_validation_flow(self, fansly_api, mock_http_session):
         """Test validation flow for get_account_media when used with get_json_response_contents"""
         # This test shows how validation actually works in the typical API usage flow
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
         mock_response.json.return_value = {"success": "false"}
-        mock_session.return_value.get.return_value = mock_response
+        mock_http_session.get.return_value = mock_response
 
         # First get the API response
         response = fansly_api.get_account_media("media123")
@@ -82,41 +56,47 @@ class TestFanslyApiAdditional:
         with pytest.raises(RuntimeError, match="Invalid or failed JSON response"):
             fansly_api.get_json_response_contents(mock_response)
 
-    def test_get_wall_posts_with_params(self, fansly_api, mock_session):
+    def test_get_wall_posts_with_params(self, fansly_api, mock_http_session):
         """Test get_wall_posts with custom cursor"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_wall_posts("creator123", "wall456", "cursor789")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         params = args[1]["params"]
         assert params["before"] == "cursor789"
         assert params["after"] == "0"
         assert params["wallId"] == "wall456"
 
-    def test_get_wall_posts_default_cursor(self, fansly_api, mock_session):
+    def test_get_wall_posts_default_cursor(self, fansly_api, mock_http_session):
         """Test get_wall_posts with default cursor"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_wall_posts("creator123", "wall456")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         params = args[1]["params"]
         assert params["before"] == "0"  # Default cursor
         assert params["wallId"] == "wall456"
 
     def test_get_client_account_info_with_alternate_token(
-        self, fansly_api, mock_session
+        self, fansly_api, mock_http_session
     ):
         """Test get_client_account_info with alternate token"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_client_account_info(alternate_token="alt_token")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert "alt_token" in args[1]["headers"]["authorization"]
 
     @pytest.mark.asyncio
@@ -134,17 +114,19 @@ class TestFanslyApiAdditional:
             with pytest.raises(RuntimeError, match="WebSocket error"):
                 await fansly_api.get_active_session_async()
 
-    def test_get_with_ngsw_additional_parameters(self, fansly_api, mock_session):
+    def test_get_with_ngsw_additional_parameters(self, fansly_api, mock_http_session):
         """Test get_with_ngsw handles additional parameters"""
         test_url = "https://api.test.com/endpoint?existing=param"
         test_params = {"test": "value", "another": "param"}
 
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_with_ngsw(url=test_url, params=test_params)
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         params = args[1]["params"]
 
         # Should include existing URL params, ngsw params, and additional params
@@ -153,30 +135,36 @@ class TestFanslyApiAdditional:
         assert params["test"] == "value"  # From additional params
         assert params["another"] == "param"  # From additional params
 
-    def test_get_with_ngsw_with_cookies(self, fansly_api, mock_session):
+    def test_get_with_ngsw_with_cookies(self, fansly_api, mock_http_session):
         """Test get_with_ngsw handles cookies"""
         test_url = "https://api.test.com/endpoint"
         test_cookies = {"cookie1": "value1", "cookie2": "value2"}
 
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_with_ngsw(url=test_url, cookies=test_cookies)
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["cookies"] == test_cookies
 
-    def test_get_with_ngsw_stream_mode(self, fansly_api, mock_session):
+    def test_get_with_ngsw_stream_mode(self, fansly_api, mock_http_session):
         """Test get_with_ngsw with stream mode"""
         test_url = "https://api.test.com/endpoint"
 
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.build_request = MagicMock()
+        mock_http_session.send.return_value = mock_response
 
         fansly_api.get_with_ngsw(url=test_url, stream=True)
 
-        args = mock_session.return_value.get.call_args
-        assert args[1]["stream"] is True
+        # For stream mode, it uses build_request and send instead of get
+        mock_http_session.build_request.assert_called_once()
+        mock_http_session.send.assert_called_once()
 
     def test_update_client_timestamp_no_attribute(self, fansly_api):
         """Test update_client_timestamp when attribute doesn't exist"""

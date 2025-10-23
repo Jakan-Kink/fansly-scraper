@@ -4,11 +4,12 @@ import copy
 import json
 import traceback
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
-from functools import lru_cache
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -18,14 +19,13 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
-    insert,
     select,
     update,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import (
     Mapped,
-    Session,
     attribute_mapped_collection,
     mapped_column,
     relationship,
@@ -49,8 +49,8 @@ media_locations_by_media: dict[int, set[int]] = {}
 media_variants = Table(
     "media_variants",
     Base.metadata,
-    Column("mediaId", Integer, ForeignKey("media.id"), primary_key=True),
-    Column("variantId", Integer, ForeignKey("media.id"), primary_key=True),
+    Column("mediaId", BigInteger, ForeignKey("media.id"), primary_key=True),
+    Column("variantId", BigInteger, ForeignKey("media.id"), primary_key=True),
     UniqueConstraint("mediaId", "variantId"),
 )
 
@@ -63,8 +63,8 @@ class MediaLocation(Base):
     purposes (e.g., CDN URLs, local paths).
 
     Attributes:
-        mediaId: ID of the media this location belongs to
-        locationId: Unique identifier for this location
+        mediaId: ID of the media this location belongs to (snowflake ID)
+        locationId: Unique identifier for this location (snowflake ID)
         location: The actual URL or path where the media is stored
         media: Relationship to the parent Media object
     """
@@ -72,9 +72,9 @@ class MediaLocation(Base):
     __tablename__ = "media_locations"
 
     mediaId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("media.id"), primary_key=True
+        BigInteger, ForeignKey("media.id"), primary_key=True
     )
-    locationId: Mapped[str] = mapped_column(String, primary_key=True)
+    locationId: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     location: Mapped[str] = mapped_column(String, nullable=False)
     media: Mapped[Media] = relationship("Media", back_populates="locations")
 
@@ -110,9 +110,9 @@ class Media(Base):
         Index("ix_media_content_hash", "content_hash"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=False
+        BigInteger, ForeignKey("accounts.id"), nullable=False
     )
     meta_info: Mapped[str] = mapped_column(String, nullable=True)
     location: Mapped[str] = mapped_column(String, nullable=True)
@@ -128,24 +128,24 @@ class Media(Base):
     local_filename: Mapped[str] = mapped_column(String, nullable=True)
     content_hash: Mapped[str] = mapped_column(String, nullable=True)
     is_downloaded: Mapped[bool] = mapped_column(
-        Integer,
-        default=0,
+        Boolean,
+        default=False,
         nullable=False,
-        server_default="0",  # Set explicit server default
+        server_default="false",  # Set explicit server default
     )
     variants: Mapped[set[Media]] = relationship(
         "Media",
         collection_class=set,
         secondary="media_variants",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load variants to reduce SQL queries
         primaryjoin=id == media_variants.c.mediaId,
         secondaryjoin=id == media_variants.c.variantId,
     )
-    locations: Mapped[dict[str, MediaLocation]] = relationship(
+    locations: Mapped[dict[int, MediaLocation]] = relationship(
         "MediaLocation",
         collection_class=attribute_mapped_collection("locationId"),
         cascade="all, delete-orphan",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load locations to reduce SQL queries
         back_populates="media",
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -173,11 +173,12 @@ class MediaBatch:
             account_id: Optional account ID if not in media_item
             parent_created_at: Optional createdAt from parent media for variants
         """
-        if media_item["id"] in self.seen_media:
-            return
-
-        # Process media item
+        # Process media item first to get converted IDs
         filtered_media = self._prepare_media_data(media_item, account_id)
+        media_id = filtered_media["id"]  # Use converted integer ID
+
+        if media_id in self.seen_media:
+            return
 
         # For variants without createdAt, use parent's
         if parent_created_at is not None and "createdAt" not in media_item:
@@ -186,45 +187,31 @@ class MediaBatch:
             )
 
         self.media_items.append(filtered_media)
-        self.seen_media.add(media_item["id"])
+        self.seen_media.add(media_id)
 
         # Process locations
         if "locations" in media_item:
             for loc in media_item["locations"]:
-                loc_key = (media_item["id"], loc["locationId"])
+                # Convert locationId to int (API returns strings)
+                location_id = (
+                    int(loc["locationId"])
+                    if isinstance(loc["locationId"], str)
+                    else loc["locationId"]
+                )
+                loc_key = (media_id, location_id)
                 if loc_key not in self.seen_locations:
                     self.locations.append(
                         {
-                            "mediaId": media_item["id"],
-                            "locationId": loc["locationId"],
+                            "mediaId": media_id,
+                            "locationId": location_id,
                             "location": loc["location"],
                         }
                     )
                     self.seen_locations.add(loc_key)
 
-        # Process variants recursively
-        if "variants" in media_item:
-            # Get this media's raw createdAt timestamp for variants
-            this_created_at = media_item.get(
-                "createdAt"
-            )  # Get raw timestamp before conversion
-
-            # Get this media's accountId for variants
-            this_account_id = filtered_media.get("accountId")
-
-            for variant in media_item["variants"]:
-                # Add variant relationship
-                var_key = (media_item["id"], variant["id"])
-                if var_key not in self.seen_variants:
-                    self.variants.append(
-                        {
-                            "mediaId": media_item["id"],
-                            "variantId": variant["id"],
-                        }
-                    )
-                    self.seen_variants.add(var_key)
-                # Process variant as media (recursive), passing this media's createdAt and accountId
-                self.add_media(variant, this_account_id, this_created_at)
+        # SKIP VARIANTS - we only download and need to track the primary media
+        # Variants (720p, 480p, thumbnails, etc.) are not downloaded, so no need to store them
+        # This prevents bloating the database with hundreds of unused variant records per media
 
     def _prepare_media_data(self, media_item: dict, account_id: int | None) -> dict:
         """Extract and prepare media data for database operations.
@@ -389,133 +376,35 @@ async def _sync_relationships(
     3. Updates changed locations
     4. Maintains global location cache
     """
-    # Process locations
+    # Process locations using bulk insert with conflict handling
     if batch.locations:
-        # Group locations by media ID for efficient processing
-        locations_by_media: dict[int, list[dict]] = {}
-        for loc in batch.locations:
-            media_id = loc["mediaId"]
-            locations_by_media.setdefault(media_id, []).append(loc)
-
-        # Process each media's locations
-        for media_id, locations in locations_by_media.items():
-            # Get wanted location IDs for this media
-            wanted_location_ids = {loc["locationId"] for loc in locations}
-
-            # Get existing locations from cache or database
-            existing_location_ids = media_locations_by_media.get(media_id, set())
-            if not existing_location_ids:
-                result = await session.execute(
-                    select(MediaLocation.locationId).where(
-                        MediaLocation.mediaId == media_id
-                    )
-                )
-                existing_location_ids = {row[0] for row in result.fetchall()}
-                media_locations_by_media[media_id] = existing_location_ids
-
-            # Find new locations to add
-            new_location_ids = wanted_location_ids - existing_location_ids
-            if not new_location_ids:
-                continue
-
-            # Create new location objects
-            new_locations = []
-            for location_id in new_location_ids:
-                location = next(
-                    loc for loc in locations if loc["locationId"] == location_id
-                )
-                new_locations.append(
-                    MediaLocation(
-                        mediaId=media_id,
-                        locationId=location_id,
-                        location=location["location"],
-                    )
-                )
-
-            # Add new locations and update cache
-            if new_locations:
-                session.add_all(new_locations)
-                media_locations_by_media[media_id].update(new_location_ids)
-                json_output(
-                    1,
-                    "meta/media - batch - locations",
-                    {
-                        "media_id": media_id,
-                        "new_locations": len(new_locations),
-                    },
-                )
-
-    # Process variants
-    if batch.variants:
-        # Group variants by media ID
-        variants_by_media: dict[int, list[dict]] = {}
-        for var in batch.variants:
-            media_id = var["mediaId"]
-            variants_by_media.setdefault(media_id, []).append(var)
-
-        # Process each media's variants
-        for media_id, variants in variants_by_media.items():
-            # Get existing variants - get both mediaId and variantId
-            result = await session.execute(
-                select(
-                    media_variants.c.mediaId,
-                    media_variants.c.variantId,
-                ).where(media_variants.c.mediaId == media_id)
+        try:
+            # Use PostgreSQL-specific upsert with ON CONFLICT DO NOTHING
+            # This handles duplicates gracefully and avoids autoflush issues
+            insert_stmt = pg_insert(MediaLocation.__table__).values(batch.locations)
+            # On conflict (duplicate key), do nothing
+            upsert_stmt = insert_stmt.on_conflict_do_nothing(
+                index_elements=["mediaId", "locationId"]
             )
-            # Track complete (mediaId, variantId) pairs
-            existing_pairs = {(row.mediaId, row.variantId) for row in result}
+            await session.execute(upsert_stmt)
 
-            # Prepare variant pairs to add
-            variant_pairs = []
-            for variant in variants:
-                pair = (media_id, variant["variantId"])
-                if pair not in existing_pairs:
-                    variant_pairs.append(
-                        {
-                            "mediaId": media_id,
-                            "variantId": variant["variantId"],
-                        }
-                    )
-                else:
-                    json_output(
-                        1,  # Info level
-                        "meta/media - batch - variants - skip",
-                        {
-                            "media_id": media_id,
-                            "variant_id": variant["variantId"],
-                            "reason": "already exists",
-                        },
-                    )
+            json_output(
+                1,
+                "meta/media - batch - locations",
+                {"total_locations": len(batch.locations)},
+            )
+        except Exception as e:
+            json_output(
+                2,  # Warning level
+                "meta/media - batch - locations - error",
+                {
+                    "error": str(e),
+                    "location_count": len(batch.locations),
+                },
+            )
 
-            # Add any new variants
-            if variant_pairs:
-                try:
-                    # Still use OR IGNORE as a safety net for race conditions
-                    await session.execute(
-                        media_variants.insert().prefix_with("OR IGNORE"),
-                        variant_pairs,
-                    )
-                    json_output(
-                        1,
-                        "meta/media - batch - variants",
-                        {
-                            "media_id": media_id,
-                            "new_variants": len(variant_pairs),
-                        },
-                    )
-                except Exception as e:
-                    json_output(
-                        2,  # Warning level
-                        "meta/media - batch - variants - error",
-                        {
-                            "media_id": media_id,
-                            "error": str(e),
-                            "variant_count": len(variant_pairs),
-                            "first_variant": (
-                                variant_pairs[0] if variant_pairs else None
-                            ),
-                        },
-                    )
+    # SKIP VARIANTS - variants are not tracked anymore to reduce database bloat
+    # We only store the primary media that is actually downloaded
 
 
 async def _process_media_batch(
@@ -591,12 +480,11 @@ async def _process_account_media_batch(
         else:
             to_insert.append(am)
 
-    # Bulk insert new records
+    # Bulk insert new records using PostgreSQL upsert
     if to_insert:
-        await session.execute(
-            AccountMedia.__table__.insert().prefix_with("OR IGNORE"),
-            to_insert,
-        )
+        insert_stmt = pg_insert(AccountMedia.__table__).values(to_insert)
+        upsert_stmt = insert_stmt.on_conflict_do_nothing()
+        await session.execute(upsert_stmt)
 
     # Bulk update existing records
     if to_update:
@@ -956,6 +844,28 @@ async def process_media_download(
         existing_media = (
             await session.execute(select(Media).where(Media.id == media_id))
         ).scalar_one_or_none()
+    # If found and already downloaded with hash, skip it
+    if _should_skip_media(existing_media):
+        json_output(
+            1,
+            "process_media_download",
+            {
+                "action": "skipping_media",
+                "media_id": media_id,
+                "has_existing": existing_media is not None,
+                "is_downloaded": (
+                    existing_media.is_downloaded if existing_media else None
+                ),
+                "has_hash": (
+                    bool(existing_media.content_hash) if existing_media else None
+                ),
+                "local_filename": (
+                    existing_media.local_filename if existing_media else None
+                ),
+            },
+        )
+        return None
+
     media_obj: Media | None = None if not existing_media else existing_media
 
     if not isinstance(media, MediaItem):
@@ -1005,8 +915,42 @@ async def process_media_download(
                     ),
                 },
             )
-    # If found and already downloaded with hash, skip it
-    if _should_skip_media(existing_media):
+    else:
+        # For MediaItem, create record if it doesn't exist
+        if media_obj is None:
+            media_obj = Media(
+                id=media_id,
+                accountId=int(state.creator_id),
+                mimetype=mimetype,
+                createdAt=(
+                    datetime.fromtimestamp(created_at, tz=timezone.utc)
+                    if created_at
+                    else None
+                ),
+            )
+            session.add(media_obj)
+            await session.flush()
+
+    # Remove duplicate skip check since we already checked above
+    if False and _should_skip_media(existing_media):
+        json_output(
+            1,
+            "process_media_download",
+            {
+                "action": "skipping_media",
+                "media_id": media_id,
+                "has_existing": existing_media is not None,
+                "is_downloaded": (
+                    existing_media.is_downloaded if existing_media else None
+                ),
+                "has_hash": (
+                    bool(existing_media.content_hash) if existing_media else None
+                ),
+                "local_filename": (
+                    existing_media.local_filename if existing_media else None
+                ),
+            },
+        )
         return None
 
     # Ensure creator_id is available

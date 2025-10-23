@@ -8,35 +8,6 @@ import pytest
 from api.fansly import FanslyApi
 
 
-@pytest.fixture
-def mock_session():
-    with patch("requests.Session") as mock:
-        # Configure default mock response for device ID request
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "success": "true",
-            "response": "test_device_id",
-        }
-        mock.return_value.get.return_value = mock_response
-        yield mock
-
-
-@pytest.fixture
-def fansly_api(mock_session):
-    # Initialize with test device ID to avoid real request
-    api = FanslyApi(
-        token="test_token",
-        user_agent="test_user_agent",
-        check_key="test_check_key",
-        device_id="test_device_id",  # Provide device_id to avoid initial request
-        device_id_timestamp=int(
-            datetime.now(timezone.utc).timestamp() * 1000
-        ),  # Current timestamp
-    )
-    return api
-
-
 class TestFanslyApi:
 
     def test_init(self, fansly_api):
@@ -171,13 +142,14 @@ class TestFanslyApi:
         assert fansly_api.int32(2**31 + 1) < 2**31
 
     @pytest.mark.asyncio
-    async def test_setup_session(self, fansly_api, mock_session):
+    async def test_setup_session(self, fansly_api, mock_http_session):
         """Test setup_session success path"""
         # Mock the account info response
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
         mock_response.json.return_value = {"success": "true", "response": {}}
-        mock_session.return_value.get.return_value = mock_response
+        mock_http_session.get.return_value = mock_response
 
         # Create a mock websocket instance with proper async methods
         mock_ws_instance = AsyncMock()
@@ -221,206 +193,235 @@ class TestFanslyApi:
         result = fansly_api.get_json_response_contents(mock_response)
         assert result == {"data": "test_data"}
 
-    def test_get_client_user_name(self, fansly_api, mock_session):
+    def test_get_client_user_name(self, fansly_api, mock_http_session):
         """Test get_client_user_name success path"""
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
         mock_response.json.return_value = {
             "success": "true",
             "response": {"account": {"username": "test_user"}},
         }
-        mock_session.return_value.get.return_value = mock_response
+        mock_http_session.get.return_value = mock_response
 
         assert fansly_api.get_client_user_name() == "test_user"
 
-    def test_get_with_ngsw(self, fansly_api, mock_session):
+    def test_get_with_ngsw(self, fansly_api, mock_http_session):
         """Test get_with_ngsw builds correct request"""
         test_url = "https://api.test.com/endpoint"
         test_params = {"test": "param"}
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_with_ngsw(
             url=test_url, params=test_params, add_fansly_headers=True
         )
 
         # Verify options request was made
-        mock_session.return_value.options.assert_called_once()
+        mock_http_session.options.assert_called_once()
 
         # Verify GET request was made with correct parameters
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         expected_params = test_params.copy()
         expected_params["ngsw-bypass"] = "true"
         assert args[1]["params"] == expected_params
         assert args[1]["headers"]["Origin"] == "https://fansly.com"
 
-    def test_get_creator_account_info_single(self, fansly_api, mock_session):
+    def test_get_creator_account_info_single(self, fansly_api, mock_http_session):
         """Test get_creator_account_info with single username"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_creator_account_info("test_creator")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["params"] == {"usernames": "test_creator", "ngsw-bypass": "true"}
 
-    def test_get_creator_account_info_multiple(self, fansly_api, mock_session):
+    def test_get_creator_account_info_multiple(self, fansly_api, mock_http_session):
         """Test get_creator_account_info with multiple usernames"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_creator_account_info(["creator1", "creator2"])
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["params"] == {
             "usernames": "creator1,creator2",
             "ngsw-bypass": "true",
         }
 
-    def test_get_account_info_by_id_single(self, fansly_api, mock_session):
+    def test_get_account_info_by_id_single(self, fansly_api, mock_http_session):
         """Test get_account_info_by_id with single ID"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_account_info_by_id(123)
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["params"] == {"ids": "123", "ngsw-bypass": "true"}
 
-    def test_get_account_info_by_id_multiple(self, fansly_api, mock_session):
+    def test_get_account_info_by_id_multiple(self, fansly_api, mock_http_session):
         """Test get_account_info_by_id with multiple IDs"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_account_info_by_id([123, 456])
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["params"] == {"ids": "123,456", "ngsw-bypass": "true"}
 
-    def test_get_media_collections(self, fansly_api, mock_session):
+    def test_get_media_collections(self, fansly_api, mock_http_session):
         """Test get_media_collections request"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_media_collections()
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["params"]["limit"] == "9999"
         assert args[1]["params"]["offset"] == "0"
 
-    def test_get_following_list(self, fansly_api, mock_session):
+    def test_get_following_list(self, fansly_api, mock_http_session):
         """Test get_following_list with default parameters"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_following_list("user123")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         params = args[1]["params"]
         assert params["limit"] == "425"
         assert params["offset"] == "0"
         assert params["before"] == "0"
         assert params["after"] == "0"
 
-    def test_get_following_list_with_params(self, fansly_api, mock_session):
+    def test_get_following_list_with_params(self, fansly_api, mock_http_session):
         """Test get_following_list with custom parameters"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_following_list(
             "user123", limit=10, offset=5, before=1000, after=500
         )
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         params = args[1]["params"]
         assert params["limit"] == "10"
         assert params["offset"] == "5"
         assert params["before"] == "1000"
         assert params["after"] == "500"
 
-    def test_get_account_media(self, fansly_api, mock_session):
+    def test_get_account_media(self, fansly_api, mock_http_session):
         """Test get_account_media request"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_account_media("media123,media456")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         # The media IDs should be part of the parameters, not the URL
         assert args[1]["params"]["ids"] == "media123,media456"
 
-    def test_get_post(self, fansly_api, mock_session):
+    def test_get_post(self, fansly_api, mock_http_session):
         """Test get_post request"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_post("post123")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["params"]["ids"] == "post123"
 
-    def test_get_timeline(self, fansly_api, mock_session):
+    def test_get_timeline(self, fansly_api, mock_http_session):
         """Test get_timeline request"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_timeline("creator123", "cursor123")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         params = args[1]["params"]
         assert params["before"] == "cursor123"
         assert params["after"] == "0"
         assert params["wallId"] == ""
         assert params["contentSearch"] == ""
 
-    def test_get_wall_posts(self, fansly_api, mock_session):
+    def test_get_wall_posts(self, fansly_api, mock_http_session):
         """Test get_wall_posts request"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_wall_posts("creator123", "wall123", "cursor456")
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         params = args[1]["params"]
         assert params["before"] == "cursor456"
         assert params["after"] == "0"
         assert params["wallId"] == "wall123"
         assert params["contentSearch"] == ""
 
-    def test_get_group(self, fansly_api, mock_session):
+    def test_get_group(self, fansly_api, mock_http_session):
         """Test get_group request"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         fansly_api.get_group()
 
-        mock_session.return_value.get.assert_called_once()
-        assert "messaging/groups" in mock_session.return_value.get.call_args[1]["url"]
+        mock_http_session.get.assert_called_once()
+        assert "messaging/groups" in mock_http_session.get.call_args[1]["url"]
 
-    def test_get_message(self, fansly_api, mock_session):
+    def test_get_message(self, fansly_api, mock_http_session):
         """Test get_message request"""
         mock_response = MagicMock()
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
+        mock_http_session.get.return_value = mock_response
 
         test_params = {"param1": "value1"}
         expected_params = test_params.copy()
         expected_params["ngsw-bypass"] = "true"
         fansly_api.get_message(test_params)
 
-        args = mock_session.return_value.get.call_args
+        args = mock_http_session.get.call_args
         assert args[1]["params"] == expected_params
 
-    def test_get_device_id(self, fansly_api, mock_session):
+    def test_get_device_id(self, fansly_api, mock_http_session):
         """Test get_device_id request"""
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
         mock_response.json.return_value = {
             "success": "true",
             "response": "test_device_id",
         }
-        mock_session.return_value.get.return_value = mock_response
+        mock_http_session.get.return_value = mock_response
 
         result = fansly_api.get_device_id()
         assert result == "test_device_id"
@@ -434,15 +435,16 @@ class TestFanslyApi:
         updated_id = fansly_api.update_device_id()
         assert updated_id == original_device_id
 
-    def test_update_device_id_expired(self, fansly_api, mock_session):
+    def test_update_device_id_expired(self, fansly_api, mock_http_session):
         """Test update_device_id updates when timestamp expired"""
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.reason_phrase = "OK"
         mock_response.json.return_value = {
             "success": "true",
             "response": "new_device_id",
         }
-        mock_session.return_value.get.return_value = mock_response
+        mock_http_session.get.return_value = mock_response
 
         # Set old timestamp
         fansly_api.device_id_timestamp = 0
@@ -456,12 +458,13 @@ class TestFanslyApi:
         mock_callback.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_setup_session_error(self, fansly_api, mock_session):
+    async def test_setup_session_error(self, fansly_api, mock_http_session):
         """Test setup_session handles errors"""
         # Mock HTTP response failure
         mock_response = MagicMock()
         mock_response.status_code = 401
-        mock_session.return_value.get.return_value = mock_response
+        mock_response.reason_phrase = "Unauthorized"
+        mock_http_session.get.return_value = mock_response
 
         # Mock websocket to raise exception
         with patch("websockets.client.connect") as mock_ws:

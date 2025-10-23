@@ -62,7 +62,7 @@ async def download_single_post(config: FanslyConfig, state: DownloadState):
         creator_username, creator_display_name = None, None
 
         # post object contains: posts, aggregatedPosts, accountMediaBundles, accountMedia, accounts, tips, tipGoals, stories, polls
-        post_object = post_response.json()["response"]
+        post_object = config.get_api().get_json_response_contents(post_response)
         await process_timeline_posts(config, state, post_object)
 
         # if access to post content / post contains content

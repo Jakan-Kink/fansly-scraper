@@ -5,14 +5,11 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from tqdm import tqdm
+from helpers.rich_progress import get_progress_manager
 
 from ...logging import processing_logger as logger
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class BatchProcessingMixin:
@@ -22,7 +19,7 @@ class BatchProcessingMixin:
         self,
         items: list[Any],
         item_type: str,
-    ) -> tuple[tqdm, tqdm, asyncio.Semaphore, asyncio.Queue]:
+    ) -> tuple[str, str, asyncio.Semaphore, asyncio.Queue]:
         """Set up common worker pool infrastructure.
 
         Args:
@@ -30,20 +27,23 @@ class BatchProcessingMixin:
             item_type: Type of items ("post" or "message")
 
         Returns:
-            Tuple of (task_pbar, process_pbar, semaphore, queue)
+            Tuple of (task_name, process_name, semaphore, queue)
         """
-        # Create progress bars
-        task_pbar = tqdm(
+        # Get progress manager
+        progress_mgr = get_progress_manager()
+
+        # Create progress tasks
+        task_name = progress_mgr.add_task(
+            name=f"add_{item_type}_tasks",
+            description=f"Adding {len(items)} {item_type} tasks",
             total=len(items),
-            desc=f"Adding {len(items)} {item_type} tasks",
-            position=0,
-            unit="task",
+            show_elapsed=False,
         )
-        process_pbar = tqdm(
+        process_name = progress_mgr.add_task(
+            name=f"process_{item_type}s",
+            description=f"Processing {len(items)} {item_type}s",
             total=len(items),
-            desc=f"Processing {len(items)} {item_type}s",
-            position=1,
-            unit=item_type,
+            show_elapsed=False,
         )
 
         # Use reasonable default concurrency limit
@@ -53,13 +53,13 @@ class BatchProcessingMixin:
         # No maximum queue size - allow unlimited buffering
         queue = asyncio.Queue(maxsize=0)
 
-        return task_pbar, process_pbar, semaphore, queue
+        return task_name, process_name, semaphore, queue
 
     async def _run_worker_pool(
         self,
         items: list[Any],
-        task_pbar: tqdm,
-        process_pbar: tqdm,
+        task_name: str,
+        process_name: str,
         semaphore: asyncio.Semaphore,
         queue: asyncio.Queue,
         process_item: Callable,
@@ -68,12 +68,15 @@ class BatchProcessingMixin:
 
         Args:
             items: List of items to process
-            task_pbar: Progress bar for task creation
-            process_pbar: Progress bar for processing
+            task_name: Progress task name for task creation
+            process_name: Progress task name for processing
             semaphore: Semaphore for concurrency control
             queue: Queue for worker pool pattern
             process_item: Callback function to process each item
         """
+        # Get progress manager
+        progress_mgr = get_progress_manager()
+
         # Use same concurrency as semaphore
         max_concurrent = semaphore._value
         # Track all created tasks for proper cleanup
@@ -89,7 +92,7 @@ class BatchProcessingMixin:
             # Add items to the queue
             for item in items:
                 await queue.put(item)
-                task_pbar.update(1)
+                progress_mgr.update_task(task_name, advance=1)
                 enqueued_count += 1
 
                 # Start consumers when we have 40+ items in the queue
@@ -107,7 +110,8 @@ class BatchProcessingMixin:
             # Signal consumers we're done
             for _ in range(max_concurrent):
                 await queue.put(None)
-            task_pbar.close()
+            # Remove task from progress manager
+            progress_mgr.remove_task(task_name)
 
         async def consumer():
             # Wait until producer signals to start
@@ -121,7 +125,7 @@ class BatchProcessingMixin:
                         break
                     try:
                         await process_item(item)
-                        process_pbar.update(1)
+                        progress_mgr.update_task(process_name, advance=1)
                     except asyncio.CancelledError:
                         # Handle cancellation gracefully
                         raise
@@ -186,4 +190,5 @@ class BatchProcessingMixin:
                     # Remove task from background tasks if it's there
                     if task in self.config.get_background_tasks():
                         self.config.get_background_tasks().remove(task)
-            process_pbar.close()
+            # Remove process task from progress manager
+            progress_mgr.remove_task(process_name)

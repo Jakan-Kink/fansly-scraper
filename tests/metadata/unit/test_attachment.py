@@ -26,9 +26,7 @@ async def session(test_engine):
 
     # Create session
     async with async_session_factory() as session:
-        # Configure session
-        await session.execute(text("PRAGMA foreign_keys=OFF"))
-        await session.execute(text("PRAGMA journal_mode=WAL"))
+        # PostgreSQL: No PRAGMA statements needed
         yield session
 
 

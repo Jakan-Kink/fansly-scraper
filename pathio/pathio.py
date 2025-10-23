@@ -139,14 +139,20 @@ def get_creator_metadata_path(config: PathConfig, creator_name: str) -> Path:
 def get_creator_database_path(config: PathConfig, creator_name: str) -> Path:
     """Get the database path for a specific creator.
 
+    DEPRECATED: This function is for SQLite compatibility only.
+    PostgreSQL uses connection strings and schemas, not file paths.
+
     Args:
         config: The program configuration
         creator_name: Name of the creator
 
     Returns:
-        Path to the creator's database file
+        Path to the creator's database file (SQLite only)
 
     Note:
+        **SQLite Only** - This function returns file paths for SQLite databases.
+        With PostgreSQL, the application uses connection parameters instead.
+
         If separate_metadata is False:
         1. Uses config.metadata_db_file if set
         2. Otherwise uses <creator_base_path>/metadata/<creator_name>.db

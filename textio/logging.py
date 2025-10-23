@@ -12,13 +12,14 @@ Note: All logger configuration is now centralized in config/logging.py.
 This module only provides the handler implementation.
 """
 
+import contextlib
 import gzip
 import logging
 import os
 import shutil
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import BaseRotatingHandler
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         - UTC time support for consistent rotation across timezones
         - Files are kept uncompressed based on their recency (e.g., keep_uncompressed=2
           keeps log.1 and log.2 uncompressed while compressing older files)
+        - db_logger_name may be set dynamically for debugging purposes
     """
 
     def __init__(
@@ -63,12 +65,14 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         keep_uncompressed=0,
     ):
         super().__init__(filename, mode="a", encoding=encoding, delay=delay)
+        # Set terminator to empty string to prevent automatic newlines
+        self.terminator = ""
         self.maxBytes = maxBytes
         self.backupCount = backupCount
         self.utc = utc
         if compression and compression not in ["gz", "7z", "lzha"]:
             raise ValueError(f"Unsupported compression type: {compression}")
-        self.compression = compression  # Compression type (e.g., 'gz', '7z')
+        self.compression = compression
         self.keep_uncompressed = (
             keep_uncompressed  # Number of uncompressed files to keep
         )
@@ -94,7 +98,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
     def _compute_next_rollover(self):
         current_time = time.time()
         if self.utc:
-            current_time = datetime.now(timezone.utc).timestamp()
+            current_time = datetime.now(UTC).timestamp()
         return current_time + self.interval
 
     def _ensure_compression_state(self):
@@ -104,8 +108,10 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
         for i in range(self.keep_uncompressed + 1, self.backupCount + 1):
             filename = f"{self.baseFilename}.{i}"
-            if os.path.exists(filename):
-                self._compress_file(filename)
+            # Ignore errors when checking file existence or compressing
+            with contextlib.suppress(OSError):
+                if Path(filename).exists():
+                    self._compress_file(filename)
 
     def _check_rollover_on_init(self, filename):
         """
@@ -114,99 +120,111 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         """
         # Ensure files are in correct compression state
         self._ensure_compression_state()
-        if os.path.exists(filename):
-            file_stat = os.stat(filename)
+        filepath = Path(filename)
+        if filepath.exists():
+            file_stat = filepath.stat()
             last_modified_time = file_stat.st_mtime
             current_time = time.time()
             if self.utc:
-                current_time = datetime.now(timezone.utc).timestamp()
+                current_time = datetime.now(UTC).timestamp()
 
             # Check if the file exceeds the time interval
-            if current_time - last_modified_time >= self.interval:
-                self.doRollover()
-
-            # Check if the file exceeds the size limit
-            elif self.maxBytes > 0 and file_stat.st_size >= self.maxBytes:
+            if current_time - last_modified_time >= self.interval or (
+                self.maxBytes > 0 and file_stat.st_size >= self.maxBytes
+            ):
                 self.doRollover()
         else:
             # If the file doesn't exist, set the next rollover time
             self.rolloverAt = self._compute_next_rollover()
 
-    def _perform_initial_rollover(self, filename):
-        """
-        Perform a rollover before the handler starts if required by size or time.
-        """
-        for i in range(self.backupCount - 1, 0, -1):
-            sfn = f"{filename}.{i}"
-            dfn = f"{filename}.{i + 1}"
-            if os.path.exists(sfn):
-                if os.path.exists(dfn):
-                    os.remove(dfn)
-                os.rename(sfn, dfn)
-        dfn = f"{filename}.1"
-        if os.path.exists(filename):
-            if os.path.exists(dfn):
-                os.remove(dfn)
-            os.rename(filename, dfn)
+    def shouldRollover(
+        self, record
+    ):  # noqa: N802 - Override BaseRotatingHandler method
+        # Defensive check: stream can be None with delay=True or closed by another thread
+        if self.stream is None or (
+            hasattr(self.stream, "closed") and self.stream.closed
+        ):
+            try:
+                self.stream = self._open()
+            except Exception:
+                # If we can't open the stream, assume no rollover needed
+                # This prevents crashes during concurrent shutdown
+                return False
 
-        # Compress the rolled log file if needed
-        if self.compression:
-            self._compress_file(dfn)
-
-        # Compute the next rollover time
-        self.rolloverAt = self._compute_next_rollover()
-
-    def shouldRollover(self, record):
-        if self.stream is None:  # Open the stream if not already open
-            self.stream = self._open()
         if self.maxBytes > 0:  # Size-based rollover
             msg = self.format(record)
-            self.stream.seek(0, os.SEEK_END)
-            if self.stream.tell() + len(msg) + 1 >= self.maxBytes:
-                return True
-        if time.time() >= self.rolloverAt:  # Time-based rollover
-            return True
-        return False
+            try:
+                self.stream.seek(0, 2)  # seek to end of file
+                if self.stream.tell() + len(msg) + 1 >= self.maxBytes:
+                    return True
+            except (ValueError, OSError):
+                # Stream was closed between check and use - don't rollover
+                return False
 
-    def doRollover(self):
+        # Time-based rollover
+        return time.time() >= self.rolloverAt
+
+    def doRollover(self):  # noqa: N802 - Override BaseRotatingHandler method
+        # Add a special message to help with debugging database connections during rotation
+        # This will appear in the log file right before rotation happens
+        if hasattr(self, "db_logger_name") and self.db_logger_name:
+            with contextlib.suppress(ValueError, OSError):
+                print(
+                    f"About to rotate log file for {self.db_logger_name} - watch database connection",
+                    file=sys.stderr,
+                )
         if self.stream:
             try:
                 self.stream.flush()
                 self.stream.close()
             finally:
-                self.stream = None
+                self.stream = None  # type: ignore[assignment]
 
         # Remove oldest backup if it exists
         if self.backupCount > 0:
             oldest = f"{self.baseFilename}.{self.backupCount}"
-            if os.path.exists(oldest):
-                os.remove(oldest)
-            if os.path.exists(f"{oldest}.gz"):
-                os.remove(f"{oldest}.gz")
+            oldest_path = Path(oldest)
+            oldest_gz = Path(f"{oldest}.gz")
+            # Ignore errors when removing old backup files
+            with contextlib.suppress(OSError):
+                if oldest_path.exists():
+                    oldest_path.unlink()
+            # Ignore errors when removing old compressed backup files
+            with contextlib.suppress(OSError):
+                if oldest_gz.exists():
+                    oldest_gz.unlink()
 
         # Rotate log files
         for i in range(self.backupCount - 1, 0, -1):
             sfn = f"{self.baseFilename}.{i}"
             dfn = f"{self.baseFilename}.{i + 1}"
-            if os.path.exists(sfn):
-                if os.path.exists(dfn):
-                    os.remove(dfn)
-                os.rename(sfn, dfn)
-            elif os.path.exists(f"{sfn}.gz"):
-                if os.path.exists(f"{dfn}.gz"):
-                    os.remove(f"{dfn}.gz")
-                os.rename(f"{sfn}.gz", f"{dfn}.gz")
+            sfn_path = Path(sfn)
+            dfn_path = Path(dfn)
+            sfn_gz = Path(f"{sfn}.gz")
+            dfn_gz = Path(f"{dfn}.gz")
+
+            if sfn_path.exists():
+                if dfn_path.exists():
+                    dfn_path.unlink()  # pragma: no cover - defensive check, destination cleared in cleanup
+                sfn_path.rename(dfn_path)
+            elif sfn_gz.exists():
+                if dfn_gz.exists():
+                    dfn_gz.unlink()
+                sfn_gz.rename(dfn_gz)
 
             # Check if the rotated file should be compressed
-            if os.path.exists(dfn) and self.compression:
+            if dfn_path.exists() and self.compression:
                 self._compress_file(dfn)
 
         dfn = f"{self.baseFilename}.1"
-        if os.path.exists(self.baseFilename):
-            if os.path.exists(dfn):
-                os.remove(dfn)
+        dfn_path = Path(dfn)
+        base_path = Path(self.baseFilename)
+        if base_path.exists():
+            if dfn_path.exists():
+                dfn_path.unlink()  # pragma: no cover - defensive check, .1 cleared in cleanup or moved in rotation
             shutil.copy2(self.baseFilename, dfn)
-            os.truncate(self.baseFilename, 0)
+            with open(self.baseFilename, "w") as f:
+                f.truncate(0)
 
             # Compress the new rotated file if needed
             if self.compression:
@@ -221,13 +239,17 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
     def close(self):
         """
         Closes the stream and ensures proper cleanup.
+        Idempotent - safe to call multiple times.
         """
         if self.stream:
-            try:
-                self.stream.flush()
-                self.stream.close()
-            finally:
-                self.stream = None
+            # Ignore "I/O operation on closed file" and other close errors
+            # This can happen if the file was deleted or stream already closed
+            with contextlib.suppress(ValueError, OSError, AttributeError):
+                # Check if stream is already closed before attempting operations
+                if not (hasattr(self.stream, "closed") and self.stream.closed):
+                    self.stream.flush()
+                    self.stream.close()
+            self.stream = None  # type: ignore[assignment]
 
     def _compress_file(self, filepath):
         """Compress a log file with proper error handling.
@@ -244,9 +266,10 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         if not self.compression:
             return
 
-        # Use atomic operations to check file existence
+        # Try atomic operations to check file existence
+        filepath_path = Path(filepath)
         try:
-            if not os.path.exists(filepath):
+            if not filepath_path.exists():
                 return
         except OSError:
             # File might have been deleted between check and use
@@ -254,7 +277,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
         # Extract the file number from the filepath (e.g., "log.1" -> 1)
         try:
-            file_num = int(filepath.split(".")[-1])
+            file_num = int(filepath_path.name.split(".")[-1])
         except (ValueError, IndexError):
             file_num = 0
 
@@ -270,9 +293,11 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             try:
                 # First compress to a temporary file
                 try:
-                    with open(filepath, "rb") as f_in:
-                        with gzip.open(temp_path, "wb") as f_out:
-                            shutil.copyfileobj(f_in, f_out)
+                    with (
+                        filepath_path.open("rb") as f_in,
+                        gzip.open(temp_path, "wb") as f_out,
+                    ):
+                        shutil.copyfileobj(f_in, f_out)
                 except OSError as e:
                     if "No such file or directory" in str(e):
                         # File was deleted while we were reading it
@@ -281,59 +306,54 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
                 # Then atomically move the temp file to final location
                 try:
-                    os.replace(temp_path, compressed_path)
+                    Path(temp_path).replace(compressed_path)
                 except OSError:
                     # Another process might have created the file
-                    if os.path.exists(compressed_path):
-                        os.remove(temp_path)
+                    if Path(compressed_path).exists():
+                        Path(temp_path).unlink(missing_ok=True)
                     else:
                         raise
 
                 # Finally try to remove the original
-                try:
-                    os.remove(filepath)
-                except OSError:
-                    # File might already be gone
-                    pass
-
-            except Exception as e:
+                with contextlib.suppress(OSError):
+                    filepath_path.unlink(missing_ok=True)
+            except Exception:
                 # Clean up any partial files
                 for path in [temp_path, compressed_path]:
-                    try:
-                        if os.path.exists(path):
-                            os.remove(path)
-                    except OSError:
-                        pass
-                # Only re-raise if original file still exists
-                if os.path.exists(filepath):
-                    raise e
+                    with contextlib.suppress(OSError):
+                        Path(path).unlink(missing_ok=True)
+                # Always re-raise the exception after cleanup
+                raise
         elif self.compression == "7z":
             try:
                 shutil.make_archive(
                     filepath,
                     "7z",
-                    root_dir=os.path.dirname(filepath),
-                    base_dir=os.path.basename(filepath),
+                    root_dir=filepath_path.parent,
+                    base_dir=filepath_path.name,
                 )
-                os.remove(filepath)
-            except Exception as e:
-                if os.path.exists(f"{filepath}.7z"):
-                    os.remove(f"{filepath}.7z")
-                raise e
+                filepath_path.unlink()
+            except Exception:
+                archive_path = Path(f"{filepath}.7z")
+                if archive_path.exists():
+                    archive_path.unlink()
+                raise
         elif self.compression == "lzha":
             try:
                 shutil.make_archive(
                     filepath,
                     "zip",
-                    root_dir=os.path.dirname(filepath),
-                    base_dir=os.path.basename(filepath),
+                    root_dir=filepath_path.parent,
+                    base_dir=filepath_path.name,
                 )
-                os.remove(filepath)
-            except Exception as e:
-                if os.path.exists(f"{filepath}.zip"):
-                    os.remove(f"{filepath}.zip")
-                raise e
+                filepath_path.unlink()
+            except Exception:
+                archive_path = Path(f"{filepath}.zip")
+                if archive_path.exists():
+                    archive_path.unlink()
+                raise
         else:
+            # This should never happen due to validation in __init__, but be defensive
             raise ValueError(f"Unsupported compression type: {self.compression}")
 
 
@@ -347,22 +367,22 @@ class SizeTimeRotatingHandler:
     def __init__(
         self,
         filename: str,
-        max_bytes: int = 0,
-        backup_count: int = 5,
+        maxBytes: int = 0,
+        backupCount: int = 5,
         when: str = "h",
         interval: int = 1,
         utc: bool = False,
         compression: str = "gz",
         keep_uncompressed: int = 0,
         encoding: str = "utf-8",
-        log_level: str = "INFO",
+        log_level: str | int = "INFO",
     ):
         """Initialize the handler.
 
         Args:
             filename: Base name of the log file
-            max_bytes: Max size of each log file before rotation
-            backup_count: Total number of backup files to keep
+            maxBytes: Max size of each log file before rotation
+            backupCount: Total number of backup files to keep
             when: Rotation interval unit ('s', 'm', 'h', 'd', 'w')
             interval: Number of units between rotations
             utc: Use UTC time for rotation timing
@@ -371,10 +391,14 @@ class SizeTimeRotatingHandler:
             encoding: File encoding
             log_level: Logging level (default: INFO)
         """
+        # Validate and prepare log file path
+        self.filename = Path(filename)
+        self._ensure_log_directory()
+
         self.handler = SizeAndTimeRotatingFileHandler(
-            filename=filename,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
+            filename=str(self.filename),
+            maxBytes=maxBytes,
+            backupCount=backupCount,
             when=when,
             interval=interval,
             utc=utc,
@@ -390,19 +414,66 @@ class SizeTimeRotatingHandler:
         # Convert level to int if it's a string (for backward compatibility)
         if isinstance(log_level, str):
             try:
-                self.levelno = int(log_level)
-            except ValueError:
+                self.levelno = getattr(logging, log_level.upper())
+            except AttributeError:
                 self.levelno = logging.INFO
         else:
             self.levelno = log_level
 
+    def _ensure_log_directory(self) -> None:
+        """Ensure the log directory exists and is writable."""
+        try:
+            # Create directory if it doesn't exist
+            self.filename.parent.mkdir(parents=True, exist_ok=True)
+
+            # Test write permissions
+            if self.filename.exists():
+                if not os.access(self.filename, os.W_OK):
+                    raise PermissionError(f"Cannot write to log file: {self.filename}")
+            else:
+                # Test directory write permissions by creating a temp file
+                test_file = self.filename.parent / f".{self.filename.name}.test"
+                try:
+                    test_file.touch()
+                    test_file.unlink()
+                except OSError as e:
+                    raise PermissionError(
+                        f"Cannot write to log directory: {self.filename.parent}"
+                    ) from e
+
+        except Exception as e:
+            # Avoid printing to stderr during cleanup - pytest may have closed it
+            with contextlib.suppress(ValueError, OSError):
+                print(f"Log directory setup failed: {e}", file=sys.stderr)
+            raise
+
+    def _verify_file_integrity(self) -> bool:
+        """Verify that the log file exists and is accessible."""
+        try:
+            if not self.filename.exists():
+                return False
+
+            # Try to read the file
+            with open(self.filename, encoding="utf-8") as f:
+                f.read(1)  # Try to read just one character
+
+            # Check write permissions
+            return os.access(self.filename, os.W_OK)
+
+        except (OSError, PermissionError):
+            return False
+
     def write(self, message: str | dict[str, Any]) -> None:
-        """Write a log record.
+        """Write a log record with file verification and recovery.
 
         Args:
             message: The log record as a string or dict from loguru
         """
         try:
+            # Verify file integrity before writing
+            if not self._verify_file_integrity():
+                self._attempt_recovery()
+
             if isinstance(message, dict):
                 # Handle dict format from loguru
                 record = logging.LogRecord(
@@ -428,40 +499,51 @@ class SizeTimeRotatingHandler:
                     func=None,
                 )
 
-            # Write record with proper cleanup
-            try:
-                self.handler.emit(record)
-            finally:
-                # Always ensure stream is closed
-                if self.handler.stream:
-                    try:
-                        self.handler.stream.flush()
-                    except Exception:
-                        pass
-                    try:
-                        self.handler.stream.close()
-                    except Exception:
-                        pass
-                    self.handler.stream = None
-        except Exception as e:
-            print(f"Error in SizeTimeRotatingHandler: {e}", file=sys.stderr)
-            # Ensure stream is flushed even on error
-            try:
-                if self.handler.stream:
+            # Write record and flush to ensure data is written promptly
+            self.handler.emit(record)
+            if self.handler.stream:
+                with contextlib.suppress(Exception):
                     self.handler.stream.flush()
-            except Exception:
-                pass
+
+        except Exception as e:
+            # Avoid printing to stderr during cleanup - pytest may have closed it
+            with contextlib.suppress(ValueError, OSError):
+                print(f"Error in SizeTimeRotatingHandler: {e}", file=sys.stderr)
+            # On error, try to close and reset stream for recovery
+            with contextlib.suppress(Exception):
+                if self.handler.stream:
+                    self.handler.stream.close()
+                    self.handler.stream = None  # type: ignore[assignment]
+
+    def _attempt_recovery(self) -> None:
+        """Attempt to recover from file access issues."""
+        try:
+            # Close existing stream if open
+            if self.handler.stream:
+                self.handler.stream.close()
+                self.handler.stream = None  # type: ignore[assignment]
+
+            # Re-ensure directory structure
+            self._ensure_log_directory()
+
+            # Try to recreate the handler's stream
+            self.handler.stream = self.handler._open()
+
+        except Exception as e:
+            # Avoid printing to stderr during cleanup - pytest may have closed it
+            # stderr is closed, can't report error
+            with contextlib.suppress(ValueError, OSError):
+                print(f"Log recovery failed: {e}", file=sys.stderr)
+                print("Falling back to stderr for logging", file=sys.stderr)
 
     def close(self) -> None:
-        """Close the handler and all file handles."""
-        try:
-            if self.handler.stream:
-                self.handler.stream.flush()
-                self.handler.stream.close()
-                self.handler.stream = None
+        """Close the handler and all file handles.
+
+        Idempotent - safe to call multiple times.
+        Avoids printing to stderr during cleanup to prevent pytest issues.
+        """
+        with contextlib.suppress(Exception):
             self.handler.close()
-        except Exception as e:
-            print(f"Error closing handler: {e}", file=sys.stderr)
 
     def stop(self) -> None:
         """Close the handler (alias for close)."""

@@ -12,50 +12,34 @@ from config import FanslyConfig
 from metadata.database import Database
 
 
-@pytest.fixture
-def config(tmp_path: Path) -> FanslyConfig:
-    """Create test configuration."""
-    config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = tmp_path / "test_transaction.db"
-    return config
-
-
 @pytest.fixture(autouse=True)
-def cleanup_test_table(database: Database):
+def cleanup_test_table(test_database_sync: Database):
     """Clean up test table before and after each test."""
     # Drop table if it exists before test
-    with database.session_scope() as session:
+    with test_database_sync.session_scope() as session:
         session.execute(text("DROP TABLE IF EXISTS test"))
         session.commit()
     yield
     # Drop table after test
-    with database.session_scope() as session:
+    with test_database_sync.session_scope() as session:
         session.execute(text("DROP TABLE IF EXISTS test"))
         session.commit()
-
-
-@pytest.fixture
-def database(config: FanslyConfig) -> Database:
-    """Create test database for transaction tests."""
-    db = Database(config)
-    yield db
-    db.close_sync()
 
 
 class TestNestedTransactionRollback:
     """Test nested transaction rollback handling."""
 
-    def test_successful_nested_transactions(self, database: Database):
+    def test_successful_nested_transactions(self, test_database_sync: Database):
         """Test scenario where nested transactions succeed."""
         # Create test table
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             session.execute(
                 text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
             )
             session.commit()
 
         # Test nested transactions
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             with session.begin():
                 # Insert in outer transaction
                 session.execute(
@@ -75,7 +59,7 @@ class TestNestedTransactionRollback:
                     )
 
         # Check results
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             result = session.execute(text("SELECT * FROM test ORDER BY id"))
             rows = result.fetchall()
             assert len(rows) == 3
@@ -83,17 +67,17 @@ class TestNestedTransactionRollback:
             assert rows[1][0] == 2 and rows[1][1] == "nested1"
             assert rows[2][0] == 3 and rows[2][1] == "nested2"
 
-    def test_nested_transaction_error_recovery(self, database: Database):
+    def test_nested_transaction_error_recovery(self, test_database_sync: Database):
         """Test scenario where a nested transaction fails but outer transaction continues."""
         # Create test table
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             session.execute(
                 text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
             )
             session.commit()
 
         # Test nested transactions with error
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             with session.begin():
                 # Insert in outer transaction
                 session.execute(
@@ -124,7 +108,7 @@ class TestNestedTransactionRollback:
                     )
 
         # Check results
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             result = session.execute(text("SELECT * FROM test ORDER BY id"))
             rows = result.fetchall()
             assert len(rows) == 3
@@ -132,10 +116,12 @@ class TestNestedTransactionRollback:
             assert rows[1][0] == 2 and rows[1][1] == "nested1"
             assert rows[2][0] == 3 and rows[2][1] == "nested3"
 
-    def test_connection_failure_recovery(self, database: Database, monkeypatch):
+    def test_connection_failure_recovery(
+        self, test_database_sync: Database, monkeypatch
+    ):
         """Test recovery from connection failures during nested transactions."""
         # Create test table
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             session.execute(
                 text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
             )
@@ -158,7 +144,7 @@ class TestNestedTransactionRollback:
 
         # Test transaction with simulated connection error
         try:
-            with database.session_scope() as session:
+            with test_database_sync.session_scope() as session:
                 with session.begin():
                     # Insert in outer transaction
                     session.execute(
@@ -191,7 +177,7 @@ class TestNestedTransactionRollback:
         monkeypatch.setattr(Session, "execute", original_execute)
 
         # Try to create a new session after the error
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             # Try to insert new data - this should work if our recovery mechanism is functioning
             session.execute(
                 text("INSERT INTO test (id, value) VALUES (4, 'after_error')")
@@ -204,10 +190,10 @@ class TestNestedTransactionRollback:
             assert row is not None
             assert row[0] == 4 and row[1] == "after_error"
 
-    def test_multiple_savepoint_errors(self, database: Database, monkeypatch):
+    def test_multiple_savepoint_errors(self, test_database_sync: Database, monkeypatch):
         """Test handling of multiple savepoint errors in sequence."""
         # Create test table
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             session.execute(
                 text("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)")
             )
@@ -236,7 +222,7 @@ class TestNestedTransactionRollback:
 
         # Test transaction with mocked rollback errors
         try:
-            with database.session_scope() as session:
+            with test_database_sync.session_scope() as session:
                 session.execute(text("INSERT INTO test (id, value) VALUES (1, 'test')"))
                 # Force an error to trigger rollback
                 session.execute(
@@ -250,7 +236,7 @@ class TestNestedTransactionRollback:
         assert rollback_attempts[0] > 0
 
         # Try a new session to make sure we can still use the database
-        with database.session_scope() as session:
+        with test_database_sync.session_scope() as session:
             session.execute(
                 text("INSERT INTO test (id, value) VALUES (5, 'after_mock_error')")
             )

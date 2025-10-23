@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -34,14 +34,14 @@ class Story(Base):
 
     __tablename__ = "stories"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     authorId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=False
+        BigInteger, ForeignKey("accounts.id"), nullable=False
     )
     author: Mapped[Account] = relationship(
         "Account",
         back_populates="stories",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load author to reduce SQL queries
         cascade="all, delete, save-update",
     )
     title: Mapped[str | None] = mapped_column(String, nullable=True)

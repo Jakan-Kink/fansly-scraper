@@ -1,83 +1,65 @@
 """Unit tests for metadata.messages module."""
 
-import asyncio
-import re
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import create_engine, inspect, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session, selectinload
 
-from config import FanslyConfig
-from metadata.account import Account
 from metadata.attachment import Attachment, ContentType
-from metadata.base import Base
-from metadata.database import Database
 from metadata.messages import Group, Message, group_users, process_messages_metadata
+from tests.fixtures import (
+    AccountFactory,
+    AttachmentFactory,
+    GroupFactory,
+    MessageFactory,
+)
 
 
-@pytest.fixture
-def db_session(request):
-    """Set up test database and session with a unique in-memory database per test."""
-    # Create a unique database name based on the test name
-    test_name = request.node.name.replace("[", "_").replace("]", "_")
-    db_name = f"test_messages_{test_name}_{id(request)}"
-    # Use URI format for in-memory database to ensure thread safety
-    db_uri = f"sqlite:///file:{db_name}?mode=memory&cache=shared&uri=true"
+def test_direct_message_creation(session_sync: Session):
+    """Test creating a direct message between users.
 
-    engine = create_engine(db_uri, connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    Uses AccountFactory and MessageFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create test accounts using factories
+    account1 = AccountFactory(id=1, username="sender")
+    account2 = AccountFactory(id=2, username="recipient")
 
-    # Create test accounts
-    account1 = Account(id=1, username="sender")
-    account2 = Account(id=2, username="recipient")
-    session.add_all([account1, account2])
-    session.commit()
-
-    yield session, account1, account2
-
-    # Cleanup
-    session.close()
-    Base.metadata.drop_all(engine)
-    engine.dispose()
-
-
-def test_direct_message_creation(db_session):
-    """Test creating a direct message between users."""
-    session, account1, account2 = db_session
-
-    message = Message(
+    # Create direct message using factory (no group)
+    message = MessageFactory(
         id=1,
+        groupId=None,  # Direct message has no group
         senderId=account1.id,
         recipientId=account2.id,
         content="Test message",
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(message)
-    session.commit()
+    session_sync.commit()
 
-    saved_message = session.execute(select(Message)).scalar_one_or_none()
+    saved_message = session_sync.execute(select(Message)).scalar_one_or_none()
     assert saved_message.content == "Test message"
     assert saved_message.senderId == account1.id
     assert saved_message.recipientId == account2.id
     assert saved_message.groupId is None
 
 
-def test_group_creation(db_session):
-    """Test creating a message group."""
-    session, account1, account2 = db_session
+def test_group_creation(session_sync: Session):
+    """Test creating a message group.
 
-    group = Group(id=1, createdBy=account1.id)
-    session.add(group)
-    session.flush()
+    Uses AccountFactory and GroupFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create test accounts using factories
+    account1 = AccountFactory(id=1, username="sender")
+    account2 = AccountFactory(id=2, username="recipient")
+
+    # Create group using factory
+    group = GroupFactory(id=1, createdBy=account1.id)
+    session_sync.flush()
 
     # Add users to group
-    session.execute(
+    session_sync.execute(
         group_users.insert().values(
             [
                 {"groupId": 1, "accountId": account1.id},
@@ -85,134 +67,132 @@ def test_group_creation(db_session):
             ]
         )
     )
-    session.commit()
+    session_sync.commit()
 
-    saved_group = session.execute(select(Group)).scalar_one_or_none()
+    saved_group = session_sync.execute(select(Group)).scalar_one_or_none()
     assert saved_group.createdBy == account1.id
     assert len(saved_group.users) == 2
     user_ids = {u.id for u in saved_group.users}
     assert user_ids == {account1.id, account2.id}
 
 
-def test_group_message(db_session):
-    """Test creating a message in a group."""
-    session, account1, account2 = db_session
+def test_group_message(session_sync: Session):
+    """Test creating a message in a group.
 
-    # Create group
-    group = Group(id=1, createdBy=account1.id)
-    session.add(group)
-    session.flush()
+    Uses AccountFactory, GroupFactory, and MessageFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create test accounts using factories
+    account1 = AccountFactory(id=1, username="sender")
+    account1_id = account1.id
 
-    # Add message to group
-    message = Message(
+    # Create group using factory
+    group = GroupFactory(id=1, createdBy=account1_id)
+    group_id = group.id
+    session_sync.flush()
+
+    # Create message in group using factory
+    message = MessageFactory(
         id=1,
-        groupId=1,
-        senderId=account1.id,
+        groupId=group_id,
+        senderId=account1_id,
         content="Group message",
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(message)
-    session.commit()
+    message_id = message.id
+    session_sync.commit()
 
     # Update group's last message
-    group.lastMessageId = message.id
-    session.commit()
+    group.lastMessageId = message_id
+    session_sync.commit()
 
-    saved_group = session.execute(select(Group)).scalar_one_or_none()
+    saved_group = session_sync.execute(select(Group)).scalar_one_or_none()
     assert saved_group.lastMessageId == 1
-    saved_message = session.execute(select(Message)).scalar_one_or_none()
+    saved_message = session_sync.execute(select(Message)).scalar_one_or_none()
     assert saved_message.groupId == 1
     assert saved_message.content == "Group message"
 
 
-def test_message_with_attachment(db_session):
-    """Test message with an attachment."""
-    session, account1, account2 = db_session
+def test_message_with_attachment(session_sync: Session):
+    """Test message with an attachment.
 
-    # Create a message with attachment
-    message = Message(
+    Uses AccountFactory, MessageFactory, and AttachmentFactory.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create test accounts using factories
+    account1 = AccountFactory(id=1, username="sender")
+    account2 = AccountFactory(id=2, username="recipient")
+    account1_id = account1.id
+    account2_id = account2.id
+
+    # Create direct message using factory (no group)
+    message = MessageFactory(
         id=1,
-        senderId=account1.id,
-        recipientId=account2.id,
+        groupId=None,  # Direct message has no group
+        senderId=account1_id,
+        recipientId=account2_id,
         content="Message with attachment",
-        createdAt=datetime.now(timezone.utc),
     )
-    session.add(message)
-    session.flush()
+    message_id = message.id
 
-    # Add attachment to the message
-    attachment = Attachment(
-        contentId="test_content",
-        messageId=1,
+    # Add attachment using factory (contentId must be integer, not string)
+    AttachmentFactory(
+        contentId=1001,
+        messageId=message_id,
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=1,
     )
-    session.add(attachment)
-    session.commit()
+    session_sync.commit()
 
     # Verify the message has the attachment
-    saved_message = session.execute(select(Message)).scalar_one_or_none()
+    saved_message = session_sync.execute(select(Message)).scalar_one_or_none()
     assert saved_message.content == "Message with attachment"
     assert len(saved_message.attachments) == 1
     assert saved_message.attachments[0].contentType == ContentType.ACCOUNT_MEDIA
-    assert saved_message.attachments[0].contentId == "test_content"
+    assert saved_message.attachments[0].contentId == 1001
 
 
 @pytest.mark.asyncio
-async def test_process_messages_metadata(db_session):
-    """Test processing message metadata."""
-    session, account1, account2 = db_session
+async def test_process_messages_metadata(session: AsyncSession, session_sync, config):
+    """Test processing message metadata.
 
-    # Since we need an async session but have a sync one, we need to create a proper
-    # async session that works with the same database
+    Uses AccountFactory and centralized config/session fixtures.
+    factory_session is autouse=True so it's automatically applied.
+    """
+    # Create test accounts using factories
+    account1 = AccountFactory(id=1, username="sender")
+    account2 = AccountFactory(id=2, username="recipient")
+    account1_id = account1.id
+    account2_id = account2.id
+    session.expire_all()
 
-    # Extract the database path from the sync session
-    engine = session.get_bind()
-    url = str(engine.url)
+    messages_data = [
+        {
+            "id": 1,
+            "senderId": account1_id,
+            "recipientId": account2_id,
+            "content": "Test message",
+            "createdAt": int(datetime.now(timezone.utc).timestamp()),
+            "attachments": [
+                {
+                    "contentId": 1001,  # Must be integer, not string
+                    "contentType": ContentType.ACCOUNT_MEDIA.value,
+                    "pos": 1,
+                }
+            ],
+        }
+    ]
 
-    # Create an async engine pointing to the same database - use replace for simplicity
-    async_url = url.replace("sqlite://", "sqlite+aiosqlite://")
-    async_engine = create_async_engine(async_url)
+    await process_messages_metadata(config, None, messages_data, session=session)
+    await session.commit()
 
-    # Create the async session
-    async_session_factory = async_sessionmaker(
-        bind=async_engine, expire_on_commit=False
+    # Verify the message was created with eager loading for attachments
+    session.expire_all()
+    result = await session.execute(
+        select(Message)
+        .options(selectinload(Message.attachments))
+        .where(Message.id == 1)
     )
-    async_session = async_session_factory()
-
-    try:
-        # Create a mock config that returns our async session
-        config = MagicMock()
-        config._database = MagicMock()
-        config._database.async_session = lambda: async_session
-
-        messages_data = [
-            {
-                "id": 1,
-                "senderId": account1.id,
-                "recipientId": account2.id,
-                "content": "Test message",
-                "createdAt": int(datetime.now(timezone.utc).timestamp()),
-                "attachments": [
-                    {
-                        "contentId": "test_content",
-                        "contentType": ContentType.ACCOUNT_MEDIA.value,
-                        "pos": 1,
-                    }
-                ],
-            }
-        ]
-
-        await process_messages_metadata(
-            config, None, messages_data, session=async_session
-        )
-        await async_session.commit()
-
-        # Use the sync session to verify the results since we already have it set up with data
-        saved_message = session.execute(select(Message)).unique().scalar_one_or_none()
-        assert saved_message.content == "Test message"
-        assert len(saved_message.attachments) == 1
-        assert saved_message.attachments[0].contentId == "test_content"
-    finally:
-        await async_session.close()
-        await async_engine.dispose()
+    saved_message = result.unique().scalar_one_or_none()
+    assert saved_message.content == "Test message"
+    assert len(saved_message.attachments) == 1
+    assert saved_message.attachments[0].contentId == 1001

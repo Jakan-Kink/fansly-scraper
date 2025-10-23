@@ -1,42 +1,47 @@
-"""Common test fixtures and configuration.
+"""Master test configuration and fixtures.
 
-This module provides shared test data and configuration for all tests,
-including database setup, logging configuration, and mock data loading.
+This is the single source of truth for all test fixtures and configuration.
+All tests can access fixtures defined here or in the tests/fixtures/ modules.
+
+Organization:
+- Auto-use fixtures (logging, cleanup) - Always run
+- Database fixtures - From tests/fixtures/database_fixtures.py
+- Factory fixtures - FactoryBoy factories for creating test data
+- Stash fixtures - From tests/fixtures/stash_fixtures.py
+- Test data fixtures - JSON data loaders, sample objects
+- Config fixtures - Configuration objects for testing
 """
 
 import asyncio
 import json
 import logging
-import os
-import sys
-import time
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
-from unittest.mock import AsyncMock, MagicMock
+from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
 from loguru import logger
-from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import sessionmaker
 
-from alembic import command
-from alembic.config import Config as AlembicConfig
-from config import FanslyConfig
-from metadata.base import Base
-from metadata.database import Database
-from textio.logging import SizeTimeRotatingHandler
+# Import all factories and fixtures using wildcard
+from tests.fixtures import *  # noqa: F403, F401
 
-from .fixtures.stash_fixtures import *  # noqa: F403, F401
+# ============================================================================
+# Helper Functions
+# ============================================================================
 
 
-# Add helper function to clean object data for tests
 def clean_model_data(data_dict):
     """Remove problematic fields from dict before creating model instances.
 
     This prevents issues with _dirty_attrs and other internal fields
     that might cause problems with mock objects in tests.
+
+    Args:
+        data_dict: Dictionary of model data
+
+    Returns:
+        Cleaned dictionary
     """
     if not isinstance(data_dict, dict):
         return data_dict
@@ -50,35 +55,27 @@ def clean_model_data(data_dict):
     return clean_dict
 
 
-# Export helper functions and fixtures
-__all__ = [
-    # Utility functions
-    "clean_model_data",
-    # Fixtures
-    "json_timeline_data",
-    "json_messages_group_data",
-    "json_conversation_data",
-    "sample_account",
-    "sample_post",
-    "sample_message",
-]
-
-# Set for tracking migrated databases
-_migrated_dbs = set()
+# ============================================================================
+# Auto-use Fixtures (Always Applied)
+# ============================================================================
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def cleanup_tasks():
-    """Cleanup any remaining tasks after each test."""
+    """Cleanup any remaining async tasks after each test.
+
+    This prevents task leakage between tests and ensures clean test isolation.
+    """
+    from contextlib import suppress
+
     yield
     # Clean up any remaining tasks at the end of each test
     for task in asyncio.all_tasks():
         if not task.done() and task != asyncio.current_task():
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError, RuntimeError):
+                # RuntimeError: cannot reuse already awaited coroutine
                 await task
-            except asyncio.CancelledError:
-                pass
 
 
 @pytest.fixture(autouse=True)
@@ -90,485 +87,488 @@ def setup_test_logging():
     2. Clean up log files after tests
     3. Properly close all file handlers
     """
-    # Create a temporary directory for logs
-    with TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
+    import tempfile
 
-        # Store original handlers to restore later
-        original_handlers = []
-        for handler in logging.root.handlers[:]:
-            original_handlers.append(handler)
-            logging.root.removeHandler(handler)
+    # Create a temporary directory for logs (manual management for proper cleanup)
+    temp_dir = tempfile.mkdtemp()
+    temp_path = Path(temp_dir)
 
-        # Get the original log file paths
-        original_log = os.getenv("LOGURU_LOG_FILE", "fansly_downloader_ng.log")
-        original_json_log = os.getenv(
-            "LOGURU_JSON_LOG_FILE", "fansly_downloader_ng_json.log"
-        )
+    # Store original handlers to restore later
+    original_handlers = []
+    for handler in logging.root.handlers[:]:
+        original_handlers.append(handler)
 
-        # Set up logging to use temporary files
-        os.environ["LOGURU_LOG_FILE"] = str(temp_path / "test.log")
-        os.environ["LOGURU_JSON_LOG_FILE"] = str(temp_path / "test_json.log")
+    handler_id = None
+    try:
+        # Remove all existing handlers
+        logging.root.handlers.clear()
 
-        # Remove all existing loguru handlers
-        logger.remove()
-
-        # Add stdout handler for test output
-        logger.add(
-            sys.stdout,
-            format="<level>{level}</level> | <white>{time:HH:mm}</white> <level>|</level><light-white>| {message}</light-white>",
-            level="INFO",
-            filter=lambda record: record["extra"].get("logger") in ("textio", "stash"),
-        )
-
-        # Add file handler for regular logs
-        logger.add(
-            str(temp_path / "test.log"),
+        # Configure logger to use temp directory
+        logger.remove()  # Remove default loguru handler
+        handler_id = logger.add(
+            temp_path / "test.log",
             rotation="1 MB",
-            retention="1 day",
-            compression="gz",
-            level="INFO",
-            filter=lambda record: record["extra"].get("logger") in ("textio", "stash"),
+            retention=1,
+            level="DEBUG",
         )
 
-        # Add handler for JSON logs using loguru's built-in rotation
-        logger.add(
-            str(temp_path / "test_json.log"),
-            format="[ {level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]:\n{message}",
-            level="INFO",
-            filter=lambda record: record["extra"].get("logger") == "json",
-            rotation="50 MB",
-            retention="1 day",
-            compression="gz",
-            enqueue=True,  # Use queue for thread-safety
-            catch=True,  # Catch exceptions
-            backtrace=False,
-            diagnose=False,
-        )
+        yield temp_path
 
-        # Make sure trace logger gets its own file
-        logger.add(
-            str(temp_path / "trace.log"),
-            format="[{time:YYYY-MM-DD HH:mm:ss.SSSSSS}] [{level.name}] {message}",
-            level="TRACE",
-            filter=lambda record: record["extra"].get("logger") == "trace",
-        )
+    finally:
+        # CRITICAL: Remove loguru handlers FIRST to close file handles
+        # This must happen before temp directory cleanup
+        try:
+            if handler_id is not None:
+                logger.remove(handler_id)
+            else:
+                logger.remove()  # Remove all if handler_id wasn't captured
+        except (ValueError, Exception):
+            pass  # Ignore errors if handler already removed
 
-        # Add DB logger file
-        logger.add(
-            str(temp_path / "sqlalchemy.log"),
-            format="[{time:YYYY-MM-DD HH:mm:ss}] [{level.name}] {message}",
-            level="INFO",
-            filter=lambda record: record["extra"].get("logger") == "db",
-        )
+        # Restore original logging handlers
+        logging.root.handlers.clear()
+        for handler in original_handlers:
+            logging.root.addHandler(handler)
+
+        # NOW safe to clean up temp directory (all files are closed)
+        import shutil
 
         try:
-            yield  # Run the test
-        finally:
-            # Close and remove all loguru handlers
-            logger.remove()
-
-            # Close any open file handlers
-            for handler in logging.root.handlers[:]:
-                try:
-                    handler.close()
-                except Exception:
-                    pass
-                logging.root.removeHandler(handler)
-
-            # Restore original handlers
-            for handler in original_handlers:
-                logging.root.addHandler(handler)
-
-            # Restore original log file paths
-            if original_log:
-                os.environ["LOGURU_LOG_FILE"] = original_log
-            else:
-                os.environ.pop("LOGURU_LOG_FILE", None)
-
-            if original_json_log:
-                os.environ["LOGURU_JSON_LOG_FILE"] = original_json_log
-            else:
-                os.environ.pop("LOGURU_JSON_LOG_FILE", None)
-
-            # Clean up any remaining log files
-            try:
-                for file in temp_path.glob("*.log*"):
-                    try:
-                        file.close()  # Try to close if it's a file object
-                    except Exception:
-                        pass
-                    try:
-                        os.remove(file)  # Try to remove the file
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass  # Ignore cleanup errors
 
 
-@pytest.fixture
-def temp_db_dir():
-    """Create a temporary directory for test databases."""
-    with TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
+# ============================================================================
+# Test Data Fixtures
+# ============================================================================
 
 
-@pytest.fixture
-def test_config():
-    """Create a test configuration with in-memory database."""
-    config = FanslyConfig(program_version="0.10.0")  # Version from pyproject.toml
-    config.metadata_db_file = Path(":memory:")
-    return config
-
-
-@pytest.fixture
-def test_config_factory():
-    """Create a test configuration factory that allows customizing settings."""
-    config = FanslyConfig(program_version="0.10.0")  # Version from pyproject.toml
-    config.metadata_db_file = Path(":memory:")
-    return config
-
-
-class TestDatabase(Database):
-    """Enhanced database class for testing."""
-
-    def __init__(
-        self,
-        config: FanslyConfig,
-        test_name: str | None = None,
-        isolation_level: str = "SERIALIZABLE",
-    ):
-        """Initialize test database with configurable isolation level."""
-        self.test_name = test_name
-        super().__init__(config)
-        self.isolation_level = isolation_level
-        self._setup_engine()
-
-    def _setup_engine(self) -> None:
-        """Set up database engine with enhanced test configuration."""
-        # Use test name for unique database if provided, otherwise use object id
-        safe_name = f"test_{self.test_name}" if self.test_name else f"test_{id(self)}"
-        safe_name = safe_name.replace("[", "_").replace("]", "_").replace(".", "_")
-        db_uri = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
-
-        # Create sync engine
-        self._sync_engine = create_engine(
-            db_uri,
-            isolation_level=self.isolation_level,
-            echo=False,
-            connect_args={
-                "check_same_thread": False,
-                "timeout": 30,  # 30 second timeout
-            },
-        )
-
-        # Add event listeners for debugging and monitoring
-        event.listen(
-            self._sync_engine, "before_cursor_execute", self._before_cursor_execute
-        )
-        event.listen(
-            self._sync_engine, "after_cursor_execute", self._after_cursor_execute
-        )
-
-        # Configure database for optimal test performance
-        with self._sync_engine.connect() as conn:
-            # Configure SQLite for optimal test performance
-            conn.execute(text("PRAGMA synchronous=OFF"))
-            conn.execute(text("PRAGMA temp_store=MEMORY"))
-            conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
-            conn.execute(text("PRAGMA page_size=4096"))
-            conn.execute(text("PRAGMA cache_size=-2000"))  # 2MB cache
-            conn.execute(text("PRAGMA busy_timeout=30000"))
-
-            # Keep foreign keys disabled as in production
-            conn.execute(text("PRAGMA foreign_keys=OFF"))
-
-            # Create all tables in dependency order
-            Base.metadata.create_all(bind=conn, checkfirst=True)
-
-            # Use WAL mode for better concurrency in tests
-            conn.execute(text("PRAGMA journal_mode=WAL"))
-
-        # Create async engine and session factory
-        async_uri = db_uri.replace("sqlite://", "sqlite+aiosqlite://")
-        self._async_engine = create_async_engine(
-            async_uri,
-            isolation_level=self.isolation_level,
-            echo=False,
-            connect_args={"check_same_thread": False},
-        )
-        self.async_session_factory = async_sessionmaker(
-            bind=self._async_engine,
-            expire_on_commit=False,
-            class_=AsyncSession,
-        )
-
-    def _before_cursor_execute(
-        self, conn, cursor, statement, parameters, context, executemany
-    ):
-        """Log query execution start time."""
-        conn.info.setdefault("query_start_time", []).append(time.time())
-
-    def _after_cursor_execute(
-        self, conn, cursor, statement, parameters, context, executemany
-    ):
-        """Log query execution time."""
-        total = time.time() - conn.info["query_start_time"].pop()
-        # Log if query takes more than 100ms
-        if total > 0.1:
-            print(f"Long running query ({total:.2f}s): {statement}")
-
-
-@pytest_asyncio.fixture(scope="function")
-async def test_database(test_config: FanslyConfig, request):
-    """Create a test database with tables."""
-    # Enable separate databases and use test name as creator
-    test_config.separate_metadata = True
-    # Create a temporary file that will be deleted when the file is closed
-    temp_file = NamedTemporaryFile(suffix=".db", delete=False)
-    test_config.metadata_db_file = Path(temp_file.name)
-    temp_file.close()  # Close the file handle but don't delete yet
-
-    # Create unique creator name from test name
-    test_name = request.node.name
-    if request.cls:
-        test_name = f"{request.cls.__name__}_{test_name}"
-
-    # Create database with test name for unique in-memory db
-    database = TestDatabase(test_config, test_name=test_name)
-    test_config._database = database
-
-    yield database
-
-    # Cleanup
-    await database.cleanup()
-
-    # Ensure temp file is cleaned up, fail test if cleanup fails
-    try:
-        if Path(temp_file.name).exists():
-            Path(temp_file.name).unlink()
-    except OSError as e:
-        pytest.fail(f"Failed to clean up temporary database file: {e}")
-
-
-@pytest.fixture
-def test_session(test_database):
-    """Create a test database session."""
-    with test_database.session_scope() as session:
-        yield session
-
-
-@pytest_asyncio.fixture
-async def test_async_session(test_config: FanslyConfig):
-    """Create a test async database session with tables always created."""
-    # Create unique database name for each test session
-    import uuid
-
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-        async_sessionmaker,
-        create_async_engine,
-    )
-
-    db_name = f"test_db_{uuid.uuid4()}"
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///file:{db_name}?mode=memory&cache=shared&uri=true",
-        future=True,
-    )
-
-    # Create all tables
-    from metadata.base import Base
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    SessionMaker = async_sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
-    async with SessionMaker() as session:
-        # Configure session for optimum test performance
-        await session.execute(text("PRAGMA synchronous=OFF"))
-        await session.execute(text("PRAGMA temp_store=MEMORY"))
-        await session.execute(text("PRAGMA foreign_keys=OFF"))
-        await session.execute(text("PRAGMA journal_mode=WAL"))
-        yield session
-
-    # Clean up
-    await engine.dispose()
-
-
-@pytest.fixture(scope="session")
-async def async_engine():
-    """Create a test async database engine."""
-    # Create a unique in-memory database name for each test session
-    db_name = f"test_db_{id(async_engine)}"
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///file:{db_name}?mode=memory&cache=shared&uri=true",
-        future=True,
-        echo=False,
-        # Connection health and pooling settings
-        pool_pre_ping=True,
-        pool_recycle=3600,
-        # SQLite specific settings
-        connect_args={
-            "uri": True,
-            "timeout": 120,
-            "check_same_thread": False,
-        },
-        # Execution options
-        execution_options={
-            "isolation_level": "SERIALIZABLE",
-            "autocommit": False,
-        },
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
-
-
-@pytest.fixture(scope="function")
-async def async_session(async_engine):
-    """Create a test async database session."""
-    async_session_factory = async_sessionmaker(
-        async_engine,
-        expire_on_commit=False,
-        class_=AsyncSession,
-    )
-    async with async_session_factory() as session:
-        yield session
-        await session.rollback()
-
-
-@pytest.fixture(scope="function")
-def test_config_with_downloads():
-    """Create a test configuration for download tests."""
-    with TemporaryDirectory() as temp_dir:
-        config = FanslyConfig(program_version="0.10.0")
-        config.download_directory = Path(temp_dir)
-        config.max_concurrent_downloads = 2
-        config.download_timeout = 30
-        config.retry_attempts = 2
-        config.retry_delay = 1
-        yield config
-
-
-@pytest.fixture(scope="function")
-def test_downloads_dir(test_config_with_downloads):
-    """Create a temporary directory for test downloads."""
-    return test_config_with_downloads.download_directory
-
-
-@pytest.fixture(scope="function")
-def mock_api_response(request):
-    """Load mock API response data from JSON files.
-
-    Looks for JSON files in a mock_data directory next to the test file,
-    named same as the test function.
-    """
-    test_module = request.module.__file__
-    test_dir = os.path.dirname(test_module)
-    mock_data_path = os.path.join(
-        test_dir, "mock_data", request.function.__name__ + ".json"
-    )
-
-    if os.path.exists(mock_data_path):
-        with open(mock_data_path) as f:
-            return f.read()
-    return None
-
-
-# Load test data from JSON files
 @pytest.fixture
 def json_timeline_data():
-    """Load timeline test data from JSON file."""
-    json_path = Path(__file__).parent / "data" / "timeline.json"
-    if json_path.exists():
-        with open(json_path) as f:
-            return json.load(f)
-    return {}
+    """Load timeline test data from JSON file.
+
+    Returns:
+        dict: Timeline API response data
+    """
+    fixtures_dir = Path(__file__).parent / "fixtures" / "json_data"
+    timeline_file = fixtures_dir / "timeline_response.json"
+
+    if not timeline_file.exists():
+        return {
+            "response": [],
+            "aggregationData": {},
+        }
+
+    with open(timeline_file) as f:
+        return json.load(f)
 
 
 @pytest.fixture
 def json_messages_group_data():
-    """Load messages group test data from JSON file."""
-    json_path = Path(__file__).parent / "data" / "messages_group.json"
-    if json_path.exists():
-        with open(json_path) as f:
-            return json.load(f)
-    return {}
+    """Load messages group test data from JSON file.
+
+    Returns:
+        dict: Messages API response data
+    """
+    fixtures_dir = Path(__file__).parent / "fixtures" / "json_data"
+    messages_file = fixtures_dir / "messages_group_response.json"
+
+    if not messages_file.exists():
+        return {"response": [], "aggregationData": {}}
+
+    with open(messages_file) as f:
+        return json.load(f)
 
 
 @pytest.fixture
 def json_conversation_data():
-    """Load conversation test data from JSON file."""
-    json_path = Path(__file__).parent / "data" / "conversation.json"
-    if json_path.exists():
-        with open(json_path) as f:
-            return json.load(f)
-    return {}
+    """Load conversation test data from JSON file.
+
+    Returns:
+        dict: Conversation API response data
+    """
+    fixtures_dir = Path(__file__).parent / "fixtures" / "json_data"
+    conversation_file = fixtures_dir / "conversation_response.json"
+
+    if not conversation_file.exists():
+        return {"response": [], "aggregationData": {}}
+
+    with open(conversation_file) as f:
+        return json.load(f)
+
+
+# ============================================================================
+# Sample Data Fixtures
+# ============================================================================
 
 
 @pytest.fixture
-def sample_account(json_timeline_data):
-    """Create a sample account from timeline data."""
-    if not json_timeline_data:
-        return MagicMock()
-    account_data = json_timeline_data.get("account", {})
-    account = MagicMock()
-    account.id = account_data.get("id")
-    account.username = account_data.get("username")
-    return account
+def sample_account():
+    """Create a sample account for testing.
+
+    Returns:
+        dict: Sample account data
+    """
+    return {
+        "id": "12345",
+        "username": "test_user",
+        "displayName": "Test User",
+        "about": "Test account for testing",
+        "location": "Test Location",
+    }
 
 
 @pytest.fixture
-def sample_post(json_timeline_data):
-    """Create a sample post from timeline data."""
-    if not json_timeline_data:
-        return MagicMock()
-    posts = json_timeline_data.get("posts", [])
-    if not posts:
-        return MagicMock()
-    post_data = posts[0]
-    post = MagicMock()
-    post.id = post_data.get("id")
-    post.content = post_data.get("content")
-    post.createdAt = post_data.get("createdAt")
-    return post
+def sample_post():
+    """Create a sample post for testing.
+
+    Returns:
+        dict: Sample post data
+    """
+    return {
+        "id": "post_123",
+        "accountId": "12345",
+        "content": "Test post content #test",
+        "likeCount": 5,
+        "replyCount": 1,
+        "mediaLikeCount": 3,
+    }
 
 
 @pytest.fixture
-def sample_message(json_conversation_data):
-    """Create a sample message from conversation data."""
-    if not json_conversation_data:
-        return MagicMock()
-    messages = json_conversation_data.get("messages", [])
-    if not messages:
-        return MagicMock()
-    message_data = messages[0]
-    message = MagicMock()
-    message.id = message_data.get("id")
-    message.content = message_data.get("content")
-    message.createdAt = message_data.get("createdAt")
-    return message
+def sample_message():
+    """Create a sample message for testing.
+
+    Returns:
+        dict: Sample message data
+    """
+    return {
+        "id": "message_123",
+        "groupId": "group_123",
+        "senderId": "12345",
+        "content": "Test message content",
+    }
 
 
-@pytest.fixture(autouse=True)
-def mock_aiohttp_session():
-    """Mock aiohttp ClientSession for all tests."""
-    mock_session = MagicMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock()
-    mock_session.get = AsyncMock()
-    mock_session.post = AsyncMock()
-    mock_session.put = AsyncMock()
-    mock_session.delete = AsyncMock()
-    return mock_session
+# ============================================================================
+# Config Fixtures (consolidated from tests/config/conftest.py)
+# ============================================================================
 
 
-@pytest.fixture(autouse=True)
-def mock_gql():
-    """Mock GQL client for all tests."""
-    mock_client = MagicMock()
-    mock_client.execute = AsyncMock()
-    return mock_client
+# NOTE: The main 'config' fixture is defined in tests/fixtures/database_fixtures.py
+# It creates a UUID-based PostgreSQL database for perfect test isolation.
+# This legacy fixture is kept as 'mock_config' for tests that don't need real databases.
+
+
+@pytest.fixture(scope="function")
+def mock_config():
+    """Create a basic FanslyConfig instance without database setup.
+
+    Use this for tests that mock the database or don't need real database access.
+    For tests that need a real database, use the 'config' fixture from database_fixtures.py
+
+    Note: Sets pg_database to a non-existent name to prevent accidental connections
+    to the production database.
+    """
+    from config.fanslyconfig import FanslyConfig
+
+    config = FanslyConfig(program_version="0.10.0")
+    # Override database name to prevent accidental connections to production database
+    config.pg_database = "test_mock_should_not_connect"
+    return config
+
+
+@pytest.fixture(scope="function")
+def test_config():
+    """Alias for mock_config fixture for backwards compatibility."""
+    from config.fanslyconfig import FanslyConfig
+
+    config = FanslyConfig(program_version="0.10.0")
+    # Override database name to prevent accidental connections to production database
+    config.pg_database = "test_mock_should_not_connect"
+    return config
+
+
+@pytest.fixture(scope="function")
+def temp_config_dir():
+    """Create a temporary directory and change to it for config file testing."""
+    import os
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            yield Path(temp_dir)
+        finally:
+            os.chdir(original_cwd)
+
+
+@pytest.fixture(scope="function")
+def config_parser():
+    """Create a ConfigParser instance for raw config manipulation."""
+    from configparser import ConfigParser
+
+    return ConfigParser(interpolation=None)
+
+
+@pytest.fixture(scope="function")
+def mock_config_file(temp_config_dir, request):
+    """Create a mock config file with specified content."""
+    config_path = temp_config_dir / "config.ini"
+
+    config_content = getattr(request, "param", None)
+    if config_content is None:
+        config_content = """
+        [Options]
+        download_mode = Normal
+        metadata_handling = Advanced
+        interactive = True
+        download_directory = Local_directory
+        """
+
+    with config_path.open("w") as f:
+        f.write(config_content)
+
+    yield config_path
+
+
+@pytest.fixture(scope="function")
+def mock_download_dir(temp_config_dir):
+    """Create a mock download directory for testing."""
+    download_dir = temp_config_dir / "downloads"
+    download_dir.mkdir()
+    yield download_dir
+
+
+@pytest.fixture(scope="function")
+def mock_metadata_dir(temp_config_dir):
+    """Create a mock metadata directory for testing."""
+    metadata_dir = temp_config_dir / "metadata"
+    metadata_dir.mkdir()
+    yield metadata_dir
+
+
+@pytest.fixture(scope="function")
+def mock_temp_dir(temp_config_dir):
+    """Create a mock temporary directory for testing."""
+    temp_dir = temp_config_dir / "temp"
+    temp_dir.mkdir()
+    yield temp_dir
+
+
+@pytest.fixture(scope="function")
+def valid_api_config(mock_config_file):
+    """Create a config file with valid API credentials."""
+    with mock_config_file.open("w") as f:
+        f.write(
+            """
+        [MyAccount]
+        Authorization_Token = test_token_long_enough_to_be_valid_token_here_more_chars
+        User_Agent = test_user_agent_long_enough_to_be_valid_agent_here_more
+        Check_Key = test_check_key
+
+        [Options]
+        interactive = True
+        download_mode = Normal
+        metadata_handling = Advanced
+        download_directory = Local_directory
+        """
+        )
+    return mock_config_file
+
+
+@pytest.fixture(scope="session")
+def download_modes():
+    """Get all available download modes."""
+    from config.modes import DownloadMode
+
+    return list(DownloadMode)
+
+
+@pytest.fixture(scope="session")
+def metadata_handling_modes():
+    """Get all available metadata handling modes."""
+    from config.metadatahandling import MetadataHandling
+
+    return list(MetadataHandling)
+
+
+@pytest.fixture
+def temp_db_dir():
+    """Create a temporary directory for database testing."""
+    with TemporaryDirectory() as temp_dir:
+        yield Path(temp_dir)
+
+
+# ============================================================================
+# Download Fixtures (consolidated from tests/download/conftest.py)
+# ============================================================================
+
+
+@pytest.fixture
+def mock_download_config():
+    """Create a mock FanslyConfig for download testing."""
+    from config import FanslyConfig
+
+    config = MagicMock(spec=FanslyConfig)
+    config.download_path = Path("/test/download/path")
+    config.program_version = "0.0.0-test"
+    return config
+
+
+@pytest.fixture
+def download_state():
+    """Create a real DownloadState for testing."""
+    from download.core import DownloadState
+
+    state = DownloadState()
+    state.creator_name = "test_creator"
+    return state
+
+
+@pytest.fixture
+def mock_download_state():
+    """Create a mock DownloadState for testing."""
+    from download.core import DownloadState
+
+    state = MagicMock(spec=DownloadState)
+    state.creator_id = "12345"
+    state.creator_name = "test_user"
+    state.messages_enabled = True
+    state.verbose_logs = False
+    return state
+
+
+@pytest.fixture
+def test_downloads_dir(tmp_path):
+    """Create a temporary downloads directory."""
+    downloads_dir = tmp_path / "downloads"
+    downloads_dir.mkdir()
+    return downloads_dir
+
+
+# ============================================================================
+# Performance Fixtures (consolidated from tests/performance/conftest.py)
+# ============================================================================
+
+
+@pytest.fixture(scope="session")
+def performance_log_dir():
+    """Create a directory for performance test logs."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        yield Path(temp_dir)
+
+
+@pytest.fixture(scope="session")
+def performance_threshold():
+    """Define performance thresholds for tests."""
+    return {
+        "max_memory_mb": 512,
+        "max_cpu_percent": 80,
+        "max_response_time": 2.0,
+        "max_download_time": 30.0,
+    }
+
+
+@pytest.fixture
+def performance_tracker(performance_log_dir, request):
+    """Fixture to track and log performance metrics."""
+    from contextlib import contextmanager
+    from time import perf_counter, time
+
+    import psutil
+
+    @contextmanager
+    def track_performance():
+        start_time = perf_counter()
+        process = psutil.Process()
+        start_memory = process.memory_info().rss / 1024 / 1024
+
+        metrics = {
+            "start_time": time(),
+            "start_memory": start_memory,
+            "max_memory": start_memory,
+            "max_cpu": 0.0,
+            "duration": 0.0,
+            "memory_change": 0.0,
+            "end_memory": start_memory,
+            "end_time": time(),
+        }
+
+        try:
+            yield metrics
+        finally:
+            end_time = perf_counter()
+            end_memory = process.memory_info().rss / 1024 / 1024
+
+            metrics["duration"] = end_time - start_time
+            metrics["memory_change"] = end_memory - start_memory
+            metrics["end_memory"] = end_memory
+            metrics["end_time"] = time()
+            metrics["max_memory"] = max(metrics["max_memory"], end_memory)
+
+    class PerformanceContextManager:
+        def __init__(self, operation_name: str):
+            self.operation_name = operation_name
+            self.log_file = (
+                performance_log_dir / f"{request.node.name}_{operation_name}.log"
+            )
+            self.metrics = None
+            self.perf_context = None
+
+        def __enter__(self):
+            self.perf_context = track_performance()
+            self.metrics = self.perf_context.__enter__()
+            return self.metrics
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            result = self.perf_context.__exit__(exc_type, exc_val, exc_tb)
+
+            with open(self.log_file, "a") as f:
+                f.write(f"Performance metrics for {self.operation_name}:\n")
+                f.write(f"Duration: {self.metrics['duration']:.3f} seconds\n")
+                f.write(f"Memory change: {self.metrics['memory_change']:.2f} MB\n")
+                f.write(f"Max memory: {self.metrics['max_memory']:.2f} MB\n")
+                f.write(f"Max CPU: {self.metrics['max_cpu']:.1f}%\n")
+                f.write("-" * 50 + "\n")
+
+            return result
+
+    return PerformanceContextManager
+
+
+# ============================================================================
+# Exports
+# ============================================================================
+
+__all__ = [
+    # Helper functions
+    "clean_model_data",
+    # Auto-use fixtures
+    "cleanup_tasks",
+    "setup_test_logging",
+    # Test data fixtures
+    "json_timeline_data",
+    "json_messages_group_data",
+    "json_conversation_data",
+    "sample_account",
+    "sample_post",
+    "sample_message",
+    # Config fixtures
+    "test_config",
+    "temp_config_dir",
+    "temp_db_dir",
+    # Download fixtures
+    "mock_download_state",
+    "test_downloads_dir",
+    # Performance fixtures
+    "performance_log_dir",
+    "performance_threshold",
+    "performance_tracker",
+    # Note: All factories and fixtures from tests.fixtures are automatically imported
+    # via wildcard import and are available in all tests
+]

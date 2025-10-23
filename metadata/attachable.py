@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import BigInteger, Column, Integer, String
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
 
 from .base import Base
@@ -26,7 +26,7 @@ class Attachable(Base):
     def __tablename__(self) -> str:
         return self.__name__.lower()
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     type: Mapped[str] = mapped_column(String(50))
 
     __mapper_args__ = {

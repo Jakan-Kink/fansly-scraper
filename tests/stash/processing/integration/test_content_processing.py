@@ -26,8 +26,8 @@ class TestContentProcessingIntegration:
         mock_image,
     ):
         """Test process_creator_posts with integration approach."""
-        # Use a realistic butterfly int string for metadata mock ids
-        mock_account.id = "1234567890123456789"
+        # Use a realistic large int for metadata mock ids
+        mock_account.id = 1234567890123456789
         # Setup session mock to return posts
         mock_result = AsyncMock()
         mock_result.scalar_one = AsyncMock(return_value=mock_account)
@@ -68,23 +68,21 @@ class TestContentProcessingIntegration:
             session=mock_database.session,
         )
 
-        # Verify batch processor was used
-        assert stash_processor._setup_batch_processing.call_count == 1
-        assert stash_processor._run_batch_processor.call_count == 1
+        # Verify worker pool was used
+        assert stash_processor._setup_worker_pool.call_count == 1
+        assert stash_processor._run_worker_pool.call_count == 1
 
-        # Extract process_batch function from the call
-        process_batch = stash_processor._run_batch_processor.call_args[1][
-            "process_batch"
-        ]
-        assert callable(process_batch)
+        # Extract process_item function from the call
+        process_item = stash_processor._run_worker_pool.call_args[1]["process_item"]
+        assert callable(process_item)
 
-        # Call the process_batch function with a batch of posts
-        test_batch = mock_posts[:1]  # Just use one post for simplicity
+        # Call the process_item function with individual posts
+        test_post = mock_posts[0]  # Just use one post for simplicity
 
         # Semaphore is returned from setup but not needed for the test
 
-        # Call the process_batch function
-        await process_batch(test_batch)
+        # Call the process_item function
+        await process_item(test_post)
 
         # Verify _process_item_gallery was called for each post
         # Since we patched it with AsyncMock, we can verify call count
@@ -103,8 +101,8 @@ class TestContentProcessingIntegration:
         mock_image,
     ):
         """Test process_creator_messages with integration approach."""
-        # Use a realistic butterfly int string for metadata mock ids
-        mock_account.id = "1234567890123456789"
+        # Use a realistic large int for metadata mock ids
+        mock_account.id = 1234567890123456789
         # Setup session mock to return messages
         mock_result = AsyncMock()
         mock_result.scalar_one = AsyncMock(return_value=mock_account)
@@ -145,23 +143,21 @@ class TestContentProcessingIntegration:
             session=mock_database.session,
         )
 
-        # Verify batch processor was used
-        assert stash_processor._setup_batch_processing.call_count == 1
-        assert stash_processor._run_batch_processor.call_count == 1
+        # Verify worker pool was used
+        assert stash_processor._setup_worker_pool.call_count == 1
+        assert stash_processor._run_worker_pool.call_count == 1
 
-        # Extract process_batch function from the call
-        process_batch = stash_processor._run_batch_processor.call_args[1][
-            "process_batch"
-        ]
-        assert callable(process_batch)
+        # Extract process_item function from the call
+        process_item = stash_processor._run_worker_pool.call_args[1]["process_item"]
+        assert callable(process_item)
 
-        # Call the process_batch function with a batch of messages
-        test_batch = mock_messages[:1]  # Just use one message for simplicity
+        # Call the process_item function with individual messages
+        test_message = mock_messages[0]  # Just use one message for simplicity
 
         # Semaphore is returned from setup but not needed for the test
 
-        # Call the process_batch function
-        await process_batch(test_batch)
+        # Call the process_item function
+        await process_item(test_message)
 
         # Verify _process_item_gallery was called for each message
         assert stash_processor._get_or_create_gallery.call_count >= 1

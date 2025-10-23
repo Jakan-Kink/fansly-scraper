@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     ForeignKey,
@@ -20,7 +21,7 @@ from sqlalchemy import (
     select,
     update,
 )
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
@@ -43,9 +44,9 @@ if TYPE_CHECKING:
 class Post(Base):
     __tablename__ = "posts"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     accountId: Mapped[int] = mapped_column(
-        Integer, ForeignKey("accounts.id"), nullable=False
+        BigInteger, ForeignKey("accounts.id"), nullable=False
     )
     account: Mapped[Account] = relationship(
         "Account",
@@ -55,9 +56,11 @@ class Post(Base):
     )
     content: Mapped[str] = mapped_column(String, nullable=True, default="")
     fypFlag: Mapped[int] = mapped_column(Integer, nullable=True, default=0)
-    inReplyTo: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    inReplyTo: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, default=None
+    )
     inReplyToRoot: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, default=None
+        BigInteger, nullable=True, default=None
     )
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     expiresAt: Mapped[datetime | None] = mapped_column(
@@ -85,7 +88,7 @@ class Post(Base):
         "Hashtag",
         secondary="post_hashtags",
         back_populates="posts",
-        lazy="selectin",
+        lazy="noload",  # Don't auto-load hashtags to reduce SQL queries
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -93,8 +96,8 @@ class Post(Base):
 pinned_posts = Table(
     "pinned_posts",
     Base.metadata,
-    Column("postId", Integer, ForeignKey("posts.id"), primary_key=True),
-    Column("accountId", Integer, ForeignKey("accounts.id"), primary_key=True),
+    Column("postId", BigInteger, ForeignKey("posts.id"), primary_key=True),
+    Column("accountId", BigInteger, ForeignKey("accounts.id"), primary_key=True),
     Column("pos", Integer, nullable=False),
     Column("createdAt", DateTime(timezone=True), nullable=True),
 )
@@ -102,8 +105,8 @@ pinned_posts = Table(
 post_mentions = Table(
     "post_mentions",
     Base.metadata,
-    Column("postId", Integer, ForeignKey("posts.id"), primary_key=True),
-    Column("accountId", Integer, ForeignKey("accounts.id"), nullable=True),
+    Column("postId", BigInteger, ForeignKey("posts.id"), primary_key=True),
+    Column("accountId", BigInteger, ForeignKey("accounts.id"), nullable=True),
     Column(
         "handle", String, nullable=False
     ),  # Make handle required since it's our fallback
@@ -115,13 +118,13 @@ post_mentions = Table(
         "ix_post_mentions_account",
         "postId",
         "accountId",
-        sqlite_where=Column("accountId").isnot(None),
+        postgresql_where=Column("accountId").isnot(None),
     ),
     Index(
         "ix_post_mentions_handle",
         "postId",
         "handle",
-        sqlite_where=Column("handle").isnot(None),
+        postgresql_where=Column("handle").isnot(None),
     ),
 )
 
@@ -161,6 +164,7 @@ async def process_pinned_posts(
 
     for post in posts:
         # Check if the post exists in the database
+        # Note: IDs are already converted to int by FanslyApi.convert_ids_to_int()
         result = await session.execute(select(Post).where(Post.id == post["postId"]))
         post_exists = result.unique().scalar_one_or_none() is not None
         if not post_exists:
@@ -178,7 +182,7 @@ async def process_pinned_posts(
         # Convert timestamp once to avoid repeated conversions
         created_at = datetime.fromtimestamp((post["createdAt"] / 1000), timezone.utc)
 
-        insert_stmt = sqlite_insert(pinned_posts).values(
+        insert_stmt = insert(pinned_posts).values(
             postId=post["postId"],
             accountId=account.id,
             pos=post["pos"],
@@ -403,7 +407,14 @@ async def _process_post_mentions(
             )
         )
     )
-    existing = {(r.accountId, r.handle): r for r in result.fetchall()}
+    existing_rows = result.fetchall()
+
+    # Create multiple lookup indexes for efficient matching
+    existing_by_account = {
+        r.accountId: r for r in existing_rows if r.accountId is not None
+    }
+    existing_by_handle = {r.handle: r for r in existing_rows}
+    existing_exact = {(r.accountId, r.handle): r for r in existing_rows}
 
     # Process mentions in batches
     to_update_handle = []  # Update handle where accountId matches
@@ -411,20 +422,28 @@ async def _process_post_mentions(
     to_insert = []
 
     for mention in mentions_data:
+        # Check if exact match exists (both accountId and handle)
+        exact_key = (mention["accountId"], mention["handle"])
+        if exact_key in existing_exact:
+            # Already exists with exact match, nothing to do
+            continue
+
         # Try by accountId first
-        if mention["accountId"] is not None:
-            account_key = (mention["accountId"], None)
-            if account_key in existing:
-                # Update handle if it changed
-                if existing[account_key].handle != mention["handle"]:
-                    to_update_handle.append(mention)
-                continue
+        if (
+            mention["accountId"] is not None
+            and mention["accountId"] in existing_by_account
+        ):
+            existing_row = existing_by_account[mention["accountId"]]
+            # Update handle if it changed
+            if existing_row.handle != mention["handle"]:
+                to_update_handle.append(mention)
+            continue
 
         # Then try by handle
-        handle_key = (None, mention["handle"])
-        if handle_key in existing:
+        if mention["handle"] in existing_by_handle:
+            existing_row = existing_by_handle[mention["handle"]]
             # Update accountId if we have one and it's not set
-            if mention["accountId"] is not None:
+            if mention["accountId"] is not None and existing_row.accountId is None:
                 to_update_account.append(mention)
             continue
 
@@ -433,30 +452,48 @@ async def _process_post_mentions(
 
     # Batch update handles
     if to_update_handle:
+        # Transform keys to use b_ prefix for bind parameters
+        update_handle_params = [
+            {
+                "b_postId": m["postId"],
+                "b_accountId": m["accountId"],
+                "b_handle": m["handle"],
+            }
+            for m in to_update_handle
+        ]
         await session.execute(
             post_mentions.update()
             .where(
                 and_(
-                    post_mentions.c.postId == bindparam("postId"),
-                    post_mentions.c.accountId == bindparam("accountId"),
+                    post_mentions.c.postId == bindparam("b_postId"),
+                    post_mentions.c.accountId == bindparam("b_accountId"),
                 )
             )
-            .values(handle=bindparam("handle")),
-            to_update_handle,
+            .values(handle=bindparam("b_handle")),
+            update_handle_params,
         )
 
     # Batch update accountIds
     if to_update_account:
+        # Transform keys to use b_ prefix for bind parameters
+        update_account_params = [
+            {
+                "b_postId": m["postId"],
+                "b_handle": m["handle"],
+                "b_accountId": m["accountId"],
+            }
+            for m in to_update_account
+        ]
         await session.execute(
             post_mentions.update()
             .where(
                 and_(
-                    post_mentions.c.postId == bindparam("postId"),
-                    post_mentions.c.handle == bindparam("handle"),
+                    post_mentions.c.postId == bindparam("b_postId"),
+                    post_mentions.c.handle == bindparam("b_handle"),
                 )
             )
-            .values(accountId=bindparam("accountId")),
-            to_update_account,
+            .values(accountId=bindparam("b_accountId")),
+            update_account_params,
         )
 
     # Batch insert new mentions
@@ -503,6 +540,19 @@ async def _process_post_attachments(
         if attachment_data.get("contentType") == 7100:
             continue
 
+        # Convert contentType to enum first
+        try:
+            attachment_data["contentType"] = ContentType(attachment_data["contentType"])
+        except ValueError:
+            old_content_type = attachment_data["contentType"]
+            attachment_data["contentType"] = None
+            json_output(
+                2,
+                f"meta/post - invalid_content_type: {old_content_type}",
+                attachment_data,
+            )
+            continue  # Skip invalid content types
+
         # Process data for this attachment
         filtered_data, _ = Attachment.process_data(
             attachment_data,
@@ -543,19 +593,29 @@ async def _process_post_attachments(
 
     # Batch update
     if to_update:
+        # Transform keys to use b_ prefix for bind parameters
+        update_params = [
+            {
+                "b_postId": a["postId"],
+                "b_contentId": a["contentId"],
+                "b_contentType": a["contentType"],
+                "b_pos": a.get("pos", 0),
+            }
+            for a in to_update
+        ]
         await session.execute(
             update(Attachment)
             .where(
                 and_(
-                    Attachment.postId == bindparam("postId"),
-                    Attachment.contentId == bindparam("contentId"),
+                    Attachment.postId == bindparam("b_postId"),
+                    Attachment.contentId == bindparam("b_contentId"),
                 )
             )
             .values(
-                contentType=bindparam("contentType"),
-                pos=bindparam("pos"),
+                contentType=bindparam("b_contentType"),
+                pos=bindparam("b_pos"),
             ),
-            to_update,
+            update_params,
         )
 
     # Batch insert
@@ -604,14 +664,6 @@ async def _process_timeline_post(
         "liked",
     }
 
-    # Collect all operations for this post
-    operations = {
-        "mentions": [],  # All mentions for this post
-        "hashtags": set(),  # Unique hashtags for this post
-        "post_hashtags": [],  # Post-hashtag associations
-        "attachments": [],  # All attachments for this post
-    }
-
     # Process post data
     json_output(1, "meta/post - _p_t_p - post", post)
     filter_start = time.time()
@@ -643,199 +695,25 @@ async def _process_timeline_post(
     await session.flush()
     db_time = time.time() - db_start
 
-    # Collect mentions
+    # Process mentions using dedicated function
     mentions_time = 0
     if "accountMentions" in post:
         mentions_start = time.time()
-        for mention in post["accountMentions"]:
-            handle = mention.get("handle", "").strip()
-            account_id = mention.get("accountId", None)
-            if not handle and account_id is None:
-                json_output(
-                    2,
-                    "meta/post - _p_t_p - skipping mention with no handle or accountId",
-                    {"postId": post_obj.id, "mention": mention},
-                )
-                continue
-            operations["mentions"].append(
-                {
-                    "postId": post_obj.id,
-                    "accountId": account_id,
-                    "handle": handle,
-                }
-            )
-
-        # Process all mentions in one batch
-        if operations["mentions"]:
-            # First try to find existing mentions by accountId
-            for mention in operations["mentions"]:
-                if mention["accountId"] is not None:
-                    result = await session.execute(
-                        select(post_mentions).where(
-                            and_(
-                                post_mentions.c.postId == mention["postId"],
-                                post_mentions.c.accountId == mention["accountId"],
-                            )
-                        )
-                    )
-                    existing = result.first()
-                    if existing:
-                        # Update handle if it changed
-                        if existing.handle != mention["handle"]:
-                            await session.execute(
-                                post_mentions.update()
-                                .where(
-                                    and_(
-                                        post_mentions.c.postId == mention["postId"],
-                                        post_mentions.c.accountId
-                                        == mention["accountId"],
-                                    )
-                                )
-                                .values(handle=mention["handle"])
-                            )
-                        continue
-
-                # Then try by handle
-                result = await session.execute(
-                    select(post_mentions).where(
-                        and_(
-                            post_mentions.c.postId == mention["postId"],
-                            post_mentions.c.handle == mention["handle"],
-                        )
-                    )
-                )
-                existing = result.first()
-                if existing:
-                    # Update accountId if we have one and it's not set
-                    if mention["accountId"] is not None and existing.accountId is None:
-                        await session.execute(
-                            post_mentions.update()
-                            .where(
-                                and_(
-                                    post_mentions.c.postId == mention["postId"],
-                                    post_mentions.c.handle == mention["handle"],
-                                )
-                            )
-                            .values(accountId=mention["accountId"])
-                        )
-                    continue
-
-                # If no existing mention found, insert new one
-                await session.execute(post_mentions.insert().values(mention))
+        await _process_post_mentions(session, post_obj, post["accountMentions"])
         mentions_time = time.time() - mentions_start
 
-    # Process hashtags
+    # Process hashtags using dedicated function
     hashtags_time = 0
     if post_obj.content:
         hashtags_start = time.time()
-        hashtag_values = extract_hashtags(post_obj.content)
-        if hashtag_values:
-            operations["hashtags"].update(hashtag_values)
-            operations["post_hashtags"].extend(
-                [{"postId": post_obj.id, "hashtag": tag} for tag in hashtag_values]
-            )
-
-            # Process all hashtags in one batch
-            # Get all existing hashtags in one query
-            result = await session.execute(
-                select(Hashtag).where(
-                    func.lower(Hashtag.value).in_(
-                        [v.lower() for v in operations["hashtags"]]
-                    )
-                )
-            )
-            existing_hashtags = {h.value.lower(): h for h in (result.scalars().all())}
-
-            # Create missing hashtags in one batch
-            missing_values = [
-                v for v in operations["hashtags"] if v.lower() not in existing_hashtags
-            ]
-            if missing_values:
-                # Batch insert missing hashtags
-                insert_stmt = sqlite_insert(Hashtag.__table__).values(
-                    [{"value": v} for v in missing_values]
-                )
-                update_stmt = insert_stmt.on_conflict_do_nothing()
-                await session.execute(update_stmt)
-                await session.flush()
-
-                # Get the newly created hashtags
-                result = await session.execute(
-                    select(Hashtag).where(
-                        func.lower(Hashtag.value).in_(
-                            [v.lower() for v in missing_values]
-                        )
-                    )
-                )
-                new_hashtags = {h.value.lower(): h for h in (result.scalars().all())}
-                existing_hashtags.update(new_hashtags)
-
-            # Create all associations in one batch
-            associations = [
-                {
-                    "postId": post_obj.id,
-                    "hashtagId": existing_hashtags[ph["hashtag"].lower()].id,
-                }
-                for ph in operations["post_hashtags"]
-            ]
-            if associations:
-                insert_stmt = sqlite_insert(post_hashtags).values(associations)
-                update_stmt = insert_stmt.on_conflict_do_nothing()
-                await session.execute(update_stmt)
+        await process_post_hashtags(config, post_obj, post_obj.content, session=session)
         hashtags_time = time.time() - hashtags_start
 
-    # Collect and process attachments
+    # Process attachments using dedicated function
     attachments_time = 0
     if "attachments" in post:
         attachments_start = time.time()
-        for attachment in post["attachments"]:
-            if attachment.get("contentType") == 7100:  # Skip tipGoals
-                continue
-            operations["attachments"].append(
-                {
-                    "postId": post_obj.id,
-                    "contentId": attachment["contentId"],
-                    "contentType": ContentType(attachment["contentType"]),
-                    "pos": attachment.get("pos", 0),
-                }
-            )
-
-        # Process all attachments in one batch
-        if operations["attachments"]:
-            # First try to find existing attachments
-            for attachment in operations["attachments"]:
-                result = await session.execute(
-                    select(Attachment).where(
-                        and_(
-                            Attachment.postId == attachment["postId"],
-                            Attachment.contentId == attachment["contentId"],
-                        )
-                    )
-                )
-                existing = result.scalar()
-                if existing:
-                    # Update if needed
-                    if (
-                        existing.contentType != attachment["contentType"]
-                        or existing.pos != attachment["pos"]
-                    ):
-                        await session.execute(
-                            update(Attachment)
-                            .where(
-                                and_(
-                                    Attachment.postId == attachment["postId"],
-                                    Attachment.contentId == attachment["contentId"],
-                                )
-                            )
-                            .values(
-                                contentType=attachment["contentType"],
-                                pos=attachment["pos"],
-                            )
-                        )
-                    continue
-
-                # If no existing attachment found, insert new one
-                await session.execute(Attachment.__table__.insert().values(attachment))
+        await _process_post_attachments(session, post_obj, post["attachments"], config)
         attachments_time = time.time() - attachments_start
 
     total_time = time.time() - start_time

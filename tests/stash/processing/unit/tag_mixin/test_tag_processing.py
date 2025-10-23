@@ -1,9 +1,10 @@
 """Tests for tag processing methods in TagProcessingMixin."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from stash.types import Tag
 from tests.stash.processing.unit.media_mixin.async_mock_helper import (
     AccessibleAsyncMock,
     make_asyncmock_awaitable,
@@ -13,242 +14,244 @@ from tests.stash.processing.unit.media_mixin.async_mock_helper import (
 @pytest.fixture
 def mock_stash_tag():
     """Create a mock Stash tag."""
-    tag = MagicMock()
-    tag.id = "tag_123"
-    tag.name = "test_tag"
-    tag.description = "Test tag description"
-    tag.__type_name__ = "Tag"
-    tag.is_dirty = MagicMock(return_value=False)
-    return tag
-
-
-@pytest.mark.asyncio
-async def test_find_existing_tag_by_name(tag_mixin):
-    """Test finding an existing tag by name."""
-    # Setup mocks
-    mock_tag = MagicMock()
-    mock_tag.id = "tag_123"
-    mock_tag.name = "test_tag"
-
-    mock_result = MagicMock()
-    mock_result.count = 1
-    mock_result.tags = [mock_tag]
-
-    tag_mixin.context.client.find_tags = AsyncMock(return_value=mock_result)
-    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
-
-    # Test with exact name match
-    tag = await tag_mixin._find_existing_tag("test_tag")
-    assert tag == mock_tag
-    tag_mixin.context.client.find_tags.assert_called_once()
-
-    # Reset mock
-    tag_mixin.context.client.find_tags.reset_mock()
-
-    # Test with case insensitive match
-    tag = await tag_mixin._find_existing_tag("TEST_TAG")
-    assert tag == mock_tag
-    tag_mixin.context.client.find_tags.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_find_existing_tag_not_found(tag_mixin):
-    """Test finding a tag that doesn't exist."""
-    # Setup mock to return no tags
-    mock_result = MagicMock()
-    mock_result.count = 0
-    mock_result.tags = []
-
-    tag_mixin.context.client.find_tags = AsyncMock(return_value=mock_result)
-    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
-
-    # Test with a tag that doesn't exist
-    tag = await tag_mixin._find_existing_tag("nonexistent_tag")
-    assert tag is None
-    tag_mixin.context.client.find_tags.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_get_tag_for_name_existing(tag_mixin, mock_stash_tag):
-    """Test getting a tag for a name that already exists."""
-    # Setup mock to find an existing tag
-    tag_mixin._find_existing_tag = AsyncMock(return_value=mock_stash_tag)
-    make_asyncmock_awaitable(tag_mixin._find_existing_tag)
-
-    # Test getting an existing tag
-    tag = await tag_mixin._get_tag_for_name("test_tag")
-    assert tag == mock_stash_tag
-    tag_mixin._find_existing_tag.assert_called_once_with("test_tag")
-
-    # Verify the tag wasn't created
-    tag_mixin.context.client.create_tag.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_get_tag_for_name_new(tag_mixin):
-    """Test getting a tag for a name that doesn't exist yet."""
-    # Setup mock to not find the tag
-    tag_mixin._find_existing_tag = AsyncMock(return_value=None)
-    make_asyncmock_awaitable(tag_mixin._find_existing_tag)
-
-    # Setup mock to create a new tag
-    new_tag = MagicMock()
-    new_tag.id = "new_tag_123"
-    new_tag.name = "new_tag"
-
-    tag_mixin.context.client.create_tag = AsyncMock(return_value=new_tag)
-    make_asyncmock_awaitable(tag_mixin.context.client.create_tag)
-
-    # Test creating a new tag
-    tag = await tag_mixin._get_tag_for_name("new_tag")
-    assert tag == new_tag
-    tag_mixin._find_existing_tag.assert_called_once_with("new_tag")
-    tag_mixin.context.client.create_tag.assert_called_once_with(name="new_tag")
+    return Tag(
+        id="tag_123",
+        name="test_tag",
+        aliases=[],
+        image_path=None,
+    )
 
 
 @pytest.mark.asyncio
 async def test_process_hashtags_to_tags_empty(tag_mixin):
     """Test processing an empty list of hashtags."""
     hashtags = []
-    stashable = MagicMock()
 
-    await tag_mixin._process_hashtags_to_tags(hashtags, stashable)
+    tags = await tag_mixin._process_hashtags_to_tags(hashtags)
 
-    # Verify no tags were added
-    stashable.add_tag.assert_not_called()
+    # Verify no tags were returned
+    assert tags == []
+    # Verify no API calls were made
+    tag_mixin.context.client.find_tags.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_process_hashtags_to_tags(tag_mixin):
-    """Test processing hashtags to tags."""
+async def test_process_hashtags_to_tags_single(tag_mixin):
+    """Test processing a single hashtag to tag."""
+    # Create mock hashtag
+    hashtag = AccessibleAsyncMock()
+    hashtag.value = "testTag"
+
+    # Setup mock to find existing tag
+    mock_result = MagicMock()
+    mock_result.count = 1
+    mock_result.tags = [
+        {
+            "id": "tag_123",
+            "name": "testtag",
+            "aliases": [],
+            "image_path": None,
+        }
+    ]
+
+    tag_mixin.context.client.find_tags = AsyncMock(return_value=mock_result)
+    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
+
+    # Test processing hashtag
+    tags = await tag_mixin._process_hashtags_to_tags([hashtag])
+
+    # Verify tag was returned
+    assert len(tags) == 1
+    assert tags[0].id == "tag_123"
+    assert tags[0].name == "testtag"
+
+    # Verify tag was searched with lowercase name
+    tag_mixin.context.client.find_tags.assert_called_once()
+    call_args = tag_mixin.context.client.find_tags.call_args
+    assert call_args[1]["tag_filter"]["name"]["value"] == "testtag"
+
+
+@pytest.mark.asyncio
+async def test_process_hashtags_to_tags_not_found_creates_new(tag_mixin):
+    """Test processing a hashtag that doesn't exist creates a new tag."""
+    # Create mock hashtag
+    hashtag = AccessibleAsyncMock()
+    hashtag.value = "newTag"
+
+    # Setup mock to not find existing tag (both name and alias searches return empty)
+    mock_find_result = MagicMock()
+    mock_find_result.count = 0
+    mock_find_result.tags = []
+
+    # Setup mock to create new tag - create_tag returns dict, code converts to Tag
+    new_tag = Tag(
+        id="new_tag_123",
+        name="newtag",
+        aliases=[],
+        image_path=None,
+    )
+
+    tag_mixin.context.client.find_tags = AsyncMock(return_value=mock_find_result)
+    tag_mixin.context.client.create_tag = AsyncMock(return_value=new_tag)
+    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
+    make_asyncmock_awaitable(tag_mixin.context.client.create_tag)
+
+    # Test processing hashtag
+    tags = await tag_mixin._process_hashtags_to_tags([hashtag])
+
+    # Verify tag was created and returned
+    assert len(tags) == 1
+    assert tags[0].id == "new_tag_123"
+    assert tags[0].name == "newtag"
+
+    # Verify tag creation was called - should be called with a Tag object with id="new"
+    tag_mixin.context.client.create_tag.assert_called_once()
+    call_args = tag_mixin.context.client.create_tag.call_args[0][0]
+    assert isinstance(call_args, Tag)
+    assert call_args.name == "newtag"
+
+
+@pytest.mark.asyncio
+async def test_process_hashtags_to_tags_multiple(tag_mixin):
+    """Test processing multiple hashtags."""
     # Create mock hashtags
     hashtag1 = AccessibleAsyncMock()
-    hashtag1.name = "tag1"
+    hashtag1.value = "tag1"
     hashtag2 = AccessibleAsyncMock()
-    hashtag2.name = "tag2"
-    hashtags = [hashtag1, hashtag2]
+    hashtag2.value = "tag2"
 
-    # Create mock stashable object
-    stashable = MagicMock()
-    stashable.add_tag = MagicMock()
+    # Setup mock to find both tags
+    def mock_find_tags(tag_filter=None):
+        tag_name = tag_filter["name"]["value"]
+        if tag_name == "tag1":
+            return MagicMock(
+                count=1,
+                tags=[
+                    {
+                        "id": "tag_1",
+                        "name": "tag1",
+                        "aliases": [],
+                        "image_path": None,
+                    }
+                ],
+            )
+        elif tag_name == "tag2":
+            return MagicMock(
+                count=1,
+                tags=[
+                    {
+                        "id": "tag_2",
+                        "name": "tag2",
+                        "aliases": [],
+                        "image_path": None,
+                    }
+                ],
+            )
+        return MagicMock(count=0, tags=[])
 
-    # Setup mock tag creation
-    tag1 = MagicMock()
-    tag1.id = "tag_1"
-    tag1.name = "tag1"
-    tag2 = MagicMock()
-    tag2.id = "tag_2"
-    tag2.name = "tag2"
-
-    # Setup mock to return the tags
-    tag_mixin._get_tag_for_name = AsyncMock(side_effect=[tag1, tag2])
-    make_asyncmock_awaitable(tag_mixin._get_tag_for_name)
+    tag_mixin.context.client.find_tags = AsyncMock(side_effect=mock_find_tags)
+    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
 
     # Test processing hashtags
-    await tag_mixin._process_hashtags_to_tags(hashtags, stashable)
+    tags = await tag_mixin._process_hashtags_to_tags([hashtag1, hashtag2])
 
-    # Verify tags were added to the stashable object
-    assert tag_mixin._get_tag_for_name.call_count == 2
-    stashable.add_tag.assert_any_call(tag1)
-    stashable.add_tag.assert_any_call(tag2)
-
-
-@pytest.mark.asyncio
-async def test_add_preview_tag_not_preview(tag_mixin):
-    """Test add_preview_tag with a non-preview item."""
-    # Create mock stashable object
-    stashable = MagicMock()
-    stashable.add_tag = MagicMock()
-
-    # Test with non-preview item
-    await tag_mixin._add_preview_tag(stashable, False)
-
-    # Verify no tag was added
-    stashable.add_tag.assert_not_called()
-    tag_mixin._get_tag_for_name.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_add_preview_tag_is_preview(tag_mixin):
-    """Test add_preview_tag with a preview item."""
-    # Create mock stashable object
-    stashable = MagicMock()
-    stashable.add_tag = MagicMock()
-
-    # Create mock preview tag
-    preview_tag = MagicMock()
-    preview_tag.id = "preview_tag"
-    preview_tag.name = "Preview"
-
-    # Setup mock to return the preview tag
-    tag_mixin._get_tag_for_name = AsyncMock(return_value=preview_tag)
-    make_asyncmock_awaitable(tag_mixin._get_tag_for_name)
-
-    # Test with preview item
-    await tag_mixin._add_preview_tag(stashable, True)
-
-    # Verify the tag was added
-    tag_mixin._get_tag_for_name.assert_called_once_with("Preview")
-    stashable.add_tag.assert_called_once_with(preview_tag)
-
-
-@pytest.mark.asyncio
-async def test_get_tags_for_content_empty(tag_mixin):
-    """Test get_tags_for_content with empty content."""
-    # Test with empty content
-    tags = await tag_mixin.get_tags_for_content("")
-    assert tags == []
-
-    # Test with None content
-    tags = await tag_mixin.get_tags_for_content(None)
-    assert tags == []
-
-
-@pytest.mark.asyncio
-async def test_get_tags_for_content_with_hashtags(tag_mixin):
-    """Test get_tags_for_content with content containing hashtags."""
-    # Setup mock tags
-    tag1 = MagicMock()
-    tag1.id = "tag_1"
-    tag1.name = "tag1"
-    tag2 = MagicMock()
-    tag2.id = "tag_2"
-    tag2.name = "tag2"
-
-    # Setup mock to return tags
-    tag_mixin._get_tag_for_name = AsyncMock(side_effect=[tag1, tag2])
-    make_asyncmock_awaitable(tag_mixin._get_tag_for_name)
-
-    # Test with content containing hashtags
-    content = "This is a post with #tag1 and #tag2 hashtags."
-    tags = await tag_mixin.get_tags_for_content(content)
-
-    # Verify tags were created
+    # Verify both tags were returned
     assert len(tags) == 2
-    assert tags[0] == tag1
-    assert tags[1] == tag2
-    assert tag_mixin._get_tag_for_name.call_count == 2
-    tag_mixin._get_tag_for_name.assert_any_call("tag1")
-    tag_mixin._get_tag_for_name.assert_any_call("tag2")
+    assert tags[0].id == "tag_1"
+    assert tags[0].name == "tag1"
+    assert tags[1].id == "tag_2"
+    assert tags[1].name == "tag2"
+
+    # Verify both tags were searched
+    assert tag_mixin.context.client.find_tags.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_get_tags_for_content_duplicate_hashtags(tag_mixin):
-    """Test get_tags_for_content with duplicate hashtags."""
-    # Setup mock tag
-    tag = MagicMock()
-    tag.id = "tag_1"
-    tag.name = "tag1"
+async def test_add_preview_tag_not_found(tag_mixin):
+    """Test add_preview_tag when Trailer tag doesn't exist."""
+    # Create mock Scene with empty tags
+    scene = MagicMock()
+    scene.id = "scene_123"
+    scene.tags = []
 
-    # Setup mock to return tag
-    tag_mixin._get_tag_for_name = AsyncMock(return_value=tag)
-    make_asyncmock_awaitable(tag_mixin._get_tag_for_name)
+    # Setup mock to not find Trailer tag
+    mock_find_result = MagicMock()
+    mock_find_result.count = 0
+    mock_find_result.tags = []
 
-    # Test with content containing duplicate hashtags
-    content = "This is a post with #tag1 and #tag1 duplicate hashtags."
-    tags = await tag_mixin.get_tags_for_content(content)
+    tag_mixin.context.client.find_tags = AsyncMock(return_value=mock_find_result)
+    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
 
-    # Verify tag was only created once
-    assert len(tags) == 1
-    assert tags[0] == tag
-    tag_mixin._get_tag_for_name.assert_called_once_with("tag1")
+    # Test with scene
+    await tag_mixin._add_preview_tag(scene)
+
+    # Verify the Trailer tag was searched for with query
+    tag_mixin.context.client.find_tags.assert_called_once()
+    call_args = tag_mixin.context.client.find_tags.call_args
+    assert call_args[1]["q"] == "Trailer"
+
+    # Verify no tag was added since not found
+    assert scene.tags == []
+
+
+@pytest.mark.asyncio
+async def test_add_preview_tag_found_adds_tag(tag_mixin):
+    """Test add_preview_tag when Trailer tag exists and is added."""
+    # Create mock Scene with empty tags
+    scene = MagicMock()
+    scene.id = "scene_123"
+    scene.tags = []
+
+    # Setup mock to find Trailer tag
+    mock_tag = MagicMock()
+    mock_tag.id = "trailer_tag_123"
+    mock_tag.name = "Trailer"
+
+    mock_find_result = MagicMock()
+    mock_find_result.count = 1
+    mock_find_result.tags = [mock_tag]
+
+    tag_mixin.context.client.find_tags = AsyncMock(return_value=mock_find_result)
+    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
+
+    # Test with scene
+    await tag_mixin._add_preview_tag(scene)
+
+    # Verify the Trailer tag was searched for
+    tag_mixin.context.client.find_tags.assert_called_once_with(q="Trailer")
+
+    # Verify the tag was added to scene
+    assert len(scene.tags) == 1
+    assert scene.tags[0] == mock_tag
+
+
+@pytest.mark.asyncio
+async def test_add_preview_tag_already_has_tag(tag_mixin):
+    """Test add_preview_tag when scene already has the Trailer tag."""
+    # Create mock tag
+    mock_tag = MagicMock()
+    mock_tag.id = "trailer_tag_123"
+    mock_tag.name = "Trailer"
+
+    # Create mock Scene with Trailer tag already added
+    scene = MagicMock()
+    scene.id = "scene_123"
+    scene.tags = [mock_tag]
+
+    # Setup mock to find Trailer tag
+    mock_find_result = MagicMock()
+    mock_find_result.count = 1
+    mock_find_result.tags = [mock_tag]
+
+    tag_mixin.context.client.find_tags = AsyncMock(return_value=mock_find_result)
+    make_asyncmock_awaitable(tag_mixin.context.client.find_tags)
+
+    # Test with scene
+    await tag_mixin._add_preview_tag(scene)
+
+    # Verify the Trailer tag was searched for
+    tag_mixin.context.client.find_tags.assert_called_once_with(q="Trailer")
+
+    # Verify the tag was NOT added again (still only one)
+    assert len(scene.tags) == 1
+    assert scene.tags[0] == mock_tag

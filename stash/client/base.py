@@ -7,17 +7,19 @@ from datetime import datetime
 from pprint import pformat
 from typing import Any, TypeVar
 
+import httpx
 from gql import Client, gql
 from gql.dsl import DSLSchema
-from gql.transport.aiohttp import AIOHTTPTransport
 from gql.transport.exceptions import (
     TransportError,
     TransportQueryError,
     TransportServerError,
 )
+from gql.transport.httpx import HTTPXAsyncTransport
 from gql.transport.websockets import WebsocketsTransport
 from graphql import parse as parse_graphql
 from graphql import validate as validate_graphql
+from httpx_retries import Retry, RetryTransport
 
 from .. import fragments
 from ..client_helpers import str_compare
@@ -114,12 +116,30 @@ class StashClientBase:
         else:
             self.log.warning("No API key provided")
 
+        # Configure retry behavior for HTTP transport
+        retry = Retry(
+            total=3,  # Max 3 retry attempts
+            backoff_factor=0.5,  # Exponential backoff: 0.5s, 1s, 2s
+            status_forcelist=[429, 500, 502, 503, 504],  # HTTP codes to retry
+        )
+
+        # Create base httpx transport with HTTP/2 and retry support
+        # RetryTransport works for both sync and async httpx clients
+        base_httpx_transport = httpx.AsyncHTTPTransport(http2=True)
+        retry_httpx_transport = RetryTransport(
+            transport=base_httpx_transport,
+            retry=retry,
+        )
+
         # Set up transports
-        self.http_transport = AIOHTTPTransport(
+        # HTTPXAsyncTransport from gql passes **kwargs to httpx.AsyncClient
+        # So we pass the retry transport via the 'transport' kwarg
+        self.http_transport = HTTPXAsyncTransport(
             url=self.url,
             headers=headers,
-            ssl=verify_ssl,
+            verify=verify_ssl,
             timeout=30.0,
+            transport=retry_httpx_transport,
         )
         self.ws_transport = WebsocketsTransport(
             url=self.ws_url,
@@ -131,8 +151,9 @@ class StashClientBase:
         self.transport_config = {
             "url": self.url,
             "headers": headers,
-            "ssl": verify_ssl,
+            "verify": verify_ssl,
             "timeout": 30.0,
+            "transport": retry_httpx_transport,
         }
 
         self.log.debug(f"Using Stash endpoint at {self.url}")
@@ -140,28 +161,55 @@ class StashClientBase:
         self.log.debug(f"Client headers: {headers}")
         self.log.debug(f"SSL verification: {verify_ssl}")
 
-        # Test connection and fetch schema
-        try:
-            self.log.debug("Testing connection and fetching schema...")
-            test_query = gql("query { __schema { queryType { name } } }")
+        # Create persistent GQL client
+        # Note: Schema fetching is disabled due to Stash's deprecated required arguments
+        # which violate GraphQL spec and cause validation errors in the gql library.
+        self.log.debug("Creating persistent GQL client (schema validation disabled)...")
 
-            # Create a client just for schema fetching
-            transport = AIOHTTPTransport(**self.transport_config)
-            async with Client(
-                transport=transport,
-                fetch_schema_from_transport=True,
-            ) as session:
-                await session.execute(test_query)
-                # Store the proper GraphQLSchema object
-                self.schema = session.client.schema
-                self.client = Client(transport=transport, schema=self.schema)
-                self.log.debug("Schema fetched successfully")
-                self.log.debug("Connection test successful")
-        except Exception as e:
-            self.log.error(f"Connection test failed: {e}")
-            raise ValueError(f"Failed to connect to Stash at {self.url}: {e}")
+        # Create client with schema fetching DISABLED to avoid Stash's
+        # deprecated required arguments validation errors
+        self.gql_client = Client(
+            transport=self.http_transport,
+            fetch_schema_from_transport=False,  # Disabled due to Stash schema issues
+        )
+
+        # Schema is intentionally not fetched to avoid validation errors
+        self.schema = None
+
+        # Create a persistent session for the client
+        # This maintains a single connection across multiple queries
+        self._session = await self.gql_client.connect_async(reconnecting=False)
+        self.log.debug("GQL client session established")
+
+        # Set backward compatibility alias (same object, not a new client)
+        if self.gql_client is None:
+            raise RuntimeError("GQL client initialization failed")
+        self.client = self.gql_client
 
         self._initialized = True
+
+    async def _cleanup_connection_resources(self) -> None:
+        """Clean up persistent connection resources."""
+        # Close the persistent GQL session first
+        if hasattr(self, "_session") and self._session:
+            try:
+                # Session cleanup is handled by closing the client
+                self._session = None
+            except Exception as e:
+                if hasattr(self, "log"):
+                    self.log.debug(f"Error cleaning up session: {e}")
+
+        # Close the persistent GQL client if it exists
+        if hasattr(self, "gql_client") and self.gql_client:
+            try:
+                await self.gql_client.close_async()
+            except Exception as e:
+                if hasattr(self, "log"):
+                    self.log.debug(f"Error closing GQL client: {e}")
+            self.gql_client = None
+
+        # HTTPXAsyncTransport manages its own connection cleanup
+        # No manual cleanup needed for httpx-based transports
 
     def _ensure_initialized(self) -> None:
         """Ensure transport configuration is properly initialized."""
@@ -215,64 +263,37 @@ class StashClientBase:
             ValueError: If query validation fails or execution fails
         """
         self._ensure_initialized()
-        transport = None
         try:
-            # Parse query first to catch syntax errors early
-            try:
-                operation = gql(query)
-
-                # Then validate against schema if available
-                if hasattr(self, "schema") and self.schema:
-                    # Parse into raw GraphQL AST for validation
-                    ast = parse_graphql(query)
-                    # Validate against schema
-                    validation_errors = validate_graphql(self.schema, ast)
-                    if validation_errors:
-                        raise ValueError(
-                            f"Schema validation errors: {validation_errors}"
-                        )
-                    self.log.debug("Query validated against schema")
-            except Exception as e:
-                self.log.error(f"Query validation failed: {e}")
-                raise ValueError(f"Invalid GraphQL query: {e}")
-
-            # Process variables
+            # Process variables first
             processed_vars = self._convert_datetime(variables or {})
 
-            # Execute with existing client first, fall back to new client if transport is disconnected
-            self.log.debug(f"Executing query with variables: {processed_vars}")
-            self.log.debug(f"Query: {query}")
-
+            # Parse query to catch basic syntax errors
+            # Note: Schema validation is disabled due to Stash's deprecated required arguments
             try:
-                # Try using existing client first (this allows mocks to work in tests)
-                async with self.client as session:
-                    result = await session.execute(
-                        operation, variable_values=processed_vars
-                    )
-                    self.log.debug("Query executed successfully with existing client")
-                    self.log.debug(f"Result: {result}")
-                    return result
-            except Exception as client_error:
-                if "Transport is already connected" not in str(client_error):
-                    raise  # Re-raise if it's not a connection reuse error
+                operation = gql(query)
+            except Exception as e:
+                self.log.error(f"GraphQL syntax error: {e}")
+                self.log.error(f"Failed query: \n{query}")
+                self.log.error(f"Variables: {processed_vars}")
+                raise ValueError(f"Invalid GraphQL query syntax: {e}")
 
-                # If existing client's transport is disconnected, create a new one
-                self.log.debug("Creating new client due to disconnected transport")
-                transport = AIOHTTPTransport(**self.transport_config)
-                async with Client(
-                    transport=transport,
-                    fetch_schema_from_transport=False,  # Already have schema
-                    schema=self.schema,  # Use the schema we already fetched
-                ) as session:
-                    result = await session.execute(
-                        operation, variable_values=processed_vars
-                    )
-                    self.log.debug("Query executed successfully with new client")
-                    self.log.debug(f"Result: {result}")
-                    return result
+            # Use persistent GQL session with connection pooling
+            # This allows HTTP/2 multiplexing and avoids "already connected" errors
+            if not self._session:
+                raise RuntimeError(
+                    "GQL session not initialized - call initialize() first"
+                )
+
+            # Execute using the persistent session
+            # The session maintains a single connection for all queries
+            result = await self._session.execute(
+                operation, variable_values=processed_vars
+            )
+            return dict(result)
 
         except Exception as e:
             self._handle_gql_error(e)  # This will raise ValueError
+            raise RuntimeError("Unexpected execution path")  # pragma: no cover
 
     def _convert_datetime(self, obj: Any) -> Any:
         """Convert datetime objects to ISO format strings."""
@@ -631,16 +652,8 @@ class StashClientBase:
             ```
         """
         try:
-            # Close transports
-            if hasattr(self, "http_transport") and hasattr(
-                self.http_transport, "close"
-            ):
-                await self.http_transport.close()
-            if hasattr(self, "ws_transport") and hasattr(self.ws_transport, "close"):
-                await self.ws_transport.close()
-
-            # Close GQL client
-            if hasattr(self, "client"):
+            # Close GQL client first
+            if hasattr(self, "client") and self.client:
                 if hasattr(self.client, "close_async"):
                     try:
                         await self.client.close_async()
@@ -649,6 +662,18 @@ class StashClientBase:
                         self.log.debug(
                             f"Non-critical error during client.close_async(): {e}"
                         )
+
+            # Close transports
+            if hasattr(self, "http_transport") and hasattr(
+                self.http_transport, "close"
+            ):
+                await self.http_transport.close()
+            if hasattr(self, "ws_transport") and hasattr(self.ws_transport, "close"):
+                await self.ws_transport.close()
+
+            # Clean up persistent connection resources
+            await self._cleanup_connection_resources()
+
         except Exception as e:
             # Just log the error and continue
             self.log.warning(f"Non-critical error during client cleanup: {e}")

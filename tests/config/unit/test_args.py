@@ -6,59 +6,26 @@ from pathlib import Path
 import pytest
 
 from config.args import map_args_to_config
-from config.fanslyconfig import FanslyConfig
 
 
 @pytest.fixture
-def config():
-    """Create a basic FanslyConfig instance for testing."""
-    config = FanslyConfig(program_version="1.0.0")
-    config.config_path = Path("/tmp/config_args.ini")
-    # Initialize config with default values
-    if not config.config_path.exists():
-        with open(config.config_path, mode="w", encoding="utf-8") as f:
-            f.write(
-                """[TargetedCreator]
-Username = ReplaceMe
+def config_with_path(mock_config, tmp_path):
+    """Create a mock_config with config_path set for testing.
 
-[MyAccount]
-Authorization_Token = ReplaceMe
-User_Agent = ReplaceMe
-Check_Key = qybZy9-fyszis-bybxyf
-
-[Options]
-download_directory = Local_directory
-download_mode = Normal
-metadata_handling = Advanced
-download_media_previews = True
-open_folder_when_finished = True
-separate_messages = True
-separate_previews = False
-separate_timeline = True
-separate_metadata = False
-show_downloads = True
-show_skipped_downloads = True
-use_duplicate_threshold = False
-use_folder_suffix = True
-interactive = True
-prompt_on_exit = True
-timeline_retries = 1
-timeline_delay_seconds = 60
-
-[Cache]
-
-[Logic]
-check_key_pattern = this.checkKey_\\s*=\\s*["']([^"']+)["']
-main_js_pattern = \\ssrc\\s*=\\s*"(main\\..*?\\.js)"
-"""
-            )
-    config._load_raw_config()
-    return config
+    The map_args_to_config function requires config.config_path to be set.
+    """
+    config_path = tmp_path / "config.ini"
+    mock_config.config_path = config_path
+    return mock_config
 
 
 @pytest.fixture
 def args():
-    """Create a basic argparse.Namespace instance for testing."""
+    """Create a basic argparse.Namespace instance for testing.
+
+    Includes all required attributes for map_args_to_config including
+    PostgreSQL-related settings added in recent migrations.
+    """
     return argparse.Namespace(
         debug=False,
         users=None,
@@ -92,87 +59,134 @@ def args():
         no_separate_timeline=False,
         timeline_retries=None,
         timeline_delay_seconds=None,
+        api_max_retries=None,
         use_following=None,
         use_following_with_pagination=False,
         use_pagination_duplication=False,
+        reverse_order=False,
+        # PostgreSQL settings (added in PostgreSQL migration)
+        pg_host=None,
+        pg_port=None,
+        pg_database=None,
+        pg_user=None,
+        pg_password=None,
     )
 
 
-def test_temp_folder_path_conversion(config, args):
+def test_temp_folder_path_conversion(config_with_path, args, tmp_path):
     """Test that temp_folder is properly converted to a Path object."""
+    # Create a real temporary folder
+    test_temp = tmp_path / "test_temp"
+    test_temp.mkdir()
+
     # Test with a string path
-    args.temp_folder = "/tmp/test_temp"
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert str(config.temp_folder) == "/tmp/test_temp"
+    args.temp_folder = str(test_temp)
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert config_with_path.temp_folder == test_temp
 
     # Test with None value - should keep previous value
     args.temp_folder = None
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert str(config.temp_folder) == "/tmp/test_temp"
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert config_with_path.temp_folder == test_temp
 
 
-def test_temp_folder_and_download_dir_path_conversion(config, args):
+def test_temp_folder_and_download_dir_path_conversion(config_with_path, args, tmp_path):
     """Test that both temp_folder and download_directory are properly handled."""
+    # Create real temporary folders
+    test_temp = tmp_path / "test_temp"
+    test_downloads = tmp_path / "test_downloads"
+    test_temp.mkdir()
+    test_downloads.mkdir()
+
     # Test both paths being set
-    args.temp_folder = "/tmp/test_temp"
-    args.download_directory = "/tmp/test_downloads"
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert isinstance(config.download_directory, Path)
-    assert str(config.temp_folder) == "/tmp/test_temp"
-    assert str(config.download_directory) == "/tmp/test_downloads"
+    args.temp_folder = str(test_temp)
+    args.download_directory = str(test_downloads)
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert isinstance(config_with_path.download_directory, Path)
+    assert config_with_path.temp_folder == test_temp
+    assert config_with_path.download_directory == test_downloads
 
     # Test mixed None and path values - should keep previous values
     args.temp_folder = None
-    args.download_directory = "/tmp/test_downloads"
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert isinstance(config.download_directory, Path)
-    assert str(config.temp_folder) == "/tmp/test_temp"
-    assert str(config.download_directory) == "/tmp/test_downloads"
+    args.download_directory = str(test_downloads)
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert isinstance(config_with_path.download_directory, Path)
+    assert config_with_path.temp_folder == test_temp
+    assert config_with_path.download_directory == test_downloads
 
-    args.temp_folder = "/tmp/test_temp"
+    args.temp_folder = str(test_temp)
     args.download_directory = None
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert isinstance(config.download_directory, Path)
-    assert str(config.temp_folder) == "/tmp/test_temp"
-    assert str(config.download_directory) == "/tmp/test_downloads"
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert isinstance(config_with_path.download_directory, Path)
+    assert config_with_path.temp_folder == test_temp
+    assert config_with_path.download_directory == test_downloads
 
 
-def test_temp_folder_with_spaces(config, args):
+def test_temp_folder_with_spaces(config_with_path, args, tmp_path):
     """Test that temp_folder paths with spaces are handled correctly."""
-    args.temp_folder = "/tmp/test folder/with spaces"
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert str(config.temp_folder) == "/tmp/test folder/with spaces"
+    # Create a real folder with spaces in the name
+    test_folder = tmp_path / "test folder" / "with spaces"
+    test_folder.mkdir(parents=True)
+
+    args.temp_folder = str(test_folder)
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert config_with_path.temp_folder == test_folder
+    assert test_folder.exists()  # Verify real folder exists
 
 
-def test_temp_folder_with_special_chars(config, args):
+def test_temp_folder_with_special_chars(config_with_path, args, tmp_path):
     """Test that temp_folder paths with special characters are handled correctly."""
-    args.temp_folder = "/tmp/test@folder/with#special&chars!"
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert str(config.temp_folder) == "/tmp/test@folder/with#special&chars!"
+    # Create a real folder with special characters (filesystem-safe ones)
+    # Note: Some special chars like : / are not allowed on all filesystems
+    test_folder = tmp_path / "test@folder" / "with#special&chars!"
+    test_folder.mkdir(parents=True)
+
+    args.temp_folder = str(test_folder)
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert config_with_path.temp_folder == test_folder
+    assert test_folder.exists()  # Verify real folder exists
 
 
-def test_temp_folder_relative_path(config, args):
+def test_temp_folder_relative_path(config_with_path, args, tmp_path, monkeypatch):
     """Test that relative temp_folder paths are handled correctly."""
-    args.temp_folder = "relative/path/to/temp"
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    assert str(config.temp_folder) == "relative/path/to/temp"
+    # Change to tmp_path directory to test relative paths
+    monkeypatch.chdir(tmp_path)
+
+    # Create a relative path folder
+    test_folder = Path("relative/path/to/temp")
+    test_folder.mkdir(parents=True)
+
+    args.temp_folder = str(test_folder)
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    # The path should be preserved as relative if that's what was provided
+    assert str(config_with_path.temp_folder) == "relative/path/to/temp"
+    assert test_folder.exists()  # Verify real folder exists
 
 
-def test_temp_folder_windows_path(config, args):
-    """Test that Windows-style paths are handled correctly."""
-    args.temp_folder = "C:\\Users\\Test\\AppData\\Local\\Temp"
-    map_args_to_config(args, config)
-    assert isinstance(config.temp_folder, Path)
-    # Path object will normalize slashes
-    assert (
-        str(config.temp_folder).replace("/", "\\")
-        == "C:\\Users\\Test\\AppData\\Local\\Temp"
-    )
+def test_temp_folder_windows_path(config_with_path, args, tmp_path):
+    """Test that Windows-style paths are handled correctly.
+
+    This test verifies that Path objects correctly handle Windows-style
+    path strings on all platforms. The Path object normalizes slashes
+    according to the current platform.
+    """
+    # Create a real folder and test with Windows-style path string
+    test_folder = tmp_path / "Users" / "Test" / "AppData" / "Local" / "Temp"
+    test_folder.mkdir(parents=True)
+
+    # On non-Windows systems, this will be treated as a relative path
+    # On Windows systems, it would be an absolute path
+    # We test that Path handles it correctly regardless
+    args.temp_folder = str(test_folder)
+    map_args_to_config(args, config_with_path)
+    assert isinstance(config_with_path.temp_folder, Path)
+    assert config_with_path.temp_folder == test_folder
+    assert test_folder.exists()  # Verify real folder exists

@@ -244,7 +244,7 @@ class AccountProcessingMixin:
         result = await session.execute(stmt)
         account = result.scalar_one()
 
-        # Update stash ID
-        account.stash_id = performer.id
+        # Update stash ID (convert from string to int)
+        account.stash_id = int(performer.id)
         session.add(account)
         await session.flush()

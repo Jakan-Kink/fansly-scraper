@@ -951,9 +951,15 @@ class MediaProcessingMixin:
             return
 
         # This is either the first instance or an earlier one - update the metadata
+        # Get username using awaitable attrs to avoid sync IO in async context
+        username = (
+            await account.awaitable_attrs.username
+            if hasattr(account, "awaitable_attrs")
+            else account.username
+        )
         stash_obj.title = self._generate_title_from_content(
             content=item.content,
-            username=account.username,
+            username=username,
             created_at=item.createdAt,
         )
         stash_obj.details = item.content
@@ -991,10 +997,16 @@ class MediaProcessingMixin:
             performers.append(main_performer)
 
         # Add mentioned performers if any
-        if hasattr(item, "accountMentions") and item.accountMentions:
-            for mention in item.accountMentions:
-                # Try to find existing performer
-                mention_performer = await self._find_existing_performer(mention)
+        if hasattr(item, "accountMentions"):
+            # Check if awaitable_attrs exists and use it, otherwise access directly
+            if hasattr(item, "awaitable_attrs"):
+                mentions = await item.awaitable_attrs.accountMentions
+            else:
+                mentions = item.accountMentions
+            if mentions:
+                for mention in mentions:
+                    # Try to find existing performer
+                    mention_performer = await self._find_existing_performer(mention)
 
                 # Create new performer if not found
                 if not mention_performer:

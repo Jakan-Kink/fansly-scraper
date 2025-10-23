@@ -8,5 +8,5 @@ extend-ignore =
     E704,
     F401,
     W505,
-per-file-ignores =
+per-file-ignores = tests/**/*.py:F841,F811,F822,F821
 namespace-packages = true

@@ -7,7 +7,7 @@ import traceback
 from asyncio import sleep
 from typing import Any
 
-from requests import Response
+from httpx import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import FanslyConfig, with_database_session
@@ -152,7 +152,7 @@ async def download_timeline(
                 f"Inspecting Timeline cursor: {timeline_cursor} [CID: {state.creator_id}]"
             )
 
-        timeline_response = Response()
+        timeline_response: Response | None = None
 
         try:
             if state.creator_id is None or timeline_cursor is None:
@@ -165,7 +165,9 @@ async def download_timeline(
             timeline_response.raise_for_status()
 
             if timeline_response.status_code == 200:
-                timeline = timeline_response.json()["response"]
+                timeline = config.get_api().get_json_response_contents(
+                    timeline_response
+                )
 
                 # Process timeline data with proper transaction management
                 await in_transaction_or_new(

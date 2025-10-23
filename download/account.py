@@ -2,18 +2,16 @@
 
 import asyncio
 import random
-import time
-from datetime import datetime, timezone
 from typing import Any
 
-import requests
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from config import FanslyConfig, with_database_session
 from config.modes import DownloadMode
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
-from metadata import Base, TimelineStats, process_account_data, require_database_config
+from metadata import Base, TimelineStats, process_account_data
 from textio import json_output, print_error, print_info
 
 from .downloadstate import DownloadState
@@ -49,7 +47,7 @@ def _validate_download_mode(config: FanslyConfig, state: DownloadState) -> None:
 
 async def _get_account_response(
     config: FanslyConfig, state: DownloadState
-) -> requests.Response:
+) -> httpx.Response:
     """Get account information from API.
 
     Args:
@@ -87,7 +85,7 @@ async def _get_account_response(
 
         return raw_response
 
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         message = (
             "Error getting account info from fansly API (22). "
             "Please make sure your configuration file is not malformed."
@@ -97,7 +95,7 @@ async def _get_account_response(
 
 
 def _extract_account_data(
-    response: requests.Response, config: FanslyConfig
+    response: httpx.Response, config: FanslyConfig
 ) -> dict[str, Any]:
     """Extract account data from API response.
 
@@ -114,7 +112,7 @@ def _extract_account_data(
         ApiAccountInfoError: If creator name is invalid
     """
     try:
-        response_data = response.json()["response"]
+        response_data = config.get_api().get_json_response_contents(response)
         # Client account info is wrapped in an 'account' key
         if isinstance(response_data, dict) and "account" in response_data:
             return response_data["account"]
@@ -244,7 +242,7 @@ async def _make_rate_limited_request(
     *args,
     rate_limit_delay: float = 30.0,
     **kwargs,
-) -> requests.Response:
+) -> httpx.Response:
     """Make a request with rate limit handling.
 
     Args:
@@ -265,7 +263,7 @@ async def _make_rate_limited_request(
             response = request_func(*args, **kwargs)
             response.raise_for_status()
             return response
-        except requests.exceptions.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:  # Rate limited
                 print_info(f"Rate limited, waiting {rate_limit_delay} seconds...")
                 await asyncio.sleep(rate_limit_delay)
@@ -304,12 +302,12 @@ async def _get_following_page(
     )
     await asyncio.sleep(random.uniform(2, 4))
 
-    data = response.json()
-    json_output(1, f"following_list_page_{page}", data)
+    json_output(1, f"following_list_page_{page}", response.json())
+    following_data = config.get_api().get_json_response_contents(response)
 
     # Extract account IDs
     account_ids = []
-    for item in data.get("response", []):
+    for item in following_data:
         if isinstance(item, dict) and "accountId" in item:
             account_ids.append(item["accountId"])
 
@@ -325,11 +323,11 @@ async def _get_following_page(
         account_ids,
         rate_limit_delay=30.0,
     )
-    account_data = account_response.json()
-    json_output(1, f"account_details_page_{page}", account_data)
+    json_output(1, f"account_details_page_{page}", account_response.json())
+    account_data = config.get_api().get_json_response_contents(account_response)
     await asyncio.sleep(random.uniform(2, 4))
 
-    return account_data.get("response", []), len(account_ids)
+    return account_data, len(account_ids)
 
 
 async def get_following_accounts(
@@ -399,6 +397,11 @@ async def get_following_accounts(
         total = len(following_accounts)
         print_info(f"Found {total} followed accounts")
 
+        # Reverse list if requested
+        if config.reverse_order:
+            following_accounts = list(reversed(following_accounts))
+            print_info("Processing accounts in reverse order")
+
         # Process accounts and collect usernames
         usernames = set()
 
@@ -431,8 +434,12 @@ async def get_following_accounts(
 
         return usernames
 
-    except requests.exceptions.RequestException as e:
-        if e.response is not None and e.response.status_code == 401:
+    except httpx.HTTPError as e:
+        if (
+            hasattr(e, "response")
+            and e.response is not None
+            and e.response.status_code == 401
+        ):
             message = (
                 f"API returned unauthorized while getting following list. "
                 f"This is most likely because of a wrong authorization token."
@@ -441,5 +448,5 @@ async def get_following_accounts(
             )
             raise ApiAuthenticationError(message)
         else:
-            message = "Error getting following list from Fansly API." f"\n  {str(e)}"
+            message = f"Error getting following list from Fansly API.\n  {str(e)}"
             raise ApiError(message)

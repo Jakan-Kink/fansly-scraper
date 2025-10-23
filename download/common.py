@@ -105,6 +105,7 @@ async def check_page_duplicates(
     all_posts_in_metadata = True
     for post in page_data["posts"]:
         # Check if post exists in metadata - only select id to avoid eager loading
+        # Note: IDs are already converted to int by FanslyApi.convert_ids_to_int()
         stmt = select(Post.id).where(Post.id == post["id"])
         result = await session.execute(stmt)
         if (
@@ -224,6 +225,7 @@ async def process_download_accessible_media(
             config,
             state,
             accessible_media,
+            session=session,
         )
 
     except DuplicateCountError:

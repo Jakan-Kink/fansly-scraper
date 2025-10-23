@@ -103,7 +103,7 @@ class GalleryProcessingMixin:
                     }
                 )
                 if hasattr(item, "stash_id"):
-                    item.stash_id = gallery.id
+                    item.stash_id = int(gallery.id)
                 return gallery
         return None
 
@@ -135,7 +135,7 @@ class GalleryProcessingMixin:
                     }
                 )
                 if hasattr(item, "stash_id"):
-                    item.stash_id = gallery.id
+                    item.stash_id = int(gallery.id)
                 return gallery
         return None
 
@@ -169,7 +169,7 @@ class GalleryProcessingMixin:
                     }
                 )
                 if hasattr(item, "stash_id"):
-                    item.stash_id = gallery.id
+                    item.stash_id = int(gallery.id)
                 gallery.code = str(item.id)
                 await gallery.save(self.context.client)
                 return gallery
@@ -255,10 +255,18 @@ class GalleryProcessingMixin:
             performers.append(performer)
 
         # Add mentioned accounts as performers
-        if hasattr(item, "accountMentions") and item.accountMentions:
-            for mention in item.accountMentions:
-                if mention_performer := await self._find_existing_performer(mention):
-                    performers.append(mention_performer)
+        if hasattr(item, "accountMentions"):
+            # Check if awaitable_attrs exists and use it, otherwise access directly
+            if hasattr(item, "awaitable_attrs"):
+                mentions = await item.awaitable_attrs.accountMentions
+            else:
+                mentions = item.accountMentions
+            if mentions:
+                for mention in mentions:
+                    if mention_performer := await self._find_existing_performer(
+                        mention
+                    ):
+                        performers.append(mention_performer)
 
         # Set performers if we have any
         if performers:
@@ -510,7 +518,7 @@ class GalleryProcessingMixin:
                     "status": "collected_media_batch",
                     "item_id": item.id,
                     "media_count": len(media_batch),
-                    "account_id": getattr(account, "id", None),
+                    "account_id": account.__dict__.get("id", None),
                 }
             )
 
@@ -675,89 +683,104 @@ class GalleryProcessingMixin:
             )
 
             # Link images and scenes to gallery
-            try:
-                # Link images using the special API endpoint
-                if all_images:
-                    # Try up to 3 times with increasing delays
-                    for attempt in range(3):
-                        try:
-                            success = await self.context.client.add_gallery_images(
-                                gallery_id=gallery.id,
-                                image_ids=[img.id for img in all_images],
-                            )
-                            if success:
-                                debug_print(
-                                    {
-                                        "method": "StashProcessing - _process_item_gallery",
-                                        "status": "gallery_images_added",
-                                        "item_id": item.id,
-                                        "gallery_id": gallery.id,
-                                        "success": success,
-                                        "image_count": len(all_images),
-                                        "attempt": attempt + 1,
-                                    }
-                                )
-                                break
-                            else:
-                                debug_print(
-                                    {
-                                        "method": "StashProcessing - _process_item_gallery",
-                                        "status": "gallery_images_add_failed",
-                                        "item_id": item.id,
-                                        "gallery_id": gallery.id,
-                                        "attempt": attempt + 1,
-                                        "image_count": len(all_images),
-                                    }
-                                )
-                                if attempt < 2:  # Don't sleep on last attempt
-                                    await asyncio.sleep(
-                                        2**attempt
-                                    )  # Exponential backoff
-                        except Exception as e:
-                            logger.exception(
-                                f"Failed to add gallery images for {item_type} {item.id}",
-                                exc_info=e,
-                            )
+            # Link images using the special API endpoint
+            if all_images:
+                images_added_successfully = False
+                last_error = None
+
+                # Try up to 3 times with increasing delays
+                for attempt in range(3):
+                    try:
+                        success = await self.context.client.add_gallery_images(
+                            gallery_id=gallery.id,
+                            image_ids=[img.id for img in all_images],
+                        )
+                        if success:
+                            images_added_successfully = True
                             debug_print(
                                 {
                                     "method": "StashProcessing - _process_item_gallery",
-                                    "status": "gallery_images_add_error",
+                                    "status": "gallery_images_added",
+                                    "item_id": item.id,
+                                    "gallery_id": gallery.id,
+                                    "success": success,
+                                    "image_count": len(all_images),
+                                    "attempt": attempt + 1,
+                                }
+                            )
+                            break
+                        else:
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _process_item_gallery",
+                                    "status": "gallery_images_add_failed",
                                     "item_id": item.id,
                                     "gallery_id": gallery.id,
                                     "attempt": attempt + 1,
-                                    "error": str(e),
-                                    "traceback": traceback.format_exc(),
+                                    "image_count": len(all_images),
                                 }
                             )
                             if attempt < 2:  # Don't sleep on last attempt
                                 await asyncio.sleep(2**attempt)  # Exponential backoff
+                    except Exception as e:
+                        last_error = e
+                        logger.exception(
+                            f"Failed to add gallery images for {item_type} {item.id} (attempt {attempt + 1}/3)",
+                            exc_info=e,
+                        )
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _process_item_gallery",
+                                "status": "gallery_images_add_error",
+                                "item_id": item.id,
+                                "gallery_id": gallery.id,
+                                "attempt": attempt + 1,
+                                "error": str(e),
+                                "traceback": traceback.format_exc(),
+                            }
+                        )
+                        if attempt < 2:  # Don't sleep on last attempt
+                            await asyncio.sleep(2**attempt)  # Exponential backoff
 
-                # Link scenes using the standard gallery update
-                if all_scenes:
-                    gallery.scenes = all_scenes
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_item_gallery",
-                            "status": "gallery_scenes_added",
-                            "item_id": item.id,
-                            "gallery_id": gallery.id,
-                            "scene_count": len(all_scenes),
-                            "scenes": pformat(all_scenes),
-                        }
+                # Log warning if all retries failed, but continue processing
+                if not images_added_successfully:
+                    print_error(
+                        f"Failed to add {len(all_images)} images to gallery {gallery.id} "
+                        f"for {item_type} {item.id} after 3 attempts. Continuing with scenes..."
                     )
+                    if last_error:
+                        logger.error(f"Last error: {last_error}")
+
+            # Link scenes using the standard gallery update
+            if all_scenes:
+                gallery.scenes = all_scenes
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_item_gallery",
+                        "status": "gallery_scenes_added",
+                        "item_id": item.id,
+                        "gallery_id": gallery.id,
+                        "scene_count": len(all_scenes),
+                        "scenes": pformat(all_scenes),
+                    }
+                )
+
+            # Save gallery
+            try:
                 await gallery.save(self.context.client)
             except Exception as e:
                 logger.exception(
-                    f"Failed to link content to gallery for {item_type} {item.id}",
+                    f"Failed to save gallery for {item_type} {item.id}",
                     exc_info=e,
                 )
                 debug_print(
                     {
                         "method": "StashProcessing - _process_item_gallery",
-                        "status": "gallery_content_error",
+                        "status": "gallery_save_error",
                         "item_id": item.id,
                         "gallery_id": gallery.id,
                         "error": str(e),
                         "traceback": traceback.format_exc(),
                     }
                 )
+                print_error(f"Failed to save gallery for {item_type} {item.id}: {e}")

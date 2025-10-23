@@ -13,16 +13,8 @@ from stash.processing import StashProcessing
 from stash.processing.mixins.batch import BatchProcessingMixin
 from stash.types import Image, Scene, SceneMarker, Studio, Tag
 
-# Import fixtures from root conftest
-from tests.conftest import (
-    clean_model_data,
-    json_conversation_data,
-    json_messages_group_data,
-    json_timeline_data,
-)
-
-# Import fixtures from stash/conftest.py
-from tests.stash.conftest import (
+# Import fixtures from stash_api_fixtures
+from tests.fixtures.stash_api_fixtures import (
     mock_account,
     mock_client,
     mock_performer,
@@ -121,12 +113,7 @@ Scene.safe_create = safe_scene_create
 
 # Export imported fixtures and utility functions
 __all__ = [
-    # Imported fixtures
-    "json_conversation_data",
-    "json_messages_group_data",
-    "json_timeline_data",
     # Helper functions and classes
-    "clean_model_data",
     "sanitize_model_data",
     "safe_scene_marker_create",
     "safe_tag_create",
@@ -135,6 +122,7 @@ __all__ = [
     "safe_scene_create",
     "AsyncResult",
     "AsyncSessionContext",
+    "MockDatabase",
     # Stash fixtures imported from stash/conftest.py
     "mock_client",
     "mock_session",
@@ -147,6 +135,27 @@ __all__ = [
     "stash_client",
     "stash_context",
     "test_query",
+    # Local fixtures (renamed with processing_ prefix to avoid conflicts with factory-based fixtures)
+    "mixin",
+    "mock_items",
+    "mock_progress_bars",
+    "mock_semaphore",
+    "mock_process_item",
+    "mock_queue",
+    "processing_mock_posts",
+    "processing_mock_messages",
+    "mock_item",
+    "processing_mock_media",
+    "processing_mock_attachment",
+    "processing_mock_multiple_posts",
+    "processing_mock_multiple_messages",
+    "mock_gallery",
+    "mock_image",
+    "mock_context",
+    "mock_config",
+    "mock_state",
+    "mock_database",
+    "stash_processor",
 ]
 
 
@@ -218,8 +227,8 @@ def mock_queue():
 
 
 @pytest.fixture
-def mock_posts():
-    """Fixture for mock posts."""
+def processing_mock_posts():
+    """Fixture for mock posts (processing tests)."""
     posts = []
     for i in range(5):
         post = AccessibleAsyncMock(spec=Post)
@@ -231,8 +240,8 @@ def mock_posts():
 
 
 @pytest.fixture
-def mock_messages():
-    """Fixture for mock messages."""
+def processing_mock_messages():
+    """Fixture for mock messages (processing tests)."""
     messages = []
     for i in range(5):
         message = AccessibleAsyncMock(spec=Message)
@@ -253,8 +262,8 @@ def mock_item():
 
 
 @pytest.fixture
-def mock_media():
-    """Fixture for mock media."""
+def processing_mock_media():
+    """Fixture for mock media (processing tests)."""
     media = AccessibleAsyncMock(spec=Media)
     media.id = "media_123"
     media.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
@@ -263,8 +272,8 @@ def mock_media():
 
 
 @pytest.fixture
-def mock_attachment():
-    """Fixture for mock attachment."""
+def processing_mock_attachment():
+    """Fixture for mock attachment (processing tests)."""
     attachment = AccessibleAsyncMock(spec=Attachment)
     attachment.id = "attachment_123"
     attachment.media = None
@@ -273,15 +282,19 @@ def mock_attachment():
 
 
 @pytest.fixture
-def mock_multiple_posts(mock_posts):
-    """Fixture for larger set of mock posts."""
-    return mock_posts[:2]  # Reuse mock_posts fixture but limit to 2
+def processing_mock_multiple_posts(processing_mock_posts):
+    """Fixture for larger set of mock posts (processing tests)."""
+    return processing_mock_posts[
+        :2
+    ]  # Reuse processing_mock_posts fixture but limit to 2
 
 
 @pytest.fixture
-def mock_multiple_messages(mock_messages):
-    """Fixture for larger set of mock messages."""
-    return mock_messages[:2]  # Reuse mock_messages fixture but limit to 2
+def processing_mock_multiple_messages(processing_mock_messages):
+    """Fixture for larger set of mock messages (processing tests)."""
+    return processing_mock_messages[
+        :2
+    ]  # Reuse processing_mock_messages fixture but limit to 2
 
 
 @pytest.fixture

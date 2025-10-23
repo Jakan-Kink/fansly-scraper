@@ -20,39 +20,53 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Add wall-related indexes
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_wall_account_created "
-        "ON walls(accountId, createdAt)"
+    # Add wall-related indexes using SQLAlchemy operations for proper identifier quoting
+    op.create_index(
+        "idx_wall_account_created",
+        "walls",
+        ["accountId", "createdAt"],
+        unique=False,
+        if_not_exists=True,
     )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_wall_posts_post " "ON wall_posts(postId)"
+    op.create_index(
+        "idx_wall_posts_post",
+        "wall_posts",
+        ["postId"],
+        unique=False,
+        if_not_exists=True,
     )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_wall_posts_wall_post "
-        "ON wall_posts(wallId, postId)"
+    op.create_index(
+        "idx_wall_posts_wall_post",
+        "wall_posts",
+        ["wallId", "postId"],
+        unique=False,
+        if_not_exists=True,
     )
 
-    # Add case-insensitive hashtag lookup index
+    # Add case-insensitive hashtag lookup index - requires raw SQL with quoted identifiers
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_hashtags_value_lower "
-        "ON hashtags(lower(value))"
+        'ON hashtags(lower("value"))'
     )
 
     # Add content hash lookup index
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_media_content_hash " "ON media(content_hash)"
+    op.create_index(
+        "ix_media_content_hash",
+        "media",
+        ["content_hash"],
+        unique=False,
+        if_not_exists=True,
     )
 
-    # Add post mentions indexes with partial conditions
+    # Add post mentions indexes with partial conditions - requires raw SQL with quoted identifiers
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_post_mentions_account "
-        "ON post_mentions(postId, accountId) "
-        "WHERE accountId IS NOT NULL"
+        'ON post_mentions("postId", "accountId") '
+        'WHERE "accountId" IS NOT NULL'
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_post_mentions_handle "
-        "ON post_mentions(postId, handle) "
+        'ON post_mentions("postId", handle) '
         "WHERE handle IS NOT NULL"
     )
 

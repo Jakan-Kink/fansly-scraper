@@ -266,9 +266,7 @@ class TestCreatorProcessing:
 
         with (
             patch("stash.processing.print_info") as mock_print_info,
-            patch(
-                "stash.processing.set_create_directory_for_download"
-            ) as mock_set_path,
+            patch("pathio.pathio.set_create_directory_for_download") as mock_set_path,
         ):
             # Mock successful path creation
             mock_path = MagicMock()

@@ -12,7 +12,9 @@ from typing import Any, TypeVar
 
 from sqlalchemy.exc import OperationalError
 
-from textio import print_error, print_info, print_warning
+# Lazy import to avoid circular dependency issues during alembic migrations
+# textio functions are imported within methods that use them
+# from textio import print_error, print_info, print_warning
 
 RT = TypeVar("RT")
 
@@ -91,6 +93,8 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
                         "does not support the asynchronous context manager protocol"
                         in str(e)
                     ):
+                        from textio import print_error
+
                         print_error(f"Error in async context: {e}")
                         # Try to handle coroutine objects that don't support context manager
                         if hasattr(session_context, "__await__"):
@@ -163,6 +167,8 @@ def _log_retry_attempt(
         wait_time: Actual wait time with jitter
         max_wait: Maximum wait time allowed
     """
+    from textio import print_info
+
     print_info(
         f"Database locked on {func_name}, attempt {attempt + 1}/{retry_count}\n"
         f"  Base delay: {retry_delay:.3f}s\n"
@@ -226,6 +232,8 @@ async def _handle_async_retry(
             if "database is locked" not in str(e):
                 raise
             if attempt == retry_count - 1:
+                from textio import print_error
+
                 print_error(f"Max retries ({retry_count}) reached for {func.__name__}")
                 raise
 
@@ -299,6 +307,8 @@ def _handle_sync_retry(
             if "database is locked" not in str(e):
                 raise
             if attempt == retry_count - 1:
+                from textio import print_error
+
                 print_error(f"Max retries ({retry_count}) reached for {func.__name__}")
                 raise
 

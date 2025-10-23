@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import traceback
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import select
@@ -16,7 +13,6 @@ from metadata import (
     AccountMedia,
     AccountMediaBundle,
     Attachment,
-    ContentType,
     Group,
     Media,
     Message,
@@ -106,29 +102,15 @@ class ContentProcessingMixin:
         print_info(f"Processing {len(messages)} messages...")
 
         # Set up worker pool
-        task_pbar, process_pbar, semaphore, queue = await self._setup_worker_pool(
+        task_name, process_name, semaphore, queue = await self._setup_worker_pool(
             messages, "message"
         )
 
         async def process_message(message: Message) -> None:
             async with semaphore:
                 try:
-                    # Ensure object is bound to the session
-                    session.add(message)
-                    for attachment in message.attachments:
-                        session.add(attachment)
-                        if attachment.media:
-                            session.add(attachment.media)
-                            if attachment.media.media:
-                                session.add(attachment.media.media)
-                        if attachment.bundle:
-                            session.add(attachment.bundle)
-                            for account_media in attachment.bundle.accountMedia:
-                                session.add(account_media)
-                                if account_media.media:
-                                    session.add(account_media.media)
-
-                    # Refresh account before processing
+                    # Objects are already bound to session from eager loading query
+                    # No need to add them again - just refresh account before processing
                     await session.refresh(account)
 
                     # Process the message
@@ -141,6 +123,9 @@ class ContentProcessingMixin:
                         url_pattern_func=get_message_url,
                         session=session,
                     )
+
+                    # Note: No flush here - session will auto-flush on commit
+                    # Flushing in concurrent workers causes "Session is already flushing" errors
                 except Exception as e:
                     print_error(f"Error processing message {message.id}: {e}")
                     logger.exception(
@@ -162,8 +147,8 @@ class ContentProcessingMixin:
         # Run the worker pool
         await self._run_worker_pool(
             items=messages,
-            task_pbar=task_pbar,
-            process_pbar=process_pbar,
+            task_name=task_name,
+            process_name=process_name,
             semaphore=semaphore,
             queue=queue,
             process_item=process_message,
@@ -265,29 +250,15 @@ class ContentProcessingMixin:
         print_info(f"Processing {len(posts)} posts...")
 
         # Set up worker pool
-        task_pbar, process_pbar, semaphore, queue = await self._setup_worker_pool(
+        task_name, process_name, semaphore, queue = await self._setup_worker_pool(
             posts, "post"
         )
 
         async def process_post(post: Post) -> None:
             async with semaphore:
                 try:
-                    # Ensure object is bound to the session
-                    session.add(post)
-                    for attachment in post.attachments:
-                        session.add(attachment)
-                        if attachment.media:
-                            session.add(attachment.media)
-                            if attachment.media.media:
-                                session.add(attachment.media.media)
-                        if attachment.bundle:
-                            session.add(attachment.bundle)
-                            for account_media in attachment.bundle.accountMedia:
-                                session.add(account_media)
-                                if account_media.media:
-                                    session.add(account_media.media)
-
-                    # Refresh account before processing
+                    # Objects are already bound to session from eager loading query
+                    # No need to add them again - just refresh account before processing
                     await session.refresh(account)
 
                     # Process the post
@@ -300,6 +271,9 @@ class ContentProcessingMixin:
                         url_pattern_func=get_post_url,
                         session=session,
                     )
+
+                    # Note: No flush here - session will auto-flush on commit
+                    # Flushing in concurrent workers causes "Session is already flushing" errors
                 except Exception as e:
                     print_error(f"Error processing post {post.id}: {e}")
                     logger.exception(
@@ -321,8 +295,8 @@ class ContentProcessingMixin:
         # Run the worker pool
         await self._run_worker_pool(
             items=posts,
-            task_pbar=task_pbar,
-            process_pbar=process_pbar,
+            task_name=task_name,
+            process_name=process_name,
             semaphore=semaphore,
             queue=queue,
             process_item=process_post,
@@ -366,21 +340,36 @@ class ContentProcessingMixin:
         media_list = []
 
         for attachment in attachments:
+            # Load relationships asynchronously to avoid greenlet errors
+            if hasattr(attachment, "awaitable_attrs"):
+                await attachment.awaitable_attrs.media
+                await attachment.awaitable_attrs.bundle
+
             # Direct media
             if attachment.media:
+                # Load media relationships
+                if hasattr(attachment.media, "awaitable_attrs"):
+                    await attachment.media.awaitable_attrs.media
+                    await attachment.media.awaitable_attrs.preview
+
                 if attachment.media.media:
                     media_list.append(attachment.media.media)
                 if attachment.media.preview:
                     media_list.append(attachment.media.preview)
 
             # Media bundles
-            if hasattr(attachment, "bundle") and attachment.bundle:
+            if attachment.bundle:
                 if hasattr(attachment.bundle, "awaitable_attrs"):
                     await attachment.bundle.awaitable_attrs.accountMedia
                     await attachment.bundle.awaitable_attrs.preview
 
                 if hasattr(attachment.bundle, "accountMedia"):
                     for account_media in attachment.bundle.accountMedia:
+                        # Load account_media relationships
+                        if hasattr(account_media, "awaitable_attrs"):
+                            await account_media.awaitable_attrs.media
+                            await account_media.awaitable_attrs.preview
+
                         if account_media.media:
                             media_list.append(account_media.media)
                         if account_media.preview:
@@ -449,15 +438,27 @@ class ContentProcessingMixin:
 
         # Process each item (already merged in process_creator_posts)
         for item in items:
+            # Get attachment count safely using awaitable_attrs to avoid greenlet_spawn errors
+            attachment_count = 0
+            try:
+                if hasattr(item, "awaitable_attrs"):
+                    # Use awaitable_attrs for async access to relationships
+                    attachments = await item.awaitable_attrs.attachments
+                    attachment_count = len(attachments) if attachments else 0
+                elif hasattr(item, "attachments"):
+                    # Fall back to direct access if already eager-loaded
+                    attachment_count = len(item.attachments)
+            except Exception:
+                # If we can't get attachment count, use 0
+                attachment_count = 0
+
             try:
                 debug_print(
                     {
                         "method": f"StashProcessing - process_creator_{item_type}s",
                         "status": f"processing_{item_type}",
                         f"{item_type}_id": item.id,
-                        "attachment_count": (
-                            len(item.attachments) if hasattr(item, "attachments") else 0
-                        ),
+                        "attachment_count": attachment_count,
                     }
                 )
                 await self._process_item_gallery(
@@ -474,9 +475,7 @@ class ContentProcessingMixin:
                         "method": f"StashProcessing - process_creator_{item_type}s",
                         "status": f"{item_type}_processed",
                         f"{item_type}_id": item.id,
-                        "attachment_count": (
-                            len(item.attachments) if hasattr(item, "attachments") else 0
-                        ),
+                        "attachment_count": attachment_count,
                     }
                 )
             except Exception as e:
@@ -487,9 +486,7 @@ class ContentProcessingMixin:
                         "method": f"StashProcessing - process_creator_{item_type}s",
                         "status": f"{item_type}_processing_failed",
                         f"{item_type}_id": item.id,
-                        "attachment_count": (
-                            len(item.attachments) if hasattr(item, "attachments") else 0
-                        ),
+                        "attachment_count": attachment_count,
                         "error": str(e),
                         "traceback": traceback.format_exc(),
                     }

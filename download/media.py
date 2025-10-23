@@ -10,11 +10,12 @@ from pathlib import Path
 
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Column
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import FanslyConfig
 from config.decorators import with_database_session
-from errors import ApiError, DownloadError, DuplicateCountError, M3U8Error, MediaError
+from errors import DownloadError, DuplicateCountError, M3U8Error, MediaError
 from fileio.dedupe import dedupe_media_file
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from helpers.common import batch_list
@@ -33,7 +34,7 @@ from .types import DownloadType
 async def download_media_infos(
     config: FanslyConfig,
     state: DownloadState,
-    media_ids: list[str],
+    media_ids: list[int | str],
     session: AsyncSession | None = None,
 ) -> list[dict]:
     """Download media info from API and process it through metadata system.
@@ -41,7 +42,7 @@ async def download_media_infos(
     Args:
         config: FanslyConfig instance
         state: DownloadState instance
-        media_ids: List of media IDs to fetch
+        media_ids: List of media IDs to fetch (integers after ID conversion, or strings for legacy support)
         session: SQLAlchemy async session
 
     Returns:
@@ -53,24 +54,39 @@ async def download_media_infos(
 
     for ids in batch_list(media_ids, config.BATCH_SIZE):
         async with session.begin_nested():
-            media_ids_str = ",".join(ids)
+            media_ids_str = ",".join(str(id) for id in ids)
 
-            media_info_response = config.get_api().get_account_media(media_ids_str)
+            # Rate limiting is now handled by RateLimiter in FanslyApi
+            # Retry on 429 since RateLimiter will apply backoff for the next attempt
+            max_retries = config.api_max_retries
+            for attempt in range(max_retries):
+                media_info_response = config.get_api().get_account_media(media_ids_str)
 
+                # If we got a 429, the RateLimiter has already recorded it and will
+                # apply backoff on the next request. Just retry.
+                if media_info_response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        print_debug(
+                            f"Rate limited (429), retrying ({attempt + 1}/{max_retries})..."
+                        )
+                        continue
+                    else:
+                        # Final attempt failed, raise the error
+                        media_info_response.raise_for_status()
+
+                # For other errors or success, exit retry loop
+                break
+
+            # Check status for non-429 errors
             media_info_response.raise_for_status()
 
             if media_info_response.status_code == 200:
-                media_info = media_info_response.json()
-
-                if not media_info["success"]:
-                    raise ApiError(
-                        f"Could not retrieve media info for {media_ids_str} due to an "
-                        f"API error - unsuccessful "
-                        f"| content: \n{media_info}"
-                    )
+                media_info = config.get_api().get_json_response_contents(
+                    media_info_response
+                )
 
                 # Process each media item through metadata system
-                for info in media_info["response"]:
+                for info in media_info:
                     # Process through metadata system
                     await process_media_bundles(
                         config=config,
@@ -87,8 +103,7 @@ async def download_media_infos(
                     f"| content: \n{media_info_response.content.decode('utf-8')}"
                 )
 
-            # Slow down a bit to be sure
-            await async_sleep(random.uniform(0.4, 0.75))
+            # Rate limiting between requests is handled by RateLimiter in FanslyApi
 
     return media_infos
 
@@ -251,7 +266,10 @@ async def _verify_temp_download(
 
             # Move temp file to final location
             check_path.parent.mkdir(parents=True, exist_ok=True)
+            print_debug(f"Moving from temp: {temp_path}")
+            print_debug(f"To final location: {check_path}")
             shutil.move(str(temp_path), str(check_path))
+            print_debug(f"Successfully moved to: {check_path}")
 
             # Only mark as downloaded after successful move
             media_record.is_downloaded = True
@@ -283,11 +301,13 @@ async def _verify_temp_download(
 
 def _download_file(config: FanslyConfig, media_item: MediaItem, output_file) -> None:
     """Download file from URL to output file."""
-    with config.get_api().get_with_ngsw(
-        url=media_item.download_url,
-        stream=True,
-        add_fansly_headers=False,
-    ) as response:
+    response = None
+    try:
+        response = config.get_api().get_with_ngsw(
+            url=media_item.download_url,
+            stream=True,
+            add_fansly_headers=False,
+        )
         if response.status_code != 200:
             raise DownloadError(
                 f"Download failed on filename {media_item.get_file_name()} due to an "
@@ -295,10 +315,14 @@ def _download_file(config: FanslyConfig, media_item: MediaItem, output_file) -> 
                 f"| content: \n{response.content.decode('utf-8')} [13]"
             )
 
-        for chunk in response.iter_content(chunk_size=1_048_576):
+        for chunk in response.iter_bytes(chunk_size=1_048_576):
             if chunk:
                 output_file.write(chunk)
         output_file.flush()
+    finally:
+        # Close streaming response to free resources
+        if response is not None:
+            response.close()
 
 
 def _download_regular_file(
@@ -307,11 +331,13 @@ def _download_regular_file(
     file_save_path: Path,
 ) -> None:
     """Download a regular media file with progress bar."""
-    with config.get_api().get_with_ngsw(
-        url=media_item.download_url,
-        stream=True,
-        add_fansly_headers=False,
-    ) as response:
+    response = None
+    try:
+        response = config.get_api().get_with_ngsw(
+            url=media_item.download_url,
+            stream=True,
+            add_fansly_headers=False,
+        )
         if response.status_code == 200:
             text_column = TextColumn("", table_column=Column(ratio=1))
             bar_column = BarColumn(bar_width=60, table_column=Column(ratio=5))
@@ -329,7 +355,7 @@ def _download_regular_file(
             progress.start()
 
             with open(file_save_path, "wb") as output_file:
-                for chunk in response.iter_content(chunk_size=1_048_576):
+                for chunk in response.iter_bytes(chunk_size=1_048_576):
                     if chunk:
                         output_file.write(chunk)
                         progress.advance(task_id, len(chunk))
@@ -348,6 +374,10 @@ def _download_regular_file(
                 f"error --> status_code: {response.status_code} "
                 f"| content: \n{response.content.decode('utf-8')} [13]"
             )
+    finally:
+        # Close streaming response to free resources
+        if response is not None:
+            response.close()
 
 
 @with_database_session(async_session=True)  # Uses config._database directly
@@ -391,14 +421,26 @@ async def _download_m3u8_file(
         # Calculate hash of the new file
         new_hash = get_hash_for_other_content(temp_path)
 
-        # Use optimized hash lookup
-        existing_row = config._database.find_media_by_hash(new_hash)
-        existing_by_hash = None
-        if existing_row and existing_row[0] != media_record.id:
-            # Convert tuple to Media object
-            existing_by_hash = await session.get(Media, existing_row[0])
+        # Query for existing media with this hash (excluding current record)
+        result = await session.execute(
+            select(Media)
+            .where(
+                Media.content_hash == new_hash,
+                Media.id != media_record.id,
+                Media.is_downloaded.is_(True),
+            )
+            .limit(1)
+        )
+        existing_by_hash = result.scalar_one_or_none()
 
-        if existing_by_hash and existing_by_hash.is_downloaded:
+        if existing_by_hash:
+            # Update current record to reference the existing duplicate file
+            media_record.content_hash = new_hash
+            media_record.local_filename = existing_by_hash.local_filename
+            media_record.is_downloaded = True
+            session.add(media_record)
+            await session.flush()
+
             # We found a duplicate
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
@@ -410,7 +452,10 @@ async def _download_m3u8_file(
 
         # No duplicate found, move file to final location
         check_path.parent.mkdir(parents=True, exist_ok=True)
+        print_debug(f"Moving from temp: {temp_path}")
+        print_debug(f"To final location: {check_path}")
         shutil.move(str(temp_path), str(check_path))
+        print_debug(f"Successfully moved to: {check_path}")
 
         # Update database record only after successful move
         media_record.content_hash = new_hash
@@ -430,10 +475,12 @@ async def _download_m3u8_file(
             shutil.rmtree(temp_dir)
 
 
+@with_database_session(async_session=True)
 async def download_media(
     config: FanslyConfig,
     state: DownloadState,
     accessible_media: list[MediaItem],
+    session: AsyncSession | None = None,
 ):
     """Downloads all media items to their respective target folders.
 
@@ -441,6 +488,7 @@ async def download_media(
         config: FanslyConfig instance
         state: Current download state
         accessible_media: List of media items to download
+        session: SQLAlchemy async session
     """
     if state.download_type == DownloadType.NOTSET:
         raise RuntimeError(
@@ -477,6 +525,7 @@ async def download_media(
                 config,
                 state,
                 media_item,
+                session=session,
             )
             if media_record is None:
                 if config.show_downloads and config.show_skipped_downloads:
@@ -532,6 +581,7 @@ async def download_media(
                 media_item,
                 check_path,
                 media_record,
+                session=session,
             ):
                 continue
 
@@ -549,6 +599,7 @@ async def download_media(
                     media_item=media_item,
                     check_path=file_save_path,
                     media_record=media_record,
+                    session=session,
                 )
                 if is_dupe:
                     continue
@@ -567,6 +618,7 @@ async def download_media(
                 media_item.mimetype,
                 file_save_path,
                 media_record,
+                session=session,
             )
 
             # File was successfully downloaded and processed, increment counts

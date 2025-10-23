@@ -10,14 +10,17 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
-from sqlalchemy import DateTime, event, select, text
+from sqlalchemy import BigInteger, DateTime, event, select
 from sqlalchemy.ext.asyncio import AsyncAttrs, AsyncSession
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import DeclarativeBase, Mapper, Session
 
-from textio import json_output
-
 from .decorators import retry_on_locked_db
+
+# Lazy import to avoid circular dependency issues during alembic migrations
+# json_output is imported within methods that use it
+# from textio import json_output
+
 
 T = TypeVar("T", bound="Base")
 
@@ -185,6 +188,7 @@ class Base(AsyncAttrs, DeclarativeBase):
             if defaults:
                 for key, value in defaults.items():
                     if getattr(instance, key) != value:
+                        # Use setattr to ensure SQLAlchemy tracks the change
                         setattr(instance, key, value)
             return instance, False
 
@@ -239,6 +243,7 @@ class Base(AsyncAttrs, DeclarativeBase):
 
             current_value = getattr(instance, key)
             if current_value != value:
+                # Use setattr to ensure SQLAlchemy tracks the change
                 setattr(instance, key, value)
                 updated = True
 
@@ -276,10 +281,14 @@ class Base(AsyncAttrs, DeclarativeBase):
         missing_optional = {rel for rel in optional_relations if rel not in data}
 
         if missing_required:
+            from textio import json_output
+
             json_output(
                 2, f"{log_prefix} - missing_required_relations", list(missing_required)
             )
         if missing_optional:
+            from textio import json_output
+
             json_output(
                 1, f"{log_prefix} - missing_optional_relations", list(missing_optional)
             )
@@ -297,9 +306,10 @@ class Base(AsyncAttrs, DeclarativeBase):
         """Process data dictionary for a model, handling filtering and logging.
 
         This helper method processes a data dictionary for a model by:
-        1. Converting timestamps if specified
-        2. Identifying and logging unknown attributes
-        3. Filtering data to only include valid model columns
+        1. Converting ID fields from strings to integers (for PostgreSQL compatibility)
+        2. Converting timestamps if specified
+        3. Identifying and logging unknown attributes
+        4. Filtering data to only include valid model columns
 
         Args:
             data: Dictionary containing the data to process
@@ -324,6 +334,10 @@ class Base(AsyncAttrs, DeclarativeBase):
         # Get valid column names for the model
         model_columns = {column.name for column in inspect(cls).columns}
 
+        # Convert ID fields from strings to integers (JSON API returns strings)
+        # This is required for PostgreSQL which is strict about type matching
+        cls._convert_id_fields(data, model_columns)
+
         # Convert timestamps if specified
         if convert_timestamps_fields:
             cls.convert_timestamps(data, convert_timestamps_fields)
@@ -335,9 +349,56 @@ class Base(AsyncAttrs, DeclarativeBase):
             if k not in model_columns and k not in known_relations
         }
         if unknown_attrs:
+            from textio import json_output
+
             json_output(1, f"{log_prefix} - unknown_attributes", unknown_attrs)
 
         # Filter data to only include valid columns
         filtered_data = {k: v for k, v in data.items() if k in model_columns}
 
         return filtered_data, unknown_attrs
+
+    @classmethod
+    def _convert_id_fields(
+        cls: type[T],
+        data: dict[str, Any],
+        model_columns: set[str],
+    ) -> None:
+        """Convert ID fields from strings to integers in-place.
+
+        PostgreSQL requires exact type matching and won't auto-convert strings to integers
+        like SQLite did. This method converts all fields ending in 'Id' or named 'id' from
+        strings to integers. It also detects BigInteger foreign key columns by inspecting
+        the model schema to handle fields like 'createdBy' that don't follow the *Id pattern.
+
+        Args:
+            data: Dictionary containing the data with potential string IDs
+            model_columns: Set of valid column names for the model
+        """
+        # Get mapper for the model to inspect column types
+        mapper = inspect(cls)
+
+        for key in list(data.keys()):
+            # Only convert fields that are in the model columns
+            if key not in model_columns:
+                continue
+
+            # Check if this is a BigInteger column (likely an ID field)
+            should_convert = False
+            if key in mapper.columns:
+                col = mapper.columns[key]
+                # Convert if it's a BigInteger type (includes primary keys and foreign keys)
+                if isinstance(col.type, BigInteger):
+                    should_convert = True
+            # Also convert by name pattern (backwards compatibility)
+            elif key == "id" or key.endswith("Id"):
+                should_convert = True
+
+            if should_convert:
+                value = data[key]
+                if value is not None and isinstance(value, str):
+                    try:
+                        data[key] = int(value)
+                    except (ValueError, TypeError):
+                        # If conversion fails, leave as-is and let validation handle it
+                        pass

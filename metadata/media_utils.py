@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from textio import json_output
@@ -176,14 +177,12 @@ async def link_media_to_bundle(
     # Get the table object
     bundle_media_table = Base.metadata.tables[table]
 
-    # Link media to bundle
-    await session.execute(
-        bundle_media_table.insert()
-        .prefix_with("OR IGNORE")
-        .values(
-            bundle_id=bundle_id,
-            media_id=media_id,
-            pos=pos,
-        )
+    # Link media to bundle using PostgreSQL upsert
+    insert_stmt = pg_insert(bundle_media_table).values(
+        bundle_id=bundle_id,
+        media_id=media_id,
+        pos=pos,
     )
+    upsert_stmt = insert_stmt.on_conflict_do_nothing()
+    await session.execute(upsert_stmt)
     await session.flush()

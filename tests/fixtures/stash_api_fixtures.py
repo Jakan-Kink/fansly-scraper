@@ -16,6 +16,22 @@ from metadata import Account, Attachment, Group, Media, Message, Post
 from stash import StashClient, StashContext
 from stash.types import Gallery, Image, Performer, Scene, SceneCreateInput, Studio, Tag
 
+# Export all fixtures for wildcard import
+__all__ = [
+    "stash_context",
+    "stash_client",
+    "enable_scene_creation",
+    "stash_cleanup_tracker",
+    "mock_session",
+    "mock_transport",
+    "mock_client",
+    "test_query",
+    "mock_account",
+    "mock_performer",
+    "mock_studio",
+    "mock_scene",
+]
+
 
 @pytest_asyncio.fixture
 async def stash_context() -> AsyncGenerator[StashContext, None]:

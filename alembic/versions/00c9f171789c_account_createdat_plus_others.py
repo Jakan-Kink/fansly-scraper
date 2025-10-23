@@ -22,13 +22,12 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Add account timestamps and update foreign key constraints.
 
-    Note: Foreign keys are intentionally disabled during this migration
-    because the API data needs to be imported in a specific order that may
-    not match the foreign key constraints. The application handles data
-    integrity at the business logic level.
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level to accommodate API data that
+    may arrive in non-standard order.
     """
-    conn = op.get_bind()
-    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+    # PostgreSQL: Foreign key behavior is controlled at constraint level (DEFERRABLE, etc.)
+    # No PRAGMA equivalent needed
 
     # Create media_story_states table with foreign key included in creation
     op.create_table(
@@ -78,11 +77,10 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("subscribed", sa.Boolean(), nullable=True))
 
     # Create walls index if it doesn't exist
+    # PostgreSQL: Use pg_indexes instead of sqlite_master
     conn = op.get_bind()
     result = conn.execute(
-        sa.text(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name='ix_walls_accountId'"
-        )
+        sa.text("SELECT indexname FROM pg_indexes WHERE indexname='ix_walls_accountId'")
     )
     if result.fetchone() is None:
         op.create_index(
@@ -93,18 +91,16 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Revert account timestamps and foreign key changes.
 
-    Note: Foreign keys remain disabled to maintain consistency with
-    the application's data integrity approach.
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level.
     """
-    conn = op.get_bind()
-    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+    # PostgreSQL: No PRAGMA equivalent needed
 
     # Drop walls index if it exists
+    # PostgreSQL: Use pg_indexes instead of sqlite_master
     conn = op.get_bind()
     result = conn.execute(
-        sa.text(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name='ix_walls_accountId'"
-        )
+        sa.text("SELECT indexname FROM pg_indexes WHERE indexname='ix_walls_accountId'")
     )
     if result.fetchone() is not None:
         op.drop_index(op.f("ix_walls_accountId"), table_name="walls")

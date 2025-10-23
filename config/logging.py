@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from pprint import pformat
+from typing import Any
 
 from loguru import logger
 
@@ -72,14 +72,38 @@ class InterceptHandler(logging.Handler):
         try:
             level = logger.level(record.levelname).name
         except ValueError:
-            level = record.levelno
+            level = str(record.levelno)
 
         frame, depth = sys._getframe(6), 6
         while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
+            frame = frame.f_back  # type: ignore[assignment]
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
+        )
+
+
+class SQLAlchemyInterceptHandler(logging.Handler):
+    """Specialized handler for SQLAlchemy logging with proper logger binding.
+
+    Routes SQLAlchemy logs specifically to the database logger context,
+    ensuring they appear in sqlalchemy.log and are properly tagged.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = str(record.levelno)
+
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back  # type: ignore[assignment]
+            depth += 1
+
+        # Use db_logger to ensure proper logger binding for SQLAlchemy
+        db_logger.opt(depth=depth, exception=record.exc_info).log(
             level, record.getMessage()
         )
 
@@ -165,7 +189,70 @@ stash_logger = logger.bind(logger="stash")
 db_logger = logger.bind(logger="db")
 
 
-def _trace_level_only(record):
+def _auto_bind_logger(record: Any) -> Any:
+    """Automatically bind unbound logger calls to appropriate context.
+
+    Routes logs to appropriate logger context based on their source:
+    - SQLAlchemy loggers -> "db"
+    - Everything else -> "textio"
+
+    This ensures proper routing of echo=True SQLAlchemy logs while
+    maintaining textio binding for direct loguru imports.
+    """
+    if "logger" not in record["extra"]:
+        # Check if this is a SQLAlchemy-related logger
+        logger_name = record.get("name", "")
+        if (
+            logger_name.startswith("sqlalchemy.")
+            or logger_name.startswith("asyncpg")
+            or logger_name == "alembic.runtime.migration"
+        ):
+            record["extra"]["logger"] = "db"
+        else:
+            record["extra"]["logger"] = "textio"
+    return record
+
+
+# Patch global logger to auto-bind imports to appropriate context
+logger.patch(_auto_bind_logger)
+
+
+# Configure SQLAlchemy logging immediately at module import time
+# This prevents any early console output before init_logging_config is called
+def _early_sqlalchemy_suppression() -> None:
+    """Suppress SQLAlchemy console output as early as possible."""
+    # Immediately disable console output for all SQLAlchemy/Alembic loggers
+    sqlalchemy_loggers = [
+        "sqlalchemy.engine",
+        "sqlalchemy.engine.Engine",
+        "sqlalchemy.pool",
+        "sqlalchemy.orm",
+        "sqlalchemy.dialects",
+        "sqlalchemy.engine.stat",
+        "asyncpg",
+        "alembic.runtime.migration",
+        "alembic",
+        "alembic.env",
+    ]
+
+    # Disable lastResort handler immediately
+    if hasattr(logging, "lastResort") and logging.lastResort:
+        logging.lastResort = logging.NullHandler()
+
+    for logger_name in sqlalchemy_loggers:
+        sql_logger = logging.getLogger(logger_name)
+        sql_logger.handlers.clear()
+        sql_logger.propagate = False
+        # Set to CRITICAL to suppress all output initially
+        sql_logger.setLevel(logging.CRITICAL)
+        sql_logger.addHandler(logging.NullHandler())
+
+
+# Run early suppression immediately
+_early_sqlalchemy_suppression()
+
+
+def _trace_level_only(record: Any) -> bool:
     """Filter to ensure trace_logger only receives TRACE level messages."""
     if record["level"].no != _LEVEL_VALUES["TRACE"]:
         from errors import InvalidTraceLogError
@@ -190,7 +277,7 @@ def setup_handlers() -> None:
     3. stash_logger - Stash-specific logs
     4. db_logger - Database operation logs
     """
-    global _handler_ids, _debug_enabled
+    # Note: We read from global _handler_ids but don't modify it here
 
     # Remove any existing handlers
     for handler_id, (handler, file_handler) in list(_handler_ids.items()):
@@ -219,12 +306,34 @@ def setup_handlers() -> None:
         {"enqueue": False} if os.getenv("TESTING") == "1" else {"enqueue": True}
     )
 
-    # 1. TextIO Console Handler
+    # 1. TextIO Console Handler with SQL filtering
+    def textio_filter(record: Any) -> bool:
+        """Filter for textio console handler - exclude SQL logs."""
+        extra = record.get("extra", {})
+        logger_type = extra.get("logger")
+
+        # Only show textio logs, exclude db logs from console
+        if logger_type == "textio":
+            return True
+        elif logger_type == "db":
+            return False
+
+        # For unbound logs, check if they're SQLAlchemy related
+        logger_name = record.get("name", "")
+        if (
+            logger_name.startswith("sqlalchemy.")
+            or logger_name.startswith("asyncpg")
+            or logger_name == "alembic.runtime.migration"
+        ):
+            return False
+
+        return logger_type == "textio"
+
     handler_id = logger.add(
         sys.stdout,
         format="<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>",
         level=get_log_level("textio", "INFO"),
-        filter=lambda record: record["extra"].get("logger") == "textio",
+        filter=textio_filter,
         colorize=True,
         **enqueue_args,
     )
@@ -234,8 +343,8 @@ def setup_handlers() -> None:
     textio_file = log_dir / DEFAULT_LOG_FILE
     textio_handler = SizeTimeRotatingHandler(
         filename=str(textio_file),
-        max_bytes=100 * 1024 * 1024,  # 100MB
-        backup_count=5,
+        maxBytes=100 * 1024 * 1024,  # 100MB
+        backupCount=5,
         when="h",
         interval=1,
         utc=True,
@@ -245,9 +354,9 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         textio_handler.write,
-        format="[{level.name}] [{time:YYYY-MM-DD} | {time:HH:mm:ss.SS}]: {message}",
+        format="[{time:YYYY-MM-DD HH:mm:ss.SSS}] [{level.name:<8}] {name}:{function}:{line} - {message}",
         level=get_log_level("textio", "INFO"),
-        filter=lambda record: record["extra"].get("logger") == "textio",
+        filter=lambda record: record.get("extra", {}).get("logger") == "textio",
         backtrace=True,
         diagnose=True,
         **enqueue_args,
@@ -258,8 +367,8 @@ def setup_handlers() -> None:
     json_file = log_dir / os.getenv("LOGURU_JSON_LOG_FILE", DEFAULT_JSON_LOG_FILE)
     json_handler = SizeTimeRotatingHandler(
         filename=str(json_file),
-        max_bytes=100 * 1024 * 1024,  # 100MB
-        backup_count=10,
+        maxBytes=100 * 1024 * 1024,  # 100MB
+        backupCount=10,
         when="h",
         interval=1,
         utc=True,
@@ -269,9 +378,9 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         json_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss}] [{level.name}] {message}",
+        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
         level=get_log_level("json", "INFO"),
-        filter=lambda record: record["extra"].get("logger") == "json",
+        filter=lambda record: record.get("extra", {}).get("logger") == "json",
         backtrace=True,
         diagnose=True,
         **enqueue_args,
@@ -284,17 +393,17 @@ def setup_handlers() -> None:
         format="<level>{level.name}</level>: {message}",
         level=get_log_level("stash_console", "INFO"),
         colorize=True,
-        filter=lambda record: record["extra"].get("logger") == "stash",
+        filter=lambda record: record.get("extra", {}).get("logger") == "stash",
         **enqueue_args,
     )
-    _handler_ids[handler_id] = (None, None)  # No file handler for stdout
+    _handler_ids[handler_id] = (None, None)  # No file handler for console output
 
     # 5. Stash File Handler
     stash_file = log_dir / DEFAULT_STASH_LOG_FILE
     stash_handler = SizeTimeRotatingHandler(
         filename=str(stash_file),
-        max_bytes=100 * 1024 * 1024,
-        backup_count=10,
+        maxBytes=100 * 1024 * 1024,
+        backupCount=10,
         when="h",
         interval=1,
         utc=True,
@@ -303,9 +412,9 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         stash_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {name}\n{message}",
+        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
         level=get_log_level("stash_file", "INFO"),
-        filter=lambda record: record["extra"].get("logger") == "stash",
+        filter=lambda record: record.get("extra", {}).get("logger") == "stash",
         **enqueue_args,
     )
     _handler_ids[handler_id] = (stash_handler, None)
@@ -314,19 +423,21 @@ def setup_handlers() -> None:
     db_file = log_dir / DEFAULT_DB_LOG_FILE
     db_handler = SizeTimeRotatingHandler(
         filename=str(db_file),
-        max_bytes=100 * 1024 * 1024,
-        backup_count=20,
+        maxBytes=100 * 1024 * 1024,
+        backupCount=20,
         when="h",
         interval=1,
         utc=True,
         compression="gz",
         keep_uncompressed=2,
     )
+    # Add a special tag for debugging
+    setattr(db_handler.handler, "db_logger_name", "database_logger")
     handler_id = logger.add(
         db_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss}] {level.name} - {message}",
+        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
         level=get_log_level("sqlalchemy", "INFO"),
-        filter=lambda record: record["extra"].get("logger") == "db",
+        filter=lambda record: record.get("extra", {}).get("logger") == "db",
         **enqueue_args,
     )
     _handler_ids[handler_id] = (db_handler, None)
@@ -335,8 +446,8 @@ def setup_handlers() -> None:
     trace_file = log_dir / "trace.log"
     trace_handler = SizeTimeRotatingHandler(
         filename=str(trace_file),
-        max_bytes=100 * 1024 * 1024,  # 100MB
-        backup_count=5,
+        maxBytes=100 * 1024 * 1024,  # 100MB
+        backupCount=5,
         when="h",
         interval=1,
         utc=True,
@@ -345,21 +456,30 @@ def setup_handlers() -> None:
     )
     handler_id = logger.add(
         trace_handler.write,
-        format="[{time:YYYY-MM-DD HH:mm:ss.SSSSSS}] {level.name} - {message}",
+        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SSS} | {name}:{function}:{line} - {message}",
         level=get_log_level("trace", "TRACE"),  # Default to TRACE level
-        filter=lambda record: record["extra"].get("logger", None) == "trace",
+        filter=lambda record: record.get("extra", {}).get("logger", None) == "trace",
         **enqueue_args,
     )
     _handler_ids[handler_id] = (trace_handler, None)
 
 
-def init_logging_config(config) -> None:
+def init_logging_config(config: Any) -> None:
     """Initialize logging configuration."""
-    global _config
+    global _config, _debug_enabled
     _config = config
 
-    # Initial setup of handlers
-    setup_handlers()  # Always do initial setup
+    # Set debug mode based on config settings (important for IPython sessions)
+    if config:
+        # Check both debug and trace settings
+        debug_enabled = config.trace
+        _debug_enabled = debug_enabled
+
+    # IMPORTANT: Set up handlers FIRST so db_logger has somewhere to write
+    setup_handlers()
+
+    # THEN configure SQLAlchemy logging to route to those handlers
+    _configure_sqlalchemy_logging()
 
 
 def set_debug_enabled(enabled: bool) -> None:
@@ -373,7 +493,7 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
     """Get log level for a logger.
 
     Args:
-        logger_name: Name of the logger (e.g., "textio", "stash_console")
+        logger_name: Name of the logger (e.g., "textio", "stash_console", "sqlalchemy")
         default: Default level if config not set or logger not found
 
     Returns:
@@ -381,6 +501,9 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
         For trace_logger:
             - 5 (TRACE) if config.trace is True
             - 50 (CRITICAL) if config.trace is False (effectively disabled)
+        For sqlalchemy logger:
+            - 5 (TRACE) if config.trace is True (enables db_logger.trace())
+            - Level from config or default otherwise
         For other loggers:
             - 10 (DEBUG) if debug mode is enabled
             - Level from config or default, but never below DEBUG
@@ -393,6 +516,12 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
             if (_config and _config.trace)
             else _LEVEL_VALUES["CRITICAL"]
         )
+
+    # Special handling for sqlalchemy logger - allow TRACE level when trace is enabled
+    if logger_name == "sqlalchemy":
+        if _config and _config.trace:
+            return _LEVEL_VALUES["TRACE"]
+        # For sqlalchemy when trace is disabled, fall through to normal handling
 
     # Force DEBUG level if debug mode is enabled (for non-trace loggers)
     if _debug_enabled:
@@ -434,5 +563,60 @@ def update_logging_config(config, enabled: bool) -> None:
         for handler in asyncio_logger.handlers[:]:
             asyncio_logger.removeHandler(handler)
 
-    # Update handlers with new configuration
+    # Update handlers with new configuration (includes SQLAlchemy configuration)
     setup_handlers()
+    _configure_sqlalchemy_logging()
+
+
+def _configure_sqlalchemy_logging() -> None:
+    """Configure SQLAlchemy module logging through loguru.
+
+    Routes SQLAlchemy's built-in loggers through SQLAlchemyInterceptHandler
+    to ensure proper db logger binding and file routing.
+    """
+    sqlalchemy_loggers = [
+        "sqlalchemy.engine",  # SQL statements
+        "sqlalchemy.engine.Engine",  # Engine-specific SQL statements (the one appearing in console)
+        "sqlalchemy.pool",  # Connection pool
+        "sqlalchemy.orm",  # ORM operations
+        "sqlalchemy.dialects",  # Dialect-specific
+        "sqlalchemy.engine.stat",  # Statistics and performance
+        "asyncpg",  # AsyncPG database operations
+        "alembic.runtime.migration",  # Alembic migrations
+        "alembic",  # General alembic logging
+        "alembic.env",  # Alembic environment
+    ]
+
+    # Disable the root logger's lastResort handler to prevent console fallback
+    if hasattr(logging, "lastResort") and logging.lastResort:
+        logging.lastResort = logging.NullHandler()
+
+    for logger_name in sqlalchemy_loggers:
+        sql_logger = logging.getLogger(logger_name)
+
+        # Clear ALL existing handlers aggressively
+        sql_logger.handlers.clear()
+
+        # Disable propagation to prevent console spam from root logger
+        sql_logger.propagate = False
+
+        # Use existing get_log_level function (respects trace mode)
+        level = get_log_level("sqlalchemy", "INFO")
+        sql_logger.setLevel(level)
+
+        # Clear any existing handlers (including null handlers from early suppression)
+        sql_logger.handlers.clear()
+
+        # Add ONLY our SQLAlchemyInterceptHandler to route to db_logger
+        if level < logging.ERROR:
+            sql_logger.addHandler(SQLAlchemyInterceptHandler())
+
+        # Add a null handler as the only other handler to prevent console fallback
+        sql_logger.addHandler(logging.NullHandler())
+
+        # Debug: Log the configuration
+        db_logger.debug(
+            f"Configured SQLAlchemy logger '{logger_name}': level={level}, "
+            f"handlers={[type(h).__name__ for h in sql_logger.handlers]}, "
+            f"propagate={sql_logger.propagate}"
+        )

@@ -3,11 +3,12 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from sqlalchemy import CheckConstraint
+from sqlalchemy import BigInteger, CheckConstraint
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import ForeignKey, Integer, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm.attributes import set_committed_value
 
 from config.decorators import with_database_session
 from textio import json_output
@@ -82,12 +83,12 @@ class Attachment(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     postId: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("posts.id"), nullable=True
+        BigInteger, ForeignKey("posts.id"), nullable=True
     )
     messageId: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("messages.id"), nullable=True
+        BigInteger, ForeignKey("messages.id"), nullable=True
     )
-    contentId: Mapped[int] = mapped_column(Integer, nullable=False)
+    contentId: Mapped[int] = mapped_column(BigInteger, nullable=False)
     pos: Mapped[int] = mapped_column(Integer, nullable=False)
     contentType: Mapped[ContentType] = mapped_column(
         SQLEnum(ContentType), nullable=False
@@ -129,7 +130,7 @@ class Attachment(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "(postId IS NULL OR messageId IS NULL)",  # Either postId or messageId must be NULL
+            '("postId" IS NULL OR "messageId" IS NULL)',  # Either postId or messageId must be NULL
             name="check_post_or_message_exclusivity",
         ),
     )
@@ -234,7 +235,7 @@ class Attachment(Base):
         # Update optional fields if they exist in the data
         for field in ["title", "description", "updatedAt"]:
             if field in story_data:
-                setattr(story, field, story_data[field])
+                set_committed_value(story, field, story_data[field])
 
         return story
 

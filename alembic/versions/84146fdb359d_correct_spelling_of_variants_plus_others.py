@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.sql import text
+from sqlalchemy import column, table
 
 from alembic import op
 
@@ -15,13 +15,12 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Fix spelling of variants table and add group lastMessageId.
 
-    Note: Foreign keys are intentionally disabled during this migration
-    because the API data needs to be imported in a specific order that may
-    not match the foreign key constraints. The application handles data
-    integrity at the business logic level.
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level to accommodate API data that
+    may arrive in non-standard order.
     """
-    conn = op.get_bind()
-    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+    # PostgreSQL: Foreign key behavior is controlled at constraint level (DEFERRABLE, etc.)
+    # No PRAGMA equivalent needed
 
     # Create the new "media_variants" table
     op.create_table(
@@ -39,11 +38,27 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("mediaId", "variantId"),
         sa.UniqueConstraint("mediaId", "variantId"),
     )
+    # Copy data from old table to new table using SQLAlchemy operations
+    media_varients = table(
+        "media_varients",
+        column("mediaId", sa.Integer),
+        column("varientId", sa.Integer),
+    )
+    media_variants = table(
+        "media_variants",
+        column("mediaId", sa.Integer),
+        column("variantId", sa.Integer),
+    )
+
     connection = op.get_bind()
+    # Select data from old table
+    select_stmt = sa.select(
+        media_varients.c.mediaId,
+        media_varients.c.varientId,
+    )
+    # Insert into new table
     connection.execute(
-        text(
-            "INSERT INTO media_variants (mediaId, variantId) SELECT mediaId, varientId FROM media_varients"
-        )
+        media_variants.insert().from_select(["mediaId", "variantId"], select_stmt)
     )
 
     # Drop the old "media_varients" table
@@ -60,11 +75,10 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Revert variant spelling fix and group lastMessageId.
 
-    Note: Foreign keys remain disabled to maintain consistency with
-    the application's data integrity approach.
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level.
     """
-    conn = op.get_bind()
-    conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
+    # PostgreSQL: No PRAGMA equivalent needed
 
     # Revert changes to the "groups" table
     with op.batch_alter_table("groups", schema=None) as batch_op:
@@ -87,12 +101,27 @@ def downgrade() -> None:
         sa.PrimaryKeyConstraint("mediaId", "varientId"),
         sa.UniqueConstraint("mediaId", "varientId"),
     )
+    # Copy data from new table back to old table using SQLAlchemy operations
+    media_variants = table(
+        "media_variants",
+        column("mediaId", sa.Integer),
+        column("variantId", sa.Integer),
+    )
+    media_varients = table(
+        "media_varients",
+        column("mediaId", sa.Integer),
+        column("varientId", sa.Integer),
+    )
+
     connection = op.get_bind()
+    # Select data from new table
+    select_stmt = sa.select(
+        media_variants.c.mediaId,
+        media_variants.c.variantId,
+    )
+    # Insert into old table
     connection.execute(
-        """
-        INSERT INTO media_varients (mediaId, varientId)
-        SELECT mediaId, variantId FROM media_variants
-        """
+        media_varients.insert().from_select(["mediaId", "varientId"], select_stmt)
     )
 
     # Drop the new "media_variants" table

@@ -1,64 +1,12 @@
-import os
-from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config.config import load_config
 from config.fanslyconfig import FanslyConfig
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from errors import ConfigError
-from metadata.base import Base
-
-
-@pytest_asyncio.fixture
-async def config_db():
-    """Create an async test database."""
-
-    # Create async context manager for database sessions
-    class AsyncSessionContextManager:
-        async def __aenter__(self):
-            self.session = AsyncSession(
-                bind=create_async_engine(
-                    "sqlite+aiosqlite:///file:test_config?mode=memory&cache=shared&uri=true",
-                    future=True,
-                    connect_args={"check_same_thread": False},
-                )
-            )
-            return self.session
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            await self.session.rollback()
-            await self.session.close()
-
-    return AsyncSessionContextManager
-
-
-@pytest.fixture
-def config(config_db, mocker):
-    """Create a test configuration with async database support."""
-    config = FanslyConfig(program_version="0.10.0")
-    session_factory = config_db
-
-    # Create mock database with async session support
-    mock_db = mocker.Mock()
-    mock_db.async_session_scope = session_factory
-    config._database = mock_db
-
-    return config
-
-
-@pytest.fixture
-def temp_config_dir():
-    with TemporaryDirectory() as temp_dir:
-        original_cwd = os.getcwd()
-        os.chdir(temp_dir)
-        yield Path(temp_dir)
-        os.chdir(original_cwd)
 
 
 @pytest.mark.asyncio

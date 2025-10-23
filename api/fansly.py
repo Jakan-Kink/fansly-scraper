@@ -1,25 +1,28 @@
 """Fansly Web API"""
 
-import asyncio
 import binascii
 import json
 import math
 import random
 import ssl
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-import requests
-from requests import Response
+import httpx
+from httpx_retries import Retry, RetryTransport
 from websockets import client as ws_client
 
+from config.logging import textio_logger as logger
 from helpers.web import get_flat_qs_dict, split_url
+
+if TYPE_CHECKING:
+    from api.rate_limiter import RateLimiter
 
 
 class FanslyApi:
-
     def __init__(
         self,
         token: str,
@@ -29,13 +32,40 @@ class FanslyApi:
         device_id: str | None = None,
         device_id_timestamp: int | None = None,
         on_device_updated: Callable[[], Any] | None = None,
+        rate_limiter: "RateLimiter | None" = None,
     ) -> None:
-
         self.token = token
         self.user_agent = user_agent
+        self.rate_limiter = rate_limiter
 
-        # Define requests session
-        self.http_session = requests.Session()
+        # Define HTTP client with retry transport and HTTP/2 support
+        # Create retry configuration with exponential backoff
+        # httpx-retries Retry parameters:
+        # - total: max retry attempts (default 10)
+        # - backoff_factor: exponential backoff multiplier (default 0.0)
+        # - status_forcelist: HTTP status codes to retry (default [429, 502, 503, 504])
+        # - allowed_methods: HTTP methods that can be retried (default HEAD, GET, PUT, DELETE, OPTIONS, TRACE)
+        # NOTE: When rate_limiter is provided, 429 is removed from status_forcelist
+        # because rate limiting is handled by the RateLimiter class
+        retry = Retry(
+            total=3,
+            backoff_factor=0.5,  # 0.5s base delay with exponential backoff: 0.5s, 1s, 2s
+            status_forcelist=(
+                [429, 500, 502, 503, 504]
+                if rate_limiter is None
+                else [500, 502, 503, 504]
+            ),
+        )
+
+        # Create transport with HTTP/2 and retry support
+        base_transport = httpx.HTTPTransport(http2=True)
+        retry_transport = RetryTransport(transport=base_transport, retry=retry)
+
+        self.http_session = httpx.Client(
+            transport=retry_transport,
+            timeout=30.0,
+            follow_redirects=True,
+        )
 
         # Internal Fansly stuff
         self.check_key = check_key
@@ -93,7 +123,6 @@ class FanslyApi:
         add_fansly_headers: bool = True,
         alternate_token: str | None = None,
     ) -> dict[str, str]:
-
         headers = self.get_common_headers(alternate_token=alternate_token)
 
         self.set_text_accept(headers)
@@ -146,9 +175,8 @@ class FanslyApi:
         }
 
         self.http_session.options(
-            url=url,
+            url,
             headers=headers,
-            cookies=None,
         )
 
     def get_with_ngsw(
@@ -159,9 +187,14 @@ class FanslyApi:
         stream: bool = False,
         add_fansly_headers: bool = True,
         alternate_token: str | None = None,
-    ) -> Response:
-
+        bypass_rate_limit: bool = False,
+    ) -> httpx.Response:
         self.update_client_timestamp()
+
+        # Rate limiting before request (synchronous)
+        # Skip rate limiting for TS segments and other high-volume downloads
+        if self.rate_limiter is not None and not bypass_rate_limit:
+            self.rate_limiter.wait_for_request()
 
         default_params = self.get_ngsw_params()
 
@@ -187,21 +220,49 @@ class FanslyApi:
             "url": file_url,
             "params": request_params,
             "headers": headers,
-            "stream": stream,
         }
 
         if len(cookies) > 0:
             arguments["cookies"] = cookies
 
-        return self.http_session.get(**arguments)
+        # Make request and record response for rate limiter
+        start_time = time.time()
 
-    def get_client_account_info(self, alternate_token: str | None = None) -> Response:
+        if stream:
+            request = self.http_session.build_request("GET", **arguments)
+            response = self.http_session.send(request, stream=True)
+        else:
+            response = self.http_session.get(**arguments)
+
+        # Calculate response time
+        response_time = time.time() - start_time
+
+        # Extract endpoint name from URL for logging
+        parsed_url = urlparse(file_url)
+        endpoint = parsed_url.path.split("/")[-1] if parsed_url.path else "unknown"
+
+        # Log request details
+        bypassed_str = " [BYPASS]" if bypass_rate_limit else ""
+        logger.debug(
+            f"API Request: {endpoint} → HTTP {response.status_code} "
+            f"({response_time:.2f}s){bypassed_str}"
+        )
+
+        # Record response for adaptive rate limiting (skip if bypassing)
+        if self.rate_limiter is not None and not bypass_rate_limit:
+            self.rate_limiter.record_response(response.status_code, response_time)
+
+        return response
+
+    def get_client_account_info(
+        self, alternate_token: str | None = None
+    ) -> httpx.Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/account/me",
             alternate_token=alternate_token,
         )
 
-    def get_creator_account_info(self, creator_name: str | list[str]) -> Response:
+    def get_creator_account_info(self, creator_name: str | list[str]) -> httpx.Response:
         """Get account info by username(s).
 
         Args:
@@ -218,7 +279,7 @@ class FanslyApi:
 
     def get_account_info_by_id(
         self, account_ids: str | int | list[str | int]
-    ) -> Response:
+    ) -> httpx.Response:
         """Get account info by ID(s).
 
         Args:
@@ -235,7 +296,7 @@ class FanslyApi:
             url=f"https://apiv3.fansly.com/api/v1/account?ids={account_ids}",
         )
 
-    def get_media_collections(self) -> Response:
+    def get_media_collections(self) -> httpx.Response:
         custom_params = {
             "limit": "9999",
             "offset": "0",
@@ -253,7 +314,7 @@ class FanslyApi:
         offset: int = 0,
         before: int = 0,
         after: int = 0,
-    ) -> Response:
+    ) -> httpx.Response:
         """Get a page of accounts the user is following.
 
         Args:
@@ -278,7 +339,7 @@ class FanslyApi:
             params=params,
         )
 
-    def get_account_media(self, media_ids: str) -> Response:
+    def get_account_media(self, media_ids: str) -> httpx.Response:
         """Retrieve account media by ID(s).
 
         :param media_ids: Media ID(s) separated by comma w/o spaces.
@@ -291,7 +352,7 @@ class FanslyApi:
             f"https://apiv3.fansly.com/api/v1/account/media?ids={media_ids}",
         )
 
-    def get_post(self, post_id: str) -> Response:
+    def get_post(self, post_id: str) -> httpx.Response:
         custom_params = {
             "ids": post_id,
         }
@@ -301,7 +362,7 @@ class FanslyApi:
             params=custom_params,
         )
 
-    def get_timeline(self, creator_id: str, timeline_cursor: str) -> Response:
+    def get_timeline(self, creator_id: str, timeline_cursor: str) -> httpx.Response:
         custom_params = {
             "before": timeline_cursor,
             "after": "0",
@@ -316,7 +377,7 @@ class FanslyApi:
 
     def get_wall_posts(
         self, creator_id: str, wall_id: str, before_cursor: str = "0"
-    ) -> Response:
+    ) -> httpx.Response:
         """Get posts from a specific wall.
 
         Args:
@@ -339,18 +400,18 @@ class FanslyApi:
             params=custom_params,
         )
 
-    def get_group(self) -> Response:
+    def get_group(self) -> httpx.Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/messaging/groups",
         )
 
-    def get_message(self, params: dict[str, str]) -> Response:
+    def get_message(self, params: dict[str, str]) -> httpx.Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/message",
             params=params,
         )
 
-    def get_device_id_info(self) -> Response:
+    def get_device_id_info(self) -> httpx.Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/device/id",
             add_fansly_headers=False,
@@ -391,7 +452,6 @@ class FanslyApi:
             ssl=ssl_context,
             # extra_headers=headers,
         ) as websocket:
-
             # await websocket.send('p')
             # ping_response = await websocket.recv()
 
@@ -545,12 +605,12 @@ class FanslyApi:
 
         return digest_str
 
-    def validate_json_response(self, response: Response) -> bool:
+    def validate_json_response(self, response: httpx.Response) -> bool:
         response.raise_for_status()
 
         if response.status_code != 200:
             raise RuntimeError(
-                f"Fansly API: Web request failed: {response.status_code} - {response.reason}"
+                f"Fansly API: Web request failed: {response.status_code} - {response.reason_phrase}"
             )
 
         decoded_response = response.json()
@@ -563,10 +623,44 @@ class FanslyApi:
             f"Fansly API: Invalid or failed JSON response:\n{decoded_response}"
         )
 
-    def get_json_response_contents(self, response: Response) -> dict:
+    @staticmethod
+    def convert_ids_to_int(data: Any) -> Any:
+        """Recursively convert ID fields from strings to integers in JSON responses.
+
+        This is required for PostgreSQL compatibility, which strictly enforces type
+        matching and won't auto-convert strings to BigInteger like SQLite does.
+
+        Args:
+            data: JSON data (dict, list, or primitive)
+
+        Returns:
+            Data with ID fields converted to integers
+        """
+        if isinstance(data, dict):
+            result = {}
+            for key, value in data.items():
+                # Convert fields ending with 'Id' or named 'id' from strings to ints
+                if (key == "id" or key.endswith("Id")) and isinstance(value, str):
+                    try:
+                        result[key] = int(value)
+                    except (ValueError, TypeError):
+                        result[key] = value
+                elif isinstance(value, (dict, list)):
+                    result[key] = FanslyApi.convert_ids_to_int(value)
+                else:
+                    result[key] = value
+            return result
+        elif isinstance(data, list):
+            return [FanslyApi.convert_ids_to_int(item) for item in data]
+        else:
+            return data
+
+    def get_json_response_contents(self, response: httpx.Response) -> dict:
         self.validate_json_response(response)
 
-        return response.json()["response"]
+        json_data = response.json()["response"]
+        # Convert all ID fields from strings to integers for PostgreSQL compatibility
+        return self.convert_ids_to_int(json_data)
 
     def get_client_user_name(self, alternate_token: str | None = None) -> str | None:
         """Fetches user account information for a particular authorization token.

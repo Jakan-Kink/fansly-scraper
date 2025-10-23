@@ -1,11 +1,12 @@
 """Enhanced test configuration and fixtures for metadata tests.
 
 This module provides comprehensive fixtures for database testing, including:
+- UUID-based database isolation (each test gets its own PostgreSQL database)
 - Transaction management
 - Isolation level control
 - Performance monitoring
 - Error handling
-- Cleanup procedures
+- Automatic cleanup procedures
 """
 
 import asyncio
@@ -14,12 +15,14 @@ import os
 import tempfile
 import threading
 import time
+import uuid
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import TypeVar
+from urllib.parse import quote_plus
 
 import pytest
 import pytest_asyncio
@@ -53,9 +56,122 @@ from metadata import (
 
 T = TypeVar("T")
 
+# Export all fixtures for wildcard import
+__all__ = [
+    "uuid_test_db_factory",
+    "test_data_dir",
+    "timeline_data",
+    "json_conversation_data",
+    "conversation_data",
+    "safe_name",
+    # "temp_db_path" - REMOVED: Legacy SQLite fixture, no longer used
+    "test_engine",
+    "test_async_session",
+    "config",
+    "database",
+    "engine",
+    "session_factory",
+    "test_database_sync",
+    "test_database",
+    "cleanup_database",
+    "session",
+    "session_sync",
+    "test_account",
+    "mock_account",
+    "test_media",
+    "test_account_media",
+    "test_post",
+    "test_wall",
+    "test_message",
+    "test_bundle",
+    "factory_session",
+    "factory_async_session",
+]
+
+# ============================================================================
+# UUID Database Factory - Provides perfect test isolation
+# ============================================================================
+
+
+@pytest.fixture(scope="function")
+def uuid_test_db_factory(request):
+    """Factory fixture that creates isolated PostgreSQL databases for each test.
+
+    This fixture provides perfect test isolation by:
+    1. Creating a unique PostgreSQL database per test (using UUID)
+    2. Running migrations on the fresh database
+    3. Automatically dropping the database after test completion
+
+    Usage in test fixtures:
+        config = uuid_test_db_factory()
+        database = Database(config)
+
+    Returns:
+        FanslyConfig configured with a unique test database
+    """
+    # Generate unique database name using UUID
+    test_db_name = f"test_{uuid.uuid4().hex[:8]}"
+
+    # Get PostgreSQL connection parameters
+    # Use current system user as default (usually has superuser access locally)
+    pg_host = os.getenv("FANSLY_PG_HOST", "localhost")
+    pg_port = int(os.getenv("FANSLY_PG_PORT", "5432"))
+    pg_user = os.getenv("FANSLY_PG_USER", os.getenv("USER", "postgres"))
+    pg_password = os.getenv("FANSLY_PG_PASSWORD", "")
+
+    # Build admin connection URL (to postgres database)
+    password_encoded = quote_plus(pg_password) if pg_password else ""
+    admin_url = (
+        f"postgresql://{pg_user}:{password_encoded}@{pg_host}:{pg_port}/postgres"
+    )
+
+    # Create the test database
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(text(f"CREATE DATABASE {test_db_name}"))
+    finally:
+        admin_engine.dispose()
+
+    # Create config pointing to the new test database
+    config = FanslyConfig(program_version="0.10.0")
+    config.pg_host = pg_host
+    config.pg_port = pg_port
+    config.pg_database = test_db_name
+    config.pg_user = pg_user
+    config.pg_password = pg_password
+    config.metadata_db_file = None  # Use PostgreSQL, not SQLite
+
+    yield config
+
+    # Cleanup - drop the test database
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            # Terminate any remaining connections
+            terminate_stmt = text(
+                "SELECT pg_terminate_backend(pid) "
+                "FROM pg_stat_activity "
+                "WHERE datname = :db_name AND pid <> pg_backend_pid()"
+            )
+            conn.execute(terminate_stmt, {"db_name": test_db_name})
+
+            # Drop the database with FORCE (Postgres 13+) or fallback
+            try:
+                conn.execute(
+                    text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)")
+                )
+            except Exception:
+                # Fallback for older Postgres versions
+                conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
+    except Exception:
+        pass  # Ignore cleanup errors
+    finally:
+        admin_engine.dispose()
+
 
 class TestDatabase(Database):
-    """Enhanced database class for testing."""
+    """Enhanced database class for testing with PostgreSQL."""
 
     def __init__(
         self,
@@ -70,22 +186,18 @@ class TestDatabase(Database):
         self._setup_engine()
 
     def _setup_engine(self) -> None:
-        """Set up database engine with enhanced test configuration."""
-        # Use the unique URI from config to prevent cross-test pollution
-        safe_name = f"test_{id(self)}_{threading.get_ident()}"
-        db_uri = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
+        """Set up database engine with enhanced test configuration for PostgreSQL."""
+        # Build PostgreSQL connection URL
+        pg_password = self.config.pg_password or os.getenv("FANSLY_PG_PASSWORD", "")
+        db_url = f"postgresql://{self.config.pg_user}:{pg_password}@{self.config.pg_host}:{self.config.pg_port}/{self.config.pg_database}"
 
-        # Create sync engine
+        # Create sync engine for PostgreSQL
         self._sync_engine = create_engine(
-            db_uri,
+            db_url,
             isolation_level=self.isolation_level,
             echo=False,
-            connect_args={
-                "check_same_thread": False,
-                "timeout": 30,  # 30 second timeout
-            },
-            # Use StaticPool to ensure unique connection per engine
-            poolclass=StaticPool,
+            pool_pre_ping=True,
+            pool_recycle=3600,
         )
 
         # Add event listeners for debugging and monitoring
@@ -96,42 +208,34 @@ class TestDatabase(Database):
             self._sync_engine, "after_cursor_execute", self._after_cursor_execute
         )
 
-        # Configure database for optimal test performance
-        with self._sync_engine.connect() as conn:
-            # Configure SQLite for optimal test performance
-            conn.execute(text("PRAGMA synchronous=OFF"))
-            conn.execute(text("PRAGMA temp_store=MEMORY"))
-            conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
-            conn.execute(text("PRAGMA page_size=4096"))
-            conn.execute(text("PRAGMA cache_size=-2000"))  # 2MB cache
-            conn.execute(text("PRAGMA busy_timeout=30000"))
+        # Create all tables in dependency order
+        try:
+            with self._sync_engine.connect() as conn:
+                if not self.skip_migrations:
+                    Base.metadata.create_all(bind=conn, checkfirst=True)
 
-            # Keep foreign keys disabled as in production
-            conn.execute(text("PRAGMA foreign_keys=OFF"))
+                    # Verify tables were created
+                    inspector = inspect(self._sync_engine)
+                    table_names = inspector.get_table_names()
+                    if not table_names:
+                        raise RuntimeError("Failed to create database tables")
 
-            # Create all tables in dependency order
-            if not self.skip_migrations:
-                Base.metadata.create_all(bind=conn, checkfirst=True)
+                    # Log created tables for debugging
+                    print(f"Created tables: {', '.join(sorted(table_names))}")
 
-                # Verify tables were created
-                inspector = inspect(self._sync_engine)
-                table_names = inspector.get_table_names()
-                if not table_names:
-                    raise RuntimeError("Failed to create database tables")
+                conn.commit()
+        except Exception as e:
+            # Ignore "already exists" errors that can occur with parallel test execution
+            if "already exists" not in str(e).lower():
+                raise
 
-                # Log created tables for debugging
-                print(f"Created tables: {', '.join(sorted(table_names))}")
-
-            # Use WAL mode for better concurrency in tests
-            conn.execute(text("PRAGMA journal_mode=WAL"))
-
-        # Create async engine and session factory
-        async_uri = db_uri.replace("sqlite://", "sqlite+aiosqlite://")
+        # Create async engine and session factory for PostgreSQL
+        async_url = f"postgresql+asyncpg://{self.config.pg_user}:{pg_password}@{self.config.pg_host}:{self.config.pg_port}/{self.config.pg_database}"
         self._async_engine = create_async_engine(
-            async_uri,
+            async_url,
             isolation_level=self.isolation_level,
             echo=False,
-            connect_args={"check_same_thread": False},
+            pool_pre_ping=True,
         )
         self._async_session_factory = async_sessionmaker(
             bind=self._async_engine,
@@ -181,14 +285,19 @@ class TestDatabase(Database):
         isolation_level: str | None = None,
         readonly: bool = False,
     ) -> Generator[Session, None, None]:
-        """Create a transaction with specific isolation level."""
+        """Create a transaction with specific isolation level.
+
+        Note: PostgreSQL isolation levels are set at the engine level,
+        not per-session. The readonly parameter is not currently implemented
+        for PostgreSQL.
+        """
         session: Session = self._make_session()  # type: ignore[no-untyped-call]
 
         try:
-            if isolation_level:
-                session.execute(text(f"PRAGMA isolation_level = {isolation_level}"))  # type: ignore[attr-defined]
+            # PostgreSQL: isolation level is set at engine creation
+            # readonly mode would require SET TRANSACTION READ ONLY
             if readonly:
-                session.execute(text("PRAGMA query_only = ON"))  # type: ignore[attr-defined]
+                session.execute(text("SET TRANSACTION READ ONLY"))  # type: ignore[attr-defined]
             yield session
             session.commit()  # type: ignore[attr-defined]
         except Exception:
@@ -277,62 +386,40 @@ def safe_name(request) -> str:
     return safe_name
 
 
-@pytest.fixture(scope="function")
-def temp_db_path(request) -> Generator[str, None, None]:
-    """Create a temporary database file path with unique URI."""
-    # Use unique URI for each test to prevent cross-test pollution
-    test_id = request.node.nodeid.encode("utf-8")
-    safe_name = f"creator_{abs(hash(test_id))}"
-    db_path = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
-    yield db_path
-
-
 @pytest_asyncio.fixture
-async def test_engine(request) -> AsyncGenerator[AsyncEngine, None]:
-    """Create a test database engine.
+async def test_engine(uuid_test_db_factory) -> AsyncGenerator[AsyncEngine, None]:
+    """Create a test database engine with isolated PostgreSQL database (UUID-based).
 
-    Uses SQLite in-memory database with unique name to ensure proper isolation between tests.
+    Each test gets its own database for perfect isolation.
     """
-    # Create unique database name for each test
-    test_id = request.node.nodeid.encode("utf-8")
-    safe_name = f"test_{abs(hash(test_id))}"
-    db_uri = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
-    async_uri = db_uri.replace("sqlite://", "sqlite+aiosqlite://")
+    config = uuid_test_db_factory
+    password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
 
-    # Create sync engine for migrations
+    db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+    async_url = f"postgresql+asyncpg://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+
+    # Create sync engine for table creation
     sync_engine = create_engine(
-        db_uri,
+        db_url,
         isolation_level="SERIALIZABLE",
         echo=False,
-        connect_args={
-            "check_same_thread": False,
-            "timeout": 30,  # 30 second timeout
-        },
+        pool_pre_ping=True,
     )
 
-    # Configure SQLite for optimal test performance
-    with sync_engine.connect() as conn:
-        conn.execute(text("PRAGMA synchronous=OFF"))
-        conn.execute(text("PRAGMA temp_store=MEMORY"))
-        conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
-        conn.execute(text("PRAGMA page_size=4096"))
-        conn.execute(text("PRAGMA cache_size=-2000"))  # 2MB cache
-        conn.execute(text("PRAGMA busy_timeout=30000"))
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
-        conn.execute(text("PRAGMA journal_mode=WAL"))
-
     # Create tables
-    Base.metadata.create_all(sync_engine)
+    try:
+        Base.metadata.create_all(sync_engine, checkfirst=True)
+    except Exception as e:
+        # Ignore "already exists" errors that can occur with parallel test execution
+        if "already exists" not in str(e).lower():
+            raise
 
     # Create async engine
     engine = create_async_engine(
-        async_uri,
+        async_url,
         isolation_level="SERIALIZABLE",
         echo=False,
-        connect_args={
-            "check_same_thread": False,
-            "timeout": 30,
-        },
+        pool_pre_ping=True,
     )
 
     yield engine
@@ -343,50 +430,41 @@ async def test_engine(request) -> AsyncGenerator[AsyncEngine, None]:
 
 
 @pytest_asyncio.fixture
-async def test_async_session(request) -> AsyncGenerator[AsyncSession, None]:
-    """Create a test async database session with tables properly created."""
-    # Create unique database name for each test
-    test_id = request.node.nodeid.encode("utf-8")
-    safe_name = f"test_{abs(hash(test_id))}"
-    db_uri = f"sqlite:///file:{safe_name}?mode=memory&cache=shared&uri=true"
-    async_uri = db_uri.replace("sqlite://", "sqlite+aiosqlite://")
+async def test_async_session(
+    uuid_test_db_factory,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Create a test async database session with isolated PostgreSQL database (UUID-based).
 
-    # Create sync engine for migrations
+    Each test gets its own database for perfect isolation.
+    """
+    config = uuid_test_db_factory
+    password_encoded = quote_plus(config.pg_password) if config.pg_password else ""
+
+    db_url = f"postgresql://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+    async_url = f"postgresql+asyncpg://{config.pg_user}:{password_encoded}@{config.pg_host}:{config.pg_port}/{config.pg_database}"
+
+    # Create sync engine for table creation
     sync_engine = create_engine(
-        db_uri,
+        db_url,
         isolation_level="SERIALIZABLE",
         echo=False,
-        connect_args={
-            "check_same_thread": False,
-            "timeout": 30,  # 30 second timeout
-        },
-        poolclass=StaticPool,  # Use StaticPool to ensure unique connection
+        pool_pre_ping=True,
     )
 
-    # Configure SQLite for optimal test performance
-    with sync_engine.connect() as conn:
-        conn.execute(text("PRAGMA synchronous=OFF"))
-        conn.execute(text("PRAGMA temp_store=MEMORY"))
-        conn.execute(text("PRAGMA mmap_size=268435456"))  # 256MB
-        conn.execute(text("PRAGMA page_size=4096"))
-        conn.execute(text("PRAGMA cache_size=-2000"))  # 2MB cache
-        conn.execute(text("PRAGMA busy_timeout=30000"))
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
-
-        # Create all tables
-        Base.metadata.create_all(sync_engine)
-
-        conn.execute(text("PRAGMA journal_mode=WAL"))
+    # Create all tables
+    try:
+        Base.metadata.create_all(sync_engine, checkfirst=True)
+    except Exception as e:
+        # Ignore "already exists" errors that can occur with parallel test execution
+        if "already exists" not in str(e).lower():
+            raise
 
     # Create async engine
     engine = create_async_engine(
-        async_uri,
+        async_url,
         isolation_level="SERIALIZABLE",
         echo=False,
-        connect_args={
-            "check_same_thread": False,
-            "timeout": 30,
-        },
+        pool_pre_ping=True,
     )
 
     # Create session factory
@@ -399,9 +477,7 @@ async def test_async_session(request) -> AsyncGenerator[AsyncSession, None]:
     # Create session
     session = async_session_factory()
     try:
-        # Configure session
-        await session.execute(text("PRAGMA foreign_keys=OFF"))
-        await session.execute(text("PRAGMA journal_mode=WAL"))
+        # PostgreSQL: No PRAGMA statements needed
         yield session
     finally:
         await session.rollback()
@@ -411,11 +487,11 @@ async def test_async_session(request) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture(scope="function")
-def config(temp_db_path) -> FanslyConfig:
-    """Create a test configuration."""
-    config = FanslyConfig(program_version="0.10.0")
-    config.metadata_db_file = Path(temp_db_path)  # Use the unique URI from temp_db_path
-    config.db_sync_min_size = 50  # Add required database sync settings
+def config(uuid_test_db_factory) -> FanslyConfig:
+    """Create a test configuration with isolated PostgreSQL database (UUID-based)."""
+    config = uuid_test_db_factory
+    # Database sync settings (deprecated for PostgreSQL but kept for compatibility)
+    config.db_sync_min_size = 50
     config.db_sync_commits = 1000
     config.db_sync_seconds = 60
 
@@ -423,75 +499,47 @@ def config(temp_db_path) -> FanslyConfig:
 
 
 @pytest.fixture(scope="function")
-def database(config: FanslyConfig, request) -> Generator[TestDatabase, None]:
-    """Create a test database instance with enhanced features."""
-    db = TestDatabase(config)
-    try:
-        # Verify database setup
-        inspector = inspect(db._sync_engine)
-        table_names = inspector.get_table_names()
-        if not table_names:
-            raise RuntimeError("Failed to create database tables")
+def test_sync_engine(test_database_sync: Database):
+    """Get the sync database engine from test database."""
+    return test_database_sync._sync_engine
 
+
+@pytest.fixture(scope="function")
+def session_factory(test_sync_engine) -> sessionmaker:
+    """Create a session factory."""
+    return sessionmaker(bind=test_sync_engine)
+
+
+@pytest.fixture(scope="function")
+def test_database_sync(
+    config: FanslyConfig, test_engine
+) -> Generator[Database, None, None]:
+    """Create a test database instance with enhanced features (sync version).
+
+    Depends on test_engine to ensure tables are created before database initialization.
+    """
+    # Skip migrations since test_engine already created tables
+    db = TestDatabase(config, skip_migrations=True)
+    try:
         yield db
     finally:
+        # Always clean up database connections
         try:
-            # Enhanced cleanup procedure
-            with db.session_scope() as session:
-                try:
-                    # Keep foreign keys disabled for cleanup
-                    session.execute(text("PRAGMA foreign_keys = OFF"))
-
-                    # Delete data in reverse dependency order
-                    for table in reversed(Base.metadata.sorted_tables):
-                        session.execute(table.delete())
-                    session.commit()
-                except Exception as e:
-                    print(f"Warning: Error during table cleanup: {e}")
-
-            # Close database connections
-            db.close()
-        except Exception as e:
-            print(f"Warning: Error during database cleanup: {e}")
-
-
-@pytest.fixture(scope="function")
-def engine(database: Database):
-    """Get the database engine."""
-    return database._sync_engine
-
-
-@pytest.fixture(scope="function")
-def session_factory(engine) -> sessionmaker:
-    """Create a session factory."""
-    return sessionmaker(bind=engine)
+            if hasattr(db, "_sync_engine"):
+                db.close()
+        except Exception as cleanup_error:
+            print(f"Warning: Error during database cleanup: {cleanup_error}")
 
 
 @pytest_asyncio.fixture(scope="function")
-async def test_database_sync(config: FanslyConfig) -> Database:
-    """Create a test database instance with enhanced features (sync version)."""
-    db = TestDatabase(config)
-    try:
-        # Verify database setup
-        inspector = inspect(db._sync_engine)
-        table_names = inspector.get_table_names()
-        if not table_names:
-            raise RuntimeError("Failed to create database tables")
-
-        return db
-    except Exception as e:
-        print(f"Warning: Error during database setup: {e}")
-        if hasattr(db, "close"):
-            db.close()
-        raise
-
-
-@pytest_asyncio.fixture(scope="function")
-async def test_database(config: FanslyConfig, test_engine: AsyncEngine) -> Database:
+async def test_database(
+    config: FanslyConfig, test_engine: AsyncEngine
+) -> AsyncGenerator[Database, None]:
     """Create a test database instance with enhanced features (async version)."""
-    db = TestDatabase(config, skip_migrations=False)  # Enable migrations
+    # Skip migrations since test_engine already created tables with create_all()
+    db = TestDatabase(config, skip_migrations=True)
     try:
-        # Use the test engine
+        # Use the test engine (don't dispose it - test_engine fixture will handle that)
         db._async_engine = test_engine
         db.async_session_factory = async_sessionmaker(
             bind=test_engine,
@@ -504,12 +552,18 @@ async def test_database(config: FanslyConfig, test_engine: AsyncEngine) -> Datab
             await session.execute(text("SELECT 1"))
             await session.commit()
 
-        return db
+        yield db
     except Exception as e:
         print(f"Warning: Error during database setup: {e}")
-        if hasattr(db, "close"):
-            await db.close_async()
         raise
+    finally:
+        # Cleanup: Only close sync engine if it exists
+        # Don't dispose async engine - test_engine fixture owns it
+        try:
+            if hasattr(db, "_sync_engine") and db._sync_engine is not None:
+                db._sync_engine.dispose()
+        except Exception as cleanup_error:
+            print(f"Warning: Error during database cleanup: {cleanup_error}")
 
 
 @pytest_asyncio.fixture(scope="function", autouse=True)
@@ -519,29 +573,41 @@ async def cleanup_database(request):
     try:
         # Get the test database fixture from the request
         if "test_database" in request.fixturenames:
-            db = request.getfixturevalue("test_database")
-            async with db.async_session_scope() as session:
-                # Keep foreign keys disabled for cleanup
-                await session.execute(text("PRAGMA foreign_keys = OFF"))
-
-                # Delete data in reverse dependency order
-                for table in reversed(Base.metadata.sorted_tables):
-                    await session.execute(table.delete())
-                await session.commit()
-            await db.close_async()
+            try:
+                db = request.getfixturevalue("test_database")
+                async with db.async_session_scope() as session:
+                    # PostgreSQL: No PRAGMA statements needed
+                    # Delete data in reverse dependency order
+                    for table in reversed(Base.metadata.sorted_tables):
+                        await session.execute(table.delete())
+                    await session.commit()
+                await db.close_async()
+            except (ValueError, RuntimeError) as e:
+                # Fixture may have been torn down already - silently ignore
+                if "not available" not in str(
+                    e
+                ) and "already been torn down" not in str(e):
+                    raise
         elif "test_database_sync" in request.fixturenames:
-            db = request.getfixturevalue("test_database_sync")
-            with db.session_scope() as session:
-                # Keep foreign keys disabled for cleanup
-                session.execute(text("PRAGMA foreign_keys = OFF"))
-
-                # Delete data in reverse dependency order
-                for table in reversed(Base.metadata.sorted_tables):
-                    session.execute(table.delete())
-                session.commit()
-            db.close_sync()
+            try:
+                db = request.getfixturevalue("test_database_sync")
+                with db.session_scope() as session:
+                    # PostgreSQL: No PRAGMA statements needed
+                    # Delete data in reverse dependency order
+                    for table in reversed(Base.metadata.sorted_tables):
+                        session.execute(table.delete())
+                    session.commit()
+                db.close()
+            except (ValueError, RuntimeError) as e:
+                # Fixture may have been torn down already - silently ignore
+                if "not available" not in str(
+                    e
+                ) and "already been torn down" not in str(e):
+                    raise
     except Exception as e:
-        print(f"Warning: Error during database cleanup: {e}")
+        # Only print warning for unexpected errors (not fixture teardown errors)
+        if "not available" not in str(e) and "already been torn down" not in str(e):
+            print(f"Warning: Error during database cleanup: {e}")
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -807,3 +873,154 @@ async def test_bundle(
         f"bundle_{test_account.id}",
         create_bundle,
     )
+
+
+@pytest.fixture(scope="function")
+def mock_account():
+    """Create a lightweight mock Account for unit tests (no database).
+
+    Uses AccountFactory.build() to create a real Account SQLAlchemy object
+    without requiring database persistence. Perfect for unit tests that need
+    Account objects but don't need database operations.
+
+    Returns:
+        Account: A built (not persisted) Account instance
+    """
+    from tests.fixtures.metadata_factories import AccountFactory
+
+    return AccountFactory.build(
+        id=12345,
+        username="test_user",
+        displayName="Test User",
+    )
+
+
+@pytest.fixture(scope="function")
+def factory_session(session_sync: Session):
+    """Configure FactoryBoy factories to use the test database session.
+
+    This fixture configures all factories to use the test database session.
+    Tests that use factories must explicitly request this fixture or request
+    fixtures that depend on it (like integration_mock_account).
+
+    Args:
+        session_sync: The sync database session fixture
+
+    Yields:
+        The configured session for use by factories
+    """
+    from tests.fixtures import metadata_factories
+
+    # Get all factory classes (BaseFactory and all subclasses)
+    factory_classes = [
+        metadata_factories.AccountFactory,
+        metadata_factories.MediaFactory,
+        metadata_factories.MediaLocationFactory,
+        metadata_factories.PostFactory,
+        metadata_factories.GroupFactory,
+        metadata_factories.MessageFactory,
+        metadata_factories.AttachmentFactory,
+        metadata_factories.AccountMediaFactory,
+        metadata_factories.AccountMediaBundleFactory,
+    ]
+
+    # Configure all factory classes to use this session
+    for factory_class in factory_classes:
+        factory_class._meta.sqlalchemy_session = session_sync
+
+    yield session_sync
+
+    # Reset after test
+    for factory_class in factory_classes:
+        factory_class._meta.sqlalchemy_session = None
+
+
+@pytest_asyncio.fixture(scope="function")
+async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession):
+    """Configure FactoryBoy factories for use with async sessions.
+
+    This fixture solves the session attachment conflict when using factories
+    in async tests. It creates a sync session from the same engine as the
+    async session, configures factories to use it, and commits changes so
+    they're visible to the async session.
+
+    Usage:
+        async def test_something(factory_async_session, session):
+            # Create objects with factories
+            account = AccountFactory(username="test")
+            # Objects are committed and available in async session
+            result = await session.execute(select(Account).where(Account.username == "test"))
+            found = result.scalar_one()
+
+    Args:
+        test_engine: The async test engine
+        session: The async session fixture
+
+    Yields:
+        A helper object with methods for factory operations
+    """
+    from tests.fixtures import metadata_factories
+
+    # Create a sync engine from the async engine's URL
+    sync_url = str(test_engine.url).replace("+asyncpg", "")
+    sync_engine = create_engine(
+        sync_url,
+        isolation_level="SERIALIZABLE",
+        echo=False,
+        pool_pre_ping=True,
+    )
+
+    # Create sync session factory
+    SyncSessionFactory = sessionmaker(bind=sync_engine)
+    sync_session = SyncSessionFactory()
+
+    # Get all factory classes
+    factory_classes = [
+        metadata_factories.AccountFactory,
+        metadata_factories.MediaFactory,
+        metadata_factories.MediaLocationFactory,
+        metadata_factories.PostFactory,
+        metadata_factories.GroupFactory,
+        metadata_factories.MessageFactory,
+        metadata_factories.AttachmentFactory,
+        metadata_factories.AccountMediaFactory,
+        metadata_factories.AccountMediaBundleFactory,
+    ]
+
+    # Configure all factory classes to use the sync session
+    for factory_class in factory_classes:
+        factory_class._meta.sqlalchemy_session = sync_session
+        factory_class._meta.sqlalchemy_session_persistence = "commit"
+
+    class FactoryHelper:
+        """Helper class for factory operations in async tests."""
+
+        def __init__(self, sync_session, async_session):
+            self.sync_session = sync_session
+            self.async_session = async_session
+
+        def commit(self):
+            """Commit sync session so changes are visible to async session."""
+            self.sync_session.commit()
+
+    helper = FactoryHelper(sync_session, session)
+
+    # Auto-commit after factory operations
+    sync_session.commit()
+
+    yield helper
+
+    # Cleanup
+    try:
+        sync_session.close()
+    except Exception:
+        pass
+
+    try:
+        sync_engine.dispose()
+    except Exception:
+        pass
+
+    # Reset factory configuration
+    for factory_class in factory_classes:
+        factory_class._meta.sqlalchemy_session = None

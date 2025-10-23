@@ -1,11 +1,9 @@
 """Unit tests for the normalize module."""
 
-import re
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import select
 
 from fileio.normalize import get_id_from_filename, normalize_filename
 from metadata.media import Media
@@ -38,7 +36,7 @@ class TestGetIdFromFilename:
 @pytest.fixture
 def mock_db_config():
     """Create a mock database config."""
-    from tests.stash.processing.conftest import MockDatabase
+    from tests.fixtures.stash_processing_fixtures import MockDatabase
 
     with patch("metadata.database.require_database_config") as mock_decorator:
         mock_decorator.side_effect = lambda f: f
@@ -47,7 +45,7 @@ def mock_db_config():
         mock_config._database = mock_database
         # Make the config's get_database method return our MockDatabase
         mock_config.get_database = lambda: mock_database
-        yield mock_config, mock_database.session
+        yield mock_config, mock_database
 
 
 class TestNormalizeFilename:
@@ -55,7 +53,13 @@ class TestNormalizeFilename:
 
     def test_normalize_filename_with_database_match(self, mock_db_config):
         """Test normalize_filename with database match."""
-        mock_config, mock_session = mock_db_config
+        mock_config, mock_database = mock_db_config
+
+        # Set up a media object with createdAt datetime
+        media = Media(
+            id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        )
+        mock_database.set_result(media)
 
         # The mock is already set up with a datetime of 2023-01-01 15:30 UTC
         filename = "2023-01-01_at_10-30_id_12345.jpg"
@@ -63,22 +67,32 @@ class TestNormalizeFilename:
         assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
 
     def test_normalize_filename_no_database_match(self, mock_db_config):
-        """Test normalize_filename without database match."""
-        mock_config, mock_session = mock_db_config
+        """Test normalize_filename without database match.
 
-        # Override the mock to return None for this test
-        mock_session.execute = AsyncMock(
-            return_value=AsyncMock(scalar_one_or_none=AsyncMock(return_value=None))
-        )
+        Even without database match, if config is provided, the function
+        converts local time (assumed EST/EDT) to UTC.
+        """
+        mock_config, mock_database = mock_db_config
 
-        # Without database match, time should stay unchanged
+        # Set result to None to simulate no database match
+        mock_database.set_result(None)
+
+        # Without database match but with config, local time is converted to UTC
+        # EST (UTC-5) + 5 hours = UTC
+        # 10:30 EST → 15:30 UTC
         filename = "2023-01-01_at_10-30_id_12345.jpg"
         result = normalize_filename(filename, config=mock_config)
-        assert result == filename
+        assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
 
     def test_normalize_filename_different_extensions(self, mock_db_config):
         """Test normalize_filename with different extensions."""
-        mock_config, mock_session = mock_db_config
+        mock_config, mock_database = mock_db_config
+
+        # Set up a media object with createdAt datetime
+        media = Media(
+            id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        )
+        mock_database.set_result(media)
 
         # Test various extensions get preserved, using the mock's datetime
         for ext in ["jpg", "mp4", "m3u8", "ts"]:
