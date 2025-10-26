@@ -4,6 +4,7 @@ import asyncio
 import time
 from datetime import datetime
 from pprint import pformat
+from types import TracebackType
 from typing import Any, TypeVar
 
 import httpx
@@ -17,8 +18,8 @@ from gql.transport.httpx import HTTPXAsyncTransport
 from gql.transport.websockets import WebsocketsTransport
 from httpx_retries import Retry, RetryTransport
 
-from .. import fragments
-from ..types import (
+from stash import fragments
+from stash.types import (
     AutoTagMetadataOptions,
     ConfigDefaultSettingsResult,
     FindJobInput,
@@ -265,9 +266,9 @@ class StashClientBase:
             try:
                 operation = gql(query)
             except Exception as e:
-                self.log.error(f"GraphQL syntax error: {e}")
-                self.log.error(f"Failed query: \n{query}")
-                self.log.error(f"Variables: {processed_vars}")
+                self.log.exception("GraphQL syntax error")
+                self.log.error(f"Failed query: \n{query}")  # noqa: TRY400
+                self.log.error(f"Variables: {processed_vars}")  # noqa: TRY400
                 raise ValueError(f"Invalid GraphQL query syntax: {e}")
 
             # Use persistent GQL session with connection pooling
@@ -677,6 +678,11 @@ class StashClientBase:
             await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit async context manager."""
         await self.close()

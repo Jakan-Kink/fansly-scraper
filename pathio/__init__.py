@@ -17,7 +17,9 @@ from .pathio import (
 )
 from .types import PathConfig
 
+
 __all__ = [
+    "PathConfig",
     "ask_correct_dir",
     "delete_temporary_pyinstaller_files",
     "get_creator_base_path",
@@ -25,5 +27,4 @@ __all__ = [
     "get_creator_metadata_path",
     "get_media_save_path",
     "set_create_directory_for_download",
-    "PathConfig",
 ]

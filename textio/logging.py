@@ -53,17 +53,17 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
 
     def __init__(
         self,
-        filename,
-        maxBytes=0,
-        backupCount=5,
-        when="h",
-        interval=1,
-        utc=False,
-        compression=None,
-        encoding=None,
-        delay=False,
-        keep_uncompressed=0,
-    ):
+        filename: str | Path,
+        maxBytes: int = 0,
+        backupCount: int = 5,
+        when: str = "h",
+        interval: int = 1,
+        utc: bool = False,
+        compression: str | None = None,
+        encoding: str | None = None,
+        delay: bool = False,
+        keep_uncompressed: int = 0,
+    ) -> None:
         super().__init__(filename, mode="a", encoding=encoding, delay=delay)
         # Set terminator to empty string to prevent automatic newlines
         self.terminator = ""
@@ -81,7 +81,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         self.when = when
         self._check_rollover_on_init(filename)
 
-    def _compute_interval(self, when, interval):
+    def _compute_interval(self, when: str, interval: int) -> int:
         intervals = {
             "s": 1,
             "m": 60,
@@ -113,7 +113,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
                 if Path(filename).exists():
                     self._compress_file(filename)
 
-    def _check_rollover_on_init(self, filename):
+    def _check_rollover_on_init(self, filename: str | Path) -> None:
         """
         Check the modification date and size of the file on initialization
         and perform a rollover if needed.
@@ -137,7 +137,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             # If the file doesn't exist, set the next rollover time
             self.rolloverAt = self._compute_next_rollover()
 
-    def shouldRollover(self, record):  # noqa: N802 - Override BaseRotatingHandler method
+    def shouldRollover(self, record: logging.LogRecord) -> bool:  # noqa: N802 - Override BaseRotatingHandler method
         # Defensive check: stream can be None with delay=True or closed by another thread
         if self.stream is None or (
             hasattr(self.stream, "closed") and self.stream.closed
@@ -162,7 +162,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         # Time-based rollover
         return time.time() >= self.rolloverAt
 
-    def doRollover(self):  # noqa: N802 - Override BaseRotatingHandler method
+    def doRollover(self) -> None:  # noqa: N802 - Override BaseRotatingHandler method
         # Add a special message to help with debugging database connections during rotation
         # This will appear in the log file right before rotation happens
         if hasattr(self, "db_logger_name") and self.db_logger_name:

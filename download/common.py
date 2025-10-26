@@ -45,7 +45,7 @@ def get_unique_media_ids(info_object: dict[str, Any]) -> list[str]:
     account_media = info_object.get("accountMedia", [])
     media_bundles = info_object.get("accountMediaBundles", [])
 
-    def check(item) -> bool:
+    def check(item: Any) -> bool:
         if item is None:
             raise ApiError(
                 "Media items in response are empty - this is most probably a Fansly API/countermeasure issue."

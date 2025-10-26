@@ -9,7 +9,7 @@ from .client import StashClient
 from .types import Gallery, Performer, Studio
 
 
-async def main():
+async def main() -> None:
     """Example of converting metadata to Stash."""
     # Set up logging
     logging.basicConfig(level=logging.DEBUG)

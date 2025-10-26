@@ -12,6 +12,6 @@ def get_project_version() -> str:
         str: The project version string
     """
     pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-    with open(pyproject_path) as f:
+    with pyproject_path.open() as f:
         pyproject = toml.load(f)
     return pyproject["tool"]["poetry"]["version"]

@@ -28,7 +28,7 @@ class DuplicateCountError(RuntimeError):
     to update that folder -> the first 20% will report completed -> cancels the download -> other 80% missing
     """
 
-    def __init__(self, duplicate_count):
+    def __init__(self, duplicate_count: int) -> None:
         self.duplicate_count = duplicate_count
         self.message = f"Irrationally high rise in duplicates: {duplicate_count}"
         super().__init__(self.message)
@@ -158,26 +158,26 @@ class InvalidTraceLogError(RuntimeError):
 
 
 __all__ = [
-    "EXIT_ABORT",
-    "EXIT_ERROR",
-    "EXIT_SUCCESS",
     "API_ERROR",
     "CONFIG_ERROR",
     "DOWNLOAD_ERROR",
+    "EXIT_ABORT",
+    "EXIT_ERROR",
+    "EXIT_SUCCESS",
     "SOME_USERS_FAILED",
     "UNEXPECTED_ERROR",
     "UPDATE_FAILED",
     "UPDATE_MANUALLY",
     "UPDATE_SUCCESS",
-    "ApiError",
     "ApiAccountInfoError",
     "ApiAuthenticationError",
+    "ApiError",
     "ConfigError",
     "DownloadError",
     "DuplicateCountError",
-    "MediaError",
-    "MediaHashMismatchError",
-    "M3U8Error",
     "DuplicatePageError",
     "InvalidTraceLogError",
+    "M3U8Error",
+    "MediaError",
+    "MediaHashMismatchError",
 ]

@@ -738,7 +738,7 @@ async def dedupe_init(
             max_concurrent = min(25, int(os.getenv("FDLNG_MAX_CONCURRENT", "25")))
             semaphore = asyncio.Semaphore(max_concurrent)
 
-            async def process_file(file_info):
+            async def process_file(file_info: tuple[Path, str, str]) -> None:
                 file_path, media_id, mimetype = file_info
                 async with semaphore:
                     try:

@@ -6,8 +6,9 @@ It uses the modern declarative base approach from SQLAlchemy 2.0+ with async sup
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from sqlalchemy import BigInteger, DateTime, event, select

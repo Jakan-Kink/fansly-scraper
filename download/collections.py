@@ -10,7 +10,7 @@ from .downloadstate import DownloadState
 from .types import DownloadType
 
 
-async def download_collections(config: FanslyConfig, state: DownloadState):
+async def download_collections(config: FanslyConfig, state: DownloadState) -> None:
     """Downloads Fansly purchased item collections."""
 
     print_info("Starting Collections sequence. Buckle up and enjoy the ride!")

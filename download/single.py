@@ -12,7 +12,7 @@ from .media import download_media_infos
 from .types import DownloadType
 
 
-async def download_single_post(config: FanslyConfig, state: DownloadState):
+async def download_single_post(config: FanslyConfig, state: DownloadState) -> None:
     """Downloads a single post."""
 
     # This is important for directory creation later on.

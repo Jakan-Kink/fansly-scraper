@@ -233,14 +233,14 @@ async def get_creator_account_info(
                 api_fetched_at = stats_data["fetchedAt"]
                 # Compare with db fetchedAt
                 if current_stats.fetchedAt == api_fetched_at:
-                    state.fetchedTimelineDuplication = True
+                    state.fetched_timeline_duplication = True
 
 
 async def _make_rate_limited_request(
     request_func: callable,
-    *args,
+    *args: Any,
     rate_limit_delay: float = 30.0,
-    **kwargs,
+    **kwargs: Any,
 ) -> httpx.Response:
     """Make a request with rate limit handling.
 

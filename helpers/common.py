@@ -27,7 +27,7 @@ def batch_list(input_list: list[Any], batch_size: int) -> Iterable[list[Any]]:
         )
 
     for i in range(0, len(input_list), batch_size):
-        yield input_list[i : i + batch_size]  # noqa: E203
+        yield input_list[i : i + batch_size]
 
 
 def is_valid_post_id(post_id: str) -> bool:

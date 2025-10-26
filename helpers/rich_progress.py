@@ -36,7 +36,7 @@ _console = Console()
 class ContextualTimeColumn(ProgressColumn):
     """Custom time column that shows elapsed or remaining based on task type."""
 
-    def __init__(self, table_column=None):
+    def __init__(self, table_column: Column | None = None) -> None:
         self.elapsed_column = TimeElapsedColumn()
         self.remaining_column = TimeRemainingColumn()
         super().__init__(table_column)
