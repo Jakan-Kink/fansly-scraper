@@ -1,6 +1,7 @@
 """Integration tests for the full StashProcessing workflow."""
 
 import asyncio
+from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -164,6 +165,10 @@ class TestFullWorkflowIntegration:
             patch("textio.textio.print_error"),
             patch("config.logging.logger.exception"),
         ):
+            # Try to call process_creator which should trigger _find_account
+            # The exception should be caught and handled
+            with suppress(Exception):
+                await stash_processor.process_creator(session=mock_database.session)
             # Verify _find_account was called
             stash_processor._find_account.assert_called_once()
 

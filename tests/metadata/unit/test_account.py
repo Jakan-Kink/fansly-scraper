@@ -118,7 +118,9 @@ async def test_update_optimization(session, session_sync, config, factory_sessio
 
 
 @pytest.mark.asyncio
-async def test_timeline_stats_optimization(session, session_sync, config, factory_session):
+async def test_timeline_stats_optimization(
+    session, session_sync, config, factory_session
+):
     """Test that timeline stats are only updated when values change.
 
     Uses real config fixture instead of mock, and AccountFactory for initial data.

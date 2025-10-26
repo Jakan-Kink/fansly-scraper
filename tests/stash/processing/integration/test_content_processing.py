@@ -6,7 +6,7 @@ fixtures and factory-based test data instead of mocks.
 
 import pytest
 
-from stash.types import Gallery, Image
+from stash.types import Gallery
 from tests.fixtures.metadata_factories import (
     AccountFactory,
     GroupFactory,
@@ -32,8 +32,7 @@ class TestContentProcessingIntegration:
 
         # Create real posts for the account
         posts = [
-            PostFactory(accountId=account.id, content=f"Post {i}")
-            for i in range(3)
+            PostFactory(accountId=account.id, content=f"Post {i}") for i in range(3)
         ]
         session_sync.commit()
 
@@ -48,11 +47,7 @@ class TestContentProcessingIntegration:
         mock_studio.id = "studio_123"
 
         # Mock gallery creation and processing
-        mock_gallery = Gallery(
-            id="gallery_123",
-            title="Test Gallery",
-            urls=[]
-        )
+        mock_gallery = Gallery(id="gallery_123", title="Test Gallery", urls=[])
         stash_processor._get_or_create_gallery = mocker.AsyncMock(
             return_value=mock_gallery
         )
@@ -93,9 +88,7 @@ class TestContentProcessingIntegration:
         # Create real messages for the account
         messages = [
             MessageFactory(
-                groupId=group.id,
-                senderId=account.id,
-                content=f"Message {i}"
+                groupId=group.id, senderId=account.id, content=f"Message {i}"
             )
             for i in range(3)
         ]
@@ -112,11 +105,7 @@ class TestContentProcessingIntegration:
         mock_studio.id = "studio_456"
 
         # Mock gallery creation and processing
-        mock_gallery = Gallery(
-            id="gallery_456",
-            title="Message Gallery",
-            urls=[]
-        )
+        mock_gallery = Gallery(id="gallery_456", title="Message Gallery", urls=[])
         stash_processor._get_or_create_gallery = mocker.AsyncMock(
             return_value=mock_gallery
         )

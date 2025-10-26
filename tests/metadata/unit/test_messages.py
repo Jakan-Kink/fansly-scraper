@@ -38,6 +38,7 @@ def test_direct_message_creation(session_sync: Session, factory_session):
     session_sync.commit()
 
     saved_message = session_sync.execute(select(Message)).scalar_one_or_none()
+    assert saved_message is not None
     assert saved_message.content == "Test message"
     assert saved_message.senderId == account1.id
     assert saved_message.recipientId == account2.id
@@ -70,6 +71,7 @@ def test_group_creation(session_sync: Session, factory_session):
     session_sync.commit()
 
     saved_group = session_sync.execute(select(Group)).scalar_one_or_none()
+    assert saved_group is not None
     assert saved_group.createdBy == account1.id
     assert len(saved_group.users) == 2
     user_ids = {u.id for u in saved_group.users}
@@ -106,8 +108,10 @@ def test_group_message(session_sync: Session, factory_session):
     session_sync.commit()
 
     saved_group = session_sync.execute(select(Group)).scalar_one_or_none()
+    assert saved_group is not None
     assert saved_group.lastMessageId == 1
     saved_message = session_sync.execute(select(Message)).scalar_one_or_none()
+    assert saved_message is not None
     assert saved_message.groupId == 1
     assert saved_message.content == "Group message"
 
@@ -145,6 +149,7 @@ def test_message_with_attachment(session_sync: Session, factory_session):
 
     # Verify the message has the attachment
     saved_message = session_sync.execute(select(Message)).scalar_one_or_none()
+    assert saved_message is not None
     assert saved_message.content == "Message with attachment"
     assert len(saved_message.attachments) == 1
     assert saved_message.attachments[0].contentType == ContentType.ACCOUNT_MEDIA
@@ -152,7 +157,9 @@ def test_message_with_attachment(session_sync: Session, factory_session):
 
 
 @pytest.mark.asyncio
-async def test_process_messages_metadata(session: AsyncSession, session_sync, config, factory_session):
+async def test_process_messages_metadata(
+    session: AsyncSession, session_sync, config, factory_session
+):
     """Test processing message metadata.
 
     Uses AccountFactory and centralized config/session fixtures.
@@ -193,6 +200,7 @@ async def test_process_messages_metadata(session: AsyncSession, session_sync, co
         .where(Message.id == 1)
     )
     saved_message = result.unique().scalar_one_or_none()
+    assert saved_message is not None
     assert saved_message.content == "Test message"
     assert len(saved_message.attachments) == 1
     assert saved_message.attachments[0].contentId == 1001

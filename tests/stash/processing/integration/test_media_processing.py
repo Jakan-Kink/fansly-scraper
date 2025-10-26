@@ -6,7 +6,7 @@ factory-based test data instead of mocks.
 
 import pytest
 
-from stash.types import Image, Scene
+from stash.types import Image
 from tests.fixtures.metadata_factories import (
     AccountFactory,
     AccountMediaBundleFactory,
@@ -34,9 +34,7 @@ class TestMediaProcessingIntegration:
 
         # Create real media
         media = MediaFactory(
-            accountId=account.id,
-            mimetype="image/jpeg",
-            local_filename="test_image.jpg"
+            accountId=account.id, mimetype="image/jpeg", local_filename="test_image.jpg"
         )
         session_sync.commit()
 
@@ -47,11 +45,7 @@ class TestMediaProcessingIntegration:
         stash_processor._find_stash_files_by_id = mocker.AsyncMock(return_value=[])
 
         # Create mock image to return from path search
-        mock_image = Image(
-            id="image_123",
-            title="Test Image",
-            urls=[]
-        )
+        mock_image = Image(id="image_123", title="Test Image", urls=[])
 
         # Mock _find_stash_files_by_path to return mock image
         mock_visual_file = mocker.MagicMock()
@@ -64,9 +58,7 @@ class TestMediaProcessingIntegration:
         stash_processor._update_stash_metadata = mocker.AsyncMock()
 
         # Call method
-        await stash_processor._process_media(
-            media, post, account, result
-        )
+        await stash_processor._process_media(media, post, account, result)
 
         # Verify stash lookups were attempted
         stash_processor._find_stash_files_by_id.assert_called_once()
@@ -129,20 +121,14 @@ class TestMediaProcessingIntegration:
         stash_processor._process_media = mocker.AsyncMock()
 
         # Call method
-        await stash_processor._process_bundle_media(
-            bundle, post, account, result
-        )
+        await stash_processor._process_bundle_media(bundle, post, account, result)
 
         # Verify _process_media was called for each media
         assert stash_processor._process_media.call_count >= 2
 
         # Verify correct media were processed
-        stash_processor._process_media.assert_any_call(
-            media1, post, account, result
-        )
-        stash_processor._process_media.assert_any_call(
-            media2, post, account, result
-        )
+        stash_processor._process_media.assert_any_call(media1, post, account, result)
+        stash_processor._process_media.assert_any_call(media2, post, account, result)
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_integration(
@@ -286,7 +272,7 @@ class TestMediaProcessingIntegration:
         # Setup recursive call result
         mock_sub_result = {
             "images": [Image(id="agg_img", title="Agg Image", urls=[])],
-            "scenes": []
+            "scenes": [],
         }
 
         # Save the original method

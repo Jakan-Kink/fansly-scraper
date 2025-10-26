@@ -18,8 +18,6 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
-
-from metadata.database import Database
 from datetime import UTC, datetime
 from pathlib import Path
 
