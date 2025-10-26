@@ -1,6 +1,6 @@
 """Unit tests for metadata.wall module."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -230,13 +230,13 @@ async def test_process_wall_posts(
                 "id": 1,
                 "accountId": account_id,
                 "content": "Post 1",
-                "createdAt": int(datetime.now(timezone.utc).timestamp()),
+                "createdAt": int(datetime.now(UTC).timestamp()),
             },
             {
                 "id": 2,
                 "accountId": account_id,
                 "content": "Post 2",
-                "createdAt": int(datetime.now(timezone.utc).timestamp()),
+                "createdAt": int(datetime.now(UTC).timestamp()),
             },
         ],
         "accounts": [{"id": account_id, "username": "test_user"}],

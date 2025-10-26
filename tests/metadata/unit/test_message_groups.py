@@ -1,6 +1,6 @@
 """Unit tests for message group functionality."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -51,9 +51,7 @@ async def test_message_creation(session):
     await session.commit()
 
     # Now create message
-    message = Message(
-        id=1, senderId=123, content="test", createdAt=datetime.now(timezone.utc)
-    )
+    message = Message(id=1, senderId=123, content="test", createdAt=datetime.now(UTC))
     session.add(message)
     await session.commit()
 
@@ -74,9 +72,7 @@ async def test_group_message_relationship(session):
     await session.commit()
 
     # Create message first
-    message = Message(
-        id=1, senderId=123, content="test", createdAt=datetime.now(timezone.utc)
-    )
+    message = Message(id=1, senderId=123, content="test", createdAt=datetime.now(UTC))
     session.add(message)
     await session.commit()
 
@@ -123,9 +119,7 @@ async def test_process_groups_response_basic(session, config, download_state):
     assert group.lastMessageId == 789
 
     # Now create the message
-    message = Message(
-        id=789, senderId=123, content="test", createdAt=datetime.now(timezone.utc)
-    )
+    message = Message(id=789, senderId=123, content="test", createdAt=datetime.now(UTC))
     session.add(message)
     await session.commit()
 
@@ -205,7 +199,7 @@ async def test_process_groups_response_multiple_commits(
 
     # Create one message but not the other
     message = Message(
-        id=789, senderId=123, content="test1", createdAt=datetime.now(timezone.utc)
+        id=789, senderId=123, content="test1", createdAt=datetime.now(UTC)
     )
     session.add(message)
     await session.commit()

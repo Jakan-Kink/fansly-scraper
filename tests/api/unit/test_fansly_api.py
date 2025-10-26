@@ -1,6 +1,6 @@
 """Unit tests for FanslyApi class"""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -71,7 +71,7 @@ class TestFanslyApi:
             check_key="test_check_key",
             device_id="test_device_id",  # Provide device ID to avoid request
             device_id_timestamp=int(
-                datetime.now(timezone.utc).timestamp() * 1000
+                datetime.now(UTC).timestamp() * 1000
             ),  # Current timestamp
         )
         with pytest.raises(
@@ -110,14 +110,14 @@ class TestFanslyApi:
     def test_get_timestamp_ms(self, fansly_api):
         """Test get_timestamp_ms returns current timestamp in milliseconds"""
         timestamp = fansly_api.get_timestamp_ms()
-        now = int(datetime.now(timezone.utc).timestamp() * 1000)
+        now = int(datetime.now(UTC).timestamp() * 1000)
         # Allow 1 second difference due to execution time
         assert abs(timestamp - now) < 1000
 
     def test_get_client_timestamp(self, fansly_api):
         """Test get_client_timestamp returns value within expected range"""
         timestamp = fansly_api.get_client_timestamp()
-        now = int(datetime.now(timezone.utc).timestamp() * 1000)
+        now = int(datetime.now(UTC).timestamp() * 1000)
         # Should be current time +/- 5000ms
         assert abs(timestamp - now) <= 5000
 

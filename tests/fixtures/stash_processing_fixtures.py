@@ -1,7 +1,7 @@
 """Conftest for StashProcessing tests."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -230,7 +230,7 @@ def processing_mock_posts():
     for i in range(5):
         post = AccessibleAsyncMock(spec=Post)
         post.id = f"post_{i}"
-        post.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        post.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         post.content = f"Test post {i}"
         posts.append(post)
     return posts
@@ -243,7 +243,7 @@ def processing_mock_messages():
     for i in range(5):
         message = AccessibleAsyncMock(spec=Message)
         message.id = f"message_{i}"
-        message.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        message.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         message.text = f"Test message {i}"
         messages.append(message)
     return messages
@@ -254,7 +254,7 @@ def mock_item():
     """Fixture for mock item (post/message)."""
     item = AccessibleAsyncMock()
     item.id = "item_123"
-    item.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+    item.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
     return item
 
 
@@ -263,7 +263,7 @@ def processing_mock_media():
     """Fixture for mock media (processing tests)."""
     media = AccessibleAsyncMock(spec=Media)
     media.id = "media_123"
-    media.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+    media.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
     media.variants = []
     return media
 
@@ -314,7 +314,7 @@ def mock_image():
     image.title = "Test Image"
     image.url = "http://example.com/image.jpg"
     image.path = "/path/to/image.jpg"
-    image.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+    image.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
     image.save = AsyncMock()
     return image
 
@@ -409,9 +409,7 @@ class AsyncResult:
 
     def __init__(self, result=None, created_at=None):
         self._result = result
-        self._created_at = created_at or datetime(
-            2023, 1, 1, 15, 30, tzinfo=timezone.utc
-        )
+        self._created_at = created_at or datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
 
     def unique(self):
         """Return self for chaining."""
@@ -504,7 +502,7 @@ class MockDatabase:
         # Mock add to set createdAt
         async def mock_add(obj):
             if not getattr(obj, "createdAt", None):
-                obj.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+                obj.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
 
         self.session.add = AsyncMock(side_effect=mock_add)
 
@@ -548,9 +546,9 @@ class MockDatabase:
         if isinstance(result, (list, tuple)):
             for item in result:
                 if not getattr(item, "createdAt", None):
-                    item.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+                    item.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         elif result and not getattr(result, "createdAt", None):
-            result.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+            result.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         self._result._result = result
         return self
 

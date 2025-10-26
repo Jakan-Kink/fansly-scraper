@@ -28,10 +28,12 @@ Note:
     imported first, which breaks the cycle.
 """
 
-from datetime import datetime, timezone
+import json
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
+
 
 # NOTE: FanslyApi is NOT imported at module level to avoid circular import.
 # It is imported inside each fixture function (lazy import pattern).
@@ -115,7 +117,7 @@ def fansly_api(mock_http_session):
         check_key="test_check_key",
         device_id="test_device_id",  # Provide device_id to skip device initialization
         device_id_timestamp=int(
-            datetime.now(timezone.utc).timestamp() * 1000
+            datetime.now(UTC).timestamp() * 1000
         ),  # Current timestamp
     )
 
@@ -160,10 +162,11 @@ def fansly_api_factory(mock_http_session):
     ):
         """Create a FanslyApi instance with specified parameters."""
         # Lazy import to avoid circular dependency
-        from api.fansly import FanslyApi
+        # Circular chain: api.fansly -> config.logging -> config.fanslyconfig -> api
+        from api.fansly import FanslyApi  # noqa: PLC0415
 
         if device_id_timestamp is None:
-            device_id_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+            device_id_timestamp = int(datetime.now(UTC).timestamp() * 1000)
 
         api = FanslyApi(
             token=token,

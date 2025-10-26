@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -288,7 +288,7 @@ class TestStashProcessingBase:
         # Test case 1: Content with a short first line
         content = "This is the title\nThis is the rest of the content"
         username = "test_user"
-        created_at = datetime(2023, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        created_at = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
 
         # Call method
         title = base_processor._generate_title_from_content(

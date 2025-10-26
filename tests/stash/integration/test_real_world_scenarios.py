@@ -7,7 +7,7 @@ Note: These tests are skipped when running in the sandbox environment.
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -48,7 +48,7 @@ def mock_account() -> Account:
         displayName="Test Account",
         about="Test account bio",
         location="US",
-        createdAt=datetime.now(timezone.utc),
+        createdAt=datetime.now(UTC),
     )
     # Initialize relationships
     account.posts = []

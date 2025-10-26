@@ -1,6 +1,6 @@
 """Integration tests for account processing functionality."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -72,7 +72,7 @@ async def test_update_optimization_integration(test_database, config):
             "timelineStats": {
                 "imageCount": 10,
                 "videoCount": 5,
-                "fetchedAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "fetchedAt": int(datetime.now(UTC).timestamp() * 1000),
             },
         }
 

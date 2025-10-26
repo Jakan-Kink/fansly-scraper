@@ -4,7 +4,7 @@ This module provides helper functions and utilities for testing the metadata
 package, including data generation, validation, and common test operations.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -32,7 +32,7 @@ def create_test_account_media(
         id=id,
         accountId=account_id,
         mediaId=media_id,
-        createdAt=kwargs.pop("createdAt", datetime.now(timezone.utc)),
+        createdAt=kwargs.pop("createdAt", datetime.now(UTC)),
         **kwargs,
     )
     session.add(account_media)
@@ -62,7 +62,7 @@ def create_test_post(
         id=id,
         accountId=account_id,
         content=content,
-        createdAt=kwargs.pop("createdAt", datetime.now(timezone.utc)),
+        createdAt=kwargs.pop("createdAt", datetime.now(UTC)),
         **kwargs,
     )
     session.add(post)
@@ -92,7 +92,7 @@ def create_test_message(
         id=id,
         senderId=sender_id,
         content=content,
-        createdAt=kwargs.pop("createdAt", datetime.now(timezone.utc)),
+        createdAt=kwargs.pop("createdAt", datetime.now(UTC)),
         **kwargs,
     )
     session.add(message)
@@ -190,7 +190,7 @@ def create_test_data_set(
                     accountId=account.id,
                     name=f"Test wall {j + 1} for account {account.id}",
                     pos=j + 1,
-                    createdAt=datetime.now(timezone.utc),
+                    createdAt=datetime.now(UTC),
                 )
                 session.add(wall)
                 data["walls"].append(wall)
@@ -204,7 +204,7 @@ def create_test_data_set(
                     id=len(data["posts"]) + 1,
                     accountId=account.id,
                     content=f"Test post {j + 1} for account {account.id}",
-                    createdAt=datetime.now(timezone.utc),
+                    createdAt=datetime.now(UTC),
                 )
                 session.add(post)
                 data["posts"].append(post)

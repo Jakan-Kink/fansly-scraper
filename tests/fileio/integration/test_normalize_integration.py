@@ -1,6 +1,6 @@
 """Integration tests for normalize module."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -39,7 +39,7 @@ class TestNormalizeFilenameIntegration:
 
         # Mock media with UTC timestamp for database match
         mock_media = MagicMock()
-        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         mock_session.execute.return_value.scalar_one_or_none.return_value = mock_media
 
         # Test local time converts to UTC with database match
@@ -70,7 +70,7 @@ class TestNormalizeFilenameIntegration:
 
         # Mock media with UTC timestamp
         mock_media = MagicMock()
-        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         mock_session.execute.return_value.scalar_one_or_none.return_value = mock_media
 
         # Test local time converts to UTC but preserves extension
@@ -89,7 +89,7 @@ class TestNormalizeFilenameIntegration:
 
         # Mock media with UTC timestamp
         mock_media = MagicMock()
-        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         mock_session.execute.return_value.scalar_one_or_none.return_value = mock_media
 
         # Test local time converts to UTC but preserves extension
@@ -108,7 +108,7 @@ class TestNormalizeFilenameIntegration:
 
         # Mock media with UTC timestamp
         mock_media = MagicMock()
-        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
+        mock_media.created_at = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         mock_session.execute.return_value.scalar_one_or_none.return_value = mock_media
 
         # Test local time converts to UTC but preserves extension

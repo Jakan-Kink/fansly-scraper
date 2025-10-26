@@ -14,7 +14,7 @@ Usage:
     media = MediaFactory(accountId=account.id, mimetype="video/mp4")
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import factory
 from factory.alchemy import SQLAlchemyModelFactory
@@ -69,7 +69,7 @@ class AccountFactory(BaseFactory):
     displayName = factory.LazyAttribute(lambda obj: f"Display {obj.username}")
     flags = 0
     version = 1
-    createdAt = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    createdAt = factory.LazyFunction(lambda: datetime.now(UTC))
     subscribed = False
     about = factory.LazyAttribute(lambda obj: f"About {obj.username}")
     location = None
@@ -109,8 +109,8 @@ class MediaFactory(BaseFactory):
     duration = None  # Set for videos
     type = 1  # 1=image, 2=video
     status = 1
-    createdAt = factory.LazyFunction(lambda: datetime.now(timezone.utc))
-    updatedAt = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    createdAt = factory.LazyFunction(lambda: datetime.now(UTC))
+    updatedAt = factory.LazyFunction(lambda: datetime.now(UTC))
     local_filename = None
     content_hash = None
     is_downloaded = False
@@ -158,7 +158,7 @@ class PostFactory(BaseFactory):
     fypFlags = 0
     inReplyTo = None
     inReplyToRoot = None
-    createdAt = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    createdAt = factory.LazyFunction(lambda: datetime.now(UTC))
     expiresAt = None
     likeCount = 0
     replyCount = 0
@@ -207,7 +207,7 @@ class MessageFactory(BaseFactory):
     senderId = factory.Sequence(lambda n: 10000 + n)
     recipientId = None
     content = factory.Sequence(lambda n: f"Test message content {n}")
-    createdAt = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    createdAt = factory.LazyFunction(lambda: datetime.now(UTC))
     status = 1
 
 
@@ -254,7 +254,7 @@ class AccountMediaFactory(BaseFactory):
     accountId = factory.Sequence(lambda n: 10000 + n)
     mediaId = factory.Sequence(lambda n: 20000 + n)
     previewId = None
-    createdAt = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    createdAt = factory.LazyFunction(lambda: datetime.now(UTC))
     deletedAt = None
     deleted = False
     access = False
@@ -280,7 +280,7 @@ class AccountMediaBundleFactory(BaseFactory):
     previewId = None
     permissionFlags = 0
     price = 0
-    createdAt = factory.LazyFunction(lambda: datetime.now(timezone.utc))
+    createdAt = factory.LazyFunction(lambda: datetime.now(UTC))
     deletedAt = None
     deleted = False
     bundleContent = "[]"
