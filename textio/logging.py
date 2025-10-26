@@ -221,7 +221,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             if dfn_path.exists():
                 dfn_path.unlink()  # pragma: no cover - defensive check, .1 cleared in cleanup or moved in rotation
             shutil.copy2(self.baseFilename, dfn)
-            with open(self.baseFilename, "w") as f:
+            with base_path.open("w") as f:
                 f.truncate(0)
 
             # Compress the new rotated file if needed
@@ -234,7 +234,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
         if not self.delay:
             self.stream = self._open()
 
-    def close(self):
+    def close(self) -> None:
         """
         Closes the stream and ensures proper cleanup.
         Idempotent - safe to call multiple times.
@@ -249,7 +249,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
                     self.stream.close()
             self.stream = None  # type: ignore[assignment]
 
-    def _compress_file(self, filepath):
+    def _compress_file(self, filepath: str | Path) -> None:
         """Compress a log file with proper error handling.
 
         Args:
@@ -452,7 +452,7 @@ class SizeTimeRotatingHandler:
                 return False
 
             # Try to read the file
-            with open(self.filename, encoding="utf-8") as f:
+            with self.filename.open(encoding="utf-8") as f:
                 f.read(1)  # Try to read just one character
 
             # Check write permissions

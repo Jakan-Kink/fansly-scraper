@@ -171,12 +171,7 @@ def _extract_checkkey_subprocess(js_content: str) -> str | None:
     :return: The extracted checkKey value or None if extraction fails
     :rtype: str | None
     """
-    import json
-    import subprocess
-    import tempfile
-    from pathlib import Path
-
-    from textio import print_warning
+    from textio import print_warning  # Avoid circular import
 
     # Create temporary file for JavaScript content
     with tempfile.NamedTemporaryFile(
@@ -269,6 +264,7 @@ console.log(JSON.stringify({{
         # Execute Node.js script
         result = subprocess.run(
             ["node", temp_script],
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,
@@ -309,12 +305,10 @@ console.log(JSON.stringify({{
 
     finally:
         # Cleanup temporary files
-        try:
+        with suppress(Exception):
             Path(temp_js_path).unlink(missing_ok=True)
             if temp_script:
                 Path(temp_script).unlink(missing_ok=True)
-        except Exception:
-            pass
 
     return None
 

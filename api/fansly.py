@@ -5,7 +5,7 @@ import math
 import random
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -444,10 +444,9 @@ class FanslyApi:
                     self._websocket_client.session_id,
                 )
                 return self._websocket_client.session_id
-            else:
-                logger.warning("WebSocket connected but no session_id, reconnecting...")
-                await self._websocket_client.stop()
-                self._websocket_client = None
+            logger.warning("WebSocket connected but no session_id, reconnecting...")
+            await self._websocket_client.stop()
+            self._websocket_client = None
 
         # Create new WebSocket client with current session cookies
         logger.info("Starting persistent WebSocket connection for anti-detection")
@@ -662,7 +661,7 @@ class FanslyApi:
             # - The token is in response.response.session.token
 
             token_found = False
-            if "response" in response_data and response_data["response"]:
+            if response_data.get("response"):
                 resp_inner = response_data["response"]
                 logger.debug(
                     f"Response inner keys: {list(resp_inner.keys()) if resp_inner else 'empty'}"
@@ -671,7 +670,7 @@ class FanslyApi:
                 # Check for token in session object (correct location)
                 if "session" in resp_inner and isinstance(resp_inner["session"], dict):
                     session_data = resp_inner["session"]
-                    if "token" in session_data and session_data["token"]:
+                    if session_data.get("token"):
                         self.token = session_data["token"]
                         logger.info(
                             "Authorization token obtained from response.session.token"
@@ -687,7 +686,7 @@ class FanslyApi:
                         "sessionToken",
                         "auth",
                     ]:
-                        if key in resp_inner and resp_inner[key]:
+                        if resp_inner.get(key):
                             self.token = resp_inner[key]
                             logger.info(
                                 f"Authorization token obtained from response.{key}"
@@ -737,7 +736,7 @@ class FanslyApi:
 
     @staticmethod
     def get_timestamp_ms() -> int:
-        timestamp = datetime.now(timezone.utc).timestamp()
+        timestamp = datetime.now(UTC).timestamp()
 
         return int(timestamp * 1000)
 
@@ -754,14 +753,13 @@ class FanslyApi:
 
         return fansly_client_ts
 
-    def update_client_timestamp(self):
+    def update_client_timestamp(self) -> None:
         new_timestamp = self.get_client_timestamp()
 
         if not hasattr(self, "client_timestamp"):
             return
 
-        if new_timestamp > self.client_timestamp:
-            self.client_timestamp = new_timestamp
+        self.client_timestamp = max(self.client_timestamp, new_timestamp)
 
     def to_str16(self, number: int) -> str:
         by = number.to_bytes(64, byteorder="big")
@@ -895,10 +893,9 @@ class FanslyApi:
                 else:
                     result[key] = value
             return result
-        elif isinstance(data, list):
+        if isinstance(data, list):
             return [FanslyApi.convert_ids_to_int(item) for item in data]
-        else:
-            return data
+        return data
 
     def get_json_response_contents(self, response: httpx.Response) -> dict:
         self.validate_json_response(response)

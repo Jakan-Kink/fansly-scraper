@@ -173,22 +173,21 @@ def create_tables(sqlite_engine: Engine, pg_engine: Engine) -> None:
 
         if "DATETIME" in type_name or "TIMESTAMP" in type_name:
             return DateTime()
-        elif "VARCHAR" in type_name or "TEXT" in type_name or "CHAR" in type_name:
+        if "VARCHAR" in type_name or "TEXT" in type_name or "CHAR" in type_name:
             # Extract length if present
             if hasattr(column_type, "length") and column_type.length:
                 return String(column_type.length)
             return Text()
-        elif "INTEGER" in type_name or "INT" in type_name:
+        if "INTEGER" in type_name or "INT" in type_name:
             # Use BigInteger for all integers to handle snowflake IDs
             # PostgreSQL BIGINT can handle values up to 9,223,372,036,854,775,807
             return BigInteger()
-        elif "BOOLEAN" in type_name or "BOOL" in type_name:
+        if "BOOLEAN" in type_name or "BOOL" in type_name:
             return Boolean()
-        elif "REAL" in type_name or "FLOAT" in type_name or "DOUBLE" in type_name:
+        if "REAL" in type_name or "FLOAT" in type_name or "DOUBLE" in type_name:
             return Float()
-        else:
-            # Default to Text for unknown types
-            return Text()
+        # Default to Text for unknown types
+        return Text()
 
     # Recreate tables with PostgreSQL-compatible types
     for table_name, sqlite_table in sqlite_metadata.tables.items():
@@ -325,9 +324,8 @@ def verify_migration(
     if all_match:
         print("  ✓ Verification passed")
         return True
-    else:
-        print("  ✗ Verification failed")
-        return False
+    print("  ✗ Verification failed")
+    return False
 
 
 def backup_sqlite_file(sqlite_file: Path) -> Path:

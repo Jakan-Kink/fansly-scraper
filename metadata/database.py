@@ -511,8 +511,5 @@ class Database:
 
     def __del__(self) -> None:
         """Ensure cleanup on deletion."""
-        try:
+        with suppress(Exception):
             self.close_sync()
-        except Exception:
-            # Ignore errors during shutdown
-            pass

@@ -33,7 +33,7 @@ class GalleryClientMixin(StashClientProtocol):
                 return Gallery(**clean_data)
             return None
         except Exception as e:
-            self.log.error(f"Failed to find gallery {id}: {e}")
+            self.log.exception(f"Failed to find gallery {id}: {e}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -72,7 +72,7 @@ class GalleryClientMixin(StashClientProtocol):
             )
             return FindGalleriesResultType(**result["findGalleries"])
         except Exception as e:
-            self.log.error(f"Failed to find galleries: {e}")
+            self.log.exception(f"Failed to find galleries: {e}")
             return FindGalleriesResultType(count=0, galleries=[])
 
     async def create_gallery(self, gallery: Gallery) -> Gallery:
@@ -102,7 +102,7 @@ class GalleryClientMixin(StashClientProtocol):
             clean_data = sanitize_model_data(result["galleryCreate"])
             return Gallery(**clean_data)
         except Exception as e:
-            self.log.error(f"Failed to create gallery: {e}")
+            self.log.exception(f"Failed to create gallery: {e}")
             raise
 
     async def update_gallery(self, gallery: Gallery) -> Gallery:
@@ -143,7 +143,7 @@ class GalleryClientMixin(StashClientProtocol):
             updated_gallery.mark_clean()
             return updated_gallery
         except Exception as e:
-            self.log.error(f"Failed to update gallery: {e}")
+            self.log.exception(f"Failed to update gallery: {e}")
             raise
 
     async def galleries_update(self, galleries: list[Gallery]) -> list[Gallery]:
@@ -168,7 +168,7 @@ class GalleryClientMixin(StashClientProtocol):
                 for gallery in result["galleriesUpdate"]
             ]
         except Exception as e:
-            self.log.error(f"Failed to update galleries: {e}")
+            self.log.exception(f"Failed to update galleries: {e}")
             raise
 
     async def gallery_destroy(
@@ -203,7 +203,7 @@ class GalleryClientMixin(StashClientProtocol):
             self.find_galleries.cache_clear()
             return result["galleryDestroy"]
         except Exception as e:
-            self.log.error(f"Failed to destroy galleries {ids}: {e}")
+            self.log.exception(f"Failed to destroy galleries {ids}: {e}")
             raise
 
     async def remove_gallery_images(
@@ -229,7 +229,9 @@ class GalleryClientMixin(StashClientProtocol):
             self.find_gallery.cache_clear()
             return result["removeGalleryImages"]
         except Exception as e:
-            self.log.error(f"Failed to remove images from gallery {gallery_id}: {e}")
+            self.log.exception(
+                f"Failed to remove images from gallery {gallery_id}: {e}"
+            )
             raise
 
     async def set_gallery_cover(
@@ -255,7 +257,7 @@ class GalleryClientMixin(StashClientProtocol):
             self.find_gallery.cache_clear()
             return result["setGalleryCover"]
         except Exception as e:
-            self.log.error(f"Failed to set cover for gallery {gallery_id}: {e}")
+            self.log.exception(f"Failed to set cover for gallery {gallery_id}: {e}")
             raise
 
     async def reset_gallery_cover(self, gallery_id: str) -> bool:
@@ -276,7 +278,7 @@ class GalleryClientMixin(StashClientProtocol):
             self.find_gallery.cache_clear()
             return result["resetGalleryCover"]
         except Exception as e:
-            self.log.error(f"Failed to reset cover for gallery {gallery_id}: {e}")
+            self.log.exception(f"Failed to reset cover for gallery {gallery_id}: {e}")
             raise
 
     async def gallery_chapter_create(
@@ -312,7 +314,9 @@ class GalleryClientMixin(StashClientProtocol):
             clean_data = sanitize_model_data(result["galleryChapterCreate"])
             return GalleryChapter(**clean_data)
         except Exception as e:
-            self.log.error(f"Failed to create chapter for gallery {gallery_id}: {e}")
+            self.log.exception(
+                f"Failed to create chapter for gallery {gallery_id}: {e}"
+            )
             raise
 
     async def gallery_chapter_update(
@@ -352,7 +356,7 @@ class GalleryClientMixin(StashClientProtocol):
             clean_data = sanitize_model_data(result["galleryChapterUpdate"])
             return GalleryChapter(**clean_data)
         except Exception as e:
-            self.log.error(f"Failed to update chapter {id}: {e}")
+            self.log.exception(f"Failed to update chapter {id}: {e}")
             raise
 
     async def add_gallery_images(
@@ -387,7 +391,7 @@ class GalleryClientMixin(StashClientProtocol):
             self.find_gallery.cache_clear()
             return result["addGalleryImages"]
         except Exception as e:
-            self.log.error(f"Failed to add images to gallery {gallery_id}: {e}")
+            self.log.exception(f"Failed to add images to gallery {gallery_id}: {e}")
             raise
 
     async def gallery_chapter_destroy(self, id: str) -> bool:
@@ -408,5 +412,5 @@ class GalleryClientMixin(StashClientProtocol):
             self.find_gallery.cache_clear()
             return result["galleryChapterDestroy"]
         except Exception as e:
-            self.log.error(f"Failed to destroy chapter {id}: {e}")
+            self.log.exception(f"Failed to destroy chapter {id}: {e}")
             raise

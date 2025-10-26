@@ -89,7 +89,7 @@ async def _get_account_response(
         message = (
             "Error getting account info from fansly API (22). "
             "Please make sure your configuration file is not malformed."
-            f"\n  {str(e)}"
+            f"\n  {e!s}"
         )
         raise ApiError(message)
 
@@ -129,20 +129,19 @@ def _extract_account_data(
                 f"token in the configuration file."
                 f"\n{21 * ' '}Have you surfed Fansly on this browser recently?"
                 f"\n{21 * ' '}Used authorization token: '{config.token}'"
-                f"\n  {str(e)}\n  {response.text}"
+                f"\n  {e!s}\n  {response.text}"
             )
             raise ApiAuthenticationError(message)
-        else:
-            message = (
-                "Bad response from fansly API (25). Please make sure your configuration file is not malformed."
-                f"\n  {str(e)}\n  {response.text}"
-            )
-            raise ApiError(message)
+        message = (
+            "Bad response from fansly API (25). Please make sure your configuration file is not malformed."
+            f"\n  {e!s}\n  {response.text}"
+        )
+        raise ApiError(message)
 
     except IndexError as e:
         message = (
             "Bad response from fansly API (26). Please make sure your configuration file is not malformed; most likely misspelled the creator name."
-            f"\n  {str(e)}\n  {response.text}"
+            f"\n  {e!s}\n  {response.text}"
         )
         raise ApiAccountInfoError(message)
 
@@ -444,9 +443,8 @@ async def get_following_accounts(
                 f"API returned unauthorized while getting following list. "
                 f"This is most likely because of a wrong authorization token."
                 f"\nUsed authorization token: '{config.token}'"
-                f"\n  {str(e)}"
+                f"\n  {e!s}"
             )
             raise ApiAuthenticationError(message)
-        else:
-            message = f"Error getting following list from Fansly API.\n  {str(e)}"
-            raise ApiError(message)
+        message = f"Error getting following list from Fansly API.\n  {e!s}"
+        raise ApiError(message)

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+
 
 if TYPE_CHECKING:
     from .account import Account
@@ -52,7 +53,7 @@ class Story(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         """Initialize a Story instance with timestamp conversion."""
         self.convert_timestamps(kwargs, ("createdAt", "updatedAt"))
         super().__init__(**kwargs)

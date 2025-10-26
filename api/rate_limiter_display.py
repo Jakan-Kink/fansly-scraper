@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from functools import wraps
+from types import TracebackType
 from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast, overload
 
 from rich.console import Console
@@ -244,7 +245,12 @@ class RateLimiterDisplay:
             self.start()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         should_stop = False
         with self._context_lock:
             if self._context_depth > 0:

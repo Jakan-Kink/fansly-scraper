@@ -4,7 +4,7 @@ This module handles both content statistics (pictures, videos, etc.) and file do
 statistics (total files, sizes, etc.), as well as timing statistics.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from config import FanslyConfig
 from download.core import DownloadState, GlobalState
@@ -54,7 +54,7 @@ def update_global_statistics(
 
     if not hasattr(global_state, "download_stats"):
         global_state.download_stats = {
-            "start_time": datetime.now(timezone.utc),
+            "start_time": datetime.now(UTC),
             "total_count": 0,
             "skipped_count": 0,
             "failed_count": 0,

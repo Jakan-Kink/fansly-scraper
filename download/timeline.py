@@ -134,7 +134,7 @@ async def download_timeline(
     attempts = 0
     if (
         config.use_duplicate_threshold or config.use_pagination_duplication
-    ) and state.fetchedTimelineDuplication:
+    ) and state.fetched_timeline_duplication:
         print_info(
             "Skipping Timeline download as the fetchedAt time matches the last pass."
         )
@@ -196,9 +196,8 @@ async def download_timeline(
                     # Try again
                     attempts += 1
                     continue
-                else:
-                    # Reset attempts eg. new timeline
-                    attempts = 0
+                # Reset attempts eg. new timeline
+                attempts = 0
 
                 # Process timeline media with proper transaction management
                 should_continue = await in_transaction_or_new(
@@ -259,7 +258,7 @@ async def download_timeline(
         except DuplicatePageError as e:
             print_info_highlight(str(e))
             print()
-            setattr(e, "_handled", True)
+            e._handled = True
             break  # Break out of the loop to stop processing this timeline
 
         except Exception:

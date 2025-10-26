@@ -79,12 +79,11 @@ class Timer(ContextDecorator):
             minutes = int((elapsed % 3600) // 60)
             seconds = int(elapsed % 60)
             return f"{hours}h {minutes}m {seconds}s"
-        elif elapsed >= 60:  # More than a minute
+        if elapsed >= 60:  # More than a minute
             minutes = int(elapsed // 60)
             seconds = int(elapsed % 60)
             return f"{minutes}m {seconds}s"
-        else:
-            return f"{int(elapsed)}s"
+        return f"{int(elapsed)}s"
 
     def get_elapsed_time_str(self) -> str:
         """Gets the elapsed time as a formatted string.

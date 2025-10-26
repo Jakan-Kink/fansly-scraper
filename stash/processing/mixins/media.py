@@ -119,7 +119,7 @@ class MediaProcessingMixin:
                     return file_data
 
                 # Otherwise, if it's a dict, try to create an ImageFile
-                elif isinstance(file_data, dict):
+                if isinstance(file_data, dict):
                     # Ensure all required fields exist for ImageFile
                     required_fields = [
                         "id",
@@ -186,7 +186,7 @@ class MediaProcessingMixin:
             # If we get here, no valid files were found
             logger.debug("No valid ImageFile found in visual_files")
             return None
-        elif isinstance(stash_obj, Scene):
+        if isinstance(stash_obj, Scene):
             # Get the primary VideoFile
             scene_id = getattr(stash_obj, "id", "unknown")
             logger.debug(f"Getting file from Scene object: {scene_id}")
@@ -219,7 +219,7 @@ class MediaProcessingMixin:
                     return file_data
 
                 # If it's a dict, try to create a VideoFile
-                elif isinstance(file_data, dict):
+                if isinstance(file_data, dict):
                     # Log available fields
                     logger.debug(f"VideoFile data fields: {list(file_data.keys())}")
 
@@ -897,15 +897,15 @@ class MediaProcessingMixin:
         # Log full object details for debugging
         logger.debug(
             "\nFull stash object details:\n"
-            + f"Object Type: {stash_obj.__class__.__name__}\n"
-            + f"ID: {stash_obj.id}\n"
-            + f"Title: {getattr(stash_obj, 'title', None)}\n"
-            + f"Date: {current_date_str}\n"
-            + f"Code: {getattr(stash_obj, 'code', None)}\n"
-            + f"Organized: {is_organized}\n"
-            + f"Item date: {item_date}\n"
-            + f"Item ID: {item.id}\n"
-            + f"Media ID: {media_id}\n"
+            f"Object Type: {stash_obj.__class__.__name__}\n"
+            f"ID: {stash_obj.id}\n"
+            f"Title: {getattr(stash_obj, 'title', None)}\n"
+            f"Date: {current_date_str}\n"
+            f"Code: {getattr(stash_obj, 'code', None)}\n"
+            f"Organized: {is_organized}\n"
+            f"Item date: {item_date}\n"
+            f"Item ID: {item.id}\n"
+            f"Media ID: {media_id}\n"
         )
 
         if is_organized:
@@ -975,7 +975,7 @@ class MediaProcessingMixin:
         )
 
         # Add URL only for posts since message URLs won't work for other users
-        if hasattr(item, "id") and getattr(item, "__class__", None).__name__ == "Post":
+        if hasattr(item, "id") and item.__class__.__name__ == "Post":
             post_url = f"https://fansly.com/post/{item.id}"
 
             # Handle both singular url and plural urls fields
@@ -1006,58 +1006,58 @@ class MediaProcessingMixin:
                     # Try to find existing performer
                     mention_performer = await self._find_existing_performer(mention)
 
-                # Create new performer if not found
-                if not mention_performer:
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _update_stash_metadata",
-                            "status": "creating_mentioned_performer",
-                            "username": mention.username,
-                        }
-                    )
-                    try:
-                        mention_performer = Performer.from_account(mention)
-                        if mention_performer:
-                            await mention_performer.save(self.context.client)
-                            await self._update_account_stash_id(
-                                mention, mention_performer
-                            )
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _update_stash_metadata",
-                                    "status": "performer_created",
-                                    "username": mention.username,
-                                    "stash_id": mention_performer.id,
-                                }
-                            )
-                    except Exception as e:
-                        error_message = str(e)
-                        if (
-                            "performer with name" in error_message
-                            and "already exists" in error_message
-                        ):
-                            # Try to find the performer again - it may have been created by another thread
-                            mention_performer = await self._find_existing_performer(
-                                mention
-                            )
+                    # Create new performer if not found
+                    if not mention_performer:
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _update_stash_metadata",
+                                "status": "creating_mentioned_performer",
+                                "username": mention.username,
+                            }
+                        )
+                        try:
+                            mention_performer = Performer.from_account(mention)
                             if mention_performer:
+                                await mention_performer.save(self.context.client)
+                                await self._update_account_stash_id(
+                                    mention, mention_performer
+                                )
                                 debug_print(
                                     {
                                         "method": "StashProcessing - _update_stash_metadata",
-                                        "status": "performer_found_after_create_failed",
+                                        "status": "performer_created",
                                         "username": mention.username,
                                         "stash_id": mention_performer.id,
                                     }
                                 )
+                        except Exception as e:
+                            error_message = str(e)
+                            if (
+                                "performer with name" in error_message
+                                and "already exists" in error_message
+                            ):
+                                # Try to find the performer again - it may have been created by another thread
+                                mention_performer = await self._find_existing_performer(
+                                    mention
+                                )
+                                if mention_performer:
+                                    debug_print(
+                                        {
+                                            "method": "StashProcessing - _update_stash_metadata",
+                                            "status": "performer_found_after_create_failed",
+                                            "username": mention.username,
+                                            "stash_id": mention_performer.id,
+                                        }
+                                    )
+                                else:
+                                    # If we still can't find it, something is wrong
+                                    raise
                             else:
-                                # If we still can't find it, something is wrong
+                                # Re-raise if it's not a "performer already exists" error
                                 raise
-                        else:
-                            # Re-raise if it's not a "performer already exists" error
-                            raise
 
-                if mention_performer:
-                    performers.append(mention_performer)
+                    if mention_performer:
+                        performers.append(mention_performer)
 
         if performers:
             stash_obj.performers = performers
@@ -1102,18 +1102,19 @@ class MediaProcessingMixin:
             logger.debug("No dirty attributes detected")
 
         # Log detailed state just before save
+        is_dirty = stash_obj.is_dirty() if hasattr(stash_obj, "is_dirty") else True
         logger.debug(
             "State before save:\nTitle = %s\nDate = %s\nCode = %s\nDirty = %s\n",
             getattr(stash_obj, "title", None),
             getattr(stash_obj, "date", None),
             getattr(stash_obj, "code", None),
-            stash_obj.is_dirty() if hasattr(stash_obj, "is_dirty") else None,
+            is_dirty,
         )
 
-        # Force mark as dirty to ensure save is attempted
-        # This is a safety measure in case the dirty detection isn't working correctly
-        stash_obj.mark_dirty()
-        logger.debug("Object marked as dirty to ensure save attempt")
+        # Only save if there are actual changes
+        if not is_dirty:
+            logger.debug("No changes detected, skipping save")
+            return
 
         # Save changes to Stash
         try:

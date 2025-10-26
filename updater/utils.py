@@ -108,7 +108,7 @@ def perform_update(program_version: str, release_info: dict) -> bool:
     keys = ["release_version", "created_at", "download_count"]
 
     for key in keys:
-        if key not in release_info.keys():
+        if key not in release_info:
             return False
 
     print_info(
@@ -235,53 +235,45 @@ def check_for_update(config: FanslyConfig) -> bool:
     if release_info is None:
         return False
 
-    else:
-        # we don't want to ship drafts or pre-releases
-        if release_info["draft"] or release_info["prerelease"]:
-            return False
+    # we don't want to ship drafts or pre-releases
+    if release_info["draft"] or release_info["prerelease"]:
+        return False
 
-        # remove the string "v" from the version tag
-        new_version = release_info["tag_name"].split("v")[1]
+    # remove the string "v" from the version tag
+    new_version = release_info["tag_name"].split("v")[1]
 
-        # we do only want current platform compatible updates
-        new_release = None
-        current_platform = (
-            "macOS" if platform.system() == "Darwin" else platform.system()
-        )
+    # we do only want current platform compatible updates
+    new_release = None
+    current_platform = "macOS" if platform.system() == "Darwin" else platform.system()
 
-        for new_release in release_info["assets"]:
-            if current_platform in new_release["name"]:
-                d = dateutil.parser.isoparse(new_release["created_at"]).replace(
-                    tzinfo=None
-                )
+    for new_release in release_info["assets"]:
+        if current_platform in new_release["name"]:
+            d = dateutil.parser.isoparse(new_release["created_at"]).replace(tzinfo=None)
 
-                parsed_date = (
-                    f"{d.strftime('%d')} {d.strftime('%B')[:3]} {d.strftime('%Y')}"
-                )
+            parsed_date = (
+                f"{d.strftime('%d')} {d.strftime('%B')[:3]} {d.strftime('%Y')}"
+            )
 
-                new_release = {
-                    "release_name": new_release["name"],
-                    "release_version": new_version,
-                    "created_at": parsed_date,
-                    "download_count": new_release["download_count"],
-                    "download_url": new_release["browser_download_url"],
-                }
+            new_release = {
+                "release_name": new_release["name"],
+                "release_version": new_version,
+                "created_at": parsed_date,
+                "download_count": new_release["download_count"],
+                "download_url": new_release["browser_download_url"],
+            }
 
-        if new_release is None:
-            return False
+    if new_release is None:
+        return False
 
-        empty_values = [
-            value is None
-            for key, value in new_release.items()
-            if key != "download_count"
-        ]
+    empty_values = [
+        value is None for key, value in new_release.items() if key != "download_count"
+    ]
 
-        if any(empty_values):
-            return False
+    if any(empty_values):
+        return False
 
-        # just return if our current version is still sufficient
-        if parse_version(config.program_version) >= parse_version(new_version):
-            return True
+    # just return if our current version is still sufficient
+    if parse_version(config.program_version) >= parse_version(new_version):
+        return True
 
-        else:
-            return perform_update(config.program_version, new_release)
+    return perform_update(config.program_version, new_release)

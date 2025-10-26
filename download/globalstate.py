@@ -43,8 +43,7 @@ class GlobalState:
 
         # TODO: Single-post issue
         # Counter negative values when timeline item is zero but download isn't
-        if missing_items_count < 0:
-            missing_items_count = 0
+        missing_items_count = max(missing_items_count, 0)
 
         return missing_items_count
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
+import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -180,7 +181,7 @@ async def process_pinned_posts(
             continue
 
         # Convert timestamp once to avoid repeated conversions
-        created_at = datetime.fromtimestamp((post["createdAt"] / 1000), timezone.utc)
+        created_at = datetime.fromtimestamp((post["createdAt"] / 1000), UTC)
 
         insert_stmt = insert(pinned_posts).values(
             postId=post["postId"],
@@ -215,8 +216,7 @@ async def process_timeline_posts(
         posts_data: Post data from API response
         session: Optional AsyncSession for database operations
     """
-    import time
-
+    # Avoid circular imports
     from .account import Account, process_account_data
     from .media import process_media_info
 
@@ -638,8 +638,6 @@ async def _process_timeline_post(
         post: Post data dictionary
         session: Optional AsyncSession for database operations
     """
-    import time
-
     start_time = time.time()
     post_id = post.get("id")
 

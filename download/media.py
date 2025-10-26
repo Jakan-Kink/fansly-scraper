@@ -70,9 +70,8 @@ async def download_media_infos(
                             f"Rate limited (429), retrying ({attempt + 1}/{max_retries})..."
                         )
                         continue
-                    else:
-                        # Final attempt failed, raise the error
-                        media_info_response.raise_for_status()
+                    # Final attempt failed, raise the error
+                    media_info_response.raise_for_status()
 
                 # For other errors or success, exit retry loop
                 break

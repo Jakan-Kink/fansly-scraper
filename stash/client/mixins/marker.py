@@ -33,7 +33,7 @@ class MarkerClientMixin(StashClientProtocol):
                 return SceneMarker(**clean_data)
             return None
         except Exception as e:
-            self.log.error(f"Failed to find marker {id}: {e}")
+            self.log.exception(f"Failed to find marker {id}: {e}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -72,7 +72,7 @@ class MarkerClientMixin(StashClientProtocol):
             )
             return FindSceneMarkersResultType(**result["findSceneMarkers"])
         except Exception as e:
-            self.log.error(f"Failed to find markers: {e}")
+            self.log.exception(f"Failed to find markers: {e}")
             return FindSceneMarkersResultType(count=0, scene_markers=[])
 
     async def create_marker(self, marker: SceneMarker) -> SceneMarker:
@@ -104,7 +104,7 @@ class MarkerClientMixin(StashClientProtocol):
             clean_data = sanitize_model_data(result["sceneMarkerCreate"])
             return SceneMarker(**clean_data)
         except Exception as e:
-            self.log.error(f"Failed to create marker: {e}")
+            self.log.exception(f"Failed to create marker: {e}")
             raise
 
     async def scene_marker_tags(self, scene_id: str) -> list[dict[str, Any]]:
@@ -125,7 +125,9 @@ class MarkerClientMixin(StashClientProtocol):
             )
             return result["sceneMarkerTags"]
         except Exception as e:
-            self.log.error(f"Failed to get scene marker tags for scene {scene_id}: {e}")
+            self.log.exception(
+                f"Failed to get scene marker tags for scene {scene_id}: {e}"
+            )
             return []
 
     async def update_marker(self, marker: SceneMarker) -> SceneMarker:
@@ -166,5 +168,5 @@ class MarkerClientMixin(StashClientProtocol):
             updated_marker.mark_clean()
             return updated_marker
         except Exception as e:
-            self.log.error(f"Failed to update marker: {e}")
+            self.log.exception(f"Failed to update marker: {e}")
             raise

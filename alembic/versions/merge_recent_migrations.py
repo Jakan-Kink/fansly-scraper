@@ -68,15 +68,12 @@ def upgrade() -> None:
         old_table.c.pos,
     )
     # PostgreSQL: Handle conflicts at application level or use insert().on_conflict_do_nothing()
-    try:
+    with contextlib.suppress(Exception):
         connection.execute(
             new_table.insert().from_select(
                 ["bundle_id", "media_id", "pos"], select_stmt
             )
         )
-    except Exception:
-        # If there are conflicts, insert one by one with conflict handling
-        pass
 
     # Drop old table and rename new one
     op.drop_table("account_media_bundle_media")
@@ -98,28 +95,20 @@ def upgrade() -> None:
 
     # Handle media_locations constraints
     with op.batch_alter_table("media_locations") as batch_op:
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("uq_media_locations", type_="unique")
-        except Exception:
-            pass  # Constraint might not exist
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("fk_media_locations_media_id", type_="foreignkey")
-        except Exception:
-            pass  # Constraint might not exist
         batch_op.create_foreign_key(
             "fk_media_locations_media_id_new", "media", ["mediaId"], ["id"]
         )
 
     # Handle wall_posts constraints
     with op.batch_alter_table("wall_posts") as batch_op:
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("fk_wall_posts_post_id", type_="foreignkey")
-        except Exception:
-            pass  # Constraint might not exist
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("fk_wall_posts_wall_id", type_="foreignkey")
-        except Exception:
-            pass  # Constraint might not exist
         batch_op.create_foreign_key(
             "fk_wall_posts_wall_id_new", "walls", ["wallId"], ["id"]
         )
@@ -141,14 +130,10 @@ def downgrade() -> None:
 
     # Handle wall_posts constraints
     with op.batch_alter_table("wall_posts") as batch_op:
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("fk_wall_posts_wall_id_new", type_="foreignkey")
-        except Exception:
-            pass  # Constraint might not exist
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("fk_wall_posts_post_id_new", type_="foreignkey")
-        except Exception:
-            pass  # Constraint might not exist
         batch_op.create_foreign_key(
             "fk_wall_posts_wall_id",
             "walls",
@@ -166,12 +151,10 @@ def downgrade() -> None:
 
     # Handle media_locations constraints
     with op.batch_alter_table("media_locations") as batch_op:
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint(
                 "fk_media_locations_media_id_new", type_="foreignkey"
             )
-        except Exception:
-            pass  # Constraint might not exist
         batch_op.create_foreign_key(
             "fk_media_locations_media_id",
             "media",
@@ -213,15 +196,12 @@ def downgrade() -> None:
         old_table.c.pos,
     )
     # PostgreSQL: Handle conflicts at application level
-    try:
+    with contextlib.suppress(Exception):
         connection.execute(
             new_table.insert().from_select(
                 ["bundle_id", "media_id", "pos"], select_stmt
             )
         )
-    except Exception:
-        # If there are conflicts, insert one by one with conflict handling
-        pass
 
     # Drop old table and rename new one
     op.drop_table("account_media_bundle_media")

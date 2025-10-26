@@ -4,7 +4,7 @@ import copy
 import json
 import traceback
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -183,9 +183,7 @@ class MediaBatch:
 
         # For variants without createdAt, use parent's
         if parent_created_at is not None and "createdAt" not in media_item:
-            filtered_media["createdAt"] = datetime.fromtimestamp(
-                parent_created_at, timezone.utc
-            )
+            filtered_media["createdAt"] = datetime.fromtimestamp(parent_created_at, UTC)
 
         self.media_items.append(filtered_media)
         self.seen_media.add(media_id)
@@ -878,12 +876,10 @@ async def process_media_download(
                 "accountId": int(state.creator_id),
                 "mimetype": mimetype,
                 "createdAt": (
-                    datetime.fromtimestamp(created_at, tz=timezone.utc)
-                    if created_at
-                    else None
+                    datetime.fromtimestamp(created_at, tz=UTC) if created_at else None
                 ),
                 "updatedAt": (
-                    datetime.fromtimestamp(media["updatedAt"], tz=timezone.utc)
+                    datetime.fromtimestamp(media["updatedAt"], tz=UTC)
                     if media["updatedAt"]
                     else None
                 ),
@@ -916,21 +912,18 @@ async def process_media_download(
                     ),
                 },
             )
-    else:
-        # For MediaItem, create record if it doesn't exist
-        if media_obj is None:
-            media_obj = Media(
-                id=media_id,
-                accountId=int(state.creator_id),
-                mimetype=mimetype,
-                createdAt=(
-                    datetime.fromtimestamp(created_at, tz=timezone.utc)
-                    if created_at
-                    else None
-                ),
-            )
-            session.add(media_obj)
-            await session.flush()
+    # For MediaItem, create record if it doesn't exist
+    elif media_obj is None:
+        media_obj = Media(
+            id=media_id,
+            accountId=int(state.creator_id),
+            mimetype=mimetype,
+            createdAt=(
+                datetime.fromtimestamp(created_at, tz=UTC) if created_at else None
+            ),
+        )
+        session.add(media_obj)
+        await session.flush()
 
     # Remove duplicate skip check since we already checked above
     if False and _should_skip_media(existing_media):

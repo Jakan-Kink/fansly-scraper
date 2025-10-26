@@ -42,14 +42,13 @@ class MediaItem:
 
     def created_at_str(self) -> str:
         # Always use UTC for timestamps to ensure consistent filenames
-        dt = datetime.fromtimestamp(self.created_at, tz=timezone.utc)
+        dt = datetime.fromtimestamp(self.created_at, tz=UTC)
         return dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
 
     def get_download_url_file_extension(self) -> str | None:
         if self.download_url:
             return self.download_url.split("/")[-1].split(".")[-1].split("?")[0]
-        else:
-            return None
+        return None
 
     def get_file_name(self, for_preview: bool = False) -> str:
         """Get filename for either regular or preview content.

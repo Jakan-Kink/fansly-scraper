@@ -197,7 +197,7 @@ class Performer(StashObject):
 
         try:
             # Read and encode image
-            with open(path, "rb") as f:
+            with path.open("rb") as f:
                 image_data = f.read()
             image_b64 = base64.b64encode(image_data).decode("utf-8")
             mime = mimetypes.types_map.get(path.suffix, "image/jpeg")

@@ -148,11 +148,11 @@ class Attachment(Base):
         # even in async context as they don't trigger lazy loads
         if self.contentType == ContentType.ACCOUNT_MEDIA:
             return self.media
-        elif self.contentType == ContentType.ACCOUNT_MEDIA_BUNDLE:
+        if self.contentType == ContentType.ACCOUNT_MEDIA_BUNDLE:
             return self.bundle
-        elif self.contentType == ContentType.AGGREGATED_POSTS:
+        if self.contentType == ContentType.AGGREGATED_POSTS:
             return self.aggregated_post
-        elif self.contentType == ContentType.STORY:
+        if self.contentType == ContentType.STORY:
             return self.story
         return None
 

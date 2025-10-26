@@ -14,8 +14,6 @@ import strawberry
 class Time:
     """Time scalar type."""
 
-    pass
-
 
 @strawberry.scalar(
     name="Timestamp",
@@ -34,8 +32,6 @@ class Timestamp:
     - RFC3339 string (e.g., "2023-12-31T23:59:59Z")
     - Relative time in past (e.g., "<4h" for 4 hours ago)
     - Relative time in future (e.g., ">5m" for 5 minutes from now)"""
-
-    pass
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -82,8 +78,6 @@ def _parse_timestamp(value: str) -> datetime:
 class Map:
     """Map scalar type."""
 
-    pass
-
 
 @strawberry.scalar(
     name="BoolMap",
@@ -93,8 +87,6 @@ class Map:
 )
 class BoolMap:
     """BoolMap scalar type."""
-
-    pass
 
 
 @strawberry.scalar(
@@ -106,8 +98,6 @@ class BoolMap:
 class PluginConfigMap:
     """PluginConfigMap scalar type."""
 
-    pass
-
 
 @strawberry.scalar(
     name="Any",
@@ -116,8 +106,6 @@ class PluginConfigMap:
 )
 class Any:
     """Any scalar type."""
-
-    pass
 
 
 @strawberry.scalar(
@@ -130,5 +118,3 @@ class Int64:
     """Int64 scalar type from schema/types/scalars.graphql.
 
     A 64-bit integer that can represent values from -2^63 to 2^63-1."""
-
-    pass

@@ -709,19 +709,18 @@ class GalleryProcessingMixin:
                                 }
                             )
                             break
-                        else:
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _process_item_gallery",
-                                    "status": "gallery_images_add_failed",
-                                    "item_id": item.id,
-                                    "gallery_id": gallery.id,
-                                    "attempt": attempt + 1,
-                                    "image_count": len(all_images),
-                                }
-                            )
-                            if attempt < 2:  # Don't sleep on last attempt
-                                await asyncio.sleep(2**attempt)  # Exponential backoff
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _process_item_gallery",
+                                "status": "gallery_images_add_failed",
+                                "item_id": item.id,
+                                "gallery_id": gallery.id,
+                                "attempt": attempt + 1,
+                                "image_count": len(all_images),
+                            }
+                        )
+                        if attempt < 2:  # Don't sleep on last attempt
+                            await asyncio.sleep(2**attempt)  # Exponential backoff
                     except Exception as e:
                         last_error = e
                         logger.exception(

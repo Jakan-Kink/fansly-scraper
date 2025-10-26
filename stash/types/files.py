@@ -100,8 +100,7 @@ class BaseFile(StashObject):
                 "destination_folder_id": None,  # Must be set by caller
                 "destination_basename": self.basename,
             }
-        else:
-            raise ValueError("File must have an ID")
+        raise ValueError("File must have an ID")
 
 
 @strawberry.type
@@ -218,5 +217,4 @@ class Folder(StashObject):
                 "destination_folder_id": None,  # Must be set by caller
                 "destination_basename": None,  # Not applicable for folders
             }
-        else:
-            raise ValueError("Folder must have an ID")
+        raise ValueError("Folder must have an ID")

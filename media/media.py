@@ -203,8 +203,7 @@ def parse_media_info(
                 item.default_normal_mimetype == item.mimetype,
             ]
         )
-        or not item.download_url
-    ):
+    ) or not item.download_url:
         # overwrite default variable values, which we will finally return; with the ones from the default media
         item.media_id = item.default_normal_id
         item.created_at = item.default_normal_created_at
