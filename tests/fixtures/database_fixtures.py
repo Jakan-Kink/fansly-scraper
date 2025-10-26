@@ -10,20 +10,24 @@ This module provides comprehensive fixtures for database testing, including:
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import time
 import uuid
-from collections.abc import AsyncGenerator, Callable, Generator
-from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timezone
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Sequence
+from contextlib import asynccontextmanager, contextmanager, suppress
+from datetime import UTC, datetime
 from functools import wraps
-from typing import TypeVar
+from pathlib import Path
+from typing import Any, TypeVar
 from urllib.parse import quote_plus
 
 import pytest
 import pytest_asyncio
+from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, event, inspect, select, text
+from sqlalchemy.engine import Connection, ExecutionContext
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -32,7 +36,6 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import Session, sessionmaker
 
-from alembic.config import Config as AlembicConfig
 from config import FanslyConfig
 from metadata import (
     Account,
@@ -46,48 +49,120 @@ from metadata import (
     Wall,
     account_media_bundle_media,
 )
+from tests.fixtures import metadata_factories
+from tests.fixtures.metadata_factories import AccountFactory
+
 
 T = TypeVar("T")
 
 # Export all fixtures for wildcard import
 __all__ = [
-    "uuid_test_db_factory",
-    "test_data_dir",
-    "timeline_data",
-    "json_conversation_data",
-    "conversation_data",
-    "safe_name",
-    # "temp_db_path" - REMOVED: Legacy SQLite fixture, no longer used
-    "test_engine",
-    "test_async_session",
-    "config",
-    "database",
-    "engine",
-    "session_factory",
-    "test_database_sync",
-    "test_database",
     "cleanup_database",
+    "config",
+    "conversation_data",
+    "factory_async_session",
+    "factory_session",
+    "json_conversation_data",
+    "mock_account",
+    "safe_name",
     "session",
+    "session_factory",
     "session_sync",
     "test_account",
-    "mock_account",
-    "test_media",
     "test_account_media",
+    "test_async_session",
+    "test_bundle",
+    "test_data_dir",
+    "test_database",
+    "test_database_sync",
+    "test_engine",
+    "test_media",
+    "test_message",
     "test_post",
     "test_wall",
-    "test_message",
-    "test_bundle",
-    "factory_session",
-    "factory_async_session",
+    "timeline_data",
+    "uuid_test_db_factory",
 ]
+
+
+# ============================================================================
+# Utility Classes for Mocking SQLAlchemy Async Patterns
+# ============================================================================
+
+
+class AwaitableAttrsMock:
+    """Generic mock for SQLAlchemy's awaitable_attrs pattern.
+
+    This utility class mocks SQLAlchemy's awaitable_attrs, which provides async
+    access to relationship attributes. It dynamically handles ANY attribute access,
+    returning a fresh coroutine each time, allowing unlimited reuse.
+
+    This is completely generic - no need to hardcode attribute names.
+
+    Usage:
+        # Works with any attributes
+        post = MagicMock()
+        post.hashtags = [...]
+        post.accountMentions = [...]
+        post.attachments = [...]
+        post.awaitable_attrs = AwaitableAttrsMock(post)
+
+        # All attributes are automatically awaitable:
+        tags = await post.awaitable_attrs.hashtags
+        mentions = await post.awaitable_attrs.accountMentions
+        attachments = await post.awaitable_attrs.attachments
+
+        # Can await the same attribute multiple times:
+        tags1 = await post.awaitable_attrs.hashtags
+        tags2 = await post.awaitable_attrs.hashtags  # Creates fresh coroutine!
+
+    Design:
+        Uses __getattr__ to intercept ANY attribute access and return a coroutine
+        that fetches the actual value from the parent object.
+    """
+
+    def __init__(self, parent_item: Any) -> None:
+        """Initialize with reference to parent item.
+
+        Args:
+            parent_item: The parent object (mock or real) containing the actual data.
+                        Can be a MagicMock, a factory-created model, or any object.
+        """
+        object.__setattr__(self, "_item", parent_item)
+
+    def __getattr__(self, name: str) -> Awaitable[Any]:
+        """Intercept any attribute access and return a fresh coroutine.
+
+        Args:
+            name: The attribute name being accessed
+
+        Returns:
+            A coroutine that will return the attribute value from the parent
+        """
+
+        async def get_attr() -> Any:
+            return getattr(self._item, name, None)
+
+        return get_attr()
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Prevent setting attributes directly (maintain clean interface)."""
+        if name == "_item":
+            object.__setattr__(self, name, value)
+        else:
+            raise AttributeError(
+                f"Cannot set attribute '{name}' on AwaitableAttrsMock. "
+                f"Set it on the parent object instead."
+            )
+
 
 # ============================================================================
 # UUID Database Factory - Provides perfect test isolation
 # ============================================================================
 
 
-@pytest.fixture(scope="function")
-def uuid_test_db_factory(request):
+@pytest.fixture
+def uuid_test_db_factory(request: Any) -> Generator[FanslyConfig, None, None]:
     """Factory fixture that creates isolated PostgreSQL databases for each test.
 
     This fixture provides perfect test isolation by:
@@ -139,28 +214,22 @@ def uuid_test_db_factory(request):
 
     # Cleanup - drop the test database
     admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-    try:
-        with admin_engine.connect() as conn:
-            # Terminate any remaining connections
-            terminate_stmt = text(
-                "SELECT pg_terminate_backend(pid) "
-                "FROM pg_stat_activity "
-                "WHERE datname = :db_name AND pid <> pg_backend_pid()"
-            )
-            conn.execute(terminate_stmt, {"db_name": test_db_name})
+    with suppress(Exception), admin_engine.connect() as conn:
+        # Terminate any remaining connections
+        terminate_stmt = text(
+            "SELECT pg_terminate_backend(pid) "
+            "FROM pg_stat_activity "
+            "WHERE datname = :db_name AND pid <> pg_backend_pid()"
+        )
+        conn.execute(terminate_stmt, {"db_name": test_db_name})
 
-            # Drop the database with FORCE (Postgres 13+) or fallback
-            try:
-                conn.execute(
-                    text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)")
-                )
-            except Exception:
-                # Fallback for older Postgres versions
-                conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
-    except Exception:
-        pass  # Ignore cleanup errors
-    finally:
-        admin_engine.dispose()
+        # Drop the database with FORCE (Postgres 13+) or fallback
+        try:
+            conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name} WITH (FORCE)"))
+        except Exception:
+            # Fallback for older Postgres versions
+            conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
+    admin_engine.dispose()
 
 
 class TestDatabase(Database):
@@ -177,6 +246,14 @@ class TestDatabase(Database):
         self.isolation_level = isolation_level
         super().__init__(config, skip_migrations=skip_migrations)
         self._setup_engine()
+
+    def _verify_tables_created(self, inspector: Any) -> None:
+        """Verify that database tables were created successfully."""
+        table_names = inspector.get_table_names()
+        if not table_names:
+            raise RuntimeError("Failed to create database tables")
+        # Log created tables for debugging
+        print(f"Created tables: {', '.join(sorted(table_names))}")
 
     def _setup_engine(self) -> None:
         """Set up database engine with enhanced test configuration for PostgreSQL."""
@@ -209,12 +286,7 @@ class TestDatabase(Database):
 
                     # Verify tables were created
                     inspector = inspect(self._sync_engine)
-                    table_names = inspector.get_table_names()
-                    if not table_names:
-                        raise RuntimeError("Failed to create database tables")
-
-                    # Log created tables for debugging
-                    print(f"Created tables: {', '.join(sorted(table_names))}")
+                    self._verify_tables_created(inspector)
 
                 conn.commit()
         except Exception as e:
@@ -237,22 +309,34 @@ class TestDatabase(Database):
         )
 
     @property
-    def async_session_factory(self):
+    def async_session_factory(self) -> async_sessionmaker[AsyncSession]:
         return self._async_session_factory
 
     @async_session_factory.setter
-    def async_session_factory(self, value):
+    def async_session_factory(self, value: async_sessionmaker[AsyncSession]) -> None:
         self._async_session_factory = value
 
     def _before_cursor_execute(
-        self, conn, cursor, statement, parameters, context, executemany
-    ):
+        self,
+        conn: Connection,
+        cursor: Any,  # DBAPI cursor type varies by driver
+        statement: str,
+        parameters: dict[str, Any] | Sequence[Any],
+        context: ExecutionContext,
+        executemany: bool
+    ) -> None:
         """Log query execution start time."""
         conn.info.setdefault("query_start_time", []).append(time.time())
 
     def _after_cursor_execute(
-        self, conn, cursor, statement, parameters, context, executemany
-    ):
+        self,
+        conn: Connection,
+        cursor: Any,  # DBAPI cursor type varies by driver
+        statement: str,
+        parameters: dict[str, Any] | Sequence[Any],
+        context: ExecutionContext,
+        executemany: bool
+    ) -> None:
         """Log query execution time."""
         total = time.time() - conn.info["query_start_time"].pop()
         # Log if query takes more than 100ms
@@ -330,47 +414,47 @@ class TestDatabase(Database):
         """Override to optionally skip migrations."""
         if self.skip_migrations:
             return
-        super()._run_migrations_if_needed(alembic_cfg)
+        super()._run_migrations_if_needed(alembic_cfg)  # type: ignore[attr-defined]
 
 
 @pytest.fixture(scope="session")
 def test_data_dir() -> str:
     """Get the directory containing test data files."""
-    return os.path.join(os.path.dirname(__file__), "..", "json")
+    return str(Path(__file__).parent.parent / "json")
 
 
 @pytest.fixture(scope="session")
-def timeline_data(test_data_dir: str) -> dict:
+def timeline_data(test_data_dir: str) -> dict[str, Any]:
     """Load timeline test data."""
-    with open(os.path.join(test_data_dir, "timeline-sample-account.json")) as f:
-        return json.load(f)
+    with (Path(test_data_dir) / "timeline-sample-account.json").open() as f:
+        return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
-def json_conversation_data(test_data_dir: str) -> dict:
+def json_conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load conversation test data."""
-    with open(os.path.join(test_data_dir, "conversation-sample-account.json")) as f:
-        return json.load(f)
+    with (Path(test_data_dir) / "conversation-sample-account.json").open() as f:
+        return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
-def conversation_data(test_data_dir: str) -> dict:
+def conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load test message variants data for testing media variants and bundles."""
-    with open(os.path.join(test_data_dir, "test_message_variants.json")) as f:
-        return json.load(f)
+    with (Path(test_data_dir) / "test_message_variants.json").open() as f:
+        return json.load(f)  # type: ignore[no-any-return]
 
 
-def run_async(func):
+def run_async(func: Callable[..., Awaitable[Any]]) -> Callable[..., Any]:
     """Decorator to run async functions in sync tests."""
 
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         return asyncio.run(func(*args, **kwargs))
 
     return wrapper
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def safe_name(request) -> str:
     """Generate a safe name for the test database based on the test name."""
     # Get the full test name to ensure uniqueness
@@ -479,7 +563,7 @@ async def test_async_session(
         sync_engine.dispose()
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def config(uuid_test_db_factory) -> FanslyConfig:
     """Create a test configuration with isolated PostgreSQL database (UUID-based)."""
     config = uuid_test_db_factory
@@ -491,19 +575,19 @@ def config(uuid_test_db_factory) -> FanslyConfig:
     return config
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def test_sync_engine(test_database_sync: Database):
     """Get the sync database engine from test database."""
     return test_database_sync._sync_engine
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def session_factory(test_sync_engine) -> sessionmaker:
     """Create a session factory."""
     return sessionmaker(bind=test_sync_engine)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def test_database_sync(
     config: FanslyConfig, test_engine
 ) -> Generator[Database, None, None]:
@@ -524,7 +608,7 @@ def test_database_sync(
             print(f"Warning: Error during database cleanup: {cleanup_error}")
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture
 async def test_database(
     config: FanslyConfig, test_engine: AsyncEngine
 ) -> AsyncGenerator[Database, None]:
@@ -603,69 +687,62 @@ async def cleanup_database(request):
             print(f"Warning: Error during database cleanup: {e}")
 
 
-@pytest_asyncio.fixture(scope="function")
-async def session(test_database: Database) -> AsyncSession:
+@pytest_asyncio.fixture
+async def session(test_database: Database) -> AsyncGenerator[AsyncSession, None]:
     """Create an async database session."""
     async with test_database.async_session_scope() as session:
         try:
             yield session
         finally:
-            try:
+            with suppress(Exception):
                 await session.rollback()  # Rollback on error
-            except Exception:
-                # Ignore errors during rollback if database is closed
-                pass
 
 
-@pytest.fixture(scope="function")
-def session_sync(test_database_sync: Database) -> Session:
+@pytest.fixture
+def session_sync(test_database_sync: Database) -> Generator[Session, None, None]:
     """Create a sync database session."""
     with test_database_sync.session_scope() as session:
         try:
             yield session
         finally:
-            try:
+            with suppress(Exception):
                 session.rollback()  # Rollback on error
-            except Exception:
-                # Ignore errors during rollback if database is closed
-                pass
 
 
 async def create_test_entity(
     session: AsyncSession,
     entity_class: type[T],
     test_name: str,
-    create_func: Callable[[AsyncSession, int], T],
+    create_func: Callable[[AsyncSession, int], Awaitable[T]],
 ) -> T:
     """Generic function to create test entities with proper error handling."""
     # Generate unique ID based on test name
-    import hashlib
-
     # Generate unique ID based on full test name and class name
     test_name = test_name.replace("::", "_")  # Replace :: with _ for class methods
-    unique_id = int(hashlib.sha1(test_name.encode()).hexdigest()[:8], 16) % 1000000
+    unique_id = int(hashlib.sha1(test_name.encode(), usedforsecurity=False).hexdigest()[:8], 16) % 1000000
 
+    # Check if entity already exists
+    result = await session.execute(
+        select(entity_class).where(entity_class.id == unique_id)  # type: ignore[attr-defined]
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing
+
+    # Create new entity
     try:
-        # Check if entity already exists
-        result = await session.execute(
-            select(entity_class).where(entity_class.id == unique_id)
-        )
-        existing = result.scalar_one_or_none()
-        if existing:
-            return existing
-
-        # Create new entity
         entity = await create_func(session, unique_id)
         session.add(entity)
         await session.commit()
         await session.refresh(entity)
-        return entity
     except Exception as e:
         await session.rollback()
         raise RuntimeError(f"Failed to create test {entity_class.__name__}: {e}") from e
+    else:
+        return entity
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 async def test_account(session: AsyncSession, request) -> Account:
     """Create a test account with enhanced error handling."""
 
@@ -676,7 +753,7 @@ async def test_account(session: AsyncSession, request) -> Account:
             displayName=f"Test User {unique_id}",
             about="Test account for automated testing",
             location="Test Location",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
 
     # Handle both class and function test cases
@@ -691,7 +768,7 @@ async def test_account(session: AsyncSession, request) -> Account:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 async def test_media(session: AsyncSession, test_account: Account) -> Media:
     """Create a test media item with enhanced attributes."""
 
@@ -706,7 +783,7 @@ async def test_media(session: AsyncSession, test_account: Account) -> Media:
             size=1024 * 1024,  # 1MB
             hash="test_hash",
             url="https://example.com/test.mp4",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
 
     return await create_test_entity(
@@ -717,7 +794,7 @@ async def test_media(session: AsyncSession, test_account: Account) -> Media:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 async def test_account_media(
     session: AsyncSession, test_account: Account, test_media: Media
 ) -> AccountMedia:
@@ -730,8 +807,8 @@ async def test_account_media(
             id=unique_id,
             accountId=test_account.id,
             mediaId=test_media.id,
-            createdAt=datetime.now(timezone.utc),
-            updatedAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
+            updatedAt=datetime.now(UTC),
             status="active",
             type="video",
             title="Test Media Title",
@@ -746,7 +823,7 @@ async def test_account_media(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 async def test_post(session: AsyncSession, test_account: Account) -> Post:
     """Create a test post with enhanced attributes."""
 
@@ -755,8 +832,8 @@ async def test_post(session: AsyncSession, test_account: Account) -> Post:
             id=unique_id,
             accountId=test_account.id,
             content="Test post content",
-            createdAt=datetime.now(timezone.utc),
-            updatedAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
+            updatedAt=datetime.now(UTC),
             type="text",
             status="published",
             title="Test Post Title",
@@ -773,7 +850,7 @@ async def test_post(session: AsyncSession, test_account: Account) -> Post:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 async def test_wall(session: AsyncSession, test_account: Account) -> Wall:
     """Create a test wall with enhanced attributes."""
 
@@ -784,8 +861,8 @@ async def test_wall(session: AsyncSession, test_account: Account) -> Wall:
             name=f"Test Wall {unique_id}",
             description="Test wall description",
             pos=1,
-            createdAt=datetime.now(timezone.utc),
-            updatedAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
+            updatedAt=datetime.now(UTC),
             status="active",
             type="default",
             postCount=0,
@@ -799,7 +876,7 @@ async def test_wall(session: AsyncSession, test_account: Account) -> Wall:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 async def test_message(session: AsyncSession, test_account: Account) -> Message:
     """Create a test message with enhanced attributes."""
 
@@ -808,8 +885,8 @@ async def test_message(session: AsyncSession, test_account: Account) -> Message:
             id=unique_id,
             senderId=test_account.id,
             content="Test message content",
-            createdAt=datetime.now(timezone.utc),
-            updatedAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
+            updatedAt=datetime.now(UTC),
             type="text",
             status="sent",
             isEdited=False,
@@ -825,7 +902,7 @@ async def test_message(session: AsyncSession, test_account: Account) -> Message:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 async def test_bundle(
     session: AsyncSession,
     test_account: Account,
@@ -839,8 +916,8 @@ async def test_bundle(
         bundle = AccountMediaBundle(
             id=unique_id,
             accountId=test_account.id,
-            createdAt=datetime.now(timezone.utc),
-            updatedAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
+            updatedAt=datetime.now(UTC),
             name=f"Test Bundle {unique_id}",
             description="Test bundle description",
             status="active",
@@ -868,7 +945,7 @@ async def test_bundle(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_account():
     """Create a lightweight mock Account for unit tests (no database).
 
@@ -879,8 +956,6 @@ def mock_account():
     Returns:
         Account: A built (not persisted) Account instance
     """
-    from tests.fixtures.metadata_factories import AccountFactory
-
     return AccountFactory.build(
         id=12345,
         username="test_user",
@@ -888,7 +963,7 @@ def mock_account():
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def factory_session(session_sync: Session):
     """Configure FactoryBoy factories to use the test database session.
 
@@ -902,8 +977,6 @@ def factory_session(session_sync: Session):
     Yields:
         The configured session for use by factories
     """
-    from tests.fixtures import metadata_factories
-
     # Get all factory classes (BaseFactory and all subclasses)
     factory_classes = [
         metadata_factories.AccountFactory,
@@ -928,7 +1001,7 @@ def factory_session(session_sync: Session):
         factory_class._meta.sqlalchemy_session = None
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture
 async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession):
     """Configure FactoryBoy factories for use with async sessions.
 
@@ -952,8 +1025,6 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
     Yields:
         A helper object with methods for factory operations
     """
-    from tests.fixtures import metadata_factories
-
     # Create a sync engine from the async engine's URL
     sync_url = str(test_engine.url).replace("+asyncpg", "")
     sync_engine = create_engine(
@@ -964,7 +1035,7 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
     )
 
     # Create sync session factory
-    SyncSessionFactory = sessionmaker(bind=sync_engine)
+    SyncSessionFactory = sessionmaker(bind=sync_engine)  # noqa: N806
     sync_session = SyncSessionFactory()
 
     # Get all factory classes
@@ -1004,15 +1075,11 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
     yield helper
 
     # Cleanup
-    try:
+    with suppress(Exception):
         sync_session.close()
-    except Exception:
-        pass
 
-    try:
+    with suppress(Exception):
         sync_engine.dispose()
-    except Exception:
-        pass
 
     # Reset factory configuration
     for factory_class in factory_classes:
