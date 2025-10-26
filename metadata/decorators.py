@@ -12,6 +12,7 @@ from typing import Any, TypeVar
 
 from sqlalchemy.exc import OperationalError
 
+
 # Lazy import to avoid circular dependency issues during alembic migrations
 # textio functions are imported within methods that use them
 # from textio import print_error, print_info, print_warning

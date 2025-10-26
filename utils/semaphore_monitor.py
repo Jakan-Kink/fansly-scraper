@@ -11,6 +11,7 @@ from typing import NamedTuple
 from config import trace_logger
 from textio import print_warning
 
+
 # Global tracking of seen semaphores
 _seen_semaphores: dict[str, set[str]] = defaultdict(set)
 

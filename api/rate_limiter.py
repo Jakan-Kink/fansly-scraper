@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from config.logging import textio_logger as logger
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
 

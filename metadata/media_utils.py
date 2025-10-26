@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from textio import json_output
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
 

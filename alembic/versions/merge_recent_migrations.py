@@ -6,12 +6,14 @@ Create Date: 2024-12-22 15:10:00.000000
 
 """
 
+import contextlib
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy import column, table
 
 from alembic import op
+
 
 # revision identifiers, used by Alembic.
 revision: str = "merge_recent_migrations"

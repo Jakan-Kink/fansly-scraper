@@ -15,6 +15,7 @@ from .enums import CircumisedEnum, GenderEnum
 from .files import StashID, StashIDInput
 from .metadata import CustomFieldsInput
 
+
 if TYPE_CHECKING:
     from ..client import StashClient
     from .group import Group

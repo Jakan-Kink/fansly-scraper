@@ -25,6 +25,7 @@ from .base import Base
 from .database import require_database_config
 from .relationship_logger import log_missing_relationship
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState

@@ -219,6 +219,7 @@ from .tag import (
     TagUpdateInput,
 )
 
+
 __all__: list[str] = [
     # Base types
     "BulkUpdateIds",

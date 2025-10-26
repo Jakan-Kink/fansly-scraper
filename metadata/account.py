@@ -32,6 +32,7 @@ from .base import Base
 from .database import require_database_config
 from .wall import process_account_walls
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState

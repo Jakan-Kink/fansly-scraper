@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from ...logging import debug_print
 from ...types import Image, Scene, Tag
 
+
 if TYPE_CHECKING:
     pass
 

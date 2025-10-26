@@ -8,6 +8,7 @@ from strawberry import ID, lazy
 from .base import StashObject
 from .enums import BulkUpdateIdMode
 
+
 if TYPE_CHECKING:
     from .scene import Scene
     from .studio import Studio

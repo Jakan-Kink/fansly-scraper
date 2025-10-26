@@ -10,6 +10,7 @@ from metadata import Account
 from .base import StashObject
 from .files import StashID, StashIDInput
 
+
 if TYPE_CHECKING:
     from .tag import Tag
 

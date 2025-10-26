@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
+
 # revision identifiers
 revision: str = "b2f528bacfd3"  # Replace with generated ID
 down_revision: str | None = "4b98a29f4965"

@@ -30,6 +30,7 @@ from ..types import (
     ScanMetadataOptions,
 )
 
+
 T = TypeVar("T")
 
 

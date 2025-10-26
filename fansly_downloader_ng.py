@@ -75,6 +75,7 @@ from textio import (
 from updater import self_update
 from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
+
 # tell PIL to be tolerant of files that are truncated
 # ImageFile.LOAD_TRUNCATED_IMAGES = True
 

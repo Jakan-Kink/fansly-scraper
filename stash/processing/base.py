@@ -17,6 +17,7 @@ from ..context import StashContext
 from ..logging import debug_print
 from ..logging import processing_logger as logger
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState

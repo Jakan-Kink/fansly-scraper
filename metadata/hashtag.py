@@ -24,6 +24,7 @@ from config.decorators import with_database_session
 from .base import Base
 from .database import require_database_config
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
 

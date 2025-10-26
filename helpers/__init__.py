@@ -18,6 +18,7 @@ from .web import (
     split_url,
 )
 
+
 __all__ = [
     "Timer",
     "TimerError",

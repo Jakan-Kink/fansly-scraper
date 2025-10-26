@@ -18,6 +18,7 @@ from ...logging import debug_print
 from ...logging import processing_logger as logger
 from ...types import Gallery, GalleryChapter, Studio
 
+
 if TYPE_CHECKING:
     from datetime import datetime
 

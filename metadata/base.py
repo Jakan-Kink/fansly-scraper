@@ -17,6 +17,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapper, Session
 
 from .decorators import retry_on_locked_db
 
+
 # Lazy import to avoid circular dependency issues during alembic migrations
 # json_output is imported within methods that use it
 # from textio import json_output

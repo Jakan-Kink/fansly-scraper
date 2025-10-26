@@ -16,6 +16,7 @@ from textio import json_output
 from .base import Base
 from .story import Story
 
+
 if TYPE_CHECKING:
     from .account import AccountMedia, AccountMediaBundle
     from .messages import Message

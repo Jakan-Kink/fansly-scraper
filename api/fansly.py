@@ -16,6 +16,7 @@ from api.websocket import FanslyWebSocket
 from config.logging import textio_logger as logger
 from helpers.web import get_flat_qs_dict, split_url
 
+
 if TYPE_CHECKING:
     from api.rate_limiter import RateLimiter
 

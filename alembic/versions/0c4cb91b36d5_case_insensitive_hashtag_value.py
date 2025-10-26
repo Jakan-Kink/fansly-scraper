@@ -15,6 +15,7 @@ from sqlalchemy.sql import table
 
 from alembic import op
 
+
 # revision identifiers, used by Alembic.
 revision: str = "0c4cb91b36d5"
 down_revision: str | None = "4416b99f028e"

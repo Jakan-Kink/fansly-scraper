@@ -25,6 +25,7 @@ from strawberry import ID
 from ..logging import client_logger as log
 from .enums import BulkUpdateIdMode
 
+
 if TYPE_CHECKING:
     from ..client import StashClient
 
