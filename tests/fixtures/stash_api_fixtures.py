@@ -14,20 +14,21 @@ from metadata import Account
 from stash import StashClient, StashContext
 from stash.types import Performer, Scene, SceneCreateInput, Studio
 
+
 # Export all fixtures for wildcard import
 __all__ = [
-    "stash_context",
-    "stash_client",
     "enable_scene_creation",
-    "stash_cleanup_tracker",
-    "mock_session",
-    "mock_transport",
-    "mock_client",
-    "test_query",
     "mock_account",
+    "mock_client",
     "mock_performer",
-    "mock_studio",
     "mock_scene",
+    "mock_session",
+    "mock_studio",
+    "mock_transport",
+    "stash_cleanup_tracker",
+    "stash_client",
+    "stash_context",
+    "test_query",
 ]
 
 
@@ -175,64 +176,91 @@ async def stash_cleanup_tracker():
         try:
             yield created_objects
         finally:
-            # Clean up created objects in reverse order of creation
+            # Clean up created objects in correct dependency order
+            # Galleries reference scenes/performers/studios/tags - delete first
+            # Scenes reference performers/studios/tags - delete second
+            # Performers/Studios/Tags have no cross-dependencies - delete last
+            errors = []
+
             try:
-                # Delete scenes first (they depend on performers/studios/tags)
+                # Delete galleries first (they can reference scenes)
+                if created_objects["galleries"]:
+                    for gallery_id in created_objects["galleries"]:
+                        try:
+                            await client.execute(
+                                """
+                                mutation DeleteGallery($id: ID!) {
+                                    galleryDestroy(input: { ids: [$id] })
+                                }
+                                """,
+                                {"id": gallery_id},
+                            )
+                        except Exception as e:
+                            errors.append(f"Gallery {gallery_id}: {e}")
+
+                # Delete scenes second (they reference performers/studios/tags)
                 for scene_id in created_objects["scenes"]:
-                    await client.execute(
-                        """
-                        mutation DeleteScene($id: ID!) {
-                            sceneDestroy(input: { id: $id })
-                        }
-                        """,
-                        {"id": scene_id},
-                    )
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeleteScene($id: ID!) {
+                                sceneDestroy(input: { id: $id })
+                            }
+                            """,
+                            {"id": scene_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Scene {scene_id}: {e}")
 
                 # Delete performers
                 for performer_id in created_objects["performers"]:
-                    await client.execute(
-                        """
-                        mutation DeletePerformer($id: ID!) {
-                            performerDestroy(input: { id: $id })
-                        }
-                        """,
-                        {"id": performer_id},
-                    )
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeletePerformer($id: ID!) {
+                                performerDestroy(input: { id: $id })
+                            }
+                            """,
+                            {"id": performer_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Performer {performer_id}: {e}")
 
                 # Delete studios
                 for studio_id in created_objects["studios"]:
-                    await client.execute(
-                        """
-                        mutation DeleteStudio($id: ID!) {
-                            studioDestroy(input: { id: $id })
-                        }
-                        """,
-                        {"id": studio_id},
-                    )
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeleteStudio($id: ID!) {
+                                studioDestroy(input: { id: $id })
+                            }
+                            """,
+                            {"id": studio_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Studio {studio_id}: {e}")
 
                 # Delete tags
                 for tag_id in created_objects["tags"]:
-                    await client.execute(
-                        """
-                        mutation DeleteTag($id: ID!) {
-                            tagDestroy(input: { id: $id })
-                        }
-                        """,
-                        {"id": tag_id},
-                    )
+                    try:
+                        await client.execute(
+                            """
+                            mutation DeleteTag($id: ID!) {
+                                tagDestroy(input: { id: $id })
+                            }
+                            """,
+                            {"id": tag_id},
+                        )
+                    except Exception as e:
+                        errors.append(f"Tag {tag_id}: {e}")
 
-                # Delete galleries
-                if created_objects["galleries"]:
-                    await client.execute(
-                        """
-                        mutation DeleteGalleries($ids: [ID!]!) {
-                            galleryDestroy(input: { ids: $ids })
-                        }
-                        """,
-                        {"ids": created_objects["galleries"]},
-                    )
+                # Report any errors that occurred
+                if errors:
+                    print(f"Warning: Cleanup had {len(errors)} error(s):")
+                    for error in errors:
+                        print(f"  - {error}")
             except Exception as e:
-                print(f"Warning: Cleanup failed: {e}")
+                print(f"Warning: Cleanup failed catastrophically: {e}")
 
     return cleanup_context
 
@@ -336,6 +364,28 @@ def mock_account():
     account.location = "Test Location"
     account.joinDate = datetime(2024, 1, 1, 12, 0, 0)
     account.lastSeen = datetime(2024, 1, 2, 12, 0, 0)
+
+    # Setup awaitable_attrs for async access to properties
+    # Each call to the property should return a new coroutine
+    account.awaitable_attrs = MagicMock()
+
+    def get_username():
+        async def _get():
+            return account.username
+
+        return _get()
+
+    def get_displayname():
+        async def _get():
+            return account.displayName
+
+        return _get()
+
+    # Make these properties that return fresh coroutines each time
+    type(account.awaitable_attrs).username = property(lambda self: get_username())
+    type(account.awaitable_attrs).displayName = property(
+        lambda self: get_displayname()
+    )
 
     # Make the mock account safe to call directly (returns itself when called)
     account.__call__ = MagicMock(return_value=account)
