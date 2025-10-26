@@ -1,7 +1,10 @@
 """Tests for SQLAlchemy nested transaction rollback handling."""
 
+import contextlib
+
 import pytest
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from metadata.database import Database
 
@@ -33,24 +36,21 @@ class TestNestedTransactionRollback:
             session.commit()
 
         # Test nested transactions
-        with test_database_sync.session_scope() as session:
-            with session.begin():
-                # Insert in outer transaction
+        with test_database_sync.session_scope() as session, session.begin():
+            # Insert in outer transaction
+            session.execute(text("INSERT INTO test (id, value) VALUES (1, 'outer')"))
+
+            # First nested transaction
+            with session.begin_nested():
                 session.execute(
-                    text("INSERT INTO test (id, value) VALUES (1, 'outer')")
+                    text("INSERT INTO test (id, value) VALUES (2, 'nested1')")
                 )
 
-                # First nested transaction
-                with session.begin_nested():
-                    session.execute(
-                        text("INSERT INTO test (id, value) VALUES (2, 'nested1')")
-                    )
-
-                # Second nested transaction
-                with session.begin_nested():
-                    session.execute(
-                        text("INSERT INTO test (id, value) VALUES (3, 'nested2')")
-                    )
+            # Second nested transaction
+            with session.begin_nested():
+                session.execute(
+                    text("INSERT INTO test (id, value) VALUES (3, 'nested2')")
+                )
 
         # Check results
         with test_database_sync.session_scope() as session:
@@ -71,35 +71,28 @@ class TestNestedTransactionRollback:
             session.commit()
 
         # Test nested transactions with error
-        with test_database_sync.session_scope() as session:
-            with session.begin():
-                # Insert in outer transaction
+        with test_database_sync.session_scope() as session, session.begin():
+            # Insert in outer transaction
+            session.execute(text("INSERT INTO test (id, value) VALUES (1, 'outer')"))
+
+            # First nested transaction
+            with session.begin_nested():
                 session.execute(
-                    text("INSERT INTO test (id, value) VALUES (1, 'outer')")
+                    text("INSERT INTO test (id, value) VALUES (2, 'nested1')")
                 )
 
-                # First nested transaction
-                with session.begin_nested():
-                    session.execute(
-                        text("INSERT INTO test (id, value) VALUES (2, 'nested1')")
-                    )
+            # Second nested transaction - will fail
+            with contextlib.suppress(Exception), session.begin_nested():
+                # This will fail - duplicate primary key
+                session.execute(
+                    text("INSERT INTO test (id, value) VALUES (1, 'duplicate')")
+                )
 
-                # Second nested transaction - will fail
-                try:
-                    with session.begin_nested():
-                        # This will fail - duplicate primary key
-                        session.execute(
-                            text("INSERT INTO test (id, value) VALUES (1, 'duplicate')")
-                        )
-                except Exception:
-                    # Expected error, continue with outer transaction
-                    pass
-
-                # Third nested transaction - should still work
-                with session.begin_nested():
-                    session.execute(
-                        text("INSERT INTO test (id, value) VALUES (3, 'nested3')")
-                    )
+            # Third nested transaction - should still work
+            with session.begin_nested():
+                session.execute(
+                    text("INSERT INTO test (id, value) VALUES (3, 'nested3')")
+                )
 
         # Check results
         with test_database_sync.session_scope() as session:
@@ -123,8 +116,6 @@ class TestNestedTransactionRollback:
 
         # Instead of actually closing the connection, we'll mock the execute method
         # to simulate a connection error during a nested transaction
-        from sqlalchemy.orm import Session
-
         original_execute = Session.execute
 
         def mock_execute(self, statement, *args, **kwargs):
@@ -137,7 +128,7 @@ class TestNestedTransactionRollback:
         monkeypatch.setattr(Session, "execute", mock_execute)
 
         # Test transaction with simulated connection error
-        try:
+        with contextlib.suppress(Exception):
             with test_database_sync.session_scope() as session:
                 with session.begin():
                     # Insert in outer transaction
@@ -163,9 +154,6 @@ class TestNestedTransactionRollback:
                     except Exception:
                         # Expected error, but this should propagate to the outer transaction
                         raise
-        except Exception:
-            # Expected error in outer transaction
-            pass
 
         # Restore the original execute method
         monkeypatch.setattr(Session, "execute", original_execute)
@@ -194,8 +182,6 @@ class TestNestedTransactionRollback:
             session.commit()
 
         # Mock the rollback method to simulate multiple savepoint errors
-        from sqlalchemy.orm import Session
-
         original_rollback = Session.rollback
         rollback_attempts = [0]  # Use a list to allow modification in nested function
 
@@ -215,16 +201,13 @@ class TestNestedTransactionRollback:
         monkeypatch.setattr(Session, "rollback", mock_rollback)
 
         # Test transaction with mocked rollback errors
-        try:
+        with contextlib.suppress(Exception):
             with test_database_sync.session_scope() as session:
                 session.execute(text("INSERT INTO test (id, value) VALUES (1, 'test')"))
                 # Force an error to trigger rollback
                 session.execute(
                     text("INSERT INTO test (id, value) VALUES (1, 'duplicate')")
                 )
-        except Exception:
-            # Expected error
-            pass
 
         # Verify we had multiple rollback attempts
         assert rollback_attempts[0] > 0
