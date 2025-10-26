@@ -1,7 +1,6 @@
 """Tests for stash.types.markers module."""
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.base import StashObject

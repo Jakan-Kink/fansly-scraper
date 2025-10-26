@@ -1,7 +1,6 @@
 """Scalar types from schema/types/scalars.graphql."""
 
 from datetime import datetime, timedelta
-from typing import Dict
 
 import strawberry
 

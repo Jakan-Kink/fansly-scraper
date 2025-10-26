@@ -8,11 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 # Import modules instead of classes to avoid fixture issues
-import tests.stash.processing.unit.gallery.test_gallery_creation
-import tests.stash.processing.unit.gallery.test_gallery_lookup
-import tests.stash.processing.unit.gallery.test_media_detection
-import tests.stash.processing.unit.gallery.test_process_item_gallery
-import tests.stash.processing.unit.gallery.test_tag_methods
 from stash.processing.mixins.gallery import GalleryProcessingMixin
 
 

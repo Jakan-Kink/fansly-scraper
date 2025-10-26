@@ -8,8 +8,6 @@ Coverage targets: Lines in _to_input_dirty function (554-555, 562-563, 566-567, 
 
 import pytest
 
-from stash.types.base import StashObject
-
 from ...fixtures.stash_fixtures import TestStashObject
 
 # =============================================================================

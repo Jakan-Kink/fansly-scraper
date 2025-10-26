@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 import strawberry
-from strawberry import ID, lazy
+from strawberry import ID
 
 from .base import StashObject
 

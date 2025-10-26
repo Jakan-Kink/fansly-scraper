@@ -12,23 +12,18 @@ This module provides comprehensive fixtures for database testing, including:
 import asyncio
 import json
 import os
-import tempfile
-import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from functools import wraps
-from pathlib import Path
 from typing import TypeVar
 from urllib.parse import quote_plus
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import create_engine, event, inspect, select, text
-from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -36,9 +31,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import QueuePool, StaticPool
 
-from alembic import command
 from alembic.config import Config as AlembicConfig
 from config import FanslyConfig
 from metadata import (
@@ -134,7 +127,7 @@ def uuid_test_db_factory(request):
         admin_engine.dispose()
 
     # Create config pointing to the new test database
-    config = FanslyConfig(program_version="0.10.0")
+    config = FanslyConfig(program_version="0.11.0")
     config.pg_host = pg_host
     config.pg_port = pg_port
     config.pg_database = test_db_name

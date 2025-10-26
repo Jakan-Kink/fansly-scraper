@@ -1,6 +1,5 @@
 """Unit tests for PerformerClientMixin."""
 
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

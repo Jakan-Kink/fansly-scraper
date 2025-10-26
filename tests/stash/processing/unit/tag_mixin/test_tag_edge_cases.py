@@ -1,11 +1,10 @@
 """Tests for edge cases in TagProcessingMixin."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from tests.stash.processing.unit.media_mixin.async_mock_helper import (
-    AccessibleAsyncMock,
     make_asyncmock_awaitable,
 )
 

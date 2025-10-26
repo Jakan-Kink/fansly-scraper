@@ -13,7 +13,6 @@ from ...types import (
     SQLExecResult,
     SQLQueryResult,
     StashBoxValidationResult,
-    Tag,
     Version,
 )
 

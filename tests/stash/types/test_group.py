@@ -1,7 +1,6 @@
 """Tests for stash.types.group module."""
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.base import StashObject
@@ -105,28 +104,28 @@ class TestGroup:
 
         # Verify all expected relationships exist
         for field, expected_mapping in expected_relationships.items():
-            assert (
-                field in Group.__relationships__
-            ), f"Relationship {field} not found in Group"
+            assert field in Group.__relationships__, (
+                f"Relationship {field} not found in Group"
+            )
 
             actual_mapping = Group.__relationships__[field]
             # Check target field
-            assert (
-                actual_mapping[0] == expected_mapping[0]
-            ), f"Target field mismatch for {field}"
+            assert actual_mapping[0] == expected_mapping[0], (
+                f"Target field mismatch for {field}"
+            )
             # Check is_list flag
-            assert (
-                actual_mapping[1] is expected_mapping[1]
-            ), f"is_list flag mismatch for {field}"
+            assert actual_mapping[1] is expected_mapping[1], (
+                f"is_list flag mismatch for {field}"
+            )
             # Check if transform function exists when expected
             if expected_mapping[2] is callable:
-                assert callable(
-                    actual_mapping[2]
-                ), f"Transform function missing for {field}"
+                assert callable(actual_mapping[2]), (
+                    f"Transform function missing for {field}"
+                )
             else:
-                assert (
-                    actual_mapping[2] == expected_mapping[2]
-                ), f"Transform function mismatch for {field}"
+                assert actual_mapping[2] == expected_mapping[2], (
+                    f"Transform function mismatch for {field}"
+                )
 
     def test_field_types(self):
         """Test field type annotations."""

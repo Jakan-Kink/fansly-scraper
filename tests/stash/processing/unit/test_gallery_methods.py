@@ -1,14 +1,13 @@
 """Unit tests for gallery-related methods."""
 
-import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from stash.context import StashContext
-from stash.processing import HasMetadata, StashProcessing
-from stash.types import Gallery, Image, Scene, Studio, Tag
+from stash.processing import StashProcessing
+from stash.types import Gallery, Studio, Tag
 
 
 class MockHasMetadata:
@@ -359,7 +358,8 @@ class TestGalleryMethods:
 
         # Use the real method for this test
         StashProcessing._generate_title_from_content = MagicMock(
-            side_effect=lambda *args, **kwargs: StashProcessing._generate_title_from_content.__wrapped__(
+            side_effect=lambda *args,
+            **kwargs: StashProcessing._generate_title_from_content.__wrapped__(
                 StashProcessing, *args, **kwargs
             )
         )

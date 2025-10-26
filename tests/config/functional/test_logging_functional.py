@@ -1,18 +1,13 @@
 """Functional tests for logging configuration."""
 
-import io
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from loguru import logger
 
-from config.fanslyconfig import FanslyConfig
 from config.logging import (
-    _CUSTOM_LEVELS,
-    _LEVEL_VALUES,
     db_logger,
     init_logging_config,
     json_logger,
@@ -98,9 +93,9 @@ def test_textio_logger_output(logging_config, log_dir):
     textio_logger.debug("Debug message")
     logger.complete()
     log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
-    assert not any(
-        "Debug message" in line for line in log_lines
-    ), f"Log file should not contain 'Debug message'. Contents: {log_lines}"
+    assert not any("Debug message" in line for line in log_lines), (
+        f"Log file should not contain 'Debug message'. Contents: {log_lines}"
+    )
 
     # With debug enabled, DEBUG should appear
     set_debug_enabled(True)
@@ -108,9 +103,9 @@ def test_textio_logger_output(logging_config, log_dir):
         textio_logger.debug("Debug message with debug enabled")
         logger.complete()
         log_lines = read_log_file(log_dir, "fansly_downloader_ng.log")
-        assert any(
-            "Debug message with debug enabled" in line for line in log_lines
-        ), f"Log content: {log_lines}"
+        assert any("Debug message with debug enabled" in line for line in log_lines), (
+            f"Log content: {log_lines}"
+        )
         assert any("[DEBUG]" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
@@ -122,9 +117,9 @@ def test_json_logger_output(logging_config, log_dir):
     json_logger.info("Info message")
     logger.complete()
     log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
-    assert any(
-        "Info message" in line for line in log_lines
-    ), f"Log content: {log_lines}"
+    assert any("Info message" in line for line in log_lines), (
+        f"Log content: {log_lines}"
+    )
     assert any("[INFO]" in line for line in log_lines)
 
     # DEBUG level should be filtered out by default
@@ -139,9 +134,9 @@ def test_json_logger_output(logging_config, log_dir):
         json_logger.debug("Debug message with debug enabled")
         logger.complete()
         log_lines = read_log_file(log_dir, "fansly_downloader_ng_json.log")
-        assert any(
-            "Debug message with debug enabled" in line for line in log_lines
-        ), f"Log content: {log_lines}"
+        assert any("Debug message with debug enabled" in line for line in log_lines), (
+            f"Log content: {log_lines}"
+        )
         assert any("[DEBUG]" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
@@ -153,9 +148,9 @@ def test_db_logger_output(logging_config, log_dir):
     db_logger.info("Info message")
     logger.complete()
     log_lines = read_log_file(log_dir, "sqlalchemy.log")
-    assert any(
-        "Info message" in line for line in log_lines
-    ), f"Log content: {log_lines}"
+    assert any("Info message" in line for line in log_lines), (
+        f"Log content: {log_lines}"
+    )
     assert any("INFO" in line for line in log_lines)
 
     # DEBUG level should be filtered out by default
@@ -170,9 +165,9 @@ def test_db_logger_output(logging_config, log_dir):
         db_logger.debug("Debug message with debug enabled")
         logger.complete()
         log_lines = read_log_file(log_dir, "sqlalchemy.log")
-        assert any(
-            "Debug message with debug enabled" in line for line in log_lines
-        ), f"Log content: {log_lines}"
+        assert any("Debug message with debug enabled" in line for line in log_lines), (
+            f"Log content: {log_lines}"
+        )
         assert any("DEBUG" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
@@ -184,9 +179,9 @@ def test_stash_logger_output(logging_config, log_dir):
     stash_logger.info("Info message")
     logger.complete()
     log_lines = read_log_file(log_dir, "stash.log")
-    assert any(
-        "Info message" in line for line in log_lines
-    ), f"Log content: {log_lines}"
+    assert any("Info message" in line for line in log_lines), (
+        f"Log content: {log_lines}"
+    )
     assert any("INFO" in line for line in log_lines)
 
     # DEBUG level should be filtered out by default
@@ -201,9 +196,9 @@ def test_stash_logger_output(logging_config, log_dir):
         stash_logger.debug("Debug message with debug enabled")
         logger.complete()
         log_lines = read_log_file(log_dir, "stash.log")
-        assert any(
-            "Debug message with debug enabled" in line for line in log_lines
-        ), f"Log content: {log_lines}"
+        assert any("Debug message with debug enabled" in line for line in log_lines), (
+            f"Log content: {log_lines}"
+        )
         assert any("DEBUG" in line for line in log_lines)
     finally:
         set_debug_enabled(False)
@@ -225,9 +220,9 @@ def test_trace_logger_output(logging_config, log_dir, mock_config):
         trace_logger.trace("Trace message with trace enabled")
         logger.complete()
         log_lines = read_log_file(log_dir, "trace.log")
-        assert any(
-            "Trace message with trace enabled" in line for line in log_lines
-        ), f"Log content: {log_lines}"
+        assert any("Trace message with trace enabled" in line for line in log_lines), (
+            f"Log content: {log_lines}"
+        )
         assert any("TRACE" in line for line in log_lines)
     finally:
         config.trace = False
@@ -348,29 +343,29 @@ def test_console_output(logging_config, capsys, mock_config):
         return record["extra"].get("logger") == "stash"
 
     # Verify console filters
-    assert textio_console_filter(
-        textio_record
-    ), "TextIO logger should pass console filter"
-    assert not textio_console_filter(
-        json_record
-    ), "JSON logger should not pass console filter"
-    assert not textio_console_filter(
-        db_record
-    ), "DB logger should not pass console filter"
-    assert not textio_console_filter(
-        trace_record
-    ), "Trace logger should not pass console filter"
+    assert textio_console_filter(textio_record), (
+        "TextIO logger should pass console filter"
+    )
+    assert not textio_console_filter(json_record), (
+        "JSON logger should not pass console filter"
+    )
+    assert not textio_console_filter(db_record), (
+        "DB logger should not pass console filter"
+    )
+    assert not textio_console_filter(trace_record), (
+        "Trace logger should not pass console filter"
+    )
 
     assert stash_console_filter(stash_record), "Stash logger should pass console filter"
-    assert not stash_console_filter(
-        textio_record
-    ), "TextIO logger should not pass stash console filter"
-    assert not stash_console_filter(
-        json_record
-    ), "JSON logger should not pass stash console filter"
-    assert not stash_console_filter(
-        db_record
-    ), "DB logger should not pass stash console filter"
+    assert not stash_console_filter(textio_record), (
+        "TextIO logger should not pass stash console filter"
+    )
+    assert not stash_console_filter(json_record), (
+        "JSON logger should not pass stash console filter"
+    )
+    assert not stash_console_filter(db_record), (
+        "DB logger should not pass stash console filter"
+    )
 
     # PART 2: The original capsys approach for visual verification (may be less reliable)
     try:
@@ -388,9 +383,9 @@ def test_console_output(logging_config, capsys, mock_config):
         time.sleep(0.1)
 
         output = capsys.readouterr()
-        assert (
-            "Textio console message" in output.out
-        ), "Expected 'Textio console message' in output"
+        assert "Textio console message" in output.out, (
+            "Expected 'Textio console message' in output"
+        )
 
         # stash_logger should write to console
         stash_logger.info("Stash console message")
@@ -399,9 +394,9 @@ def test_console_output(logging_config, capsys, mock_config):
         time.sleep(0.1)
 
         output = capsys.readouterr()
-        assert (
-            "Stash console message" in output.out
-        ), "Expected 'Stash console message' in output"
+        assert "Stash console message" in output.out, (
+            "Expected 'Stash console message' in output"
+        )
 
         # json_logger should NOT write to console
         json_logger.info("Json NO console message")
@@ -410,9 +405,9 @@ def test_console_output(logging_config, capsys, mock_config):
         time.sleep(0.1)
 
         output = capsys.readouterr()
-        assert (
-            "Json NO console message" not in output.out
-        ), "Should not find 'Json NO console message' in output"
+        assert "Json NO console message" not in output.out, (
+            "Should not find 'Json NO console message' in output"
+        )
 
         # db_logger should NOT write to console
         db_logger.info("DB NO console message")
@@ -421,9 +416,9 @@ def test_console_output(logging_config, capsys, mock_config):
         time.sleep(0.1)
 
         output = capsys.readouterr()
-        assert (
-            "DB NO console message" not in output.out
-        ), "Should not find 'DB NO console message' in output"
+        assert "DB NO console message" not in output.out, (
+            "Should not find 'DB NO console message' in output"
+        )
 
         # trace_logger should NOT write to console even when enabled
         config.trace = True
@@ -434,9 +429,9 @@ def test_console_output(logging_config, capsys, mock_config):
         time.sleep(0.1)
 
         output = capsys.readouterr()
-        assert (
-            "Trace NO console message" not in output.out
-        ), "Should not find 'Trace NO console message' in output"
+        assert "Trace NO console message" not in output.out, (
+            "Should not find 'Trace NO console message' in output"
+        )
     except AssertionError as e:
         print(f"\nOutput capturing test failed: {e}")
         print("This is expected in some environments, but the filter tests passed.")

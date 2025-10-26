@@ -1,12 +1,12 @@
 """Gallery types from schema/types/gallery.graphql and gallery-chapter.graphql."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, List, Optional
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 from strawberry import ID, lazy
 
-from metadata import Media, Message, Post
+from metadata import Message, Post
 
 from .base import StashObject
 from .enums import BulkUpdateIdMode

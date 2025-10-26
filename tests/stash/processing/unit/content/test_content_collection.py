@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from metadata import Account, AccountMedia, Media
+from metadata import Account, AccountMedia
 from metadata.attachment import Attachment, ContentType
 from metadata.post import Post
 from tests.fixtures import (

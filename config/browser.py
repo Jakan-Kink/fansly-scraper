@@ -88,7 +88,6 @@ def get_token_from_firefox_db(
         sqlite_error = str(e)
 
         if "locked" in sqlite_error and "irefox" in sqlite_file_name:
-
             if not interactive:
                 # Do not forcefully close user's browser in non-interactive/scheduled mode.
                 return None

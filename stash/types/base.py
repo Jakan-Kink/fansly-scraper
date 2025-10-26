@@ -16,13 +16,11 @@ from __future__ import annotations
 
 import copy
 import inspect
-from collections.abc import Awaitable, Callable
-from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Type, TypeVar, Union, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import strawberry
 from strawberry import ID
-from strawberry.types import Info
 
 from ..logging import client_logger as log
 from .enums import BulkUpdateIdMode
@@ -112,7 +110,8 @@ class StashObject:
         # Try to get fields from strawberry definition, fall back to all kwargs if not available
         try:
             valid_fields = {
-                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+                field.name
+                for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
             }
             return {k: v for k, v in kwargs.items() if k in valid_fields}
         except AttributeError:

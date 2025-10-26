@@ -4,11 +4,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select
 
-from metadata import Account, Post
 from stash.processing import StashProcessing
-from stash.types import Gallery, Image, Performer, Scene, Studio
 
 
 class TestFullWorkflowIntegration:
@@ -37,9 +34,7 @@ class TestFullWorkflowIntegration:
         mock_database.session.execute.return_value.scalar_one.return_value = (
             integration_mock_account
         )
-        mock_database.session.execute.return_value.unique.return_value.scalars.return_value.all.return_value = (
-            mock_posts
-        )
+        mock_database.session.execute.return_value.unique.return_value.scalars.return_value.all.return_value = mock_posts
 
         # Set up find_performer to return performer
         stash_processor.context.client.find_performer.return_value = (
@@ -170,7 +165,7 @@ class TestFullWorkflowIntegration:
         # Mock error printing to avoid console output
         with (
             patch("stash.processing.print_error"),
-            patch("stash.processing.logger.exception"),
+            patch("config.logging.logger.exception"),
         ):
             # Call the method (should not raise exception)
             await stash_processor.scan_to_stash()

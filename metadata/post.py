@@ -16,14 +16,13 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     bindparam,
-    func,
     or_,
     select,
     update,
 )
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from config.decorators import with_database_session
 from textio import json_output
@@ -31,7 +30,7 @@ from textio import json_output
 from .attachment import Attachment, ContentType
 from .base import Base
 from .database import require_database_config
-from .hashtag import Hashtag, extract_hashtags, post_hashtags, process_post_hashtags
+from .hashtag import Hashtag, process_post_hashtags
 
 if TYPE_CHECKING:
     from config import FanslyConfig

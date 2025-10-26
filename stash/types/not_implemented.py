@@ -3,7 +3,6 @@
 from typing import Any
 
 import strawberry
-from strawberry import ID
 
 
 @strawberry.type

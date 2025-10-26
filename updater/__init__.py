@@ -19,7 +19,6 @@ def self_update(config: FanslyConfig):
 
     # if started with --updated-to start argument
     else:
-
         # config.ini backwards compatibility fix (≤ v0.4) -> fix spelling mistake "seperate" to "separate"
         if "seperate_messages" in config._parser["Options"]:
             config.separate_messages = config._parser.getboolean(
@@ -37,7 +36,6 @@ def self_update(config: FanslyConfig):
         options_to_remove = ["naming_convention", "update_recent_download"]
 
         for option in options_to_remove:
-
             if option in config._parser["Options"]:
                 config._parser.remove_option("Options", option)
 

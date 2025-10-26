@@ -6,7 +6,6 @@ Covers database operations, GraphQL query/mutation handling, and error scenarios
 Coverage targets: Lines 195, 204-214 (find_by_id, save methods)
 """
 
-from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest

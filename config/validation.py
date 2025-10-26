@@ -164,7 +164,6 @@ def validate_adjust_token(config: FanslyConfig) -> None:
 
     # semi-automatically set up value for config_token (authorization_token) based on the users input
     if plyvel_installed and not config.token_is_valid():
-
         # fansly-downloader plyvel dependant package imports
         from config.browser import (
             find_leveldb_folders,
@@ -382,7 +381,6 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
     )
 
     if config.interactive:
-
         key_confirmation = (
             input(f"\n{20 * ' '}► Is this key correct (y/n)? ").strip().lower()
         )
@@ -503,7 +501,6 @@ def validate_adjust_download_directory(config: FanslyConfig) -> None:
             print_info(f"Using custom temp folder: '{config.temp_folder}'")
     # if user didn't specify custom downloads path
     if "local_dir" in str(config.download_directory).lower():
-
         config.download_directory = Path.cwd()
 
         print_info(
@@ -512,7 +509,6 @@ def validate_adjust_download_directory(config: FanslyConfig) -> None:
 
     # if user specified a correct custom downloads path
     elif config.download_directory is not None and config.download_directory.is_dir():
-
         print_info(
             f"Acknowledging custom basis download directory: '{config.download_directory}'"
         )

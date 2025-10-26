@@ -1,10 +1,4 @@
-import os
 import platform
-from pathlib import Path
-
-import dateutil.parser
-import pytest
-from pip._vendor.packaging.version import parse as parse_version
 
 from updater import utils
 

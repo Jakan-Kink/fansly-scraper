@@ -5,7 +5,6 @@ import traceback
 
 # from pprint import pprint
 from asyncio import sleep
-from typing import Any
 
 from httpx import Response
 from sqlalchemy.ext.asyncio import AsyncSession

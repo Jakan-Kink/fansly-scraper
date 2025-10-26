@@ -4,12 +4,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import strawberry
-from strawberry import ID, lazy
+from strawberry import ID
 
 if TYPE_CHECKING:
-    from strawberry.file_uploads import Upload
+    pass
 else:
-    from strawberry.file_uploads import Upload
+    pass
 
 from .enums import (
     IdentifyFieldStrategy,

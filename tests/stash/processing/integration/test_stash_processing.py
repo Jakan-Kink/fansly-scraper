@@ -1,13 +1,8 @@
 """Integration tests for StashProcessing."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select
-
-from metadata import Account
-from stash.types import Gallery, Performer, Studio
 
 
 class TestStashProcessingIntegration:

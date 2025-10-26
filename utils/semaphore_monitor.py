@@ -4,10 +4,9 @@ import inspect
 import os
 import re
 import subprocess
-import traceback
 from collections import defaultdict
 from pathlib import Path
-from typing import NamedTuple, Set
+from typing import NamedTuple
 
 from config import trace_logger
 from textio import print_warning

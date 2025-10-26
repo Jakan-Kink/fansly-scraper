@@ -36,11 +36,9 @@ def delete_deprecated_files() -> None:
 
     for root, _, files in os.walk(directory):
         for file in files:
-
             file_object = Path(file)
 
             if file_object.suffix.lower() != ".py" and file_object.stem in old_files:
-
                 file_path = Path(root) / file
 
                 if file_path.exists():

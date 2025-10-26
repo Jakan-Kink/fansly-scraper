@@ -1,8 +1,6 @@
 """Unit tests for StudioClientMixin."""
 
-import json
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -282,9 +280,13 @@ async def test_update_studio_error(
         new_callable=AsyncMock,
         side_effect=Exception("Test error"),
     ):
-        # Mock the to_input method
+        # Mock the to_input method to return data with more than just ID
+        # so that the update actually proceeds
         with patch.object(
-            mock_studio, "to_input", new_callable=AsyncMock, return_value={}
+            mock_studio,
+            "to_input",
+            new_callable=AsyncMock,
+            return_value={"id": "123", "name": "Test"},
         ):
             with pytest.raises(Exception):
                 await stash_client.update_studio(mock_studio)

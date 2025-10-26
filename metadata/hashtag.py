@@ -17,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from config.decorators import with_database_session
 

@@ -4,7 +4,6 @@ from datetime import datetime
 from enum import Enum
 
 import pytest
-import strawberry
 
 from stash.types.logging import LogEntry, LogLevel
 

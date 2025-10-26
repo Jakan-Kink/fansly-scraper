@@ -7,14 +7,9 @@ from config.fanslyconfig import FanslyConfig
 from config.logging import (
     _LEVEL_VALUES,
     _trace_level_only,
-    db_logger,
     get_log_level,
     init_logging_config,
-    json_logger,
     set_debug_enabled,
-    stash_logger,
-    textio_logger,
-    trace_logger,
 )
 from errors import InvalidTraceLogError
 

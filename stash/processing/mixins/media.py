@@ -11,23 +11,20 @@ This mixin handles processing of media objects into Stash. It includes:
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import traceback
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import select
 
-from metadata import Account, AccountMedia, AccountMediaBundle, Attachment, Media
+from metadata import Account, AccountMediaBundle, Attachment, Media
 from metadata.decorators import with_session
-from textio import print_error, print_info
+from textio import print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Image, ImageFile, Performer, Scene, Studio, Tag, VideoFile
+from ...types import Image, ImageFile, Performer, Scene, Studio, VideoFile
 
 if TYPE_CHECKING:
     pass
@@ -1105,11 +1102,7 @@ class MediaProcessingMixin:
 
         # Log detailed state just before save
         logger.debug(
-            "State before save:\n"
-            "Title = %s\n"
-            "Date = %s\n"
-            "Code = %s\n"
-            "Dirty = %s\n",
+            "State before save:\nTitle = %s\nDate = %s\nCode = %s\nDirty = %s\n",
             getattr(stash_obj, "title", None),
             getattr(stash_obj, "date", None),
             getattr(stash_obj, "code", None),

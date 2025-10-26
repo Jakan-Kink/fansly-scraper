@@ -1,22 +1,14 @@
 """Integration tests for account processing functionality."""
 
-import json
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine, create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import select
 
-from alembic import command
-from config import FanslyConfig
 from metadata import (
     Account,
     AccountMedia,
     AccountMediaBundle,
-    Base,
-    Database,
     Media,
     TimelineStats,
     process_account_data,
@@ -110,9 +102,9 @@ async def test_update_optimization_integration(test_database, config):
         assert (
             getattr(account, "_sa_instance_state").modified == initial_account_updated
         ), "Account should not be marked as modified when no values changed"
-        assert (
-            getattr(stats, "_sa_instance_state").modified == initial_stats_updated
-        ), "TimelineStats should not be marked as modified when no values changed"
+        assert getattr(stats, "_sa_instance_state").modified == initial_stats_updated, (
+            "TimelineStats should not be marked as modified when no values changed"
+        )
 
         # Update some values
         account_data["displayName"] = "Updated Name"

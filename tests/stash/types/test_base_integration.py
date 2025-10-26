@@ -11,8 +11,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from stash.types.base import StashObject
-
 from ...fixtures.stash_fixtures import MockTag, TestStashObject
 
 # =============================================================================

@@ -2,7 +2,6 @@
 
 import pytest
 
-from stash import StashClient
 from stash.client.mixins.not_implemented import NotImplementedClientMixin
 
 

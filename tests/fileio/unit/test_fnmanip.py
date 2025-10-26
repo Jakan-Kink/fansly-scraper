@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from PIL import Image as PILImage
 
 from errors.mp4 import InvalidMP4Error
 from fileio.fnmanip import (

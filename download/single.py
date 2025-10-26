@@ -67,7 +67,6 @@ async def download_single_post(config: FanslyConfig, state: DownloadState):
 
         # if access to post content / post contains content
         if post_object["accountMediaBundles"] or post_object["accountMedia"]:
-
             # parse post creator name
             if creator_username is None:
                 # the post creators reliable accountId

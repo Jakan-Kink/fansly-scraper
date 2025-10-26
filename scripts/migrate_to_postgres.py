@@ -155,7 +155,6 @@ def create_tables(sqlite_engine: Engine, pg_engine: Engine) -> None:
         Boolean,
         DateTime,
         Float,
-        Integer,
         String,
         Text,
     )

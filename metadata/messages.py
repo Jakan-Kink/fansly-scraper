@@ -13,11 +13,9 @@ from sqlalchemy import (
     Integer,
     String,
     Table,
-    and_,
-    select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from config.decorators import with_database_session
 from textio import json_output

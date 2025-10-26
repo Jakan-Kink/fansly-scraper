@@ -1,7 +1,6 @@
 """Studio type from schema/types/studio.graphql."""
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, List, Optional
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 from strawberry import ID, lazy
@@ -12,7 +11,6 @@ from .base import StashObject
 from .files import StashID, StashIDInput
 
 if TYPE_CHECKING:
-    from .group import Group
     from .tag import Tag
 
 

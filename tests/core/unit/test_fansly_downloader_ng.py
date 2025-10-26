@@ -1,6 +1,5 @@
 """Unit tests for fansly_downloader_ng module."""
 
-import asyncio
 import atexit
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -11,7 +10,6 @@ from sqlalchemy.sql import text
 import fansly_downloader_ng
 from config import FanslyConfig
 from config.modes import DownloadMode
-from download.core import get_creator_account_info
 from errors import (
     API_ERROR,
     CONFIG_ERROR,
@@ -29,11 +27,8 @@ from fansly_downloader_ng import (
     _async_main,
     cleanup_database,
     cleanup_database_sync,
-    cleanup_with_global_timeout,
-    main,
     print_logo,
 )
-from metadata.account import process_account_data
 
 
 def test_cleanup_database_sync_calls_close_sync():
@@ -174,7 +169,7 @@ def mock_args():
 def mock_config():
     """Fixture to create a mocked FanslyConfig."""
     config = MagicMock(spec=FanslyConfig)
-    config.program_version = "0.10.0"
+    config.program_version = "0.11.0"
     config.config_path = Path("config.ini")
     config.user_names = {"test_user"}
     config.download_mode = DownloadMode.NORMAL

@@ -1,7 +1,6 @@
 """Tests for stash.types.filters module."""
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.enums import (

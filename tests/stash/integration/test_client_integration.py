@@ -98,15 +98,15 @@ async def test_subscription_integration(stash_client: StashClient) -> None:
 
         # Verify updates
         assert len(updates) > 0, "Should receive at least one update"
-        assert any(
-            u.job and u.job.id == job_id for u in updates
-        ), "Should receive update for our job"
+        assert any(u.job and u.job.id == job_id for u in updates), (
+            "Should receive update for our job"
+        )
 
         # Verify final state
         final_updates = [u for u in updates if u.job and u.job.id == job_id]
-        assert any(
-            u.job.status == JobStatus.FINISHED for u in final_updates
-        ), "Job should complete successfully"
+        assert any(u.job.status == JobStatus.FINISHED for u in final_updates), (
+            "Job should complete successfully"
+        )
 
     except (ConnectionError, TimeoutError) as e:
         pytest.skip(

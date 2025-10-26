@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from stash.types import Image, ImageFile, Scene, VideoFile
+from stash.types import Image, ImageFile, VideoFile
 
 
 class TestFileHandling:

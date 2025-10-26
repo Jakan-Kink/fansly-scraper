@@ -1,19 +1,15 @@
 """Tests for fileio.dedupe module."""
 
-import asyncio
-import os
 import re
 import shutil
 import tempfile
-import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import FanslyConfig
 from download.downloadstate import DownloadState
 from fileio.dedupe import (
     calculate_file_hash,
@@ -26,9 +22,7 @@ from fileio.dedupe import (
     get_or_create_media,
     migrate_full_paths_to_filenames,
     safe_rglob,
-    verify_file_existence,
 )
-from fileio.normalize import normalize_filename
 from metadata.account import Account
 from metadata.media import Media
 
@@ -305,7 +299,6 @@ async def test_get_account_id():
         patch("fileio.dedupe.select", autospec=True) as mock_select,
         patch("metadata.account.Account", autospec=True) as mock_account_class,
     ):
-
         mock_select.return_value.where.return_value = MagicMock(name="select_query")
         mock_account_instance = MagicMock(spec=Account)
         mock_account_instance.id = 54321

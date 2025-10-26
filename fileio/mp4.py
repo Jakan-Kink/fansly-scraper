@@ -112,7 +112,6 @@ def hash_mp4file(
     print: Callable | None = None,
     use_broken_algo: bool = False,
 ) -> str:
-
     if not file_name.exists():
         raise RuntimeError(f"{file_name} does not exist.")
 
@@ -126,7 +125,6 @@ def hash_mp4file(
         print()
 
     with open(file_name, "rb") as mp4file:
-
         try:
             boxes = get_boxes(mp4file)
 

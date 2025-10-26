@@ -19,7 +19,7 @@ from errors import ConfigError
 
 @pytest.fixture
 def config():
-    return FanslyConfig(program_version="0.10.0")
+    return FanslyConfig(program_version="0.11.0")
 
 
 @pytest.fixture
@@ -489,7 +489,7 @@ def test_config_error_cases(temp_config_dir):
     config_path = temp_config_dir / "config.ini"
 
     # Test invalid section reference
-    config = FanslyConfig(program_version="0.10.0")
+    config = FanslyConfig(program_version="0.11.0")
     with config_path.open("w") as f:
         f.write(
             """[Options]
@@ -506,7 +506,7 @@ key = value
     load_config(config)  # Should ignore nonexistent section
 
     # Test empty values with fresh config
-    config = FanslyConfig(program_version="0.10.0")
+    config = FanslyConfig(program_version="0.11.0")
     with config_path.open("w") as f:
         f.write(
             """[Options]

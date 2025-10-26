@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from gql import Client, gql
 

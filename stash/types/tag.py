@@ -1,10 +1,7 @@
 """Tag type from schema/types/tag.graphql."""
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Any, List, Optional
-
 import strawberry
-from strawberry import ID, lazy
+from strawberry import ID
 
 from metadata import Hashtag
 

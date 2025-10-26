@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import functools
-import json
 import logging
 import os
-import re
-import sys
 import traceback
 from asyncio import Queue
 from copy import deepcopy
@@ -34,15 +30,11 @@ from metadata import (
     Media,
     Message,
     Post,
-    account_media_bundle_media,
-    media_variants,
 )
 from metadata.decorators import with_session
 from pathio import set_create_directory_for_download
 from textio import print_error, print_info, print_warning
-from textio.logging import SizeAndTimeRotatingFileHandler
 
-from .client import StashClient
 from .client_helpers import async_lru_cache
 from .context import StashContext
 from .logging import debug_print
@@ -50,7 +42,6 @@ from .logging import processing_logger as logger
 from .types import (
     Gallery,
     GalleryChapter,
-    GalleryFile,
     Image,
     ImageFile,
     Performer,
@@ -58,7 +49,6 @@ from .types import (
     Studio,
     Tag,
     VideoFile,
-    VisualFile,
 )
 
 if TYPE_CHECKING:

@@ -1,11 +1,9 @@
 """Integration tests for stash processing module."""
 
 import asyncio
-import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from download.core import DownloadState
@@ -104,12 +102,8 @@ async def test_full_creator_processing_flow(
     processor.process_creator = AsyncMock(return_value=(mock_account, mock_performer))
 
     # Mock database queries
-    mock_database.session_scope.return_value.__enter__.return_value.execute.return_value.scalar_one_or_none.return_value = (
-        mock_account
-    )
-    mock_database.async_session_scope.return_value.__aenter__.return_value.execute.return_value.scalar_one.return_value = (
-        mock_account
-    )
+    mock_database.session_scope.return_value.__enter__.return_value.execute.return_value.scalar_one_or_none.return_value = mock_account
+    mock_database.async_session_scope.return_value.__aenter__.return_value.execute.return_value.scalar_one.return_value = mock_account
 
     # Mock process_creator as AsyncMock
     processor.process_creator = AsyncMock(return_value=(mock_account, mock_performer))

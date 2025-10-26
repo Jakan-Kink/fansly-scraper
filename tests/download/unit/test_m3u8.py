@@ -1,8 +1,6 @@
 """Unit tests for the m3u8 module."""
 
-import json
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from m3u8 import M3U8
@@ -424,9 +422,7 @@ video_1080.m3u8"""
         mock_stream = MagicMock()
         mock_stream.get_args.return_value = ["ffmpeg", "-i", "input.m3u8", "output.mp4"]
         mock_stream.run.return_value = None
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
-            mock_stream
-        )
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
 
         # Mock file existence and size check
         mock_exists.return_value = True
@@ -474,9 +470,7 @@ video_1080.m3u8"""
         # Mock ffmpeg to raise an error
         mock_stream = MagicMock()
         mock_stream.run.side_effect = ffmpeg_lib.Error("ffmpeg", b"", b"Error message")
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
-            mock_stream
-        )
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
         mock_ffmpeg.Error = ffmpeg_lib.Error
 
         # Call the function
@@ -568,9 +562,7 @@ class TestSegmentDownload:
         mock_stream = MagicMock()
         mock_stream.get_args.return_value = ["ffmpeg", "-f", "concat", "-i", "list.ffc"]
         mock_stream.run.return_value = None
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
-            mock_stream
-        )
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
 
         # Call the function
         result = _try_segment_download(

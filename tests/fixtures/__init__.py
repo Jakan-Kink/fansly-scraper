@@ -58,7 +58,11 @@ from .metadata_factories import (
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
-    GroupFactory,
+)
+from .metadata_factories import (
+    GroupFactory as MetadataGroupFactory,  # Alias to avoid collision with Stash GroupFactory
+)
+from .metadata_factories import (
     MediaFactory,
     MediaLocationFactory,
     MessageFactory,
@@ -169,6 +173,15 @@ from .stash_processing_fixtures import (
     safe_tag_create,
     sanitize_model_data,
 )
+from .stash_type_factories import (
+    GalleryFactory,
+    GroupFactory,
+    ImageFactory,
+    PerformerFactory,
+    SceneFactory,
+    StudioFactory,
+    TagFactory,
+)
 
 FIXTURES_DIR = Path(__file__).parent
 
@@ -178,11 +191,21 @@ mod_metadata_factories = [
     "MediaFactory",
     "MediaLocationFactory",
     "PostFactory",
-    "GroupFactory",
+    "MetadataGroupFactory",  # Renamed to avoid collision with Stash GroupFactory
     "MessageFactory",
     "AttachmentFactory",
     "AccountMediaFactory",
     "AccountMediaBundleFactory",
+]
+
+mod_stash_type_factories = [
+    "PerformerFactory",
+    "StudioFactory",
+    "TagFactory",
+    "SceneFactory",
+    "GalleryFactory",
+    "ImageFactory",
+    "GroupFactory",  # Stash API GroupFactory (for Strawberry GraphQL types)
 ]
 
 mod_stash_fixtures = [
@@ -357,6 +380,7 @@ mod_api_fixtures = [
 # Combined __all__ from all modules
 __all__ = (
     mod_metadata_factories
+    + mod_stash_type_factories
     + mod_stash_fixtures
     + mod_stash_mixin_fixtures
     + mod_database_fixtures

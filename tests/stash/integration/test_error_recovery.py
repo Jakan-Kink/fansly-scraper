@@ -4,22 +4,16 @@ These tests require a running Stash instance.
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
 from datetime import datetime
-from pathlib import Path
-from typing import List, Optional
 
 import pytest
-import pytest_asyncio
 
 from stash import StashClient
-from stash.types import PreviewPreset  # Add import
 from stash.types import (
     Gallery,
     GenderEnum,
     GenerateMetadataInput,
     GenerateMetadataOptions,
-    Image,
     Performer,
     Scene,
     Studio,

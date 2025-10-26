@@ -4,10 +4,8 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-from sqlalchemy import select
 
 from fileio.normalize import normalize_filename
-from metadata.media import Media
 
 
 @pytest.fixture

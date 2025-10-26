@@ -137,9 +137,7 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             # If the file doesn't exist, set the next rollover time
             self.rolloverAt = self._compute_next_rollover()
 
-    def shouldRollover(
-        self, record
-    ):  # noqa: N802 - Override BaseRotatingHandler method
+    def shouldRollover(self, record):  # noqa: N802 - Override BaseRotatingHandler method
         # Defensive check: stream can be None with delay=True or closed by another thread
         if self.stream is None or (
             hasattr(self.stream, "closed") and self.stream.closed

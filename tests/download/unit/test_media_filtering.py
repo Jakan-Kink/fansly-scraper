@@ -1,19 +1,14 @@
 """Test media filtering functionality."""
 
-import contextlib
 from contextlib import asynccontextmanager
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config import FanslyConfig
 from download.common import process_download_accessible_media
 from download.downloadstate import DownloadState
 from download.types import DownloadType
 from media import MediaItem
-from metadata.account import Account, AccountMedia
-from metadata.base import Base
-from metadata.media import Media
 
 
 @pytest.fixture

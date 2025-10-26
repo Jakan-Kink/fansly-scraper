@@ -9,14 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from metadata.account import Account
+from metadata.account import AccountMedia, account_media_bundle_media
 from metadata.messages import (
     Group,
     Message,
     process_groups_response,
     process_messages_metadata,
 )
-from tests.fixtures import AccountFactory
+from tests.fixtures import AccountFactory, GroupFactory
 
 
 @pytest.fixture(scope="session")
@@ -180,7 +180,7 @@ async def test_process_message_attachments(
         stmt = (
             select(Message)
             .options(selectinload(Message.attachments))
-            .where(Message.id == msg_data["id"])
+            .where(Message.id == int(msg_data["id"]))  # Convert to int for bigint column
         )
 
         result = await session.execute(stmt)
@@ -243,7 +243,7 @@ async def test_process_message_media_variants(
         stmt = (
             select(Message)
             .options(selectinload(Message.attachments))
-            .where(Message.id == msg_data["id"])
+            .where(Message.id == int(msg_data["id"]))  # Convert to int for bigint column
         )
         result = await session.execute(stmt)
         message = result.unique().scalar_one()
@@ -302,8 +302,6 @@ async def test_process_message_media_bundles(
             content["accountMediaId"] for content in bundle_data["bundleContent"]
         ]
         # Use ORM to query the association table
-        from metadata.account import account_media_bundle_media
-
         stmt = (
             select(account_media_bundle_media.c.accountMediaId)
             .where(account_media_bundle_media.c.bundleId == bundle_data["id"])
@@ -317,14 +315,14 @@ async def test_process_message_media_bundles(
 @pytest.mark.asyncio
 async def test_process_message_permissions(
     session: AsyncSession,
-    session_sync,
+    factory_session,
     config,
     conversation_data,
 ):
     """Test processing message media permissions.
 
     Uses centralized fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    factory_session configures factories with the database session.
     """
     messages = conversation_data["response"]["messages"]
     media_items = conversation_data["response"].get("accountMedia", [])
@@ -339,6 +337,28 @@ async def test_process_message_permissions(
             id=acc_data["id"],
             username=acc_data.get("username", f"user_{acc_data['id']}"),
         )
+
+    # Create groups from conversation data to satisfy foreign key constraints
+    groups_data = conversation_data["response"].get("groups", [])
+    for group_data in groups_data:
+        GroupFactory(
+            id=group_data["id"],
+            accountId=group_data.get("accountId") or group_data.get("createdBy"),
+        )
+
+    # Also extract groups from messages if they're referenced
+    for msg in messages:
+        if msg.get("groupId"):
+            group_id = int(msg["groupId"])  # Convert to int for bigint column
+            # Check if group already created
+            result = await session.execute(select(Group).where(Group.id == group_id))
+            if not result.scalar_one_or_none():
+                # Create a minimal group for testing
+                GroupFactory(
+                    id=group_id,
+                    accountId=msg.get("senderId") or msg.get("recipientId"),
+                )
+
     session.expire_all()
 
     await process_messages_metadata(config, None, messages, session=session)
@@ -346,10 +366,10 @@ async def test_process_message_permissions(
     # Verify permission flags were processed correctly
     session.expire_all()
     for media_data in media_items:
-        from metadata.account import AccountMedia
-
         result = await session.execute(
-            select(AccountMedia).where(AccountMedia.id == media_data["id"])
+            select(AccountMedia).where(
+                AccountMedia.id == int(media_data["id"])  # Convert to int for bigint column
+            )
         )
         stored_media = result.scalar_one_or_none()
 

@@ -21,11 +21,8 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     event,
-    exc,
-    select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from config.decorators import with_database_session

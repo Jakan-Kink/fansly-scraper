@@ -13,19 +13,17 @@ from __future__ import annotations
 import asyncio
 import gc
 import time
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session, selectinload
 
 from metadata import Account, Message, Post
 
 if TYPE_CHECKING:
-    from metadata.database import Database
+    pass
 
 
 def measure_time(func):
@@ -223,9 +221,9 @@ async def test_query_optimization(test_database):
         column_ops_per_sec = (
             len(column_posts) / column_time if column_time > 0 else float("inf")
         )
-        assert (
-            column_ops_per_sec > basic_ops_per_sec
-        ), "Column-specific query should process more rows per second"
+        assert column_ops_per_sec > basic_ops_per_sec, (
+            "Column-specific query should process more rows per second"
+        )
 
         # Test 3: Query with joins
         start_time = time.time()
@@ -453,6 +451,6 @@ async def test_query_caching(test_database):
     tolerance_factor = (
         1.05  # Allow cached time to be up to 5% slower due to measurement noise
     )
-    assert avg_cached_time <= (
-        avg_uncached_time * tolerance_factor
-    ), "Cached query should be roughly as fast or faster"
+    assert avg_cached_time <= (avg_uncached_time * tolerance_factor), (
+        "Cached query should be roughly as fast or faster"
+    )

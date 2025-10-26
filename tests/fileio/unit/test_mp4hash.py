@@ -5,7 +5,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from rich import print as rich_print
 
 from errors.mp4 import InvalidMP4Error
 from mp4hash import main, parse_args

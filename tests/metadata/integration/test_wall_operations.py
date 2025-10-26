@@ -1,19 +1,13 @@
 """Integration tests for wall operations."""
 
-import json
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, selectinload, sessionmaker
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import text
 
-from config import FanslyConfig
 from metadata.account import Account
-from metadata.base import Base
-from metadata.database import Database
 from metadata.post import Post
 from metadata.wall import Wall, process_account_walls, process_wall_posts
 from metadata.wall import wall_posts as wall_posts_table

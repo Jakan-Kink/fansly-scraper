@@ -4,7 +4,7 @@ This test module uses real database fixtures and factories instead of mocks
 to provide more reliable integration testing while maintaining test isolation.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import insert, select
@@ -15,9 +15,6 @@ from metadata import (
     AccountMedia,
     AccountMediaBundle,
     Attachment,
-    Group,
-    Media,
-    Message,
     Post,
 )
 from metadata.account import account_media_bundle_media

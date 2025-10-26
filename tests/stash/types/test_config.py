@@ -7,8 +7,6 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-import strawberry
-from strawberry import ID
 
 from stash.types.config import (
     ConfigDefaultSettingsInput,
@@ -29,14 +27,6 @@ from stash.types.config import (
     SetupInput,
     StashConfig,
     StashConfigInput,
-)
-from stash.types.enums import (
-    BlobsStorageType,
-    HashAlgorithm,
-    ImageLightboxDisplayMode,
-    ImageLightboxScrollMode,
-    PreviewPreset,
-    StreamingResolutionEnum,
 )
 
 
@@ -135,9 +125,9 @@ def test_config_disable_dropdown_create_input() -> None:
     expected_fields = ["performer", "tag", "studio"]
 
     for field in expected_fields:
-        assert (
-            field in fields
-        ), f"Field {field} not found in ConfigDisableDropdownCreateInput"
+        assert field in fields, (
+            f"Field {field} not found in ConfigDisableDropdownCreateInput"
+        )
 
 
 @pytest.mark.unit
@@ -153,9 +143,9 @@ def test_config_disable_dropdown_create() -> None:
     expected_fields = ["performer", "tag", "studio"]
 
     for field in expected_fields:
-        assert (
-            field in fields
-        ), f"Field {field} not found in ConfigDisableDropdownCreate"
+        assert field in fields, (
+            f"Field {field} not found in ConfigDisableDropdownCreate"
+        )
 
 
 @pytest.mark.unit
@@ -418,9 +408,9 @@ def test_config_default_settings_result() -> None:
     ]
 
     for field in expected_fields:
-        assert (
-            field in fields
-        ), f"Field {field} not found in ConfigDefaultSettingsResult"
+        assert field in fields, (
+            f"Field {field} not found in ConfigDefaultSettingsResult"
+        )
 
 
 @pytest.mark.unit
@@ -454,9 +444,9 @@ def test_strawberry_decorations() -> None:
         # Type has strawberry definition - skip assertion if access fails
         try:
             definition = type_class.__strawberry_definition__
-            assert (
-                definition is not None
-            ), f"{type_class.__name__} has None strawberry definition"
+            assert definition is not None, (
+                f"{type_class.__name__} has None strawberry definition"
+            )
         except AttributeError:
             # Skip types that don't properly support strawberry definition access
             continue
@@ -478,9 +468,9 @@ def test_enum_usage() -> None:
         # These fields should use enum types (we can't easily test the exact type mapping without more introspection)
         enum_fields = ["blobs_storage", "video_file_naming_algorithm"]
         for field in enum_fields:
-            assert (
-                field in general_fields
-            ), f"Enum field {field} not found in ConfigGeneralInput"
+            assert field in general_fields, (
+                f"Enum field {field} not found in ConfigGeneralInput"
+            )
 
 
 @pytest.mark.unit

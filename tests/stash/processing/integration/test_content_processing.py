@@ -1,6 +1,5 @@
 """Integration tests for post and message processing in StashProcessing."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

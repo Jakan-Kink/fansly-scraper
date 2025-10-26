@@ -3,10 +3,9 @@
 Tests scalar types including Time and Timestamp scalars.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
-import strawberry
 from strawberry.types.scalar import ScalarWrapper
 
 from stash.types.scalars import Time, Timestamp, _parse_timestamp
@@ -187,7 +186,7 @@ def test_strawberry_decorations() -> None:
     scalars_to_test = [Time, Timestamp]
 
     for scalar_class in scalars_to_test:
-        assert isinstance(
-            scalar_class, ScalarWrapper
-        ), f"{scalar_class.__name__ if hasattr(scalar_class, '__name__') else 'Scalar'} is not a ScalarWrapper"
+        assert isinstance(scalar_class, ScalarWrapper), (
+            f"{scalar_class.__name__ if hasattr(scalar_class, '__name__') else 'Scalar'} is not a ScalarWrapper"
+        )
         assert scalar_class._scalar_definition.name is not None

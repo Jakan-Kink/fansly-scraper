@@ -4,7 +4,6 @@ import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import gql
 import httpx
 import pytest
 from graphql import (

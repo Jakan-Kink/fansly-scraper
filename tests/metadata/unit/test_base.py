@@ -1,14 +1,11 @@
 """Unit tests for metadata.base module."""
 
-import asyncio
-
 import pytest
 import pytest_asyncio
 from sqlalchemy import create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from metadata.base import Base
 from tests.metadata.unit.models import SampleModel, test_metadata
 
 

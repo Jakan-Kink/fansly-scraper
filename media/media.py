@@ -68,7 +68,6 @@ def parse_variants(
             current_variant_resolution > item.highest_variants_resolution
             and item.default_normal_mimetype == simplify_mimetype(content["mimetype"])
         ):
-
             item.highest_variants_resolution = current_variant_resolution
             item.highest_variants_resolution_height = content["height"] or 0
             item.highest_variants_resolution_url = location_url

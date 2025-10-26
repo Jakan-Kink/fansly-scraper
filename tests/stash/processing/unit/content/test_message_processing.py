@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import insert, select
 from sqlalchemy.orm import selectinload
 
-from metadata import Account, Group, Message
+from metadata import Account, Message
 from metadata.attachment import ContentType
 from metadata.messages import group_users
 from stash.types import Performer, Studio

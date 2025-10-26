@@ -6,7 +6,6 @@ Tests image types including Image, ImageCreateInput, ImageUpdateInput and relate
 from unittest.mock import PropertyMock, patch
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.image import (
@@ -158,9 +157,9 @@ def test_image_relationships() -> None:
     expected_relationships = ["studio", "performers", "tags", "galleries"]
 
     for field in expected_relationships:
-        assert (
-            field in Image.__relationships__
-        ), f"Relationship {field} not found in Image"
+        assert field in Image.__relationships__, (
+            f"Relationship {field} not found in Image"
+        )
 
     # Test specific relationship mappings
     performers_mapping = Image.__relationships__["performers"]
@@ -312,15 +311,14 @@ def test_strawberry_decorations() -> None:
     ]
 
     for type_class in types_to_test:
-        assert hasattr(
-            type_class, "__strawberry_definition__"
-        ), f"{type_class.__name__} missing strawberry definition"
+        assert hasattr(type_class, "__strawberry_definition__"), (
+            f"{type_class.__name__} missing strawberry definition"
+        )
 
 
 @pytest.mark.unit
 def test_image_inheritance() -> None:
     """Test that Image properly inherits from StashObject."""
-    from stash.types.base import StashObject
 
     # Test that Image follows the StashObject interface pattern
     assert hasattr(Image, "__type_name__")
@@ -459,9 +457,6 @@ def test_image_from_dict_strawberry_definition_fallback() -> None:
 @pytest.mark.unit
 def test_image_from_dict_actual_implementation() -> None:
     """Test Image.from_dict method actually works with proper data."""
-    from datetime import datetime
-
-    from stash.types.files import ImageFile
 
     # Test data that should work with the actual implementation
     data = {

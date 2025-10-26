@@ -11,8 +11,6 @@ from stash.client_helpers import async_lru_cache
 from stash.types import (
     FindScenesResultType,
     Scene,
-    SceneCreateInput,
-    SceneUpdateInput,
     VideoFile,
 )
 from tests.stash.client.client_test_helpers import create_base_mock_client

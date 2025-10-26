@@ -15,12 +15,9 @@ Usage:
 """
 
 from datetime import datetime, timezone
-from typing import Any
 
 import factory
 from factory.alchemy import SQLAlchemyModelFactory
-from factory.fuzzy import FuzzyChoice, FuzzyInteger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from metadata import (
     Account,

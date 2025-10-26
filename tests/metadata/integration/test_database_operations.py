@@ -20,16 +20,13 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import exc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
-from metadata import Account, AccountMedia, Base, Media, Message, Post
+from metadata import Account, AccountMedia, Media, Message, Post
 from metadata.database import Database
-from tests.fixtures.database_fixtures import TestDatabase  # Add this import
 from textio import print_error, print_info, print_warning
 
 
@@ -276,16 +273,16 @@ async def test_cascade_operations(test_config, shared_db_path):
                 select(AccountMedia).filter_by(accountId=999)
             )
             remaining_media_associations = result.scalars().all()
-            assert (
-                len(remaining_media_associations) == 0
-            ), "AccountMedia for account 999 wasn't deleted"
+            assert len(remaining_media_associations) == 0, (
+                "AccountMedia for account 999 wasn't deleted"
+            )
 
             # Check that standalone media still exists
             result = await verify_session.execute(select(Media).filter_by(id=1001))
             standalone_media_found = result.scalar_one_or_none()
-            assert (
-                standalone_media_found is not None
-            ), "Standalone media was incorrectly deleted"
+            assert standalone_media_found is not None, (
+                "Standalone media was incorrectly deleted"
+            )
 
             # The account-owned media might be deleted or might not, depending on cascade behavior
             # Instead of expecting it to exist, let's check if it's gone and document the behavior
@@ -661,12 +658,12 @@ async def test_write_through_cache_integration(
                     pytest.xfail("Data not persisted between database connections")
                 else:
                     print_info(f"Found media {unique_media_id} in second database")
-                    assert (
-                        saved_media.id == unique_media_id
-                    ), f"Media ID mismatch: {saved_media.id} != {unique_media_id}"
-                    assert (
-                        saved_media.accountId == 1
-                    ), f"Media accountId mismatch: {saved_media.accountId} != 1"
+                    assert saved_media.id == unique_media_id, (
+                        f"Media ID mismatch: {saved_media.id} != {unique_media_id}"
+                    )
+                    assert saved_media.accountId == 1, (
+                        f"Media accountId mismatch: {saved_media.accountId} != 1"
+                    )
         finally:
             # Close the second database properly
             db2.close_sync()  # Use close_sync() instead of close_async()

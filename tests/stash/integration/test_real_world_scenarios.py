@@ -8,18 +8,14 @@ Note: These tests are skipped when running in the sandbox environment.
 import asyncio
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
-import pytest_asyncio
 
 from metadata import Account, Media, Post
 from stash import StashClient
 from stash.types import (
-    Gallery,
     GenerateMetadataInput,
     GenerateMetadataOptions,
-    Image,
     Performer,
     Scene,
     Studio,

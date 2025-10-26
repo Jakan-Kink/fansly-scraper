@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, Integer, String
+from sqlalchemy import BigInteger, String
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
 
 from .base import Base

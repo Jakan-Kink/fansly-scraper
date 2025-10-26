@@ -6,7 +6,6 @@ Tests studio types including Studio, StudioCreateInput, StudioUpdateInput and re
 from unittest.mock import Mock
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.studio import (
@@ -143,9 +142,9 @@ def test_studio_relationships() -> None:
     expected_relationships = ["parent_studio", "tags", "stash_ids"]
 
     for field in expected_relationships:
-        assert (
-            field in Studio.__relationships__
-        ), f"Relationship {field} not found in Studio"
+        assert field in Studio.__relationships__, (
+            f"Relationship {field} not found in Studio"
+        )
 
     # Test specific relationship mappings
     parent_studio_mapping = Studio.__relationships__["parent_studio"]
@@ -245,15 +244,14 @@ def test_strawberry_decorations() -> None:
     ]
 
     for type_class in types_to_test:
-        assert hasattr(
-            type_class, "__strawberry_definition__"
-        ), f"{type_class.__name__} missing strawberry definition"
+        assert hasattr(type_class, "__strawberry_definition__"), (
+            f"{type_class.__name__} missing strawberry definition"
+        )
 
 
 @pytest.mark.unit
 def test_studio_inheritance() -> None:
     """Test that Studio properly inherits from StashObject."""
-    from stash.types.base import StashObject
 
     # Test that Studio follows the StashObject interface pattern
     assert hasattr(Studio, "__type_name__")

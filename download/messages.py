@@ -43,7 +43,6 @@ async def download_messages(config: FanslyConfig, state: DownloadState):
 
         # only if we do have a message ("group") with the creator
         if group_id:
-
             msg_cursor: str = "0"
 
             while True:
@@ -57,7 +56,6 @@ async def download_messages(config: FanslyConfig, state: DownloadState):
                 messages_response = config.get_api().get_message(params)
 
                 if messages_response.status_code == 200:
-
                     # Object contains: messages, accountMedia, accountMediaBundles, tips, tipGoals, stories
                     messages = config.get_api().get_json_response_contents(
                         messages_response

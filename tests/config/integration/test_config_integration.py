@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from config.config import load_config
-from config.fanslyconfig import FanslyConfig
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from errors import ConfigError

@@ -1,9 +1,7 @@
 """Tests for the pathio module."""
 
-import os
 import sys
 import tempfile
-import time
 from pathlib import Path
 from unittest import mock
 
@@ -21,7 +19,6 @@ from pathio import (
     get_media_save_path,
     set_create_directory_for_download,
 )
-from pathio.types import PathConfig
 
 
 class MockPathConfig:

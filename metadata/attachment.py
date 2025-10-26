@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from sqlalchemy import BigInteger, CheckConstraint
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Integer, func, select, text
+from sqlalchemy import ForeignKey, Integer, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.attributes import set_committed_value
 
 from config.decorators import with_database_session

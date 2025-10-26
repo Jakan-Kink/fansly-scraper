@@ -1,9 +1,7 @@
 """Test for FanslyApi device update callback functionality"""
 
 from datetime import datetime
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from api.fansly import FanslyApi
 

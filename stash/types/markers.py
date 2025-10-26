@@ -1,7 +1,6 @@
 """Scene marker types from schema/types/scene-marker.graphql and scene-marker-tag.graphql."""
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, List, Optional
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 from strawberry import ID, lazy

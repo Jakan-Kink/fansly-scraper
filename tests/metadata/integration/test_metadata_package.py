@@ -10,7 +10,6 @@ from metadata import (
     AccountMedia,
     Media,
     Message,
-    Post,
     TimelineStats,
     Wall,
     process_account_data,
@@ -109,20 +108,20 @@ async def test_relationship_integrity(test_database):
                 # Test 2: AccountMedia -> Media relationship using ORM
                 for account_media in account_media:
                     media = account_media.media
-                    assert (
-                        media is not None
-                    ), f"Media {account_media.mediaId} not found for AccountMedia {account_media.id}"
-                    assert (
-                        media.accountId == account.id
-                    ), f"Media {media.id} has wrong accountId {media.accountId}, expected {account.id}"
+                    assert media is not None, (
+                        f"Media {account_media.mediaId} not found for AccountMedia {account_media.id}"
+                    )
+                    assert media.accountId == account.id, (
+                        f"Media {media.id} has wrong accountId {media.accountId}, expected {account.id}"
+                    )
 
                 # Test 3: Account -> Walls relationship (existing walls) using ORM
                 existing_walls = await session.scalars(
                     select(Wall).filter_by(accountId=account.id)
                 )
-                assert (
-                    len(list(existing_walls)) == 2
-                ), f"Expected 2 walls for account {account.id}, found {len(list(existing_walls))}"
+                assert len(list(existing_walls)) == 2, (
+                    f"Expected 2 walls for account {account.id}, found {len(list(existing_walls))}"
+                )
                 assert await verify_relationship_integrity(
                     session, account, "walls", expected_count=2
                 )
@@ -130,15 +129,15 @@ async def test_relationship_integrity(test_database):
                 # Test 4: Wall -> Posts relationship using ORM
                 for wall in existing_walls:
                     account_posts = wall.posts
-                    assert (
-                        len(account_posts) == 2
-                    ), f"Expected 2 posts for account {wall.accountId}, found {len(account_posts)}"
+                    assert len(account_posts) == 2, (
+                        f"Expected 2 posts for account {wall.accountId}, found {len(account_posts)}"
+                    )
 
                     # Verify each post belongs to the correct account
                     for post in account_posts:
-                        assert (
-                            post.accountId == wall.accountId
-                        ), f"Post {post.id} has wrong accountId {post.accountId}, expected {wall.accountId}"
+                        assert post.accountId == wall.accountId, (
+                            f"Post {post.id} has wrong accountId {post.accountId}, expected {wall.accountId}"
+                        )
 
             # Test 5: Verify no orphaned records
             # Count total records
@@ -216,15 +215,15 @@ async def test_database_indexes(test_database):
             )
         )
         plan = result.fetchall()
-        assert any(
-            "USING INDEX" in str(row) for row in plan
-        ), "Query not using index for accounts.username"
+        assert any("USING INDEX" in str(row) for row in plan), (
+            "Query not using index for accounts.username"
+        )
 
         # Check foreign key indexes
         result = await session.execute(
             text("EXPLAIN QUERY PLAN SELECT * FROM walls WHERE accountId = 1")
         )
         plan = result.fetchall()
-        assert any(
-            "USING INDEX" in str(row) for row in plan
-        ), "Query not using index for walls.accountId"
+        assert any("USING INDEX" in str(row) for row in plan), (
+            "Query not using index for walls.accountId"
+        )

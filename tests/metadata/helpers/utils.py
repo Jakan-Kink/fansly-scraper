@@ -7,7 +7,7 @@ package, including data generation, validation, and common test operations.
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 

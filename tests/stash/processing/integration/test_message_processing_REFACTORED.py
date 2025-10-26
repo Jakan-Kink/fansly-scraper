@@ -14,10 +14,10 @@ import pytest
 
 # Import real database fixtures and factories
 from metadata.attachment import ContentType
+from tests.fixtures import MetadataGroupFactory  # SQLAlchemy Group model factory
 from tests.fixtures import (
     AccountFactory,
     AttachmentFactory,
-    GroupFactory,
     MediaFactory,
     MessageFactory,
 )
@@ -65,7 +65,7 @@ def test_group(session_sync, test_account):
 
     Note: Groups require an Account to exist (createdBy foreign key).
     """
-    group = GroupFactory.build(
+    group = MetadataGroupFactory.build(
         id=40123,
         createdBy=test_account.id,
     )
@@ -217,7 +217,7 @@ async def test_process_multiple_messages_REFACTORED(
         message = MessageFactory.build(
             groupId=test_group.id,
             senderId=test_account.id,
-            content=f"Test message {i+1}",
+            content=f"Test message {i + 1}",
         )
         session_sync.add(message)
 
@@ -237,7 +237,7 @@ async def test_process_multiple_messages_REFACTORED(
     # Assert - we have real objects in database
     assert len(messages) == 3
     for i, msg in enumerate(messages):
-        assert msg.content == f"Test message {i+1}"
+        assert msg.content == f"Test message {i + 1}"
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,5 @@
 """Tag-related client functionality."""
 
-import json
 from typing import Any
 
 from ... import fragments

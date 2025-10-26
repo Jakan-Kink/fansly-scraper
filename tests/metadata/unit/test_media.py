@@ -5,7 +5,7 @@ import json
 import pytest
 from sqlalchemy import select
 
-from metadata.media import Media, MediaLocation, process_media_item_dict
+from metadata.media import Media, process_media_item_dict
 from tests.fixtures import AccountFactory, MediaFactory
 
 

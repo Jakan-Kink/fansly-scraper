@@ -4,13 +4,11 @@ Tests that verify the integration of the different mixins in the StashProcessing
 """
 
 import asyncio
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from metadata import Account, AccountMedia, Attachment, Media, Message, Post
 from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
 from stash.processing.mixins.account import AccountProcessingMixin

@@ -20,7 +20,6 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-
     with op.batch_alter_table("messages", schema=None) as batch_op:
         # Add the new column
         batch_op.add_column(sa.Column("content", sa.String(), nullable=False))

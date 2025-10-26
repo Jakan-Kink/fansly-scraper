@@ -13,12 +13,19 @@ Organization:
 """
 
 import asyncio
+import gc
 import json
 import logging
+import os
+import shutil
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import perf_counter, sleep, time
 from unittest.mock import MagicMock
 
+import psutil
 import pytest
 import pytest_asyncio
 from loguru import logger
@@ -273,7 +280,7 @@ def mock_config():
     """
     from config.fanslyconfig import FanslyConfig
 
-    config = FanslyConfig(program_version="0.10.0")
+    config = FanslyConfig(program_version="0.11.0")
     # Override database name to prevent accidental connections to production database
     config.pg_database = "test_mock_should_not_connect"
     return config
@@ -284,7 +291,7 @@ def test_config():
     """Alias for mock_config fixture for backwards compatibility."""
     from config.fanslyconfig import FanslyConfig
 
-    config = FanslyConfig(program_version="0.10.0")
+    config = FanslyConfig(program_version="0.11.0")
     # Override database name to prevent accidental connections to production database
     config.pg_database = "test_mock_should_not_connect"
     return config
@@ -293,8 +300,6 @@ def test_config():
 @pytest.fixture(scope="function")
 def temp_config_dir():
     """Create a temporary directory and change to it for config file testing."""
-    import os
-    import tempfile
 
     with tempfile.TemporaryDirectory() as temp_dir:
         original_cwd = os.getcwd()
@@ -303,6 +308,28 @@ def temp_config_dir():
             yield Path(temp_dir)
         finally:
             os.chdir(original_cwd)
+
+            # Clean up logging handlers (loguru keeps file handles open)
+            try:
+                from loguru import logger
+
+                logger.remove()  # Remove all handlers to close log files
+            except Exception:
+                pass
+
+            # Force garbage collection to close any open file handles
+            gc.collect()
+            sleep(0.1)  # Brief delay to ensure handles are released
+
+            # Try to remove any remaining files manually
+            try:
+                for item in Path(temp_dir).iterdir():
+                    if item.is_file():
+                        item.unlink(missing_ok=True)
+                    elif item.is_dir():
+                        shutil.rmtree(item, ignore_errors=True)
+            except Exception:
+                pass  # Ignore errors, TemporaryDirectory will handle final cleanup
 
 
 @pytest.fixture(scope="function")
@@ -457,8 +484,6 @@ def test_downloads_dir(tmp_path):
 @pytest.fixture(scope="session")
 def performance_log_dir():
     """Create a directory for performance test logs."""
-    import tempfile
-
     with tempfile.TemporaryDirectory() as temp_dir:
         yield Path(temp_dir)
 
@@ -477,10 +502,6 @@ def performance_threshold():
 @pytest.fixture
 def performance_tracker(performance_log_dir, request):
     """Fixture to track and log performance metrics."""
-    from contextlib import contextmanager
-    from time import perf_counter, time
-
-    import psutil
 
     @contextmanager
     def track_performance():

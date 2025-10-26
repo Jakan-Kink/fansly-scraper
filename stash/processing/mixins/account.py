@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func, select

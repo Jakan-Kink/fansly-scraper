@@ -6,7 +6,7 @@ import logging
 from metadata import Account, Media, Post
 
 from .client import StashClient
-from .types import Gallery, Performer, Scene, Studio
+from .types import Gallery, Performer, Studio
 
 
 async def main():

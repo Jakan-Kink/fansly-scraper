@@ -1,20 +1,18 @@
 """Test configuration and fixtures for Stash tests."""
 
-import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import AsyncGenerator, AsyncIterator, Generator
+from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from metadata import Account, Attachment, Group, Media, Message, Post
+from metadata import Account
 from stash import StashClient, StashContext
-from stash.types import Gallery, Image, Performer, Scene, SceneCreateInput, Studio, Tag
+from stash.types import Performer, Scene, SceneCreateInput, Studio
 
 # Export all fixtures for wildcard import
 __all__ = [

@@ -1,7 +1,7 @@
 """Scene types from schema/types/scene.graphql."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, List, Optional
+from typing import TYPE_CHECKING, Annotated, Any
 
 import strawberry
 from strawberry import ID, lazy
@@ -183,9 +183,7 @@ class Scene(StashObject):
     )  # ScenePathsType! (Resolver)
     scene_markers: list[
         Annotated["SceneMarker", lazy("stash.types.markers.SceneMarker")]
-    ] = strawberry.field(
-        default_factory=list
-    )  # [SceneMarker!]!
+    ] = strawberry.field(default_factory=list)  # [SceneMarker!]!
     galleries: list[Annotated["Gallery", lazy("stash.types.gallery.Gallery")]] = (
         strawberry.field(default_factory=list)
     )  # [Gallery!]!
@@ -197,9 +195,7 @@ class Scene(StashObject):
     )  # [Tag!]!
     performers: list[
         Annotated["Performer", lazy("stash.types.performer.Performer")]
-    ] = strawberry.field(
-        default_factory=list
-    )  # [Performer!]!
+    ] = strawberry.field(default_factory=list)  # [Performer!]!
     stash_ids: list[StashID] = strawberry.field(default_factory=list)  # [StashID!]!
     sceneStreams: list[SceneStreamEndpoint] = strawberry.field(
         default_factory=list,
@@ -233,7 +229,8 @@ class Scene(StashObject):
         # Filter out fields that aren't part of our class
         try:
             valid_fields = {
-                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+                field.name
+                for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
             }
             filtered_data = {k: v for k, v in data.items() if k in valid_fields}
         except AttributeError:
@@ -428,9 +425,7 @@ class SceneParserResultType:
     count: int  # Int!
     results: list[
         Annotated["SceneParserResult", lazy("stash.types.scene.SceneParserResult")]
-    ] = strawberry.field(
-        default_factory=list
-    )  # [SceneParserResult!]!
+    ] = strawberry.field(default_factory=list)  # [SceneParserResult!]!
 
 
 @strawberry.input

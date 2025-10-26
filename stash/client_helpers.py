@@ -3,7 +3,7 @@ import json
 import re
 import string
 
-from .logging import client_logger, debug_print, processing_logger, stash_logger
+from .logging import debug_print
 
 
 def normalize_str(string_in):

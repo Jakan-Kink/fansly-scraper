@@ -70,14 +70,14 @@ async def test_concurrent_downloads_performance(
                 assert result, f"Download {i} failed without exception"
 
             # Verify performance
-            assert (
-                metrics["duration"] <= performance_threshold["max_download_time"]
-            ), f"Concurrent downloads took too long: {metrics['duration']:.2f}s"
+            assert metrics["duration"] <= performance_threshold["max_download_time"], (
+                f"Concurrent downloads took too long: {metrics['duration']:.2f}s"
+            )
 
             # Check memory usage
-            assert (
-                metrics["max_memory"] <= performance_threshold["max_memory_mb"]
-            ), f"Memory usage too high: {metrics['max_memory']:.2f}MB"
+            assert metrics["max_memory"] <= performance_threshold["max_memory_mb"], (
+                f"Memory usage too high: {metrics['max_memory']:.2f}MB"
+            )
 
         except Exception as e:
             logger.error(f"Concurrent downloads performance test failed: {e}")
@@ -109,13 +109,13 @@ def test_media_processing_performance(
             assert processing_result.duration > 0, "Invalid processing duration"
 
             # Verify performance
-            assert (
-                metrics["duration"] <= performance_threshold["max_response_time"]
-            ), f"Media processing took too long: {metrics['duration']:.2f}s"
+            assert metrics["duration"] <= performance_threshold["max_response_time"], (
+                f"Media processing took too long: {metrics['duration']:.2f}s"
+            )
 
-            assert (
-                metrics["memory_change"] <= 100
-            ), f"Memory usage increase too high: {metrics['memory_change']:.2f}MB"
+            assert metrics["memory_change"] <= 100, (
+                f"Memory usage increase too high: {metrics['memory_change']:.2f}MB"
+            )
 
     except Exception as e:
         logger.error(f"Media processing performance test failed: {e}")
@@ -153,12 +153,12 @@ def test_memory_scaling_performance(
             processing_result = process_media(
                 input_path=input_file, output_path=output_file, config=test_config
             )
-            assert (
-                processing_result.success
-            ), f"Media processing failed for {file_size_mb}MB file"
-            assert (
-                processing_result.duration > 0
-            ), f"Invalid processing duration for {file_size_mb}MB file"
+            assert processing_result.success, (
+                f"Media processing failed for {file_size_mb}MB file"
+            )
+            assert processing_result.duration > 0, (
+                f"Invalid processing duration for {file_size_mb}MB file"
+            )
 
             # Verify memory scaling - focusing on the increase over baseline
             processing_factor = 2  # Allow 2x file size for processing

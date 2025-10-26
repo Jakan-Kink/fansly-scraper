@@ -1,7 +1,5 @@
 """Unit tests for TagClientMixin."""
 
-import asyncio
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
@@ -9,7 +7,7 @@ import pytest
 from stash import StashClient
 from stash.client.mixins.tag import TagClientMixin
 from stash.client_helpers import async_lru_cache
-from stash.types import FindTagsResultType, Tag, TagsMergeInput
+from stash.types import FindTagsResultType, Tag
 from tests.stash.client.client_test_helpers import create_base_mock_client
 
 

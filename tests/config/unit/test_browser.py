@@ -1,9 +1,8 @@
 """Unit tests for browser configuration utilities."""
 
 import os
-import platform
 import sqlite3
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import plyvel
 import pytest

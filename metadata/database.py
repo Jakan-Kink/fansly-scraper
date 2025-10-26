@@ -31,23 +31,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import quote_plus
 
-import sqlalchemy as sa
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.exc import DisconnectionError, OperationalError, PendingRollbackError
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import Session, sessionmaker
-
 from alembic.command import upgrade as alembic_upgrade
 from alembic.config import Config as AlembicConfig
-from config import db_logger
+from sqlalchemy import create_engine, event
+from sqlalchemy.exc import OperationalError, PendingRollbackError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 
-# Import textio logger for user-facing messages
-from textio import print_error, print_info, print_warning
+from config import db_logger
 
 from .logging_config import DatabaseLogger
 

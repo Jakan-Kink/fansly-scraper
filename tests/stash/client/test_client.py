@@ -1,7 +1,7 @@
 """Unit tests for StashClient."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from gql.transport.exceptions import (
@@ -10,10 +10,7 @@ from gql.transport.exceptions import (
     TransportServerError,
 )
 from graphql import (
-    GraphQLArgument,
     GraphQLField,
-    GraphQLID,
-    GraphQLNonNull,
     GraphQLObjectType,
     GraphQLSchema,
     GraphQLString,

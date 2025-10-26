@@ -4,22 +4,14 @@ These tests require a running Stash instance.
 """
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from datetime import datetime
-from pathlib import Path
-from pprint import pformat
-from typing import List
 
 import pytest
-import pytest_asyncio
 
 from stash import StashClient
 from stash.types import (
-    Gallery,
     GenderEnum,
-    GenerateMetadataInput,
-    GenerateMetadataOptions,
-    Image,
     Performer,
     Scene,
     SceneCreateInput,
@@ -219,9 +211,9 @@ class TestTagManagement:
 
                     # Verify original tags are present
                     for tag in tags:
-                        assert (
-                            tag.id in scene_tag_ids
-                        ), f"Original tag {tag.id} not found in scene tags"
+                        assert tag.id in scene_tag_ids, (
+                            f"Original tag {tag.id} not found in scene tags"
+                        )
 
                     # Log but don't fail if duplicate tags are still present (server might be slow)
                     for tag in duplicate_tags:
@@ -443,11 +435,14 @@ class TestStudioHierarchy:
                     cleanup["scenes"].append(scene.id)
 
                 # Create child studio with content
-                child_perf, child_studio, child_tags, child_scenes = (
-                    await create_test_data(
-                        stash_client,
-                        prefix=f"child_studio_{timestamp}",
-                    )
+                (
+                    child_perf,
+                    child_studio,
+                    child_tags,
+                    child_scenes,
+                ) = await create_test_data(
+                    stash_client,
+                    prefix=f"child_studio_{timestamp}",
                 )
 
                 # Set parent relationship
@@ -506,11 +501,14 @@ class TestStudioHierarchy:
                     cleanup["scenes"].append(scene.id)
 
                 # Create child studio with content
-                child_perf, child_studio, child_tags, child_scenes = (
-                    await create_test_data(
-                        stash_client,
-                        prefix=f"migration_child_{timestamp}",
-                    )
+                (
+                    child_perf,
+                    child_studio,
+                    child_tags,
+                    child_scenes,
+                ) = await create_test_data(
+                    stash_client,
+                    prefix=f"migration_child_{timestamp}",
                 )
 
                 # Set parent relationship
@@ -669,12 +667,12 @@ class TestDuplicateManagement:
                 )
 
                 # The scene counts should match exactly - no need to filter further
-                assert original_filter.count == len(
-                    original_scenes
-                ), f"Expected {len(original_scenes)} original scenes, found {original_filter.count}"
-                assert duplicate_filter.count == len(
-                    duplicate_scenes
-                ), f"Expected {len(duplicate_scenes)} duplicate scenes, found {duplicate_filter.count}"
+                assert original_filter.count == len(original_scenes), (
+                    f"Expected {len(original_scenes)} original scenes, found {original_filter.count}"
+                )
+                assert duplicate_filter.count == len(duplicate_scenes), (
+                    f"Expected {len(duplicate_scenes)} duplicate scenes, found {duplicate_filter.count}"
+                )
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
@@ -947,21 +945,21 @@ class TestDuplicateManagement:
                         print(f"  - {s['id']}: {s['title']}")
 
                 # Always assert that we found exactly one primary scene
-                assert (
-                    primary_scenes.count == 1
-                ), f"Expected 1 primary scene, found {primary_scenes.count}"
+                assert primary_scenes.count == 1, (
+                    f"Expected 1 primary scene, found {primary_scenes.count}"
+                )
 
                 # If we had to use the fallback method, adjust the assertion to use filtered_duplicates
                 if "filtered_duplicates" in locals():
                     # Use the manually filtered duplicates
-                    assert len(filtered_duplicates) == len(
-                        duplicates
-                    ), f"Expected {len(duplicates)} duplicate scenes, found {len(filtered_duplicates)}"
+                    assert len(filtered_duplicates) == len(duplicates), (
+                        f"Expected {len(duplicates)} duplicate scenes, found {len(filtered_duplicates)}"
+                    )
                 else:
                     # Use the count from the query
-                    assert duplicate_scenes.count == len(
-                        duplicates
-                    ), f"Expected {len(duplicates)} duplicate scenes, found {duplicate_scenes.count}"
+                    assert duplicate_scenes.count == len(duplicates), (
+                        f"Expected {len(duplicates)} duplicate scenes, found {duplicate_scenes.count}"
+                    )
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(

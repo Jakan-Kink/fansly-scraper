@@ -1,7 +1,5 @@
 """Simple test file to directly test the stash_processor fixture."""
 
-import pytest
-
 
 class TestStashProcessorFixture:
     """Simple tests to verify the stash_processor fixture works."""

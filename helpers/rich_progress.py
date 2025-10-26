@@ -107,9 +107,9 @@ class ProgressManager:
         self.active_tasks: dict[str, TaskID] = {}
         self._lock = threading.Lock()
         self._session_count = 0
-        self.session_stack: list[set[str]] = (
-            []
-        )  # Stack of session task sets for auto-cleanup
+        self.session_stack: list[
+            set[str]
+        ] = []  # Stack of session task sets for auto-cleanup
 
     @contextmanager
     def session(self, auto_cleanup: bool = True) -> Iterator[None]:

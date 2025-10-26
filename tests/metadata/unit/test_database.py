@@ -6,8 +6,6 @@ These unit tests focus on configuration validation and URL building.
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from config.fanslyconfig import FanslyConfig
 from metadata.database import Database
 

@@ -1,7 +1,5 @@
 """Integration tests for the fnmanip module."""
 
-import hashlib
-import os
 import shutil
 import tempfile
 from pathlib import Path

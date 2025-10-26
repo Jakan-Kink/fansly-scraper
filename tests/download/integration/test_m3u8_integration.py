@@ -1,13 +1,11 @@
 """Integration tests for the m3u8 module."""
 
-import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
-from m3u8 import M3U8
 
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import download_m3u8, fetch_m3u8_segment_playlist
@@ -105,9 +103,7 @@ segment2.ts
         mock_stream = MagicMock()
         mock_stream.get_args.return_value = ["ffmpeg", "-f", "concat", "-i", "list.ffc"]
         mock_stream.run.return_value = None
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
-            mock_stream
-        )
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
 
         # Mock exists check for segments
         with patch("pathlib.Path.exists", return_value=True):
@@ -270,9 +266,7 @@ segment2.ts
         # Set up ffmpeg to raise an error
         mock_stream = MagicMock()
         mock_stream.run.side_effect = ffmpeg_lib.Error("ffmpeg", b"", b"FFMPEG error")
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
-            mock_stream
-        )
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
         mock_ffmpeg.Error = ffmpeg_lib.Error
 
         # Mock exists check for segments
@@ -367,9 +361,7 @@ segment2.ts
         mock_stream = MagicMock()
         mock_stream.get_args.return_value = ["ffmpeg", "-f", "concat", "-i", "list.ffc"]
         mock_stream.run.return_value = None
-        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = (
-            mock_stream
-        )
+        mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
 
         # Created timestamp
         created_at = 1633046400  # October 1, 2021

@@ -1,6 +1,6 @@
 [project]
 name = "fansly-scraper"
-version = "0.10.0"
+version = "0.11.0"
 description = "Easy-to-use fansly.com content scraping tool. Enjoy your Fansly content offline anytime, anywhere in the highest possible content resolution! Fully customizable to download in bulk or single: photos, videos & audio from the timeline, messages, collection & single posts."
 authors = [
     {name ="prof79"},

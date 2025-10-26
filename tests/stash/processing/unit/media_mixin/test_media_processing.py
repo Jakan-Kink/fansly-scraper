@@ -1,15 +1,12 @@
 """Tests for media processing methods in MediaProcessingMixin."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from tests.stash.processing.unit.media_mixin.async_mock_helper import (
     AccessibleAsyncMock,
-    AsyncContextManagerMock,
     async_return,
-    make_asyncmock_awaitable,
-    make_awaitable_mock,
 )
 
 

@@ -451,7 +451,9 @@ async def test_to_input_dirty_object_dict_edge_cases() -> None:
 
     # Test object __dict__ comparison (lines 557-558)
     obj2 = TestStashObject(
-        id="test2", name="Test2", tags=["original"]  # Use string instead of object
+        id="test2",
+        name="Test2",
+        tags=["original"],  # Use string instead of object
     )
     obj2.mark_clean()
 

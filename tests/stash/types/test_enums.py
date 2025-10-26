@@ -7,7 +7,6 @@ proper inheritance, and Strawberry decoration.
 from enum import Enum
 
 import pytest
-import strawberry
 
 from stash.types.enums import (
     BlobsStorageType,

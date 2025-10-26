@@ -6,10 +6,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 import strawberry
 from strawberry import ID, lazy
 
-from metadata import Media
-
 from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
-from .files import ImageFile, VisualFile
+from .files import ImageFile
 
 if TYPE_CHECKING:
     from .gallery import Gallery
@@ -113,9 +111,7 @@ class Image(StashObject):
     )  # [Tag!]!
     performers: list[
         Annotated["Performer", lazy("stash.types.performer.Performer")]
-    ] = strawberry.field(
-        default_factory=list
-    )  # [Performer!]!
+    ] = strawberry.field(default_factory=list)  # [Performer!]!
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Image":
@@ -137,7 +133,8 @@ class Image(StashObject):
         # Filter out fields that aren't part of our class
         try:
             valid_fields = {
-                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+                field.name
+                for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
             }
             filtered_data = {k: v for k, v in data.items() if k in valid_fields}
         except AttributeError:

@@ -3,7 +3,7 @@
 This module imports all the tag mixin tests to ensure they are discovered by pytest.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

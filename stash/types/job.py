@@ -2,10 +2,9 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
 
 import strawberry
-from strawberry import ID, lazy
+from strawberry import ID
 
 
 @strawberry.enum

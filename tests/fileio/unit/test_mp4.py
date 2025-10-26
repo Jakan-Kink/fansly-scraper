@@ -1,9 +1,8 @@
 """Unit tests for the MP4 module."""
 
-import os
 from io import BufferedReader, BytesIO
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

@@ -5,10 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from metadata import Account, Post
-from stash.processing import StashProcessing
-from stash.types import Gallery, Image, Performer, Scene, Studio
-
 
 class TestAccountSetupIntegration:
     """Tests specifically for account and performer setup."""
@@ -344,9 +340,12 @@ class TestBatchProcessingComponents:
     ):
         """Test just the batch processing setup."""
         # Call setup batch
-        task_pbar, process_pbar, semaphore, queue = (
-            await stash_processor._setup_batch_processing(mock_posts, "post")
-        )
+        (
+            task_pbar,
+            process_pbar,
+            semaphore,
+            queue,
+        ) = await stash_processor._setup_batch_processing(mock_posts, "post")
 
         # Verify results
         assert task_pbar is not None

@@ -7,8 +7,6 @@ from loguru import logger
 
 from config import FanslyConfig
 from config.modes import DownloadMode
-from download.types import DownloadType
-from pathio import get_creator_base_path
 
 
 @pytest.fixture

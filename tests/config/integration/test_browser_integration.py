@@ -5,7 +5,6 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from pathlib import Path
 
 from config.browser import (
     find_leveldb_folders,

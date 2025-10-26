@@ -5,12 +5,10 @@ Tests performer types including Performer, PerformerCreateInput, PerformerUpdate
 
 import os
 import tempfile
-from pathlib import Path
 from typing import get_type_hints
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.enums import CircumisedEnum, GenderEnum
@@ -450,7 +448,6 @@ async def test_performer_update_avatar_read_error() -> None:
 @pytest.mark.unit
 def test_performer_from_dict_method() -> None:
     """Test Performer.from_dict method creates performer from dictionary."""
-    from stash.types.files import StashID
 
     # Test with minimal data
     data = {"id": "performer1", "name": "Test Performer"}

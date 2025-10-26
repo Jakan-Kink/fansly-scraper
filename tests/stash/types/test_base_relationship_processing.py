@@ -8,7 +8,6 @@ Coverage targets: Lines 257-311 (relationship processing methods)
 
 import gc
 from typing import Any
-from unittest.mock import Mock
 
 import pytest
 

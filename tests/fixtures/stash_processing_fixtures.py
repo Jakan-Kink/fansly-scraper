@@ -1,14 +1,12 @@
 """Conftest for StashProcessing tests."""
 
 import asyncio
-import json
-import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from metadata import Account, AccountMedia, Attachment, Group, Media, Message, Post
+from metadata import Attachment, Media, Message, Post
 from stash.processing import StashProcessing
 from stash.processing.mixins.batch import BatchProcessingMixin
 from stash.types import Image, Scene, SceneMarker, Studio, Tag
@@ -29,7 +27,6 @@ from tests.fixtures.stash_api_fixtures import (
 )
 from tests.stash.processing.unit.media_mixin.async_mock_helper import (
     AccessibleAsyncMock,
-    make_asyncmock_awaitable,
 )
 
 # Monkey patch AsyncMock to be properly awaitable

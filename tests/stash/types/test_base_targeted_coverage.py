@@ -7,7 +7,7 @@ Coverage targets: Edge cases, error conditions, comprehensive functionality test
 """
 
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 import strawberry
@@ -15,10 +15,7 @@ import strawberry
 from stash.types.base import StashObject
 
 from ...fixtures.stash_fixtures import (
-    MockTag,
-    TestStashCreateInput,
     TestStashObject,
-    TestStashUpdateInput,
 )
 
 # =============================================================================

@@ -6,93 +6,26 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
-from download.core import DownloadState
-from metadata import Account
-from stash.client import StashClient
 from stash.context import StashContext
 from stash.processing import StashProcessing
-from stash.types import Image, Performer
+from stash.types import Image
+from tests.fixtures import AccountFactory, PerformerFactory
 
-# Note: These unit tests use Mock objects for Account instead of Factories because:
-# 1. These are pure unit tests that don't interact with a database
-# 2. The code needs to mock async properties (awaitable_attrs) that real Account
-#    objects can't provide without a database session
-# 3. Using Mocks is appropriate here since we're testing the processing logic in isolation
-# 4. Integration tests would use real Account instances from Factories
-
-
-@pytest.fixture
-def mock_config():
-    """Fixture for mock configuration."""
-    config = MagicMock()
-    config.get_stash_context.return_value = MagicMock(spec=StashContext)
-    config.stash_context_conn = {"url": "http://test.com", "api_key": "test_key"}
-    config._database = MagicMock()
-    config.get_background_tasks.return_value = []
-    return config
-
-
-@pytest.fixture
-def mock_state():
-    """Fixture for mock download state."""
-    state = MagicMock(spec=DownloadState)
-    state.creator_id = "12345"
-    state.creator_name = "test_user"
-    state.download_path = MagicMock()
-    state.download_path.is_dir.return_value = True
-    state.base_path = MagicMock()
-    return state
-
-
-@pytest.fixture
-def mock_context():
-    """Fixture for mock stash context."""
-    context = MagicMock(spec=StashContext)
-    context.client = MagicMock(spec=StashClient)
-    return context
-
-
-@pytest.fixture
-def mock_database():
-    """Fixture for mock database."""
-    database = MagicMock()
-    database.session_scope.return_value.__enter__.return_value = MagicMock(spec=Session)
-    database.async_session_scope.return_value.__aenter__.return_value = AsyncMock(
-        spec=AsyncSession
-    )
-    return database
-
-
-@pytest.fixture
-def test_account():
-    """Fixture for mock account.
-
-    Uses MagicMock instead of Factory because:
-    - Unit test without database
-    - Needs to mock async properties (awaitable_attrs)
-    - Real Account requires database session for properties
-    """
-    account = MagicMock(spec=Account)
-    account.id = 12345
-    account.username = "test_user"
-    account.stash_id = "stash_123"
-    return account
-
-
-@pytest.fixture
-def mock_performer():
-    """Fixture for mock performer."""
-    performer = MagicMock(spec=Performer)
-    performer.id = "123"  # Use numeric string since code converts to int
-    performer.name = "test_user"
-    return performer
+# Most fixtures are imported from tests.fixtures via conftest.py:
+# - mock_config, mock_state, mock_context, mock_database (from stash_integration_fixtures)
+# - stash_processor (for integration tests)
+#
+# For unit tests, we define a simple processor fixture below that uses mocked dependencies
 
 
 @pytest.fixture
 def processor(mock_config, mock_state, mock_context, mock_database):
-    """Fixture for stash processor instance."""
+    """Fixture for stash processor instance for unit testing.
+
+    This creates a StashProcessing instance with all dependencies mocked.
+    For integration tests, use the 'stash_processor' fixture instead.
+    """
     processor = StashProcessing(
         config=mock_config,
         state=mock_state,
@@ -176,24 +109,35 @@ class TestStashProcessingAccount:
     """Test the account-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_account(self, processor, test_account):
+    async def test_find_account(self, processor):
         """Test _find_account method."""
-        # Mock session and execute
-        mock_session = MagicMock(spec=Session)
-        mock_session.execute.return_value.scalar_one_or_none.return_value = test_account
+        # Create test account using factory
+        test_account = AccountFactory.build(
+            id=12345,
+            username="test_user",
+        )
+
+        # Mock session and execute - needs to be AsyncMock for async session
+        mock_session = MagicMock(spec=AsyncSession)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = test_account
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         # Call _find_account
         account = await processor._find_account(session=mock_session)
 
         # Verify account and session.execute was called
         assert account == test_account
+        assert account.id == 12345
+        assert account.username == "test_user"
         mock_session.execute.assert_called_once()
 
         # Test with no account found
-        mock_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.reset_mock()
 
         # Call _find_account
-        with patch("stash.processing.print_warning") as mock_print_warning:
+        with patch("stash.processing.mixins.account.print_warning") as mock_print_warning:
             account = await processor._find_account(session=mock_session)
 
         # Verify no account and warning was printed
@@ -202,14 +146,28 @@ class TestStashProcessingAccount:
         assert processor.state.creator_name in str(mock_print_warning.call_args)
 
     @pytest.mark.asyncio
-    async def test_update_account_stash_id(
-        self, processor, test_account, mock_performer
-    ):
+    async def test_update_account_stash_id(self, processor):
         """Test _update_account_stash_id method."""
-        # Create mock session
+        # Create test account using factory
+        test_account = AccountFactory.build(
+            id=12345,
+            username="test_user",
+        )
+        test_account.stash_id = None  # Start with no stash_id
+
+        # Create test performer using factory
+        mock_performer = PerformerFactory(
+            id="123",  # Use numeric string since code converts to int
+            name="test_user",
+        )
+
+        # Create mock session with async execute
         mock_session = MagicMock(spec=AsyncSession)
-        mock_session.execute.return_value.scalar_one.return_value = test_account
+        mock_result = MagicMock()
+        mock_result.scalar_one.return_value = test_account
+        mock_session.execute = AsyncMock(return_value=mock_result)
         mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()
 
         # Call _update_account_stash_id
         await processor._update_account_stash_id(
@@ -218,8 +176,9 @@ class TestStashProcessingAccount:
 
         # Verify session operations
         mock_session.execute.assert_called_once()
-        assert "12345" in str(mock_session.execute.call_args)
-        assert test_account.stash_id == mock_performer.id
+        assert str(test_account.id) in str(mock_session.execute.call_args)
+        # The account's stash_id should be updated to the int value of performer.id
+        assert test_account.stash_id == int(mock_performer.id)
         mock_session.add.assert_called_once_with(test_account)
         mock_session.flush.assert_called_once()
 
@@ -228,17 +187,29 @@ class TestStashProcessingPerformer:
     """Test the performer-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer(self, processor, test_account):
+    async def test_find_existing_performer(self, processor):
         """Test _find_existing_performer method."""
+        # Create test performer using factory
+        mock_performer = PerformerFactory(
+            id="performer_123",
+            name="test_user",
+        )
+
         # Mock context.client.find_performer
-        mock_performer = MagicMock(spec=Performer)
+        # Important: The method awaits find_performer, so it should return the performer directly
         processor.context.client.find_performer = AsyncMock(return_value=mock_performer)
 
+        # Clear the cache before testing
+        if hasattr(processor._find_existing_performer, "cache_clear"):
+            processor._find_existing_performer.cache_clear()
+
         # Case 1: Account has stash_id
-        test_account.stash_id = "stash_123"
+        # Create a new account object (different cache key from fixture)
+        test_account_1 = AccountFactory.build(username="test_user")
+        test_account_1.stash_id = "stash_123"
 
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account)
+        performer = await processor._find_existing_performer(test_account_1)
 
         # Verify performer and find_performer was called with stash_id
         assert performer == mock_performer
@@ -246,28 +217,35 @@ class TestStashProcessingPerformer:
 
         # Case 2: Account has no stash_id
         processor.context.client.find_performer.reset_mock()
-        test_account.stash_id = None
+
+        # Create a new account object (different cache key)
+        test_account_2 = AccountFactory.build(username="test_user")
+        test_account_2.stash_id = None
 
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account)
+        performer = await processor._find_existing_performer(test_account_2)
 
         # Verify performer and find_performer was called with username
         assert performer == mock_performer
         processor.context.client.find_performer.assert_called_once_with(
-            test_account.username
+            test_account_2.username
         )
 
         # Case 3: find_performer returns None
         processor.context.client.find_performer.reset_mock()
         processor.context.client.find_performer.return_value = None
 
+        # Create another new account object (different cache key)
+        test_account_3 = AccountFactory.build(username="test_user_2")
+        test_account_3.stash_id = None
+
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account)
+        performer = await processor._find_existing_performer(test_account_3)
 
         # Verify performer is None
         assert performer is None
         processor.context.client.find_performer.assert_called_once_with(
-            test_account.username
+            test_account_3.username
         )
 
         # Case 4: find_performer returns a coroutine
@@ -279,44 +257,83 @@ class TestStashProcessingPerformer:
 
         processor.context.client.find_performer.return_value = mock_coroutine()
 
+        # Create another test account for this case
+        test_account_4 = AccountFactory.build(username="test_user_3")
+        test_account_4.stash_id = None
+
         # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account)
+        performer = await processor._find_existing_performer(test_account_4)
 
         # Verify performer
         assert performer == mock_performer
 
     @pytest.mark.asyncio
-    async def test_update_performer_avatar(
-        self, processor, test_account, mock_performer
-    ):
+    async def test_update_performer_avatar(self, processor):
         """Test _update_performer_avatar method."""
-        # Mock account with no avatar
-        test_account.awaitable_attrs = MagicMock()
-        test_account.awaitable_attrs.avatar = AsyncMock(return_value=None)
+        # Create test performer using factory
+        mock_performer = PerformerFactory(
+            id="123",
+            name="test_user",
+        )
+        # Mock update_avatar method since it's not part of the factory
+        mock_performer.update_avatar = AsyncMock()
 
-        # Call _update_performer_avatar
-        await processor._update_performer_avatar(test_account, mock_performer)
+        # Case 1: Account with no avatar
+        test_account_no_avatar = AccountFactory.build(
+            id=12345,
+            username="test_user",
+        )
+
+        # Mock awaitable_attrs.avatar to return None
+        async def mock_get_no_avatar():
+            return None
+
+        mock_awaitable_attrs = MagicMock()
+        mock_awaitable_attrs.avatar = mock_get_no_avatar()
+
+        with patch.object(
+            type(test_account_no_avatar),
+            "awaitable_attrs",
+            new_callable=lambda: property(lambda self: mock_awaitable_attrs),
+        ):
+            await processor._update_performer_avatar(
+                test_account_no_avatar, mock_performer
+            )
 
         # Verify no avatar update was attempted
         assert not mock_performer.update_avatar.called
 
-        # Mock account with avatar but no local_filename
-        mock_avatar = MagicMock()
-        mock_avatar.local_filename = None
-        test_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
+        # Case 2: Account with avatar but no local_filename
+        test_account_no_file = AccountFactory.build(
+            id=12346,
+            username="test_user",
+        )
+        mock_avatar_no_file = MagicMock()
+        mock_avatar_no_file.local_filename = None
 
-        # Call _update_performer_avatar
-        await processor._update_performer_avatar(test_account, mock_performer)
+        # Mock awaitable_attrs.avatar to return avatar without local_filename
+        async def mock_get_avatar_no_file():
+            return mock_avatar_no_file
+
+        with patch.object(
+            test_account_no_file,
+            "awaitable_attrs",
+            MagicMock(avatar=mock_get_avatar_no_file()),
+        ):
+            await processor._update_performer_avatar(
+                test_account_no_file, mock_performer
+            )
 
         # Verify no avatar update was attempted
         assert not mock_performer.update_avatar.called
 
-        # Mock account with avatar and local_filename
-        mock_avatar = MagicMock()
-        mock_avatar.local_filename = "avatar.jpg"
-        # Make sure the avatar is properly awaitable and has local_filename accessible
-        test_account.avatar = mock_avatar  # Set directly for access in the method
-        test_account.awaitable_attrs.avatar = AsyncMock(return_value=mock_avatar)
+        # Case 3: Account with avatar and local_filename - should update
+        test_account_with_avatar = AccountFactory.build(
+            id=12347,
+            username="test_user",
+        )
+        mock_avatar_with_file = MagicMock()
+        mock_avatar_with_file.local_filename = "avatar.jpg"
 
         # Mock performer with default image
         mock_performer.image_path = "default=true"
@@ -332,11 +349,29 @@ class TestStashProcessingPerformer:
 
         processor.context.client.find_images = AsyncMock(return_value=mock_image_result)
 
-        # Mock performer.update_avatar
+        # Reset mock_performer.update_avatar for the test
         mock_performer.update_avatar = AsyncMock()
 
-        # Call _update_performer_avatar
-        await processor._update_performer_avatar(test_account, mock_performer)
+        # Mock both awaitable_attrs.avatar AND direct avatar access
+        # awaitable_attrs.avatar should be a coroutine that returns the mock
+        async def mock_get_avatar():
+            return mock_avatar_with_file
+
+        with (
+            patch.object(
+                test_account_with_avatar,
+                "awaitable_attrs",
+                MagicMock(avatar=mock_get_avatar()),
+            ),
+            patch.object(
+                test_account_with_avatar,
+                "avatar",
+                mock_avatar_with_file,
+            ),
+        ):
+            await processor._update_performer_avatar(
+                test_account_with_avatar, mock_performer
+            )
 
         # Verify avatar update was attempted
         processor.context.client.find_images.assert_called_once()
@@ -344,34 +379,67 @@ class TestStashProcessingPerformer:
         mock_performer.update_avatar.assert_called_once()
         assert "path/to/avatar.jpg" in str(mock_performer.update_avatar.call_args)
 
-        # Test with no images found
+        # Case 4: No images found in Stash
         processor.context.client.find_images.reset_mock()
         mock_image_result.count = 0
         processor.context.client.find_images.return_value = mock_image_result
         mock_performer.update_avatar.reset_mock()
 
-        # Call _update_performer_avatar
-        await processor._update_performer_avatar(test_account, mock_performer)
+        # Need to create a new coroutine for each await
+        async def mock_get_avatar_case4():
+            return mock_avatar_with_file
+
+        with (
+            patch.object(
+                test_account_with_avatar,
+                "awaitable_attrs",
+                MagicMock(avatar=mock_get_avatar_case4()),
+            ),
+            patch.object(
+                test_account_with_avatar,
+                "avatar",
+                mock_avatar_with_file,
+            ),
+        ):
+            await processor._update_performer_avatar(
+                test_account_with_avatar, mock_performer
+            )
 
         # Verify no avatar update was attempted
         processor.context.client.find_images.assert_called_once()
         assert not mock_performer.update_avatar.called
 
-        # Test with update_avatar raising exception
+        # Case 5: update_avatar raises exception
         processor.context.client.find_images.reset_mock()
         mock_image_result.count = 1
         processor.context.client.find_images.return_value = mock_image_result
         mock_performer.update_avatar.reset_mock()
         mock_performer.update_avatar.side_effect = Exception("Test error")
 
+        # Need to create a new coroutine for each await
+        async def mock_get_avatar_case5():
+            return mock_avatar_with_file
+
         # Mock print_error and logger
         with (
             patch("stash.processing.print_error") as mock_print_error,
             patch("stash.processing.logger.exception") as mock_logger_exception,
             patch("stash.processing.debug_print") as mock_debug_print,
+            patch.object(
+                test_account_with_avatar,
+                "awaitable_attrs",
+                MagicMock(avatar=mock_get_avatar_case5()),
+            ),
+            patch.object(
+                test_account_with_avatar,
+                "avatar",
+                mock_avatar_with_file,
+            ),
         ):
             # Call _update_performer_avatar
-            await processor._update_performer_avatar(test_account, mock_performer)
+            await processor._update_performer_avatar(
+                test_account_with_avatar, mock_performer
+            )
 
             # Verify error handling
             mock_print_error.assert_called_once()

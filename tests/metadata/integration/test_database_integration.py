@@ -2,21 +2,12 @@
 
 import asyncio
 import os
-import tempfile
 import threading
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from config import FanslyConfig
-from config.modes import DownloadMode
-from fansly_downloader_ng import cleanup_database, cleanup_database_sync
-from metadata.account import Account
 from metadata.database import Database
 
 # Removed deprecated SQLite-specific fixtures and test classes:
@@ -124,7 +115,6 @@ class TestDatabaseThreading:
 
         PostgreSQL has robust threading support, so this test is now enabled.
         """
-        from sqlalchemy.exc import ProgrammingError
 
         results = []
         errors = []
@@ -163,9 +153,9 @@ class TestDatabaseThreading:
             pytest.fail(f"Thread errors occurred: {errors}")
 
         # Check results - should have 3 successful completions
-        assert (
-            len(results) == 3
-        ), f"Expected 3 successful threads, got {len(results)}: {results}, errors: {errors}"
+        assert len(results) == 3, (
+            f"Expected 3 successful threads, got {len(results)}: {results}, errors: {errors}"
+        )
 
         # Verify the data in the database
         with thread_test_database.session_scope() as session:

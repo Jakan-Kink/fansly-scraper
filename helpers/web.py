@@ -9,8 +9,6 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from textio import print_error, print_warning
-
 
 def get_file_name_from_url(url: str) -> str:
     """Parses an URL and returns the last part which usually is a

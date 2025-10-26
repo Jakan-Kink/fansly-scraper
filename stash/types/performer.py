@@ -221,7 +221,8 @@ class Performer(StashObject):
         # Filter out fields that aren't part of our class
         try:
             valid_fields = {
-                field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+                field.name
+                for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
             }
             filtered_data = {k: v for k, v in data.items() if k in valid_fields}
         except AttributeError:

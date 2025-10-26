@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, selectinload
 
-from metadata.attachment import Attachment, ContentType
+from metadata.attachment import ContentType
 from metadata.messages import Group, Message, group_users, process_messages_metadata
 from tests.fixtures import (
     AccountFactory,

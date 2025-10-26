@@ -8,7 +8,6 @@ from typing import Any
 from unittest.mock import PropertyMock, patch
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.files import StashID, VideoFile
@@ -18,7 +17,6 @@ from stash.types.scene import (
     ParseSceneFilenameResult,
     ParseSceneFilenamesResult,
     Scene,
-    SceneCreateInput,
     SceneDestroyInput,
     SceneFileType,
     SceneGroup,
@@ -344,9 +342,9 @@ def test_from_dict_with_files() -> None:
     expected_relationships = ["studio", "performers", "tags", "galleries"]
 
     for field in expected_relationships:
-        assert (
-            field in Scene.__relationships__
-        ), f"Relationship {field} not found in Scene"
+        assert field in Scene.__relationships__, (
+            f"Relationship {field} not found in Scene"
+        )
 
     # Test specific relationship mappings
     performers_mapping = Scene.__relationships__["performers"]
@@ -541,15 +539,14 @@ def test_strawberry_decorations() -> None:
     ]
 
     for type_class in types_to_test:
-        assert hasattr(
-            type_class, "__strawberry_definition__"
-        ), f"{type_class.__name__} missing strawberry definition"
+        assert hasattr(type_class, "__strawberry_definition__"), (
+            f"{type_class.__name__} missing strawberry definition"
+        )
 
 
 @pytest.mark.unit
 def test_scene_inheritance() -> None:
     """Test that Scene properly inherits from StashObject."""
-    from stash.types.base import StashObject
 
     # Test that Scene follows the StashObject interface pattern
     assert hasattr(Scene, "__type_name__")

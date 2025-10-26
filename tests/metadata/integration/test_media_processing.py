@@ -1,21 +1,14 @@
 """Integration tests for media processing functionality."""
 
 import json
-import os
-from pathlib import Path
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload, sessionmaker
-from sqlalchemy.orm.session import Session
+from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import text
 
-from config import FanslyConfig
-from metadata.account import Account, AccountMedia, AccountMediaBundle
-from metadata.base import Base
-from metadata.database import Database
-from metadata.media import Media, process_media_info
+from metadata.account import AccountMedia, AccountMediaBundle
+from metadata.media import process_media_info
 
 
 @pytest.mark.asyncio
@@ -61,9 +54,9 @@ async def test_process_video_from_timeline(test_database, config, timeline_data)
             if "duration" in metadata:
                 try:
                     expected_duration = float(metadata["duration"])
-                    assert (
-                        media.duration == expected_duration
-                    ), f"Duration mismatch: got {media.duration}, expected {expected_duration}"
+                    assert media.duration == expected_duration, (
+                        f"Duration mismatch: got {media.duration}, expected {expected_duration}"
+                    )
                 except (ValueError, TypeError) as e:
                     pytest.fail(f"Invalid duration value: {e}")
 
@@ -74,9 +67,9 @@ async def test_process_video_from_timeline(test_database, config, timeline_data)
                 if "width" in original:
                     try:
                         expected_width = int(original["width"])
-                        assert (
-                            media.width == expected_width
-                        ), f"Width mismatch: got {media.width}, expected {expected_width}"
+                        assert media.width == expected_width, (
+                            f"Width mismatch: got {media.width}, expected {expected_width}"
+                        )
                     except (ValueError, TypeError) as e:
                         pytest.fail(f"Invalid width value: {e}")
 
@@ -84,9 +77,9 @@ async def test_process_video_from_timeline(test_database, config, timeline_data)
                 if "height" in original:
                     try:
                         expected_height = int(original["height"])
-                        assert (
-                            media.height == expected_height
-                        ), f"Height mismatch: got {media.height}, expected {expected_height}"
+                        assert media.height == expected_height, (
+                            f"Height mismatch: got {media.height}, expected {expected_height}"
+                        )
                     except (ValueError, TypeError) as e:
                         pytest.fail(f"Invalid height value: {e}")
 

@@ -13,7 +13,6 @@ This module only provides database monitoring and statistics.
 import inspect
 import os
 import time
-import traceback
 from typing import Any
 
 from sqlalchemy import event

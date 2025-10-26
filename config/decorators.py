@@ -3,15 +3,9 @@ from __future__ import annotations
 import asyncio
 import functools
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar
-
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
+from typing import Any, TypeVar
 
 RT = TypeVar("RT")
-
-if TYPE_CHECKING:
-    from .fanslyconfig import FanslyConfig
 
 
 def with_database_session(

@@ -3,7 +3,6 @@
 from typing import Any, get_type_hints
 
 import pytest
-import strawberry
 
 from stash.types.not_implemented import (
     DLNAStatus,

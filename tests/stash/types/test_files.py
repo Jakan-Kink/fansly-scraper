@@ -6,7 +6,6 @@ Tests file types including BaseFile, VideoFile, ImageFile and related input type
 from datetime import datetime
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.files import (
@@ -313,9 +312,9 @@ def test_strawberry_decorations() -> None:
     ]
 
     for type_class in types_to_test:
-        assert hasattr(
-            type_class, "__strawberry_definition__"
-        ), f"{type_class.__name__} missing strawberry definition"
+        assert hasattr(type_class, "__strawberry_definition__"), (
+            f"{type_class.__name__} missing strawberry definition"
+        )
 
 
 @pytest.mark.unit

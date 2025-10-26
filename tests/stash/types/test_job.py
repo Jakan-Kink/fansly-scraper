@@ -4,7 +4,6 @@ from datetime import datetime
 from enum import Enum
 
 import pytest
-import strawberry
 from strawberry import ID
 
 from stash.types.job import (  # Enums; Types; Input types

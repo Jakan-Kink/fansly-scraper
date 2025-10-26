@@ -8,9 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # Import the modules instead of the classes to avoid fixture issues
-import tests.stash.processing.unit.media_mixin.test_file_handling
-import tests.stash.processing.unit.media_mixin.test_media_processing
-import tests.stash.processing.unit.media_mixin.test_metadata_update
 from stash.processing.mixins.media import MediaProcessingMixin
 
 

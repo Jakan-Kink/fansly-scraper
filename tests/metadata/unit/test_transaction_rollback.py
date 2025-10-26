@@ -1,14 +1,8 @@
 """Tests for SQLAlchemy nested transaction rollback handling."""
 
-import asyncio
-import os
-from pathlib import Path
-
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import FanslyConfig
 from metadata.database import Database
 
 

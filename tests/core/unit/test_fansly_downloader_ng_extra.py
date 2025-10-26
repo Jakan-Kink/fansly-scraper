@@ -1,4 +1,3 @@
-import asyncio
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -6,11 +5,7 @@ import pytest
 
 import fansly_downloader_ng
 from config import FanslyConfig
-from errors import EXIT_SUCCESS
 from fansly_downloader_ng import (
-    _async_main,
-    _handle_interrupt,
-    cleanup_database_sync,
     increase_file_descriptor_limit,
     load_client_account_into_db,
 )

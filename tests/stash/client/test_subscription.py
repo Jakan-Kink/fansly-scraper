@@ -166,7 +166,6 @@ async def test_wait_for_job_with_updates(stash_client: StashClient) -> None:
             return_value=mock_job_id,
         ),
     ):
-
         result = False
         # Now use our mocked subscription
         async with stash_client.subscribe_to_jobs() as subscription:

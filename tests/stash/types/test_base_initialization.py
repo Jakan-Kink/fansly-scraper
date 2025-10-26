@@ -283,7 +283,8 @@ def test_filter_init_args_attribute_error() -> None:
             try:
                 # This will raise AttributeError since __strawberry_definition__ doesn't exist
                 valid_fields = {
-                    field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+                    field.name
+                    for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
                 }
                 return {k: v for k, v in kwargs.items() if k in valid_fields}
             except AttributeError:
@@ -339,7 +340,8 @@ def test_filter_init_args_real_attribute_error() -> None:
             """Copy of the StashObject._filter_init_args method to test the AttributeError path."""
             try:
                 valid_fields = {
-                    field.name for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
+                    field.name
+                    for field in cls.__strawberry_definition__.fields  # type: ignore[attr-defined]
                 }
                 return {k: v for k, v in kwargs.items() if k in valid_fields}
             except AttributeError:
@@ -417,17 +419,17 @@ def test_init_method_execution_path() -> None:
             filtered_count = len(filtered_kwargs)
 
             # Should have fewer fields after filtering (unknown fields removed)
-            assert (
-                filtered_count < original_count
-            ), "Filtering should remove unknown fields"
+            assert filtered_count < original_count, (
+                "Filtering should remove unknown fields"
+            )
 
         # Should definitely filter out the obviously unknown fields
-        assert (
-            "unknown_field" not in filtered_kwargs
-        ), "Unknown fields should be filtered out"
-        assert (
-            "another_unknown" not in filtered_kwargs
-        ), "Unknown fields should be filtered out"
+        assert "unknown_field" not in filtered_kwargs, (
+            "Unknown fields should be filtered out"
+        )
+        assert "another_unknown" not in filtered_kwargs, (
+            "Unknown fields should be filtered out"
+        )
 
         # Should keep valid fields (at minimum 'id' which is always valid for StashObject)
         assert "id" in filtered_kwargs, "Valid fields should be kept"

@@ -8,8 +8,6 @@ Create Date: 2025-02-02 04:44:06.092253
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
-
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -45,8 +43,7 @@ def upgrade() -> None:
 
     # Add case-insensitive hashtag lookup index - requires raw SQL with quoted identifiers
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_hashtags_value_lower "
-        'ON hashtags(lower("value"))'
+        'CREATE INDEX IF NOT EXISTS ix_hashtags_value_lower ON hashtags(lower("value"))'
     )
 
     # Add content hash lookup index

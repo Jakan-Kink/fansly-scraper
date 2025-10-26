@@ -633,9 +633,7 @@ class TestGetFollowingAccounts:
         # Mock database session
         mock_session = MagicMock(spec=AsyncSession)
         mock_session.flush = AsyncMock()
-        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = (
-            mock_session
-        )
+        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = mock_session
 
         state = DownloadState()
         state.creator_id = "client123"
@@ -806,9 +804,7 @@ class TestGetFollowingAccounts:
 
         # Mock session for async context manager
         mock_session = MagicMock()
-        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = (
-            mock_session
-        )
+        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = mock_session
 
         # Mock following list responses - use enough items to trigger pagination
         # Page size is 50, so first page needs to have exactly 50 items to continue

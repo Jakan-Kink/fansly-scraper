@@ -61,7 +61,6 @@ def set_create_directory_for_download(config: PathConfig, state: DownloadState) 
         raise RuntimeError(message)
 
     else:
-
         # Get base path with case-insensitive matching
         user_base_path = get_creator_base_path(config, state.creator_name)
 
@@ -243,9 +242,7 @@ def delete_temporary_pyinstaller_files():
                 and os.path.isdir(item)
                 and (current_time - os.path.getctime(item)) > 3600
             ):
-
                 for root, dirs, files in os.walk(item, topdown=False):
-
                     for file in files:
                         os.remove(os.path.join(root, file))
 

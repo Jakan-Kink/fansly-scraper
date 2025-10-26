@@ -9,7 +9,6 @@ from api.fansly import FanslyApi
 
 
 class TestFanslyApi:
-
     def test_init(self, fansly_api):
         """Test FanslyApi initialization with basic parameters"""
         assert fansly_api.token == "test_token"

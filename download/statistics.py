@@ -5,7 +5,6 @@ statistics (total files, sizes, etc.), as well as timing statistics.
 """
 
 from datetime import datetime, timezone
-from time import sleep
 
 from config import FanslyConfig
 from download.core import DownloadState, GlobalState

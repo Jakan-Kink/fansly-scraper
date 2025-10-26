@@ -4,8 +4,6 @@ These tests require a running Stash instance.
 """
 
 import asyncio
-from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -15,7 +13,6 @@ from stash.types import (
     GenderEnum,
     GenerateMetadataInput,
     GenerateMetadataOptions,
-    Image,
     Performer,
     Scene,
     Studio,

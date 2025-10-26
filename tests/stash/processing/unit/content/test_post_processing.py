@@ -1,7 +1,7 @@
 """Tests for post processing methods in ContentProcessingMixin."""
 
 from contextlib import suppress
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -11,9 +11,6 @@ from metadata import Account, Post
 from metadata.attachment import ContentType
 from stash.types import Performer, Studio
 from tests.fixtures import AccountFactory, AttachmentFactory, PostFactory
-from tests.stash.processing.unit.media_mixin.async_mock_helper import (
-    AccessibleAsyncMock,
-)
 
 
 class TestPostProcessing:

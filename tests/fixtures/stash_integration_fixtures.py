@@ -21,32 +21,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Import metadata models
 from metadata.account import AccountMedia, AccountMediaBundle
 from metadata.attachment import ContentType
 from metadata.media import Media
 from stash.processing import StashProcessing
 from stash.types import Gallery, Image, Scene
+from tests.fixtures import MetadataGroupFactory  # Import SQLAlchemy Group factory
 from tests.fixtures import (
     AccountFactory,
     AttachmentFactory,
-    GroupFactory,
     MediaFactory,
     MessageFactory,
     PostFactory,
 )
-
-# Import real database fixtures and factories
 from tests.fixtures.database_fixtures import config  # Real PostgreSQL config
 from tests.fixtures.database_fixtures import session  # Real async session
 from tests.fixtures.database_fixtures import (
     session_sync,  # Real sync session (used by factories)
 )
-from tests.fixtures.database_fixtures import (  # Real PostgreSQL database
-    test_database_sync,
-)
-
-# Import Stash API fixtures
 from tests.fixtures.stash_api_fixtures import (
     mock_account as stash_mock_account,  # Rename to avoid conflict
 )
@@ -76,7 +68,6 @@ __all__ = [
     "test_query",
     # Database fixtures (imported from metadata conftest)
     "config",
-    "database",
     "session",
     "session_sync",
     # Integration fixtures (refactored with factories)
@@ -273,8 +264,9 @@ def mock_group(session_sync, integration_mock_account):
         Groups require an Account to exist (createdBy foreign key).
         Uses integration_mock_account to satisfy this constraint.
     """
-    group = GroupFactory.build(
-        id=40123, createdBy=integration_mock_account.id  # Use real account ID
+    group = MetadataGroupFactory.build(
+        id=40123,
+        createdBy=integration_mock_account.id,  # Use real account ID
     )
     session_sync.add(group)
     session_sync.commit()

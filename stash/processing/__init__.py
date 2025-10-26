@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import traceback
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -170,10 +169,10 @@ class StashProcessing(
             )
 
         except Exception as e:
+            from config.logging import logger
+
             print_error(f"Error in Stash processing: {e}")
-            logging.getLogger(__name__).exception(
-                "Error in Stash processing", exc_info=e
-            )
+            logger.exception("Error in Stash processing", exc_info=e)
             debug_print(
                 {
                     "method": "StashProcessing - continue_stash_processing",

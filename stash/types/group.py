@@ -1,12 +1,11 @@
 """Group types from schema/types/group.graphql."""
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, List, Optional
+from typing import TYPE_CHECKING, Annotated
 
 import strawberry
 from strawberry import ID, lazy
 
-from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
+from .base import StashObject
 from .enums import BulkUpdateIdMode
 
 if TYPE_CHECKING:

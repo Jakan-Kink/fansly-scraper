@@ -31,7 +31,6 @@ async def download_collections(config: FanslyConfig, state: DownloadState):
 
         # Splitting the list into batches and making separate API calls for each
         for batch in batch_list(account_media_ids, config.BATCH_SIZE):
-
             batched_ids = ",".join(batch)
 
             media_info_response = config.get_api().get_account_media(batched_ids)

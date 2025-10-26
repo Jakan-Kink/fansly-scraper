@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import select
 
 from metadata import Account
 from metadata.decorators import with_session
@@ -18,7 +17,7 @@ from ...logging import processing_logger as logger
 from ...types import Performer, Studio
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    pass
 
 
 class StudioProcessingMixin:

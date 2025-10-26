@@ -1,10 +1,8 @@
 """Tests for gallery lookup functionality."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-from stash.processing.mixins.gallery import GalleryProcessingMixin
 
 
 @pytest.fixture

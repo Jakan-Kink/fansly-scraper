@@ -1,7 +1,6 @@
 """Base Stash client class."""
 
 import asyncio
-import re
 import time
 from datetime import datetime
 from pprint import pformat
@@ -9,7 +8,6 @@ from typing import Any, TypeVar
 
 import httpx
 from gql import Client, gql
-from gql.dsl import DSLSchema
 from gql.transport.exceptions import (
     TransportError,
     TransportQueryError,
@@ -17,12 +15,9 @@ from gql.transport.exceptions import (
 )
 from gql.transport.httpx import HTTPXAsyncTransport
 from gql.transport.websockets import WebsocketsTransport
-from graphql import parse as parse_graphql
-from graphql import validate as validate_graphql
 from httpx_retries import Retry, RetryTransport
 
 from .. import fragments
-from ..client_helpers import str_compare
 from ..types import (
     AutoTagMetadataOptions,
     ConfigDefaultSettingsResult,

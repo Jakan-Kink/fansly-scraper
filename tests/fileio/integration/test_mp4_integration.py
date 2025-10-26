@@ -1,7 +1,6 @@
 """Integration tests for the MP4 module."""
 
 import hashlib
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -9,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from errors.mp4 import InvalidMP4Error
-from fileio.mp4 import MP4Box, get_boxes, hash_mp4file
+from fileio.mp4 import get_boxes, hash_mp4file
 
 
 @pytest.fixture

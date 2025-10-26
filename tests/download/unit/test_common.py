@@ -12,7 +12,6 @@ from download.common import (
 )
 from download.types import DownloadType
 from errors import ApiError, DuplicateCountError, DuplicatePageError
-from metadata import Post, Wall
 
 
 @pytest.fixture
@@ -338,7 +337,6 @@ def test_print_download_info(mock_config):
         patch("download.common.print_info") as mock_print_info,
         patch("download.common.print_warning") as mock_print_warning,
     ):
-
         print_download_info(mock_config)
 
         # Check that print_info was called with expected messages

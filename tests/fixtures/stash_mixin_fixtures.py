@@ -24,7 +24,6 @@ from stash.types import (
     Tag,
     VideoFile,
 )
-from tests.fixtures.metadata_factories import AccountFactory
 
 __all__ = [
     # Mixin test classes

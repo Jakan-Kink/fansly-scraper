@@ -10,15 +10,15 @@ from sqlalchemy.orm import selectinload
 
 from metadata.attachment import Attachment, ContentType
 from metadata.post import Post, pinned_posts, post_mentions, process_pinned_posts
-from tests.fixtures import AccountFactory, PostFactory
+from tests.fixtures import AccountFactory, AttachmentFactory, PostFactory
 
 
 @pytest.mark.asyncio
-async def test_post_model_basic(session: AsyncSession, session_sync):
+async def test_post_model_basic(session: AsyncSession, factory_session):
     """Test basic Post model functionality.
 
     Uses AccountFactory and PostFactory.
-    factory_session is autouse=True so it's automatically applied.
+    factory_session configures factories with the database session.
     """
     # Create account and post using factories
     account = AccountFactory(id=1, username="test_user")
@@ -40,11 +40,11 @@ async def test_post_model_basic(session: AsyncSession, session_sync):
 
 
 @pytest.mark.asyncio
-async def test_post_with_attachments(session: AsyncSession, session_sync):
+async def test_post_with_attachments(session: AsyncSession, factory_session):
     """Test Post with attachments relationship.
 
     Uses AccountFactory and PostFactory.
-    factory_session is autouse=True so it's automatically applied.
+    factory_session configures factories with the database session.
     """
     # Create account and post using factories
     account = AccountFactory(id=1, username="test_user")
@@ -56,9 +56,6 @@ async def test_post_with_attachments(session: AsyncSession, session_sync):
     )
     post_id = post.id
 
-    # Add attachments using sync session context
-    from tests.fixtures import AttachmentFactory
-
     for i in range(3):
         AttachmentFactory(
             id=i,
@@ -67,7 +64,7 @@ async def test_post_with_attachments(session: AsyncSession, session_sync):
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=i,
         )
-    session_sync.commit()
+    factory_session.commit()
 
     # Verify attachments - expire sessions to ensure fresh data
     session.expire_all()
@@ -75,17 +72,18 @@ async def test_post_with_attachments(session: AsyncSession, session_sync):
         select(Post).options(selectinload(Post.attachments)).where(Post.id == post_id)
     )
     queried_post = result.unique().scalar_one_or_none()
+    assert queried_post is not None
     assert len(queried_post.attachments) == 3
     assert all(isinstance(a, Attachment) for a in queried_post.attachments)
     assert sorted([a.pos for a in queried_post.attachments]) == [0, 1, 2]
 
 
 @pytest.mark.asyncio
-async def test_post_mentions(session: AsyncSession, session_sync):
+async def test_post_mentions(session: AsyncSession, factory_session):
     """Test post mentions relationship.
 
     Uses AccountFactory and PostFactory.
-    factory_session is autouse=True so it's automatically applied.
+    factory_session configures factories with the database session.
     """
     # Create account and post using factories
     account = AccountFactory(id=1, username="test_user")
@@ -121,12 +119,13 @@ async def test_post_mentions(session: AsyncSession, session_sync):
     await session.run_sync(
         lambda s: s.refresh(queried_post, attribute_names=["accountMentions"])
     )
+    assert queried_post is not None
     assert len(queried_post.accountMentions) == 1
     assert queried_post.accountMentions[0].id == account_id
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts(session: AsyncSession, session_sync, config):
+async def test_process_pinned_posts(session: AsyncSession, factory_session, config):
     """Test processing pinned posts.
 
     Uses AccountFactory and PostFactory.
@@ -175,7 +174,7 @@ async def test_process_pinned_posts(session: AsyncSession, session_sync, config)
 
 @pytest.mark.asyncio
 async def test_process_pinned_posts_nonexistent(
-    session: AsyncSession, session_sync, config
+    session: AsyncSession, factory_session, config
 ):
     """Test processing pinned posts with nonexistent post.
 
@@ -217,7 +216,9 @@ async def test_process_pinned_posts_nonexistent(
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts_update(session: AsyncSession, session_sync, config):
+async def test_process_pinned_posts_update(
+    session: AsyncSession, factory_session, config
+):
     """Test updating existing pinned post.
 
     Uses AccountFactory and PostFactory.
@@ -273,7 +274,7 @@ async def test_process_pinned_posts_update(session: AsyncSession, session_sync, 
 
 
 @pytest.mark.asyncio
-async def test_post_reply_fields(session: AsyncSession, session_sync):
+async def test_post_reply_fields(session: AsyncSession, factory_session):
     """Test post reply-related fields.
 
     Uses AccountFactory and PostFactory.
@@ -304,6 +305,7 @@ async def test_post_reply_fields(session: AsyncSession, session_sync):
     # Verify reply relationships
     result = await session.execute(select(Post).where(Post.id == 2))
     queried_reply = result.unique().scalar_one_or_none()
+    assert queried_reply is not None
     assert queried_reply.inReplyTo == parent_id
     assert queried_reply.inReplyToRoot == parent_id
 
@@ -316,7 +318,7 @@ async def test_post_reply_fields(session: AsyncSession, session_sync):
     ],
 )
 @pytest.mark.asyncio
-async def test_post_expiration(session: AsyncSession, session_sync, expires_at):
+async def test_post_expiration(session: AsyncSession, factory_session, expires_at):
     """Test post expiration field.
 
     Uses AccountFactory and PostFactory.
@@ -336,14 +338,16 @@ async def test_post_expiration(session: AsyncSession, session_sync, expires_at):
     result = await session.execute(select(Post).where(Post.id == 1))
     queried_post = result.unique().scalar_one_or_none()
     # Compare timestamps in UTC
+    assert queried_post is not None
     if expires_at is not None:
+        assert queried_post.expiresAt is not None
         assert queried_post.expiresAt.replace(tzinfo=timezone.utc) == expires_at
     else:
         assert queried_post.expiresAt is None
 
 
 @pytest.mark.asyncio
-async def test_post_cascade_delete(session: AsyncSession, session_sync):
+async def test_post_cascade_delete(session: AsyncSession, factory_session):
     """Test cascade deletion of post relationships.
 
     Uses AccountFactory, PostFactory, and AttachmentFactory.
@@ -359,9 +363,6 @@ async def test_post_cascade_delete(session: AsyncSession, session_sync):
     )
     post_id = post.id
 
-    # Add attachment using factory
-    from tests.fixtures import AttachmentFactory
-
     AttachmentFactory(
         id=1,
         postId=post_id,
@@ -369,7 +370,7 @@ async def test_post_cascade_delete(session: AsyncSession, session_sync):
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
-    session_sync.commit()
+    factory_session.commit()
     session.expire_all()
 
     # Add mention in async session

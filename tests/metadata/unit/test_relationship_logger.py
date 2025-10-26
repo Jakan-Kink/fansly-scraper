@@ -1,6 +1,6 @@
 """Unit tests for relationship logger functionality."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
