@@ -66,14 +66,9 @@ types-pillow = ">=10.2.0"
 memory-profiler = ">=0.61.0"
 pylint = ">=3.3.3"
 pre-commit = ">=4.0.1"
-black = ">=24.10.0"
-isort = ">=5.13.2"
-flake8 = ">=7.1.1"
-flake8-pyproject = ">=1.2.3"
-pyupgrade = ">=3.19.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 mypy = ">=1.11.0"
-ruff = "^0.14.2"
+ruff = ">=0.14.2"
 
 [tool.poetry.group.test.dependencies]
 pytest = ">=8.3"
@@ -110,26 +105,167 @@ skips = [
     'B608',  # hardcoded-sql-expressions
 ]
 
-[tool.black]
+[tool.ruff]
 line-length = 88
-target-version = ['py312']
+target-version = "py312"
 
-[tool.flake8]
-max-line-length = 88
-max-complexity = 14
-max-doc-length = 140
-extend-ignore = [
-    "E203",
-    "E501",
-    "E704",
-    "F401",
-    "W505",
+[tool.ruff.lint]
+# Enable flake8 rules (F, E, W), isort (I), pyupgrade (UP), and more
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C90",    # mccabe complexity
+    "N",      # pep8-naming
+    "ANN",    # flake8-annotations
+    "ASYNC",  # flake8-async
+    "S",      # flake8-bandit
+    "BLE",    # flake8-blind-except
+    "A",      # flake8-builtins
+    "C4",     # flake8-comprehensions
+    "DTZ",    # flake8-datetimez
+    "T10",    # flake8-debugger
+    "EM",     # flake8-errmsg
+    "ISC",    # flake8-implicit-str-concat
+    "ICN",    # flake8-import-conventions
+    "G",      # flake8-logging-format
+    "PIE",    # flake8-pie
+    "T20",    # flake8-print
+    "PT",     # flake8-pytest-style
+    "Q",      # flake8-quotes
+    "RSE",    # flake8-raise
+    "RET",    # flake8-return
+    "SLF",    # flake8-self
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "ERA",    # eradicate
+    "PD",     # pandas-vet
+    "PL",     # pylint
+    "TRY",    # tryceratops
+    "NPY",    # numpy-specific rules
+    "PERF",   # perflint
+    "RUF",    # ruff-specific rules
 ]
-namespace-packages = true
-per-file-ignores = ["tests/**/*.py:F841"]
 
-[tool.isort]
-profile = "black"
+ignore = [
+    "E501",    # line too long (handled by formatter)
+    "ANN401",  # dynamically typed expressions (Any)
+    "S603",    # subprocess without shell
+    "S608",    # hardcoded SQL expressions
+    "PLR0913", # too many arguments
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+    "PLR2004", # magic value comparison
+    "TRY003",  # avoid specifying long messages outside exception class
+    "EM101",   # exception must not use string literal
+    "EM102",   # exception must not use f-string literal
+    "G004",    # logging statement uses f-string
+    "RET504",  # unnecessary variable assignment before return
+    "A002",    # argument shadowing builtin
+    "A003",    # class attribute shadowing builtin
+    "BLE001",  # blind except Exception
+    "B904",    # raise without from inside except
+    "N818",    # exception name should end with Error
+    "T201",    # print statements (used intentionally in CLI tool)
+    "ERA001",  # commented-out code (keep for now during development)
+    "SLF001",  # private member access (sometimes necessary)
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 14
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "F841",    # local variable assigned but never used
+    "F811",    # redefinition of unused name
+    "ARG001",  # unused function argument
+    "ARG002",  # unused method argument
+    "PLR0913", # too many arguments
+    "S101",    # use of assert
+    "S105",    # test fixtures use hardcoded test values
+    "ANN001",  # missing type annotation for function argument
+    "ANN003",  # missing type annotations for **kwargs in test helpers
+    "ANN201",  # missing return type annotation
+    "ANN202",  # missing return type annotation for private function
+    "ANN204",  # missing return type annotation for special method
+    "E721",    # type comparisons with == (checking type annotations in tests)
+    "D",       # pydocstyle
+]
+"alembic/**/*.py" = [
+    "INP001",  # implicit namespace package
+    "ANN001",  # missing type annotation for function argument
+    "ANN201",  # missing return type annotation
+]
+"textio/logging.py" = [
+    "N803",    # argument names match upstream logging.handlers API (maxBytes, backupCount)
+]
+"stash/types/*.py" = [
+    "N815",    # mixedCase variable names match upstream Stash GraphQL schema
+]
+"stash/processing/*.py" = [
+    "N815",    # mixedCase variable names match Fansly API response format
+]
+"stash/old_processing.py" = [
+    "N815",    # mixedCase variable names match Fansly API response format
+]
+"metadata/*.py" = [
+    "N815",     # mixedCase variable names match Fansly API response format
+    "PLC0415",  # imports inside functions to avoid circular dependencies
+]
+"tests/fixtures/*.py" = [
+    "N815",    # test factories mirror metadata models with camelCase fields
+]
+"tests/fixtures/__init__.py" = [
+    "F401",    # intentional re-exports for fixture module
+]
+"api/websocket_example.py" = [
+    "S105",    # example code with placeholder credentials
+]
+"stash/**/*.py" = [
+    "TID252",   # relative imports are standard in this package structure
+    "PLC0415",  # imports inside functions to avoid circular dependencies
+]
+"tests/stash/**/*.py" = [
+    "TID252",   # relative imports for test fixtures
+]
+"config/*.py" = [
+    "PLC0415",  # imports inside functions to avoid circular dependencies
+]
+"download/*.py" = [
+    "PLC0415",  # imports inside functions to avoid circular dependencies
+]
+"api/*.py" = [
+    "PLC0415",  # conditional imports and circular import avoidance
+]
+"helpers/*.py" = [
+    "PLC0415",  # conditional imports and circular import avoidance
+]
+"fileio/*.py" = [
+    "PLC0415",  # imports inside functions to avoid circular dependencies
+]
+"scripts/*.py" = [
+    "PLC0415",  # script-specific lazy imports
+]
+"fansly_downloader_ng.py" = [
+    "PLC0415",  # lazy imports for optional dependencies and circular imports
+]
+"**/conftest.py" = ["F401", "F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "api", "download", "metadata", "stash", "fileio", "pathio", "textio", "helpers", "errors"]
+force-single-line = false
+lines-after-imports = 2
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [tool.pytest.ini_options]
 addopts = [
