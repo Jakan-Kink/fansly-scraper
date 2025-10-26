@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
+
 # Note: All fixtures are automatically imported via conftest.py
 # This includes mock_item, mock_account, mock_performer, mock_studio,
 # mock_gallery, mock_image, and mock_scene

@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import ffmpeg as ffmpeg_lib
 import pytest
 import requests
 
@@ -218,8 +219,6 @@ segment2.ts
         self, mock_direct_download, mock_ffmpeg, mock_config, temp_dir
     ):
         """Test M3U8 download with error handling for FFMPEG failure."""
-        import ffmpeg as ffmpeg_lib
-
         # Setup config and mock responses
         config, mock_api, mock_response = mock_config
 

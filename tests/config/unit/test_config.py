@@ -4,8 +4,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from loguru import logger
 
 from config.config import (
+    copy_old_config_values,
     load_config,
     parse_items_from_line,
     sanitize_creator_names,
@@ -34,8 +36,6 @@ def temp_config_dir():
         cwd_logs.mkdir(parents=True, exist_ok=True)
         yield Path(temp_dir)
         # Clean up
-        from loguru import logger
-
         logger.remove()  # Close all handlers
         os.chdir(original_cwd)
 
@@ -363,8 +363,6 @@ db_sync_commits = 200
     original_cwd = os.getcwd()
     os.chdir(temp_config_dir)
     try:
-        from config.config import copy_old_config_values
-
         copy_old_config_values()
 
         # Read the new config and verify values were copied
@@ -386,8 +384,6 @@ def test_copy_old_config_no_files(temp_config_dir):
     original_cwd = os.getcwd()
     os.chdir(temp_config_dir)
     try:
-        from config.config import copy_old_config_values
-
         copy_old_config_values()  # Should do nothing and not raise
     finally:
         os.chdir(original_cwd)

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from download.core import DownloadState
+from download.globalstate import GlobalState
 from download.types import DownloadType
 
 
@@ -55,8 +56,6 @@ def test_add_duplicate(download_state):
 
 def test_inheritance(download_state):
     """Test proper inheritance from GlobalState."""
-    from download.globalstate import GlobalState
-
     assert isinstance(download_state, GlobalState)
     assert hasattr(download_state, "total_timeline_items")
     assert hasattr(download_state, "missing_items_count")

@@ -61,7 +61,6 @@ def base_processor(mock_config, mock_state, mock_context, mock_database):
 
         async def continue_stash_processing(self, account, performer, session=None):
             """Mock implementation."""
-            pass
 
         async def process_creator(self, session=None):
             """Mock implementation."""

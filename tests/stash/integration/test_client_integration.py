@@ -109,9 +109,7 @@ async def test_subscription_integration(stash_client: StashClient) -> None:
         )
 
     except (ConnectionError, TimeoutError) as e:
-        pytest.skip(
-            f"Connection error - test requires running Stash instance: {str(e)}"
-        )
+        pytest.skip(f"Connection error - test requires running Stash instance: {e!s}")
     except Exception as e:
         # Re-raise other exceptions that aren't connection-related
         raise e

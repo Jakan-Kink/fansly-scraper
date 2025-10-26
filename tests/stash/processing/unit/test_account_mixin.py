@@ -9,6 +9,7 @@ from metadata import Account
 from stash.processing.mixins.account import AccountProcessingMixin
 from stash.types import Performer
 
+
 # Note: These unit tests use Mock objects for Account instead of Factories because:
 # 1. These are pure unit tests that don't interact with a database
 # 2. The code needs to mock async properties (awaitable_attrs) that real Account

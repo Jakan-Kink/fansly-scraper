@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tests.fixtures.database_fixtures import AwaitableAttrsMock
+
 from stash.processing.mixins.batch import BatchProcessingMixin
 from stash.processing.mixins.content import ContentProcessingMixin
 from stash.processing.mixins.gallery import GalleryProcessingMixin
@@ -24,6 +26,7 @@ from stash.types import (
     Tag,
     VideoFile,
 )
+
 
 __all__ = [
     # Mixin test classes
@@ -186,23 +189,22 @@ class TestMediaMixin(MediaProcessingMixin):
         def create_nested_path_or_conditions(media_ids):
             if len(media_ids) == 1:
                 return {"path": {"modifier": "INCLUDES", "value": media_ids[0]}}
-            else:
-                conditions = {"OR": {}}
-                current = conditions["OR"]
-                for i, media_id in enumerate(media_ids):
-                    if i == 0:
-                        current["path"] = {"modifier": "INCLUDES", "value": media_id}
-                    elif i == len(media_ids) - 1:
-                        current["OR"] = {
-                            "path": {"modifier": "INCLUDES", "value": media_id}
-                        }
-                    else:
-                        current["OR"] = {
-                            "path": {"modifier": "INCLUDES", "value": media_id},
-                            "OR": {},
-                        }
-                        current = current["OR"]
-                return conditions
+            conditions = {"OR": {}}
+            current = conditions["OR"]
+            for i, media_id in enumerate(media_ids):
+                if i == 0:
+                    current["path"] = {"modifier": "INCLUDES", "value": media_id}
+                elif i == len(media_ids) - 1:
+                    current["OR"] = {
+                        "path": {"modifier": "INCLUDES", "value": media_id}
+                    }
+                else:
+                    current["OR"] = {
+                        "path": {"modifier": "INCLUDES", "value": media_id},
+                        "OR": {},
+                    }
+                    current = current["OR"]
+            return conditions
 
         self._create_nested_path_or_conditions = create_nested_path_or_conditions
 
@@ -385,7 +387,6 @@ def mock_scene():
 
     async def awaitable_save(client):
         orig_save(client)
-        return None
 
     scene.save = awaitable_save
     return scene
@@ -496,6 +497,7 @@ def mock_item():
     """Fixture for mock content item (Post or Message) used in tests.
 
     Provides a mock Post/Message with proper attributes and awaitable async attrs.
+    Uses the generic AwaitableAttrsMock to handle ANY async relationship access.
     """
     item = MagicMock()
     item.id = 12345
@@ -521,19 +523,7 @@ def mock_item():
     # Setup default hashtags (can be overridden in tests)
     item.hashtags = []
 
-    # Setup awaitable_attrs for async access
-    # Create properties that return coroutines when accessed
-    item.awaitable_attrs = MagicMock()
-
-    # Create async functions that return the values
-    async def get_hashtags():
-        return item.hashtags
-
-    async def get_mentions():
-        return item.accountMentions
-
-    # Assign the coroutine objects (not AsyncMock) so they can be awaited
-    item.awaitable_attrs.hashtags = get_hashtags()
-    item.awaitable_attrs.accountMentions = get_mentions()
+    # Use the generic AwaitableAttrsMock - automatically handles ALL attributes!
+    item.awaitable_attrs = AwaitableAttrsMock(item)
 
     return item

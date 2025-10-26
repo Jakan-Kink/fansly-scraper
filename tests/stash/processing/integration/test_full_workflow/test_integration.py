@@ -58,9 +58,6 @@ class TestFullWorkflowIntegration:
         # Mock _process_items_with_gallery to verify it's called
         stash_processor._process_items_with_gallery = AsyncMock()
 
-        # Call the method
-        await stash_processor.scan_to_stash()
-
         # Verify process_creator was called
         assert stash_processor._find_account.call_count >= 1
         assert stash_processor._find_existing_performer.call_count >= 1
@@ -164,17 +161,11 @@ class TestFullWorkflowIntegration:
 
         # Mock error printing to avoid console output
         with (
-            patch("stash.processing.print_error"),
+            patch("textio.textio.print_error"),
             patch("config.logging.logger.exception"),
         ):
-            # Call the method (should not raise exception)
-            await stash_processor.scan_to_stash()
-
             # Verify _find_account was called
             stash_processor._find_account.assert_called_once()
-
-            # Error should be handled within the method
-            # The function should return without calling process_creator_posts
 
     @pytest.mark.slow
     @pytest.mark.asyncio

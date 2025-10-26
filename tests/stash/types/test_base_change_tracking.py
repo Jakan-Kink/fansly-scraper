@@ -8,7 +8,8 @@ Coverage targets: Lines in _to_input_dirty function (554-555, 562-563, 566-567, 
 
 import pytest
 
-from ...fixtures.stash_fixtures import TestStashObject
+from tests.fixtures.stash_fixtures import MockTag, TestStashObject
+
 
 # =============================================================================
 # Change Tracking Tests (Lines 128-129, mark_clean, mark_dirty)
@@ -153,8 +154,6 @@ async def test_to_input_dirty_force_list_length_comparison() -> None:
 
     This test manually manipulates __original_values__ to ensure the comparison logic runs.
     """
-    from tests.fixtures.stash_fixtures import MockTag
-
     # Create object with list field
     obj = TestStashObject(
         id="test_force_length", name="Test", tags=[MockTag("1", "tag1")]

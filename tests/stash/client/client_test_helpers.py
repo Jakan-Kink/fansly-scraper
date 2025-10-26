@@ -73,7 +73,7 @@ def create_async_cached_method(
                     if not k.startswith("_") and k != "client_mutation_id"
                 }
                 return return_type(**clean_data)
-            elif isinstance(result_data, list):
+            if isinstance(result_data, list):
                 # Handle list returns (for methods like find_tags)
                 return [
                     return_type(

@@ -189,7 +189,7 @@ def mock_config():
     config.show_skipped_downloads = True
     config.debug = False
     config.interactive = False
-    config.fetchedTimelineDuplication = False
+    config.fetched_timeline_duplication = False
     config.creator_id = "test_creator_id"
 
     # Mock retries as properties
@@ -275,7 +275,7 @@ def mock_database():
                     if not hasattr(mock_execute, "called")
                     else ("alembic_version",)
                 )
-                setattr(mock_execute, "called", True)
+                mock_execute.called = True
             elif "alembic_version" in str(statement):
                 # Return None for first check (no version)
                 # Return a version for subsequent checks
@@ -284,10 +284,8 @@ def mock_database():
                     if not hasattr(mock_execute, "version_called")
                     else "1c766f50e19a"
                 )
-                setattr(mock_execute, "version_called", True)
-            elif "integrity_check" in str(statement):
-                result.fetchall.return_value = [("ok",)]
-            elif "quick_check" in str(statement):
+                mock_execute.version_called = True
+            elif "integrity_check" in str(statement) or "quick_check" in str(statement):
                 result.fetchall.return_value = [("ok",)]
             return result
 

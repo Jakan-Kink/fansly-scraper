@@ -3,6 +3,7 @@
 Tests performer types including Performer, PerformerCreateInput, PerformerUpdateInput and related types.
 """
 
+import dataclasses
 import os
 import tempfile
 from typing import get_type_hints
@@ -11,7 +12,9 @@ from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 import pytest
 from strawberry import ID
 
+from stash.types.base import StashObject
 from stash.types.enums import CircumisedEnum, GenderEnum
+from stash.types.files import StashID
 from stash.types.performer import (
     FindPerformersResultType,
     Performer,
@@ -145,8 +148,6 @@ class TestPerformer:
 
     def test_inheritance_from_stash_object(self):
         """Test that Performer inherits from StashObject."""
-        from stash.types.base import StashObject
-
         assert issubclass(Performer, StashObject)
 
     def test_class_variables(self):
@@ -166,8 +167,6 @@ class TestPerformer:
     def test_field_annotations(self):
         """Test Performer field type annotations."""
         # Skip forward reference annotations that cause import issues
-        import dataclasses
-
         fields = {f.name: f for f in dataclasses.fields(Performer)}
         assert "name" in fields
         assert "disambiguation" in fields
@@ -409,8 +408,6 @@ async def test_performer_update_avatar_method() -> None:
 @pytest.mark.unit
 async def test_performer_update_avatar_file_not_found() -> None:
     """Test Performer.update_avatar raises when image file doesn't exist."""
-    from unittest.mock import Mock
-
     performer = Performer(id=ID("perf2"), name="Test Performer")
     mock_client = Mock()
 
@@ -460,8 +457,6 @@ def test_performer_from_dict_method() -> None:
 @pytest.mark.unit
 def test_performer_from_dict_with_stash_ids() -> None:
     """Test Performer.from_dict handles stash_ids conversion."""
-    from stash.types.files import StashID
-
     stash_data = [{"endpoint": "https://stashdb.org", "stash_id": "abc123"}]
     data = {"id": "performer2", "name": "Test Performer 2", "stash_ids": stash_data}
 
@@ -499,8 +494,6 @@ def test_performer_from_dict_strawberry_definition_fallback() -> None:
 @pytest.mark.unit
 def test_performer_from_account_method() -> None:
     """Test Performer.from_account method creates performer from account."""
-    from unittest.mock import Mock
-
     # Create mock account with full data
     mock_account = Mock()
     mock_account.display_name = "Display Name"
@@ -530,8 +523,6 @@ def test_performer_from_account_method() -> None:
 @pytest.mark.unit
 def test_performer_from_account_fallback_names() -> None:
     """Test Performer.from_account handles missing name fields."""
-    from unittest.mock import Mock
-
     # Test with only username
     mock_account = Mock()
     mock_account.display_name = None
@@ -575,8 +566,6 @@ def test_performer_from_account_fallback_names() -> None:
 @pytest.mark.unit
 def test_performer_from_account_alias_case_sensitivity() -> None:
     """Test Performer.from_account handles alias case sensitivity correctly."""
-    from unittest.mock import Mock
-
     # Test case where display_name and username are same (case-insensitive)
     mock_account = Mock()
     mock_account.display_name = "SameUser"

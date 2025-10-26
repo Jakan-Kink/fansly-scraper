@@ -156,8 +156,6 @@ async def test_collect_media_from_attachments_with_aggregated_post(
     )
 
     # Query fresh from async session with eager loading
-    from sqlalchemy.orm import selectinload
-
     result = await session.execute(
         select(Attachment)
         .where(Attachment.id == 60004)

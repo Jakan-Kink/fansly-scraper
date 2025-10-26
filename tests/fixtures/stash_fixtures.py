@@ -16,6 +16,7 @@ from strawberry import ID
 from stash.types.base import StashObject
 from stash.types.enums import BulkUpdateIdMode
 
+
 # =============================================================================
 # Test Isolation Fixtures
 # =============================================================================
@@ -293,8 +294,7 @@ def mock_stash_client_with_responses() -> Mock:
                         ],  # Return Tag objects
                     }
                 }
-            else:
-                return {"findTestStash": None}
+            return {"findTestStash": None}
 
         # Create operation response
         if "createTestStash" in query or "testStashCreate" in query:

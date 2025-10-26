@@ -8,19 +8,21 @@ This file demonstrates how to refactor stash processing tests to use:
 Compare this with the original test_message_processing.py to see the improvements.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 # Import real database fixtures and factories
 from metadata.attachment import ContentType
-from tests.fixtures import MetadataGroupFactory  # SQLAlchemy Group model factory
+from stash.processing import StashProcessing
 from tests.fixtures import (
     AccountFactory,
     AttachmentFactory,
     MediaFactory,
     MessageFactory,
+    MetadataGroupFactory,  # SQLAlchemy Group model factory
 )
+
 
 # ============================================================================
 # Fixtures using Factories instead of Mocks
@@ -120,10 +122,6 @@ def mock_stash_client():
 @pytest.fixture
 def mock_stash_processor(test_database_sync, mock_stash_client):
     """Create StashProcessing with real database but mocked Stash client."""
-    from unittest.mock import patch
-
-    from stash.processing import StashProcessing
-
     # Create a minimal config that uses our real database
     mock_config = MagicMock()
     mock_config._database = test_database_sync
@@ -137,9 +135,9 @@ def mock_stash_processor(test_database_sync, mock_stash_client):
     mock_config._stash = mock_context
 
     with (
-        patch("stash.processing.print_info"),
-        patch("stash.processing.print_warning"),
-        patch("stash.processing.print_error"),
+        patch("textio.textio.print_info"),
+        patch("textio.textio.print_warning"),
+        patch("textio.textio.print_error"),
     ):
         processor = StashProcessing.from_config(mock_config, mock_state)
         # Disable progress bars for testing

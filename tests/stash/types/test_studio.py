@@ -229,7 +229,7 @@ def test_studio_from_account() -> None:
     """Test Studio.from_account class method exists."""
     # Test that the from_account method exists
     assert hasattr(Studio, "from_account")
-    assert callable(getattr(Studio, "from_account"))
+    assert callable(Studio.from_account)
 
 
 @pytest.mark.unit

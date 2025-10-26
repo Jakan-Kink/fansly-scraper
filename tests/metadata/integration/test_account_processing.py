@@ -13,6 +13,7 @@ from metadata import (
     TimelineStats,
     process_account_data,
 )
+from metadata.account import process_media_bundles
 
 
 @pytest.mark.asyncio
@@ -86,8 +87,8 @@ async def test_update_optimization_integration(test_database, config):
             select(TimelineStats).filter_by(accountId=account_data["id"])
         )
         stats = result.scalar_one_or_none()
-        initial_account_updated = getattr(account, "_sa_instance_state").modified
-        initial_stats_updated = getattr(stats, "_sa_instance_state").modified
+        initial_account_updated = account._sa_instance_state.modified
+        initial_stats_updated = stats._sa_instance_state.modified
 
         # Process same data again
         await process_account_data(config, account_data, session=session)
@@ -99,10 +100,10 @@ async def test_update_optimization_integration(test_database, config):
             select(TimelineStats).filter_by(accountId=account_data["id"])
         )
         stats = result.scalar_one_or_none()
-        assert (
-            getattr(account, "_sa_instance_state").modified == initial_account_updated
-        ), "Account should not be marked as modified when no values changed"
-        assert getattr(stats, "_sa_instance_state").modified == initial_stats_updated, (
+        assert account._sa_instance_state.modified == initial_account_updated, (
+            "Account should not be marked as modified when no values changed"
+        )
+        assert stats._sa_instance_state.modified == initial_stats_updated, (
             "TimelineStats should not be marked as modified when no values changed"
         )
 
@@ -150,8 +151,6 @@ async def test_process_account_media_bundles(test_database, config, timeline_dat
         await session.commit()
 
         # Process the bundles
-        from metadata.account import process_media_bundles
-
         await process_media_bundles(
             config, account_data["id"], bundles_data, session=session
         )

@@ -1,5 +1,6 @@
 """Fixed tests for file handling methods in MediaProcessingMixin."""
 
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -111,25 +112,21 @@ class TestFileHandling:
             results = []
             for stash_id, mime_type in stash_files:
                 if mime_type.startswith("image"):
-                    try:
+                    with contextlib.suppress(Exception):
                         img = await mixin.context.client.find_image(stash_id)
                         if img:
                             # Create a mock image file for the test
                             test_image_file = MagicMock(spec=ImageFile)
                             test_image_file.id = "file_test"
                             results.append((img, test_image_file))
-                    except Exception:
-                        pass
                 else:
-                    try:
+                    with contextlib.suppress(Exception):
                         scene = await mixin.context.client.find_scene(stash_id)
                         if scene:
                             # Create a mock video file for the test
                             test_video_file = MagicMock(spec=VideoFile)
                             test_video_file.id = "file_test"
                             results.append((scene, test_video_file))
-                    except Exception:
-                        pass
             return results
 
         # Store original and replace with our mock

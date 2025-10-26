@@ -9,6 +9,7 @@ from download.core import DownloadState
 from metadata.account import Account
 from metadata.messages import Group, Message, group_users, process_groups_response
 
+
 # We don't need to redefine these fixtures as they're already in conftest.py:
 # - database
 # - cleanup_database

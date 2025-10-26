@@ -304,7 +304,7 @@ class TestStashProcessingIntegration:
         def mock_get_file(stash_obj):
             if hasattr(stash_obj, "visual_files") and stash_obj.visual_files:
                 return stash_obj.visual_files[0]
-            elif hasattr(stash_obj, "files") and stash_obj.files:
+            if hasattr(stash_obj, "files") and stash_obj.files:
                 return stash_obj.files[0]
             return None
 

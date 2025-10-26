@@ -1,10 +1,13 @@
 """Integration tests for browser configuration utilities."""
 
+import contextlib
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 
 from config.browser import (
     find_leveldb_folders,
@@ -29,12 +32,8 @@ class TestBrowserIntegration(unittest.TestCase):
 
     def tearDown(self):
         """Clean up temporary files."""
-        try:
-            import shutil
-
+        with contextlib.suppress(Exception):
             shutil.rmtree(self.temp_dir)
-        except Exception:
-            pass
 
     def create_test_sqlite_db(self):
         """Create a test SQLite database with a token."""

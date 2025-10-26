@@ -9,8 +9,9 @@ Coverage targets: BulkUpdateStrings, BulkUpdateIds classes
 import pytest
 from strawberry import ID
 
-from stash.types.base import BulkUpdateIds, BulkUpdateStrings
+from stash.types.base import BulkUpdateIds, BulkUpdateStrings, StashObject
 from stash.types.enums import BulkUpdateIdMode
+
 
 # =============================================================================
 # Bulk Update Types Tests
@@ -59,8 +60,6 @@ def test_bulk_update_ids() -> None:
 @pytest.mark.unit
 def test_stash_object_interface() -> None:
     """Test StashObject interface definition."""
-    from stash.types.base import StashObject
-
     assert hasattr(StashObject, "__strawberry_definition__")
 
     # Test that it's decorated as an interface

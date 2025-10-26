@@ -39,11 +39,12 @@ from ...fixtures.stash_fixtures import (
     TestStashUpdateInput,
 )
 
+
 __all__ = [
+    "MockTag",
+    "TestStashCreateInput",
     "TestStashObject",
     "TestStashObjectNoCreate",
     "TestStashObjectNoStrawberry",
-    "TestStashCreateInput",
     "TestStashUpdateInput",
-    "MockTag",
 ]

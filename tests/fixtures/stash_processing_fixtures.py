@@ -29,6 +29,7 @@ from tests.stash.processing.unit.media_mixin.async_mock_helper import (
     AccessibleAsyncMock,
 )
 
+
 # Monkey patch AsyncMock to be properly awaitable
 original_asyncmock_init = AsyncMock.__init__
 

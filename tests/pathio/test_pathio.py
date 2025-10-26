@@ -515,15 +515,15 @@ class TestPathIO:
             """Side effect for os.path.join to return predictable paths."""
             if args[1] == "_MEI123":
                 return "/test/_MEI123"
-            elif args[1] == "_MEI456":
+            if args[1] == "_MEI456":
                 return "/test/_MEI456"
-            elif args[1] == "other_dir":
+            if args[1] == "other_dir":
                 return "/test/other_dir"
-            elif args[0] == "/test/_MEI123":
+            if args[0] == "/test/_MEI123":
                 if len(args) > 1:
                     return f"/test/_MEI123/{args[1]}"
                 return "/test/_MEI123"
-            elif args[0] == "/test/_MEI456":
+            if args[0] == "/test/_MEI456":
                 if len(args) > 1:
                     return f"/test/_MEI456/{args[1]}"
                 return "/test/_MEI456"

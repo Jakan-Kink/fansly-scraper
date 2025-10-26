@@ -109,8 +109,6 @@ async def test_collect_media_from_attachments_with_media(
     )
 
     # Query fresh attachments from async session with eager loading
-    from sqlalchemy.orm import selectinload
-
     result = await session.execute(
         select(Attachment)
         .where(Attachment.id.in_([60003, 60004]))

@@ -12,6 +12,7 @@ from stash.types.base import StashObject
 
 from ...fixtures.stash_fixtures import TestStashObject, TestStashObjectNoCreate
 
+
 # =============================================================================
 # Hash and Equality Tests (Lines 580, 591-593)
 # =============================================================================

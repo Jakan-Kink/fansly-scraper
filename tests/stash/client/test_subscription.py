@@ -10,6 +10,7 @@ import pytest
 from stash import StashClient
 from stash.types import Job, JobStatus
 
+
 # Skip all tests in this module when running in the OpenHands sandbox
 # These tests require a real Stash server to run properly
 pytestmark = pytest.mark.skipif(
@@ -184,7 +185,7 @@ async def test_wait_for_job_with_updates(stash_client: StashClient) -> None:
                             if update.job.status == JobStatus.FINISHED:
                                 result = True
                                 break
-                            elif update.job.status in [
+                            if update.job.status in [
                                 JobStatus.CANCELLED,
                                 JobStatus.FAILED,
                             ]:

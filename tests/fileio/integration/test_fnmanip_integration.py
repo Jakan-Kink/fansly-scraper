@@ -36,7 +36,7 @@ def valid_image_file(temp_dir):
     image = Image.new("RGB", (10, 10), color="red")
     image.save(file_path)
 
-    yield file_path
+    return file_path
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def valid_mp4_file(temp_dir):
         # mdat box (16 bytes)
         f.write(bytes.fromhex("00000010 6D646174 00000000 00000000"))
 
-    yield file_path
+    return file_path
 
 
 @pytest.fixture

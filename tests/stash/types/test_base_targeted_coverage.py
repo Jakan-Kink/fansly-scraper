@@ -6,6 +6,7 @@ Comprehensive tests designed to hit specific code paths and functionality.
 Coverage targets: Edge cases, error conditions, comprehensive functionality testing
 """
 
+import weakref
 from typing import Any
 from unittest.mock import Mock
 
@@ -13,10 +14,8 @@ import pytest
 import strawberry
 
 from stash.types.base import StashObject
+from tests.fixtures.stash_fixtures import TestStashObject
 
-from ...fixtures.stash_fixtures import (
-    TestStashObject,
-)
 
 # =============================================================================
 # Targeted Line Coverage Tests
@@ -387,8 +386,8 @@ def test_attribute_access_edge_cases() -> None:
     assert not hasattr(obj, "non_existent_attr")
 
     # Test setting dynamic attributes
-    setattr(obj, "dynamic_attr", "dynamic_value")
-    assert getattr(obj, "dynamic_attr") == "dynamic_value"
+    obj.dynamic_attr = "dynamic_value"
+    assert obj.dynamic_attr == "dynamic_value"
 
     # Test attribute deletion
     if hasattr(obj, "dynamic_attr"):
@@ -413,9 +412,7 @@ async def test_comparison_edge_cases_comprehensive() -> None:
     # Test with custom objects that have __eq__
     # Store objects in a different field to avoid list item type issues
     obj.__original_values__["custom_field"] = [CustomObject("original")]
-    setattr(
-        obj, "custom_field", [CustomObject("changed")]
-    )  # Use setattr to avoid type issues
+    obj.custom_field = [CustomObject("changed")]  # Use setattr to avoid type issues
     obj.mark_dirty()
 
     result = await obj._to_input_dirty()
@@ -431,9 +428,9 @@ async def test_comparison_edge_cases_comprehensive() -> None:
 
     # Store objects in a different field to avoid list item type issues
     obj2.__original_values__["dict_field"] = [DictObject({"key": "original"})]
-    setattr(
-        obj2, "dict_field", [DictObject({"key": "changed"})]
-    )  # Use setattr to avoid type issues
+    obj2.dict_field = [
+        DictObject({"key": "changed"})
+    ]  # Use setattr to avoid type issues
     obj2.mark_dirty()
 
     result2 = await obj2._to_input_dirty()
@@ -497,8 +494,6 @@ def test_memory_reference_edge_cases() -> None:
     assert hash(obj1) == hash(obj2)  # Same hash
 
     # Test weak reference behavior (if applicable)
-    import weakref
-
     weak_ref = weakref.ref(obj1)
     assert weak_ref() is obj1
 

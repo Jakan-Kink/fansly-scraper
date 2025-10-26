@@ -245,7 +245,7 @@ async def test_process_download_accessible_media_messages(
     )
 
     assert result is True
-    assert mock_config.DUPLICATE_THRESHOLD == original_threshold  # Should be restored
+    assert original_threshold == mock_config.DUPLICATE_THRESHOLD  # Should be restored
     assert (
         download_state.total_message_items == 102
     )  # Increased by accessible media count
@@ -275,7 +275,7 @@ async def test_process_download_accessible_media_wall(
     mock_parse_media.assert_called()
     mock_download_media.assert_called_once()
     mock_set_create_directory.assert_called_once_with(mock_config, download_state)
-    assert mock_config.DUPLICATE_THRESHOLD == original_threshold  # Should be restored
+    assert original_threshold == mock_config.DUPLICATE_THRESHOLD  # Should be restored
 
 
 @pytest.mark.asyncio

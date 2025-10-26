@@ -327,11 +327,11 @@ class GroupFactory(Factory):
 
 # Export all factories
 __all__ = [
+    "GalleryFactory",
+    "GroupFactory",
+    "ImageFactory",
     "PerformerFactory",
+    "SceneFactory",
     "StudioFactory",
     "TagFactory",
-    "SceneFactory",
-    "GalleryFactory",
-    "ImageFactory",
-    "GroupFactory",
 ]

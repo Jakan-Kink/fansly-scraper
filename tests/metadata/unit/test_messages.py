@@ -17,11 +17,11 @@ from tests.fixtures import (
 )
 
 
-def test_direct_message_creation(session_sync: Session):
+def test_direct_message_creation(session_sync: Session, factory_session):
     """Test creating a direct message between users.
 
     Uses AccountFactory and MessageFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create test accounts using factories
     account1 = AccountFactory(id=1, username="sender")
@@ -44,11 +44,11 @@ def test_direct_message_creation(session_sync: Session):
     assert saved_message.groupId is None
 
 
-def test_group_creation(session_sync: Session):
+def test_group_creation(session_sync: Session, factory_session):
     """Test creating a message group.
 
     Uses AccountFactory and GroupFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create test accounts using factories
     account1 = AccountFactory(id=1, username="sender")
@@ -76,11 +76,11 @@ def test_group_creation(session_sync: Session):
     assert user_ids == {account1.id, account2.id}
 
 
-def test_group_message(session_sync: Session):
+def test_group_message(session_sync: Session, factory_session):
     """Test creating a message in a group.
 
     Uses AccountFactory, GroupFactory, and MessageFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create test accounts using factories
     account1 = AccountFactory(id=1, username="sender")
@@ -112,11 +112,11 @@ def test_group_message(session_sync: Session):
     assert saved_message.content == "Group message"
 
 
-def test_message_with_attachment(session_sync: Session):
+def test_message_with_attachment(session_sync: Session, factory_session):
     """Test message with an attachment.
 
     Uses AccountFactory, MessageFactory, and AttachmentFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create test accounts using factories
     account1 = AccountFactory(id=1, username="sender")
@@ -152,11 +152,11 @@ def test_message_with_attachment(session_sync: Session):
 
 
 @pytest.mark.asyncio
-async def test_process_messages_metadata(session: AsyncSession, session_sync, config):
+async def test_process_messages_metadata(session: AsyncSession, session_sync, config, factory_session):
     """Test processing message metadata.
 
     Uses AccountFactory and centralized config/session fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create test accounts using factories
     account1 = AccountFactory(id=1, username="sender")

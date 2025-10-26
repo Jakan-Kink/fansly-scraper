@@ -112,17 +112,19 @@ async def test_client_create(mock_session, mock_client) -> None:
 async def test_client_initialization_error() -> None:
     """Test client initialization error handling."""
     # Create a mock for initialize that raises an error
-    with patch.object(
-        StashClientBase,
-        "initialize",
-        AsyncMock(
-            side_effect=ValueError("Failed to connect to Stash: Connection failed")
+    with (
+        patch.object(
+            StashClientBase,
+            "initialize",
+            AsyncMock(
+                side_effect=ValueError("Failed to connect to Stash: Connection failed")
+            ),
+        ),
+        pytest.raises(
+            ValueError, match="Failed to connect to Stash: Connection failed"
         ),
     ):
-        with pytest.raises(
-            ValueError, match="Failed to connect to Stash: Connection failed"
-        ):
-            await StashClientBase.create()
+        await StashClientBase.create()
 
 
 @pytest.mark.asyncio

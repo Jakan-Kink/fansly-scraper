@@ -13,7 +13,9 @@ in xdist parallel test environments, including:
 import asyncio
 import contextlib
 import gc
+from unittest import mock
 
+import httpx
 import pytest
 from loguru import logger
 
@@ -24,7 +26,8 @@ def cleanup_rich_progress_state():
     yield  # Run the test
 
     try:
-        from helpers.rich_progress import _console, _progress_manager
+        # Lazy import to avoid circular dependency
+        from helpers.rich_progress import _console, _progress_manager  # noqa: PLC0415
 
         # Reset progress manager state
         with _progress_manager._lock:
@@ -39,14 +42,12 @@ def cleanup_rich_progress_state():
             _progress_manager._session_count = 0
 
         # Reset console state if possible (defensive approach for internal APIs)
-        try:
+        with contextlib.suppress(AttributeError, Exception):
             # Clear any pushed themes (if supported by this Rich version)
             if hasattr(_console, "_theme_stack"):
                 theme_stack = getattr(_console, "_theme_stack", None)
                 if theme_stack and hasattr(theme_stack, "clear"):
                     theme_stack.clear()
-        except (AttributeError, Exception):
-            pass  # Not all Rich versions have theme stack or clear method
 
     except ImportError:
         # Rich progress module not available
@@ -56,24 +57,19 @@ def cleanup_rich_progress_state():
 def _close_handler_safely(handler):
     """Helper to safely close a handler."""
     if handler and hasattr(handler, "close"):
-        try:
+        with contextlib.suppress(ValueError, OSError, Exception):
             # Check if the handler is already closed before attempting to close it
             if hasattr(handler, "closed") and handler.closed:
                 return
             handler.close()
-        except (ValueError, OSError, Exception):
-            # Ignore "I/O operation on closed file" and other close errors
-            pass
 
 
 def _get_loguru_handlers():
     """Helper to get loguru handlers safely."""
-    try:
+    with contextlib.suppress(AttributeError, Exception):
         core = getattr(logger, "_core", None)
         if core and hasattr(core, "handlers"):
             return core.handlers.copy()
-    except (AttributeError, Exception):
-        pass
     return None
 
 
@@ -83,7 +79,8 @@ def cleanup_loguru_handlers():
     yield  # Run the test
 
     try:
-        from config.logging import _handler_ids
+        # Lazy import to avoid circular dependency
+        from config.logging import _handler_ids  # noqa: PLC0415
 
         # Remove loguru handlers but don't manually close file handlers
         # Let loguru handle the file closure to avoid double-close issues
@@ -109,8 +106,6 @@ def cleanup_http_sessions():
     original_client_init = None
 
     try:
-        import httpx
-
         original_async_client_init = httpx.AsyncClient.__init__
         original_client_init = httpx.Client.__init__
 
@@ -134,7 +129,7 @@ def cleanup_http_sessions():
         with contextlib.suppress(Exception):
             if hasattr(session, "aclose"):
                 # AsyncClient - need to close asynchronously
-                try:
+                with contextlib.suppress(Exception):
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
                         # If loop is running, schedule the close
@@ -142,8 +137,6 @@ def cleanup_http_sessions():
                     else:
                         # If loop is not running, run until complete
                         loop.run_until_complete(session.aclose())
-                except Exception:
-                    pass  # Ignore errors during cleanup
             elif hasattr(session, "close"):
                 # Regular Client - sync close
                 session.close()
@@ -151,13 +144,9 @@ def cleanup_http_sessions():
     # Restore original __init__ methods
     if original_async_client_init:
         with contextlib.suppress(ImportError):
-            import httpx
-
             httpx.AsyncClient.__init__ = original_async_client_init
     if original_client_init:
         with contextlib.suppress(ImportError):
-            import httpx
-
             httpx.Client.__init__ = original_client_init
 
 
@@ -167,11 +156,12 @@ def cleanup_global_config_state():
     yield  # Run the test
 
     try:
-        import config.logging as logging_module
+        # Lazy import to avoid circular dependency
+        import config.logging  # noqa: PLC0415
 
         # Reset global configuration variables
-        logging_module._config = None
-        logging_module._debug_enabled = False
+        config.logging._config = None
+        config.logging._debug_enabled = False
 
     except ImportError:
         pass
@@ -206,18 +196,16 @@ def cleanup_mock_patches():
 
     # Stop all active patches
     with contextlib.suppress(ImportError, AttributeError):
-        from unittest import mock
-
         # Stop all patches using stopall()
         mock.patch.stopall()
 
 
 # Export all cleanup fixtures
 __all__ = [
-    "cleanup_rich_progress_state",
-    "cleanup_loguru_handlers",
-    "cleanup_http_sessions",
     "cleanup_global_config_state",
-    "cleanup_unawaited_coroutines",
+    "cleanup_http_sessions",
+    "cleanup_loguru_handlers",
     "cleanup_mock_patches",
+    "cleanup_rich_progress_state",
+    "cleanup_unawaited_coroutines",
 ]

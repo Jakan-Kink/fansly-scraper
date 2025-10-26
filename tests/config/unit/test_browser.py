@@ -138,15 +138,17 @@ def test_get_token_from_firefox_profile_deep_storage():
 
     with patch("os.walk") as mock_walk:
         mock_walk.return_value = iter(mock_walk_results)
-        with patch("os.path.join", side_effect=os.path.join):
-            with patch(
+        with (
+            patch("os.path.join", side_effect=os.path.join),
+            patch(
                 "config.browser.get_token_from_firefox_db", return_value="test-token"
-            ) as mock_get_token:
-                result = get_token_from_firefox_profile("/root")
+            ) as mock_get_token,
+        ):
+            result = get_token_from_firefox_profile("/root")
 
-                assert result == "test-token"
-                mock_get_token.assert_called_once()
-                assert mock_walk.call_count == 1
+            assert result == "test-token"
+            mock_get_token.assert_called_once()
+            assert mock_walk.call_count == 1
 
 
 def test_get_token_from_firefox_profile_multiple_storage():
@@ -160,15 +162,17 @@ def test_get_token_from_firefox_profile_multiple_storage():
         def mock_get_token(path):
             return "test-token" if "storage1" in path else None
 
-        with patch("os.path.join", side_effect=os.path.join):
-            with patch(
+        with (
+            patch("os.path.join", side_effect=os.path.join),
+            patch(
                 "config.browser.get_token_from_firefox_db", side_effect=mock_get_token
-            ) as mock_get_token:
-                result = get_token_from_firefox_profile("/root")
+            ) as mock_get_token,
+        ):
+            result = get_token_from_firefox_profile("/root")
 
-                assert result == "test-token"
-                # Should stop searching after finding token
-                assert mock_get_token.call_count == 1
+            assert result == "test-token"
+            # Should stop searching after finding token
+            assert mock_get_token.call_count == 1
 
 
 def test_get_token_from_firefox_profile_no_sqlite():
@@ -334,7 +338,6 @@ def test_close_browser_by_name_windows(
     def on_terminate():
         mock_print("Successfully closed msedge browser.")
         mock_sleep(3)
-        return None
 
     mock_process.terminate = MagicMock(side_effect=on_terminate)
 
@@ -361,7 +364,6 @@ def test_close_browser_by_name_unix(
     def on_kill():
         mock_print("Successfully closed firefox browser.")
         mock_sleep(3)
-        return None
 
     mock_process.kill = MagicMock(side_effect=on_kill)
 
@@ -388,7 +390,6 @@ def test_close_browser_by_name_opera_gx(
     def on_terminate():
         mock_print("Successfully closed opera browser.")
         mock_sleep(3)
-        return None
 
     mock_process.terminate = MagicMock(side_effect=on_terminate)
 

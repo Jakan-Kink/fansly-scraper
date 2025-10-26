@@ -12,8 +12,10 @@ from typing import Any
 import pytest
 
 from stash.types.base import StashObject
+from tests.fixtures.stash_fixtures import TestStashObject
 
 from ...fixtures.stash_fixtures import TestStashObject, TestStashObjectNoStrawberry
+
 
 # =============================================================================
 # StashObject Initialization Tests (Lines 113-120)
@@ -465,9 +467,6 @@ def test_stash_object_init_method_coverage() -> None:
     NOTE: Strawberry dataclasses bypass the custom __init__ method, so we need to call it directly.
     The filtering logic itself (lines 118-120) is tested separately in test_stash_object_filter_args_no_strawberry_definition.
     """
-    from stash.types.base import StashObject
-    from tests.fixtures.stash_fixtures import TestStashObject
-
     # Direct call to __init__ method to ensure lines 128-129 are executed
     # This is necessary because Strawberry bypasses custom __init__ methods
     obj = object.__new__(TestStashObject)  # Create uninitialized object

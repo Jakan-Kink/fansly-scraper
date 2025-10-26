@@ -1,7 +1,9 @@
 """Unit tests for the account module."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 import requests
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -158,8 +160,6 @@ class TestGetAccountResponse:
     @pytest.mark.asyncio
     async def test_get_account_request_exception(self, mock_config_with_api):
         """Test handling request exception."""
-        import httpx
-
         state = DownloadState()
         state.creator_name = "testcreator"
 
@@ -386,7 +386,7 @@ class TestUpdateStateFromAccount:
         assert state.walls == {"wall1", "wall2"}
 
         # Custom duplicate threshold - 20% of timeline content
-        assert mock_config.DUPLICATE_THRESHOLD == int(0.2 * (100 + 50))
+        assert int(0.2 * (100 + 50)) == mock_config.DUPLICATE_THRESHOLD
 
     def test_update_creator_missing_timeline_stats(self, mock_config):
         """Test error when timeline stats are missing for creator."""
@@ -437,8 +437,6 @@ class TestMakeRateLimitedRequest:
     @pytest.mark.asyncio
     async def test_rate_limited_request(self):
         """Test handling rate limit (429) response."""
-        import httpx
-
         # Mock request function
         mock_request_func = MagicMock()
 
@@ -476,8 +474,6 @@ class TestMakeRateLimitedRequest:
     @pytest.mark.asyncio
     async def test_non_rate_limit_error(self):
         """Test handling non-rate-limit HTTP error."""
-        import httpx
-
         # Mock request function
         mock_request_func = MagicMock()
 
@@ -592,10 +588,9 @@ class TestGetCreatorAccountInfo:
         # Mock database query result - same fetchedAt as API
         mock_query_result = MagicMock()
         mock_timelinestats = MagicMock()
-        from datetime import datetime, timezone
 
         mock_timelinestats.fetchedAt = datetime.fromtimestamp(
-            1633046400, timezone.utc
+            1633046400, UTC
         )  # Datetime object
         mock_query_result.scalar_one_or_none = AsyncMock(
             return_value=mock_timelinestats
@@ -615,7 +610,7 @@ class TestGetCreatorAccountInfo:
 
         # Verify timeline duplication check
         session.execute.assert_called_once()
-        assert state.fetchedTimelineDuplication is True
+        assert state.fetched_timeline_duplication is True
 
 
 @patch("download.account._make_rate_limited_request")
@@ -739,8 +734,6 @@ class TestGetFollowingAccounts:
         self, mock_make_request, mock_config_with_api
     ):
         """Test handling unauthorized error."""
-        import httpx
-
         # Setup mocks
         mock_config_with_api.token = "invalid_token"
         state = DownloadState()
@@ -773,8 +766,6 @@ class TestGetFollowingAccounts:
         self, mock_make_request, mock_config_with_api
     ):
         """Test handling general request error."""
-        import httpx
-
         # Setup mocks
         state = DownloadState()
         state.creator_id = "client123"

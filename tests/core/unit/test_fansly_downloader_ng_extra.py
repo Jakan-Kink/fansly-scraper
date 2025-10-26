@@ -1,3 +1,4 @@
+import resource
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -5,6 +6,8 @@ import pytest
 
 import fansly_downloader_ng
 from config import FanslyConfig
+from config.metadatahandling import MetadataHandling
+from config.modes import DownloadMode
 from fansly_downloader_ng import (
     increase_file_descriptor_limit,
     load_client_account_into_db,
@@ -25,8 +28,6 @@ def test_increase_file_descriptor_limit_success():
         # new_soft = min(1024, 4096) = 1024, so expected tuple is (1024, 1024)
         expected_call_arg = (1024, 1024)
         # resource.RLIMIT_NOFILE is used by the function; retrieve it from the resource module
-        import resource
-
         mock_setrlimit.assert_called_once_with(
             resource.RLIMIT_NOFILE, expected_call_arg
         )
@@ -57,7 +58,6 @@ def test_handle_interrupt():
         exit_called = True
         assert code == 130
         # Return without raising SystemExit
-        return
 
     # Create a substitute handler that doesn't raise KeyboardInterrupt
     def test_handler(signum, frame):
@@ -234,9 +234,6 @@ async def test_cleanup_database_no_database_async():
 @pytest.mark.asyncio
 async def test_main_invalid_config():
     """Test main raises error with invalid configuration."""
-    from config.metadatahandling import MetadataHandling
-    from config.modes import DownloadMode
-
     # Create a proper mock that will trigger the specific error we want to test
     config = MagicMock(spec=FanslyConfig)
 

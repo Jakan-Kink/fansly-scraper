@@ -2,12 +2,15 @@
 
 from unittest.mock import MagicMock, patch
 
+import ffmpeg
 import pytest
 from m3u8 import M3U8
 from requests import Response
 
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import (
+    _try_direct_download,
+    _try_segment_download,
     download_m3u8,
     fetch_m3u8_segment_playlist,
     get_m3u8_cookies,
@@ -401,8 +404,6 @@ class TestDirectDownload:
         tmp_path,
     ):
         """Test successful direct HLS download using ffmpeg."""
-        from download.m3u8 import _try_direct_download
-
         # Setup
         config, mock_api, mock_response = mock_config
         output_path = tmp_path / "video.mp4"
@@ -453,10 +454,6 @@ video_1080.m3u8"""
         tmp_path,
     ):
         """Test direct download handles ffmpeg errors and returns False."""
-        import ffmpeg as ffmpeg_lib
-
-        from download.m3u8 import _try_direct_download
-
         # Setup
         config, mock_api, mock_response = mock_config
         output_path = tmp_path / "video.mp4"
@@ -469,9 +466,9 @@ video_1080.m3u8"""
 
         # Mock ffmpeg to raise an error
         mock_stream = MagicMock()
-        mock_stream.run.side_effect = ffmpeg_lib.Error("ffmpeg", b"", b"Error message")
+        mock_stream.run.side_effect = ffmpeg.Error("ffmpeg", b"", b"Error message")
         mock_ffmpeg.input.return_value.output.return_value.overwrite_output.return_value = mock_stream
-        mock_ffmpeg.Error = ffmpeg_lib.Error
+        mock_ffmpeg.Error = ffmpeg.Error
 
         # Call the function
         result = _try_direct_download(
@@ -534,8 +531,6 @@ class TestSegmentDownload:
         tmp_path,
     ):
         """Test successful segment download and concatenation."""
-        from download.m3u8 import _try_segment_download
-
         # Setup
         config = mock_config
         output_path = tmp_path / "video.mp4"
@@ -597,8 +592,6 @@ class TestSegmentDownload:
         tmp_path,
     ):
         """Test segment download handles missing segments."""
-        from download.m3u8 import _try_segment_download
-
         # Setup
         config = mock_config
         output_path = tmp_path / "video.mp4"

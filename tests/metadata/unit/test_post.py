@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from metadata.account import Account
 from metadata.attachment import Attachment, ContentType
 from metadata.post import Post, pinned_posts, post_mentions, process_pinned_posts
 from tests.fixtures import AccountFactory, AttachmentFactory, PostFactory
@@ -129,7 +130,7 @@ async def test_process_pinned_posts(session: AsyncSession, factory_session, conf
     """Test processing pinned posts.
 
     Uses AccountFactory and PostFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account and post using factories
     account = AccountFactory(id=1, username="test_user")
@@ -142,8 +143,6 @@ async def test_process_pinned_posts(session: AsyncSession, factory_session, conf
     session.expire_all()
 
     # Query account in async session
-    from metadata.account import Account
-
     result = await session.execute(select(Account).where(Account.id == account_id))
     account = result.scalar_one()
 
@@ -179,7 +178,7 @@ async def test_process_pinned_posts_nonexistent(
     """Test processing pinned posts with nonexistent post.
 
     Uses AccountFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account using factory
     account = AccountFactory(id=1, username="test_user")
@@ -187,8 +186,6 @@ async def test_process_pinned_posts_nonexistent(
     session.expire_all()
 
     # Query account in async session
-    from metadata.account import Account
-
     result = await session.execute(select(Account).where(Account.id == account_id))
     account = result.scalar_one()
 
@@ -222,7 +219,7 @@ async def test_process_pinned_posts_update(
     """Test updating existing pinned post.
 
     Uses AccountFactory and PostFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account and post using factories
     account = AccountFactory(id=1, username="test_user")
@@ -235,8 +232,6 @@ async def test_process_pinned_posts_update(
     session.expire_all()
 
     # Query account in async session
-    from metadata.account import Account
-
     result = await session.execute(select(Account).where(Account.id == account_id))
     account = result.scalar_one()
 
@@ -278,7 +273,7 @@ async def test_post_reply_fields(session: AsyncSession, factory_session):
     """Test post reply-related fields.
 
     Uses AccountFactory and PostFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account and posts using factories
     account = AccountFactory(id=1, username="test_user")
@@ -322,7 +317,7 @@ async def test_post_expiration(session: AsyncSession, factory_session, expires_a
     """Test post expiration field.
 
     Uses AccountFactory and PostFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account and post using factories
     account = AccountFactory(id=1, username="test_user")
@@ -351,7 +346,7 @@ async def test_post_cascade_delete(session: AsyncSession, factory_session):
     """Test cascade deletion of post relationships.
 
     Uses AccountFactory, PostFactory, and AttachmentFactory.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account and post using factories
     account = AccountFactory(id=1, username="test_user")

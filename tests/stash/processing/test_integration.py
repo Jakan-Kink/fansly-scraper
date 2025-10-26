@@ -16,10 +16,11 @@ from tests.stash.processing.integration.test_stash_processing import (
     TestStashProcessingIntegration,
 )
 
+
 # Import and run all integration tests when this module is imported
 __all__ = [
-    "TestStashProcessingIntegration",
     "TestContentProcessingIntegration",
-    "TestMediaProcessingIntegration",
     "TestFullWorkflowIntegration",
+    "TestMediaProcessingIntegration",
+    "TestStashProcessingIntegration",
 ]

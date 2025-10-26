@@ -19,7 +19,8 @@ import logging
 import os
 import shutil
 import tempfile
-from contextlib import contextmanager
+from configparser import ConfigParser
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter, sleep, time
@@ -30,8 +31,15 @@ import pytest
 import pytest_asyncio
 from loguru import logger
 
+from config import FanslyConfig
+from config.fanslyconfig import FanslyConfig as FanslyConfigClass
+from config.metadatahandling import MetadataHandling
+from config.modes import DownloadMode
+from download.core import DownloadState
+
 # Import all factories and fixtures using wildcard
-from tests.fixtures import *  # noqa: F403, F401
+from tests.fixtures import *  # noqa: F403
+
 
 # ============================================================================
 # Helper Functions
@@ -73,8 +81,6 @@ async def cleanup_tasks():
 
     This prevents task leakage between tests and ensures clean test isolation.
     """
-    from contextlib import suppress
-
     yield
     # Clean up any remaining tasks at the end of each test
     for task in asyncio.all_tasks():
@@ -94,8 +100,6 @@ def setup_test_logging():
     2. Clean up log files after tests
     3. Properly close all file handlers
     """
-    import tempfile
-
     # Create a temporary directory for logs (manual management for proper cleanup)
     temp_dir = tempfile.mkdtemp()
     temp_path = Path(temp_dir)
@@ -124,13 +128,11 @@ def setup_test_logging():
     finally:
         # CRITICAL: Remove loguru handlers FIRST to close file handles
         # This must happen before temp directory cleanup
-        try:
+        with suppress(ValueError, Exception):
             if handler_id is not None:
                 logger.remove(handler_id)
             else:
                 logger.remove()  # Remove all if handler_id wasn't captured
-        except (ValueError, Exception):
-            pass  # Ignore errors if handler already removed
 
         # Restore original logging handlers
         logging.root.handlers.clear()
@@ -138,12 +140,8 @@ def setup_test_logging():
             logging.root.addHandler(handler)
 
         # NOW safe to clean up temp directory (all files are closed)
-        import shutil
-
-        try:
+        with suppress(Exception):
             shutil.rmtree(temp_dir, ignore_errors=True)
-        except Exception:
-            pass  # Ignore cleanup errors
 
 
 # ============================================================================
@@ -278,8 +276,6 @@ def mock_config():
     Note: Sets pg_database to a non-existent name to prevent accidental connections
     to the production database.
     """
-    from config.fanslyconfig import FanslyConfig
-
     config = FanslyConfig(program_version="0.11.0")
     # Override database name to prevent accidental connections to production database
     config.pg_database = "test_mock_should_not_connect"
@@ -289,8 +285,6 @@ def mock_config():
 @pytest.fixture(scope="function")
 def test_config():
     """Alias for mock_config fixture for backwards compatibility."""
-    from config.fanslyconfig import FanslyConfig
-
     config = FanslyConfig(program_version="0.11.0")
     # Override database name to prevent accidental connections to production database
     config.pg_database = "test_mock_should_not_connect"
@@ -310,33 +304,25 @@ def temp_config_dir():
             os.chdir(original_cwd)
 
             # Clean up logging handlers (loguru keeps file handles open)
-            try:
-                from loguru import logger
-
+            with suppress(Exception):
                 logger.remove()  # Remove all handlers to close log files
-            except Exception:
-                pass
 
             # Force garbage collection to close any open file handles
             gc.collect()
             sleep(0.1)  # Brief delay to ensure handles are released
 
             # Try to remove any remaining files manually
-            try:
+            with suppress(Exception):
                 for item in Path(temp_dir).iterdir():
                     if item.is_file():
                         item.unlink(missing_ok=True)
                     elif item.is_dir():
                         shutil.rmtree(item, ignore_errors=True)
-            except Exception:
-                pass  # Ignore errors, TemporaryDirectory will handle final cleanup
 
 
 @pytest.fixture(scope="function")
 def config_parser():
     """Create a ConfigParser instance for raw config manipulation."""
-    from configparser import ConfigParser
-
     return ConfigParser(interpolation=None)
 
 
@@ -358,7 +344,7 @@ def mock_config_file(temp_config_dir, request):
     with config_path.open("w") as f:
         f.write(config_content)
 
-    yield config_path
+    return config_path
 
 
 @pytest.fixture(scope="function")
@@ -366,7 +352,7 @@ def mock_download_dir(temp_config_dir):
     """Create a mock download directory for testing."""
     download_dir = temp_config_dir / "downloads"
     download_dir.mkdir()
-    yield download_dir
+    return download_dir
 
 
 @pytest.fixture(scope="function")
@@ -374,7 +360,7 @@ def mock_metadata_dir(temp_config_dir):
     """Create a mock metadata directory for testing."""
     metadata_dir = temp_config_dir / "metadata"
     metadata_dir.mkdir()
-    yield metadata_dir
+    return metadata_dir
 
 
 @pytest.fixture(scope="function")
@@ -382,7 +368,7 @@ def mock_temp_dir(temp_config_dir):
     """Create a mock temporary directory for testing."""
     temp_dir = temp_config_dir / "temp"
     temp_dir.mkdir()
-    yield temp_dir
+    return temp_dir
 
 
 @pytest.fixture(scope="function")
@@ -409,16 +395,12 @@ def valid_api_config(mock_config_file):
 @pytest.fixture(scope="session")
 def download_modes():
     """Get all available download modes."""
-    from config.modes import DownloadMode
-
     return list(DownloadMode)
 
 
 @pytest.fixture(scope="session")
 def metadata_handling_modes():
     """Get all available metadata handling modes."""
-    from config.metadatahandling import MetadataHandling
-
     return list(MetadataHandling)
 
 
@@ -437,8 +419,6 @@ def temp_db_dir():
 @pytest.fixture
 def mock_download_config():
     """Create a mock FanslyConfig for download testing."""
-    from config import FanslyConfig
-
     config = MagicMock(spec=FanslyConfig)
     config.download_path = Path("/test/download/path")
     config.program_version = "0.0.0-test"
@@ -448,8 +428,6 @@ def mock_download_config():
 @pytest.fixture
 def download_state():
     """Create a real DownloadState for testing."""
-    from download.core import DownloadState
-
     state = DownloadState()
     state.creator_name = "test_creator"
     return state
@@ -458,8 +436,6 @@ def download_state():
 @pytest.fixture
 def mock_download_state():
     """Create a mock DownloadState for testing."""
-    from download.core import DownloadState
-
     state = MagicMock(spec=DownloadState)
     state.creator_id = "12345"
     state.creator_name = "test_user"

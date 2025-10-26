@@ -22,6 +22,7 @@ from stash.types import (
     Tag,
 )
 
+
 # Skip all tests in this module when running in sandbox
 pytestmark = pytest.mark.skipif(
     os.environ.get("OPENHANDS_SANDBOX") == "1",

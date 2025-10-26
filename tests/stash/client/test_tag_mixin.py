@@ -464,7 +464,7 @@ async def test_bulk_tag_update_error(stash_client: StashClient, mock_tag: Tag) -
         )
         assert False, "Expected exception was not raised"
     except Exception as e:
-        assert str(e) == "Test error", f"Expected 'Test error' but got '{str(e)}'"
+        assert str(e) == "Test error", f"Expected 'Test error' but got '{e!s}'"
 
 
 @pytest.mark.asyncio
@@ -490,7 +490,7 @@ async def test_create_tag_error(stash_client: StashClient, mock_tag: Tag) -> Non
             await stash_client.create_tag(tag)
             assert False, "Expected an exception but none was raised"
         except Exception as e:
-            assert str(e) == "Test error", f"Expected 'Test error' but got '{str(e)}'"
+            assert str(e) == "Test error", f"Expected 'Test error' but got '{e!s}'"
 
 
 @pytest.mark.asyncio
@@ -520,7 +520,7 @@ async def test_tag_hierarchy(stash_client: StashClient, mock_tag: Tag) -> None:
     tag_dict = {
         k: v
         for k, v in mock_tag.__dict__.items()
-        if not k.startswith("_") and k != "client_mutation_id" and k != "to_input"
+        if not k.startswith("_") and k not in {"client_mutation_id", "to_input"}
     }
     stash_client.execute.return_value = {"tagUpdate": tag_dict}
 

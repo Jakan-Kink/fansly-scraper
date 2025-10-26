@@ -3,12 +3,15 @@
 import asyncio
 import os
 import threading
+import uuid
+from urllib.parse import quote_plus
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
 from config import FanslyConfig
 from metadata.database import Database
+
 
 # Removed deprecated SQLite-specific fixtures and test classes:
 # - config_sqlite fixture
@@ -23,10 +26,6 @@ class TestDatabaseThreading:
     @pytest.fixture
     def thread_test_database(self):
         """Create a temporary database for threading tests using PostgreSQL with UUID isolation."""
-        import uuid
-
-        from sqlalchemy import create_engine, text
-
         # Generate unique database name
         test_db_name = f"test_{uuid.uuid4().hex[:16]}"
 
@@ -40,8 +39,6 @@ class TestDatabaseThreading:
 
         # Build admin connection URL
         password = admin_config.pg_password or ""
-        from urllib.parse import quote_plus
-
         password_encoded = quote_plus(password)
         admin_url = f"postgresql://{admin_config.pg_user}:{password_encoded}@{admin_config.pg_host}:{admin_config.pg_port}/postgres"
 

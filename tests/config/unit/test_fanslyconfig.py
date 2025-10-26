@@ -19,6 +19,7 @@ from config.fanslyconfig import FanslyConfig
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 
+
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -397,11 +398,13 @@ class TestFanslyConfig:
 
     def test_get_stash_api_error(self, config):
         """Test get_stash_api method with error."""
-        with patch.object(
-            config, "get_stash_context", side_effect=RuntimeError("Test error")
+        with (
+            patch.object(
+                config, "get_stash_context", side_effect=RuntimeError("Test error")
+            ),
+            pytest.raises(RuntimeError, match="Failed to initialize Stash API"),
         ):
-            with pytest.raises(RuntimeError, match="Failed to initialize Stash API"):
-                config.get_stash_api()
+            config.get_stash_api()
 
     def test_background_tasks(self, config):
         """Test background tasks methods."""
