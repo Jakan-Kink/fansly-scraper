@@ -7,8 +7,8 @@ media bundles, timeline stats, and story states.
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     BigInteger,
@@ -22,8 +22,9 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
 )
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+from sqlalchemy.orm import Mapped, Mapper, mapped_column, object_session, relationship
 
 from config.decorators import with_database_session
 from textio import json_output
@@ -246,7 +247,7 @@ class MediaStoryState(Base):
         Boolean, nullable=True, default=False
     )
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         """Initialize a Story instance with timestamp conversion."""
         self.convert_timestamps(kwargs, ("createdAt", "updatedAt"))
         super().__init__(**kwargs)
@@ -367,7 +368,7 @@ class AccountMedia(Base):
         """Set up event listeners after all configuration is complete."""
 
         @event.listens_for(Account, "after_delete")
-        def delete_account_media(mapper, connection, target):
+        def delete_account_media(mapper: Mapper, connection: Connection, target: Account) -> None:
             """Delete all AccountMedia records when Account is deleted."""
             connection.execute(cls.__table__.delete().where(cls.accountId == target.id))
 
@@ -625,7 +626,7 @@ async def _process_single_bundle(
         {"id": bundle["id"]},
         {
             "accountId": account_id,
-            "createdAt": datetime.now(timezone.utc),
+            "createdAt": datetime.now(UTC),
             "deleted": False,
             "access": False,
             "purchased": False,
@@ -836,7 +837,7 @@ async def process_account_data(
         stats_data["accountId"] = account.id
         # Handle fetchedAt
         if "fetchedAt" not in stats_data:
-            stats_data["fetchedAt"] = datetime.now(timezone.utc)
+            stats_data["fetchedAt"] = datetime.now(UTC)
         else:
             Base.convert_timestamps(stats_data, ("fetchedAt",))
 

@@ -34,10 +34,8 @@ def upgrade() -> None:
     # Update foreign key constraint on account_media table
     with op.batch_alter_table("account_media") as batch_op:
         # Drop existing foreign key constraint
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("account_media_mediaId_fkey", type_="foreignkey")
-        except Exception:
-            pass  # Constraint might have a different name
 
         # Create new foreign key with CASCADE
         batch_op.create_foreign_key(
@@ -65,12 +63,10 @@ def downgrade() -> None:
     # Revert foreign key constraint on account_media table
     with op.batch_alter_table("account_media") as batch_op:
         # Drop CASCADE foreign key
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint(
                 "fk_account_media_mediaId_cascade", type_="foreignkey"
             )
-        except Exception:
-            pass  # Constraint might not exist
 
         # Create original foreign key without CASCADE
         batch_op.create_foreign_key(

@@ -1,5 +1,6 @@
 """Browser Utilities"""
 
+import contextlib
 import webbrowser
 from time import sleep
 
@@ -12,11 +13,8 @@ def open_url(url_to_open: str) -> None:
     """
     sleep(10)
 
-    try:
+    with contextlib.suppress(Exception):
         webbrowser.open(url_to_open, new=0, autoraise=True)
-
-    except Exception:
-        pass
 
 
 def open_get_started_url() -> None:

@@ -74,18 +74,12 @@ def downgrade() -> None:
         "post_mentions", schema=None, recreate="always"
     ) as batch_op:
         # Drop new constraints
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("uix_post_mentions_handle", type_="unique")
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("uix_post_mentions_account", type_="unique")
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint("post_mentions_pkey", type_="primary")
-        except Exception:
-            pass
 
         # Revert accountId to be non-nullable
         batch_op.alter_column("accountId", existing_type=sa.Integer(), nullable=False)

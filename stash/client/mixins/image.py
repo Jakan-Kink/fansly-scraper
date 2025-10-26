@@ -33,7 +33,7 @@ class ImageClientMixin(StashClientProtocol):
                 return Image(**clean_data)
             return None
         except Exception as e:
-            self.log.error(f"Failed to find image {id}: {e}")
+            self.log.exception(f"Failed to find image {id}: {e}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -72,7 +72,7 @@ class ImageClientMixin(StashClientProtocol):
             )
             return FindImagesResultType(**result["findImages"])
         except Exception as e:
-            self.log.error(f"Failed to find images: {e}")
+            self.log.exception(f"Failed to find images: {e}")
             return FindImagesResultType(count=0, images=[])
 
     async def create_image(self, image: Image) -> Image:
@@ -102,7 +102,7 @@ class ImageClientMixin(StashClientProtocol):
             clean_data = sanitize_model_data(result["imageCreate"])
             return Image(**clean_data)
         except Exception as e:
-            self.log.error(f"Failed to create image: {e}")
+            self.log.exception(f"Failed to create image: {e}")
             raise
 
     async def update_image(self, image: Image) -> Image:
@@ -143,5 +143,5 @@ class ImageClientMixin(StashClientProtocol):
             updated_image.mark_clean()
             return updated_image
         except Exception as e:
-            self.log.error(f"Failed to update image: {e}")
+            self.log.exception(f"Failed to update image: {e}")
             raise

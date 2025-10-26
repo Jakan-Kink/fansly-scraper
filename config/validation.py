@@ -234,10 +234,9 @@ def validate_adjust_token(config: FanslyConfig) -> None:
                         ) or user_input_acc_verify.startswith("n"):
                             break  # break user input verification
 
-                        else:
-                            print_error(
-                                f"Please enter either 'Yes' or 'No', to decide if you want to link to '{fansly_account}'."
-                            )
+                        print_error(
+                            f"Please enter either 'Yes' or 'No', to decide if you want to link to '{fansly_account}'."
+                        )
 
                 else:
                     # Forcefully link account in interactive mode.
@@ -370,9 +369,8 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 
             return
 
-        else:
-            print_warning("Web retrieval of check key failed!")
-            print()
+        print_warning("Web retrieval of check key failed!")
+        print()
 
     print_warning(
         f"Make sure, checking the main.js sources of the Fansly homepage, "

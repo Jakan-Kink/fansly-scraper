@@ -34,8 +34,7 @@ def save_config_or_raise(config: FanslyConfig) -> bool:
             f"Internal error: Configuration data could not be saved to '{config.config_path}'. "
             "Invalid path or permission/security software problem."
         )
-    else:
-        return True
+    return True
 
 
 def parse_items_from_line(line: str) -> list[str]:
@@ -134,7 +133,7 @@ def copy_old_config_values():
                         new_config.set(section, option, value)
 
         # save the updated new config
-        with open(new_config_path, "w") as config_file:
+        with Path(new_config_path).open("w") as config_file:
             new_config.write(config_file)
 
 
@@ -462,7 +461,7 @@ def _handle_config_error(e: Exception, config: FanslyConfig) -> None:
         raise ConfigError(
             f"Your config.ini file is invalid, please download a fresh version of it from GitHub.\n{error_string}"
         )
-    elif isinstance(e, ValueError):
+    if isinstance(e, ValueError):
         if "a boolean" in error_string:
             if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
                 open_url(wiki_url)
@@ -470,24 +469,22 @@ def _handle_config_error(e: Exception, config: FanslyConfig) -> None:
                 f"'{error_string.rsplit('boolean: ')[1]}' is malformed in the configuration file! This value can only be True or False"
                 f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [1]"
             )
-        else:
-            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
-                open_url(wiki_url)
-            raise ConfigError(
-                f"You have entered a wrong value in the config.ini file -> '{error_string}'"
-                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [2]"
-            )
-    elif isinstance(e, (KeyError, NameError)):
+        if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
+            open_url(wiki_url)
+        raise ConfigError(
+            f"You have entered a wrong value in the config.ini file -> '{error_string}'"
+            f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [2]"
+        )
+    if isinstance(e, (KeyError, NameError)):
         if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
             open_url(wiki_url)
         raise ConfigError(
             f"'{e}' is missing or malformed in the configuration file!"
             f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [3]"
         )
-    else:
-        raise ConfigError(
-            f"An error occurred while reading the configuration file: {error_string}"
-        )
+    raise ConfigError(
+        f"An error occurred while reading the configuration file: {error_string}"
+    )
 
 
 def load_config(config: FanslyConfig) -> None:
@@ -509,7 +506,7 @@ def load_config(config: FanslyConfig) -> None:
     if not config.config_path.exists():
         print_warning("Configuration file config.ini not found.")
         print_config("A default configuration file will be generated for you ...")
-        with open(config.config_path, mode="w", encoding="utf-8"):
+        with config.config_path.open(mode="w", encoding="utf-8"):
             pass
 
     config._load_raw_config()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import traceback
 from copy import deepcopy
@@ -295,10 +296,8 @@ class StashProcessingBase:
                     if not task.done():
                         logger.debug(f"Cancelling additional task: {task}")
                         task.cancel()
-                    try:
+                    with contextlib.suppress(ValueError):
                         background_tasks.remove(task)
-                    except ValueError:
-                        pass  # Task was already removed
 
         except Exception as e:
             logger.error(f"Error during cleanup task cancellation: {e}")

@@ -46,14 +46,13 @@ async def download_single_post(config: FanslyConfig, state: DownloadState):
             if is_valid_post_id(post_id):
                 break
 
-            else:
-                print_error(
-                    f"The input string '{requested_post}' can not be a valid post link or ID."
-                    f"\n{22 * ' '}The last few numbers in the URL are the post ID"
-                    f"\n{22 * ' '}Example: 'https://fansly.com/post/1283998432982'"
-                    f"\n{22 * ' '}In the example, '1283998432982' is the post ID.",
-                    17,
-                )
+            print_error(
+                f"The input string '{requested_post}' can not be a valid post link or ID."
+                f"\n{22 * ' '}The last few numbers in the URL are the post ID"
+                f"\n{22 * ' '}Example: 'https://fansly.com/post/1283998432982'"
+                f"\n{22 * ' '}In the example, '1283998432982' is the post ID.",
+                17,
+            )
 
     post_response = config.get_api().get_post(post_id)
 

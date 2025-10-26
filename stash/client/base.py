@@ -228,18 +228,15 @@ class StashClientBase:
         if isinstance(e, TransportQueryError):
             # GraphQL query error (e.g. validation error)
             raise ValueError(f"GraphQL query error: {e.errors}")
-        elif isinstance(e, TransportServerError):
+        if isinstance(e, TransportServerError):
             # Server error (e.g. 500)
             raise ValueError(f"GraphQL server error: {e}")
-        elif isinstance(e, TransportError):
+        if isinstance(e, TransportError):
             # Network/connection error
             raise ValueError(f"Failed to connect to {self.url}: {e}")
-        elif isinstance(e, asyncio.TimeoutError):
+        if isinstance(e, asyncio.TimeoutError):
             raise ValueError(f"Request to {self.url} timed out")
-        else:
-            raise ValueError(
-                f"Unexpected error during request ({type(e).__name__}): {e}"
-            )
+        raise ValueError(f"Unexpected error during request ({type(e).__name__}): {e}")
 
     async def execute(
         self,
@@ -295,13 +292,13 @@ class StashClientBase:
         """Convert datetime objects to ISO format strings."""
         if isinstance(obj, datetime):
             return obj.isoformat()
-        elif isinstance(obj, dict):
+        if isinstance(obj, dict):
             return {k: self._convert_datetime(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple)):
+        if isinstance(obj, (list, tuple)):
             return [self._convert_datetime(x) for x in obj]
         return obj
 
-    def _parse_obj_for_ID(self, param, str_key="name"):
+    def _parse_obj_for_ID(self, param: Any, str_key: str = "name") -> Any:
         if isinstance(param, str):
             try:
                 return int(param)
@@ -374,8 +371,8 @@ class StashClientBase:
                 deleteFile=False,
                 deleteGenerated=False,
             )
-        except Exception as e:
-            self.log.error(f"Failed to get configuration defaults: {e}")
+        except Exception:
+            self.log.exception("Failed to get configuration defaults")
             raise
 
     async def metadata_generate(
@@ -454,8 +451,8 @@ class StashClientBase:
 
             return str(job_id)
 
-        except Exception as e:
-            self.log.error(f"Failed to generate metadata: {e}")
+        except Exception:
+            self.log.exception("Failed to generate metadata")
             raise
 
     async def metadata_scan(
@@ -533,7 +530,7 @@ class StashClientBase:
                 raise ValueError("Failed to start metadata scan - no job ID returned")
             return job_id
         except Exception as e:
-            self.log.error(f"Failed to start metadata scan: {e}")
+            self.log.exception(f"Failed to start metadata scan: {e}")
             raise ValueError(f"Failed to start metadata scan: {e}")
 
     async def find_job(self, job_id: str) -> Job | None:
@@ -569,7 +566,7 @@ class StashClientBase:
                 return Job(**job_data)
             return None
         except Exception as e:
-            self.log.error(f"Failed to find job {job_id}: {e}")
+            self.log.exception(f"Failed to find job {job_id}: {e}")
             return None
 
     async def wait_for_job(

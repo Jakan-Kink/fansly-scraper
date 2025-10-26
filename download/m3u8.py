@@ -285,7 +285,7 @@ def _try_segment_download(
                     f"Segment download failed with status {segment_response.status_code}: {segment_uri}"
                 )
                 return
-            with open(segment_full_path, "wb") as ts_file:
+            with segment_full_path.open("wb") as ts_file:
                 for chunk in segment_response.iter_bytes(CHUNK_SIZE):
                     if chunk:
                         ts_file.write(chunk)
@@ -296,7 +296,7 @@ def _try_segment_download(
             else:
                 print_debug(f"Segment file missing after download: {segment_full_path}")
         except Exception as e:
-            print_debug(f"Error downloading segment {segment_uri}: {str(e)}")
+            print_debug(f"Error downloading segment {segment_uri}: {e!s}")
         finally:
             # Important: Close streaming response to free resources
             if segment_response is not None:
@@ -333,17 +333,17 @@ def _try_segment_download(
         max_workers = min(
             16, max(4, len(segment_files) // 4)
         )  # Between 4 and 16 workers
-        with progress:
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=max_workers
-            ) as executor:
-                list(
-                    progress.track(
-                        executor.map(download_ts, segment_uris, segment_files),
-                        total=len(segment_files),
-                        description=f"Downloading segments ({max_workers} threads)",
-                    )
+        with (
+            progress,
+            concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor,
+        ):
+            list(
+                progress.track(
+                    executor.map(download_ts, segment_uris, segment_files),
+                    total=len(segment_files),
+                    description=f"Downloading segments ({max_workers} threads)",
                 )
+            )
 
         # Check multi-threaded downloads
         missing_segments = []
@@ -357,7 +357,7 @@ def _try_segment_download(
         print_debug("All segments downloaded, concatenating with ffmpeg")
 
         # Use ffmpeg-python for concatenation
-        with open(ffmpeg_list_file, "w", encoding="utf-8") as list_file:
+        with ffmpeg_list_file.open("w", encoding="utf-8") as list_file:
             list_file.write("ffconcat version 1.0\n")
             list_file.writelines([f"file '{f.name}'\n" for f in segment_files])
 

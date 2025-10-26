@@ -54,7 +54,7 @@ class Base(AsyncAttrs, DeclarativeBase):
         when they are loaded from the database.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         super().__init__()
         # Set attributes from kwargs
         for key, value in kwargs.items():
@@ -83,7 +83,7 @@ class Base(AsyncAttrs, DeclarativeBase):
             if isinstance(column.type, DateTime) and column.type.timezone:
                 value = getattr(target, column.key)
                 if value is not None and value.tzinfo is None:
-                    setattr(target, column.key, value.replace(tzinfo=timezone.utc))
+                    setattr(target, column.key, value.replace(tzinfo=UTC))
 
     @staticmethod
     def convert_timestamps(
@@ -106,7 +106,7 @@ class Base(AsyncAttrs, DeclarativeBase):
             >>> print(data["createdAt"])  # Now a datetime object
         """
         for date_field in date_fields:
-            if date_field in data and data[date_field]:
+            if data.get(date_field):
                 timestamp = data[date_field]
                 # Skip if already a datetime
                 if isinstance(timestamp, datetime):
@@ -117,7 +117,7 @@ class Base(AsyncAttrs, DeclarativeBase):
                 # 1e10 is a good threshold between the two
                 if isinstance(timestamp, (int, float)) and timestamp > 1e10:
                     timestamp = timestamp / 1000
-                data[date_field] = datetime.fromtimestamp(timestamp, timezone.utc)
+                data[date_field] = datetime.fromtimestamp(timestamp, UTC)
 
     @classmethod
     def get_or_create(
@@ -398,8 +398,5 @@ class Base(AsyncAttrs, DeclarativeBase):
             if should_convert:
                 value = data[key]
                 if value is not None and isinstance(value, str):
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         data[key] = int(value)
-                    except (ValueError, TypeError):
-                        # If conversion fails, leave as-is and let validation handle it
-                        pass

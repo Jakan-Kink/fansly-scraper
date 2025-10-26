@@ -124,7 +124,7 @@ def hash_mp4file(
         print(f"File: {file_name}")
         print()
 
-    with open(file_name, "rb") as mp4file:
+    with Path.open(file_name, "rb") as mp4file:
         try:
             boxes = get_boxes(mp4file)
 
@@ -133,12 +133,11 @@ def hash_mp4file(
                     print(box)
 
                 if use_broken_algo:
-                    if box.fourcc != "moov" and box.fourcc != "mdat":
+                    if box.fourcc not in {"moov", "mdat"}:
                         hash_mp4box(algorithm, mp4file, box)
 
-                else:
-                    if box.fourcc != "free" and box.fourcc != "moov":
-                        hash_mp4box(algorithm, mp4file, box)
+                elif box.fourcc not in {"free", "moov"}:
+                    hash_mp4box(algorithm, mp4file, box)
 
             if print is not None:
                 print()

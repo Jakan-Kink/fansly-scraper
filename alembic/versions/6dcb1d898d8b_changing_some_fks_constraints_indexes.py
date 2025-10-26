@@ -118,24 +118,18 @@ def downgrade() -> None:
     # Revert account_media table to remove CASCADE
     with op.batch_alter_table("account_media", schema=None) as batch_op:
         # Drop existing index
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_index("ix_account_media_accountId")
-        except Exception:
-            pass
 
         # Drop CASCADE foreign key constraints
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint(
                 "fk_account_media_accountId_accounts", type_="foreignkey"
             )
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             batch_op.drop_constraint(
                 "fk_account_media_mediaId_media", type_="foreignkey"
             )
-        except Exception:
-            pass
 
         # Create original foreign key constraints without CASCADE
         batch_op.create_foreign_key(

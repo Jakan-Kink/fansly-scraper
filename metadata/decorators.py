@@ -40,15 +40,14 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
 
     def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
         @functools.wraps(func)
-        async def wrapper(self, *args: Any, **kwargs: Any) -> RT:
+        async def wrapper(self: Any, *args: Any, **kwargs: Any) -> RT:
             # Get the session parameter info from the function signature
             sig = inspect.signature(func)
             session_param = next(
                 (
                     (name, param)
                     for name, param in sig.parameters.items()
-                    if param.annotation == "Session | None"
-                    or param.annotation == "sqlalchemy.orm.Session | None"
+                    if param.annotation in {"Session | None", "sqlalchemy.orm.Session | None"}
                 ),
                 ("session", sig.parameters.get("session")),
             )
@@ -102,7 +101,7 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
                             session = await session_context
                             kwargs[session_name] = session
                             return await func(self, *args, **kwargs)
-                        elif hasattr(session_context, "session"):
+                        if hasattr(session_context, "session"):
                             # Last resort - try to access the session directly
                             kwargs[session_name] = session_context.session
                             return await func(self, *args, **kwargs)

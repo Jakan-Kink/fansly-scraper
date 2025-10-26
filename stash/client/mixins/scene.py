@@ -70,7 +70,7 @@ class SceneClientMixin(StashClientProtocol):
                 return Scene(**clean_data)
             return None
         except Exception as e:
-            self.log.error(f"Failed to find scene {id}: {e}")
+            self.log.exception(f"Failed to find scene {id}: {e}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -173,7 +173,7 @@ class SceneClientMixin(StashClientProtocol):
             )
             return FindScenesResultType(**result["findScenes"])
         except Exception as e:
-            self.log.error(f"Failed to find scenes: {e}")
+            self.log.exception(f"Failed to find scenes: {e}")
             return FindScenesResultType(count=0, duration=0, filesize=0, scenes=[])
 
     async def create_scene(self, scene: Scene) -> Scene:
@@ -248,7 +248,7 @@ class SceneClientMixin(StashClientProtocol):
             clean_data = sanitize_model_data(result["sceneCreate"])
             return Scene(**clean_data)
         except Exception as e:
-            self.log.error(f"Failed to create scene: {e}")
+            self.log.exception(f"Failed to create scene: {e}")
             raise
 
     async def update_scene(self, scene: Scene) -> Scene:
@@ -354,7 +354,7 @@ class SceneClientMixin(StashClientProtocol):
             updated_scene.mark_clean()
             return updated_scene
         except Exception as e:
-            self.log.error(f"Failed to update scene: {e}")
+            self.log.exception(f"Failed to update scene: {e}")
             raise
 
     async def find_duplicate_scenes(
@@ -384,7 +384,7 @@ class SceneClientMixin(StashClientProtocol):
                 for group in result["findDuplicateScenes"]
             ]
         except Exception as e:
-            self.log.error(f"Failed to find duplicate scenes: {e}")
+            self.log.exception(f"Failed to find duplicate scenes: {e}")
             return []
 
     async def parse_scene_filenames(
@@ -414,7 +414,7 @@ class SceneClientMixin(StashClientProtocol):
             )
             return result["parseSceneFilenames"]
         except Exception as e:
-            self.log.error(f"Failed to parse scene filenames: {e}")
+            self.log.exception(f"Failed to parse scene filenames: {e}")
             return {}
 
     async def scene_wall(self, q: str | None = None) -> list[Scene]:
@@ -435,7 +435,7 @@ class SceneClientMixin(StashClientProtocol):
                 Scene(**sanitize_model_data(scene)) for scene in result["sceneWall"]
             ]
         except Exception as e:
-            self.log.error(f"Failed to get scene wall: {e}")
+            self.log.exception(f"Failed to get scene wall: {e}")
             return []
 
     async def bulk_scene_update(self, input_data: dict[str, Any]) -> list[Scene]:
@@ -462,7 +462,7 @@ class SceneClientMixin(StashClientProtocol):
                 for scene in result["bulkSceneUpdate"]
             ]
         except Exception as e:
-            self.log.error(f"Failed to bulk update scenes: {e}")
+            self.log.exception(f"Failed to bulk update scenes: {e}")
             raise
 
     async def scenes_update(self, scenes: list[Scene]) -> list[Scene]:
@@ -498,7 +498,7 @@ class SceneClientMixin(StashClientProtocol):
                 Scene(**sanitize_model_data(scene)) for scene in result["scenesUpdate"]
             ]
         except Exception as e:
-            self.log.error(f"Failed to update scenes: {e}")
+            self.log.exception(f"Failed to update scenes: {e}")
             raise
 
     async def scene_generate_screenshot(
@@ -540,5 +540,5 @@ class SceneClientMixin(StashClientProtocol):
                 return result["sceneGenerateScreenshot"]
             return ""
         except Exception as e:
-            self.log.error(f"Failed to generate screenshot for scene {id}: {e}")
+            self.log.exception(f"Failed to generate screenshot for scene {id}: {e}")
             raise

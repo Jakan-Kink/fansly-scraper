@@ -16,6 +16,7 @@ import random
 import ssl
 from collections.abc import Callable
 from contextlib import suppress
+from types import TracebackType
 from typing import Any
 
 from websockets import client as ws_client
@@ -186,13 +187,12 @@ class FanslyWebSocket:
                     await handler(message_data)
                 else:
                     handler(message_data)
-            else:
-                # Silently discard unknown message types (anti-detection)
-                if self.enable_logging:
-                    logger.debug(
-                        "Received unhandled message type %s (discarded)",
-                        message_type,
-                    )
+            # Silently discard unknown message types (anti-detection)
+            elif self.enable_logging:
+                logger.debug(
+                    "Received unhandled message type %s (discarded)",
+                    message_type,
+                )
 
         except json.JSONDecodeError as e:
             logger.error("Failed to decode WebSocket message: %s", e)
@@ -442,7 +442,7 @@ class FanslyWebSocket:
                         timeout=60.0,  # Timeout to allow periodic checks
                     )
                     await self._handle_message(message)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Timeout is normal - just continue listening
                     if self.enable_logging:
                         logger.debug("WebSocket listen timeout - continuing")
@@ -573,6 +573,11 @@ class FanslyWebSocket:
         await self.start_background()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Async context manager exit."""
         await self.stop()

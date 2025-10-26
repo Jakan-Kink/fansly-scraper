@@ -103,10 +103,10 @@ def open_location(
 
     elif plat == "Linux":
         # verified works
-        subprocess.run(["xdg-open", filepath], shell=False)
+        subprocess.run(["xdg-open", filepath], check=False, shell=False)
 
     elif plat == "Darwin":
         # verified works
-        subprocess.run(["open", filepath], shell=False)
+        subprocess.run(["open", filepath], check=False, shell=False)
 
     return True

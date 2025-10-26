@@ -107,8 +107,7 @@ def get_token_from_firefox_db(
                 sqlite_file_name, interactive
             )  # recursively restart function
 
-        else:
-            print(f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}")
+        print(f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}")
 
     except Exception:
         print(
@@ -269,8 +268,7 @@ def parse_browser_from_string(browser_name: str) -> str:
                 and "microsoft" in browser_name.lower()
             ):
                 return "Microsoft Edge"
-            else:
-                return compatible_browser
+            return compatible_browser
 
     return "Unknown"
 
@@ -299,9 +297,8 @@ def get_auth_token_from_leveldb_folder(
             db.close()
             return auth_token
 
-        else:
-            db.close()
-            return None
+        db.close()
+        return None
 
     except plyvel._plyvel.IOError as e:
         error_message = str(e)

@@ -137,10 +137,8 @@ async def process_preview(
     if not preview_data:
         return
 
-    if (
-        not isinstance(preview_data, (dict, str))
-        or isinstance(preview_data, str)
-        and not preview_data.strip()
+    if not isinstance(preview_data, (dict, str)) or (
+        isinstance(preview_data, str) and not preview_data.strip()
     ):
         json_output(
             2,

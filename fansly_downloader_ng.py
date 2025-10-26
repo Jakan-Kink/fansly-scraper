@@ -122,17 +122,13 @@ async def _safe_cleanup_database(config: FanslyConfig) -> None:
                 print_error(f"Sync cleanup also failed: {sync_e}")
     except Exception as e:
         print_error(f"Error closing database connections: {e}")
-        try:
+        with contextlib.suppress(Exception):
             # One final attempt with sync cleanup
             config._database.close_sync()
-        except Exception:
-            pass  # Give up if this fails
 
     # Always check for leaked semaphores as a safety measure
-    try:
+    with contextlib.suppress(Exception):
         monitor_semaphores(threshold=20)  # Monitor for leaked semaphores
-    except Exception:
-        pass  # Ignore errors in semaphore monitoring
 
 
 async def cleanup_database(config: FanslyConfig) -> None:
@@ -151,10 +147,8 @@ async def cleanup_database(config: FanslyConfig) -> None:
         print_info("No database to clean up or database already closed.")
 
     # Always check for leaked semaphores
-    try:
+    with contextlib.suppress(Exception):
         monitor_semaphores(threshold=20)
-    except Exception:
-        pass
 
 
 def cleanup_database_sync(config: FanslyConfig) -> None:
@@ -211,7 +205,7 @@ def _handle_interrupt(signum, frame):
 def increase_file_descriptor_limit() -> None:
     """Increase the file descriptor limit to handle many open files."""
     try:
-        import resource
+        import resource  # Unix-only module, not available on Windows
 
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         # Try to increase to hard limit or 4096, whichever is lower
@@ -681,15 +675,13 @@ async def cleanup_with_global_timeout(config: FanslyConfig):
         # Look for tasks that belong to StashProcessing
         stash_tasks = []
         for task in config.get_background_tasks():
-            try:
+            with contextlib.suppress(Exception):
                 coro_name = task.get_coro().__qualname__
                 if (
                     "StashProcessing" in coro_name
                     or "_safe_background_processing" in coro_name
                 ):
                     stash_tasks.append(task)
-            except Exception:
-                pass  # Skip if we can't get task info
 
         if stash_tasks:
             print_warning(
@@ -776,12 +768,8 @@ async def cleanup_with_global_timeout(config: FanslyConfig):
     print_info(f"Final cleanup complete (took {total_cleanup_time:.2f} seconds)")
 
     # Request garbage collection as a last attempt to clean up
-    try:
-        import gc
-
+    with contextlib.suppress(Exception):
         gc.collect()
-    except Exception:
-        pass
 
 
 async def _async_main(config: FanslyConfig) -> int:
@@ -852,12 +840,9 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _handle_interrupt)
     # Additional Windows-specific signal handling
     if sys.platform == "win32":
-        try:
+        with contextlib.suppress(AttributeError, ValueError):
             # On Windows, CTRL_C_EVENT is more reliable than SIGINT
             signal.signal(signal.CTRL_C_EVENT, _handle_interrupt)  # type: ignore
-        except (AttributeError, ValueError):
-            # CTRL_C_EVENT not defined or not supported on this platform
-            pass
 
     try:
         # Get event loop
@@ -876,12 +861,10 @@ if __name__ == "__main__":
         sys.exit(UNEXPECTED_ERROR)
     finally:
         # Clean up event loop
-        try:
+        with contextlib.suppress(Exception):
             if not loop.is_closed():
                 loop.stop()
                 loop.close()
-        except Exception:
-            pass
 
         # # Force exit after 5 seconds
         # print_warning("Forcing program exit in 5 seconds...")

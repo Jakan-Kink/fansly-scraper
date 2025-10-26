@@ -1,7 +1,7 @@
 """Filename normalization utilities."""
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -96,7 +96,7 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
             local_dt = local_dt.replace(
                 tzinfo=ZoneInfo("America/New_York")
             )  # EST/EDT timezone
-            utc_dt = local_dt.astimezone(timezone.utc)
+            utc_dt = local_dt.astimezone(UTC)
             ts_str = utc_dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
             return f"{ts_str}_{id_part}.{extension}"
 

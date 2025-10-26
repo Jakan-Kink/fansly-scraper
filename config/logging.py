@@ -12,6 +12,7 @@ creating their own handlers.
 """
 
 import codecs
+import contextlib
 import logging
 import os
 import sys
@@ -171,16 +172,13 @@ logger.remove()
 
 # Register custom levels with loguru
 for level_name, level_data in _CUSTOM_LEVELS.items():
-    try:
+    with contextlib.suppress(TypeError, ValueError):
         logger.level(
             level_data["name"],
             no=level_data["no"],
             color=level_data["color"],
             icon=level_data["icon"],
         )
-    except (TypeError, ValueError):
-        # Failsafe for level/color registration
-        pass
 
 
 # Pre-configured loggers with extra fields
@@ -285,10 +283,8 @@ def setup_handlers() -> None:
         try:
             logger.remove(handler_id)
             if file_handler:
-                try:
+                with contextlib.suppress(Exception):
                     file_handler.close()
-                except Exception:
-                    pass  # Ignore errors during cleanup
         except ValueError:
             pass  # Handler already removed
 
@@ -316,7 +312,7 @@ def setup_handlers() -> None:
         # Only show textio logs, exclude db logs from console
         if logger_type == "textio":
             return True
-        elif logger_type == "db":
+        if logger_type == "db":
             return False
 
         # For unbound logs, check if they're SQLAlchemy related
@@ -433,7 +429,7 @@ def setup_handlers() -> None:
         keep_uncompressed=2,
     )
     # Add a special tag for debugging
-    setattr(db_handler.handler, "db_logger_name", "database_logger")
+    db_handler.handler.db_logger_name = "database_logger"
     handler_id = logger.add(
         db_handler.write,
         format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",

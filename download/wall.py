@@ -142,7 +142,7 @@ async def download_wall(
 
     if (
         config.use_duplicate_threshold or config.use_pagination_duplication
-    ) and state.fetchedTimelineDuplication:
+    ) and state.fetched_timeline_duplication:
         print_info(
             "Deduplication is enabled and the timeline has been fetched before. "
             "Only new media items will be downloaded."
@@ -207,9 +207,8 @@ async def download_wall(
                     # Try again
                     attempts += 1
                     continue
-                else:
-                    # Reset attempts eg. new page
-                    attempts = 0
+                # Reset attempts eg. new page
+                attempts = 0
 
                 # Process media with transaction handling
                 should_continue = await in_transaction_or_new(
@@ -276,7 +275,7 @@ async def download_wall(
         except DuplicatePageError as e:
             print_info_highlight(str(e))
             print()
-            setattr(e, "_handled", True)
+            e._handled = True
             break  # Break out of the loop to stop processing this wall
 
         except Exception:

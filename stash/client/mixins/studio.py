@@ -33,7 +33,7 @@ class StudioClientMixin(StashClientProtocol):
                 return Studio(**clean_data)
             return None
         except Exception as e:
-            self.log.error(f"Failed to find studio {id}: {e}")
+            self.log.exception(f"Failed to find studio {id}: {e}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -72,7 +72,7 @@ class StudioClientMixin(StashClientProtocol):
             )
             return FindStudiosResultType(**result["findStudios"])
         except Exception as e:
-            self.log.error(f"Failed to find studios: {e}")
+            self.log.exception(f"Failed to find studios: {e}")
             return FindStudiosResultType(count=0, studios=[])
 
     async def create_studio(self, studio: Studio) -> Studio:
@@ -102,7 +102,7 @@ class StudioClientMixin(StashClientProtocol):
             clean_data = sanitize_model_data(result["studioCreate"])
             return Studio(**clean_data)
         except Exception as e:
-            self.log.error(f"Failed to create studio: {e}")
+            self.log.exception(f"Failed to create studio: {e}")
             raise
 
     async def update_studio(self, studio: Studio) -> Studio:
@@ -143,5 +143,5 @@ class StudioClientMixin(StashClientProtocol):
             updated_studio.mark_clean()
             return updated_studio
         except Exception as e:
-            self.log.error(f"Failed to update studio: {e}")
+            self.log.exception(f"Failed to update studio: {e}")
             raise

@@ -11,7 +11,6 @@ Note: All logger configuration is now centralized in config/logging.py.
 This module only provides the output functions.
 """
 
-import os
 import platform
 import subprocess
 import sys
@@ -142,18 +141,18 @@ def clear_terminal() -> None:
     system = platform.system()
 
     if system == "Windows":
-        os.system("cls")
+        subprocess.call(["cmd", "/c", "cls"])
 
     else:  # Linux & macOS
-        os.system("clear")
+        subprocess.call(["clear"])
 
 
 # cross-platform compatible, re-name downloaders terminal output window title
-def set_window_title(title) -> None:
+def set_window_title(title: str) -> None:
     current_platform = platform.system()
 
     if current_platform == "Windows":
-        subprocess.call(f"title {title}", shell=True)
+        subprocess.call(["cmd", "/c", "title", title])
 
-    elif current_platform == "Linux" or current_platform == "Darwin":
+    elif current_platform in {"Linux", "Darwin"}:
         subprocess.call(["printf", rf"\33]0;{title}\a"])

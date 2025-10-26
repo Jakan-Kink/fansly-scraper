@@ -503,8 +503,7 @@ class StashObject:
                 raise ValueError(
                     f"{self.__type_name__} objects cannot be created, only updated"
                 )
-            else:
-                raise NotImplementedError("__update_input_type__ cannot be None")
+            raise NotImplementedError("__update_input_type__ cannot be None")
 
         input_obj = input_type(**data)
 

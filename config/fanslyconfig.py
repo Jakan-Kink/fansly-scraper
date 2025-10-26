@@ -397,19 +397,17 @@ class FanslyConfig:
         if self.config_path is None:
             return []
 
-        else:
-            return self._parser.read(self.config_path)
+        return self._parser.read(self.config_path)
 
     def _save_config(self) -> bool:
         if self.config_path is None:
             return False
 
-        else:
-            self._sync_settings()
+        self._sync_settings()
 
-            with self.config_path.open("w", encoding="utf-8") as f:
-                self._parser.write(f)
-                return True
+        with self.config_path.open("w", encoding="utf-8") as f:
+            self._parser.write(f)
+            return True
 
     def token_is_valid(self) -> bool:
         if self.token is None:
@@ -457,8 +455,7 @@ class FanslyConfig:
 
                 return "".join(A)
 
-            else:
-                return self.token
+            return self.token
 
         return self.token
 
