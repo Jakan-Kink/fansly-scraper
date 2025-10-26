@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from stash.processing.mixins.media import MediaProcessingMixin
 from tests.stash.processing.unit.media_mixin.async_mock_helper import (
     AccessibleAsyncMock,
     async_return,
@@ -501,8 +502,6 @@ class TestMediaProcessing:
             mixin.process_creator_attachment = mock_process_attachment
 
             # Call the method - use direct implementation to avoid infinite recursion
-            from stash.processing.mixins.media import MediaProcessingMixin
-
             result = await MediaProcessingMixin.process_creator_attachment(
                 mixin,
                 attachment=accessible_attachment,

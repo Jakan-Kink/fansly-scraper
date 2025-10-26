@@ -3,11 +3,13 @@
 Tests image types including Image, ImageCreateInput, ImageUpdateInput and related types.
 """
 
+from datetime import datetime
 from unittest.mock import PropertyMock, patch
 
 import pytest
 from strawberry import ID
 
+from stash.types.files import ImageFile
 from stash.types.image import (
     BulkImageUpdateInput,
     FindImagesResultType,
@@ -273,8 +275,6 @@ def test_image_update_input_instantiation() -> None:
 @pytest.mark.unit
 def test_image_file_type_instantiation() -> None:
     """Test ImageFileType instantiation."""
-    from datetime import datetime
-
     file_type = ImageFileType(
         mod_time=datetime.now(), size=1024, width=1920, height=1080
     )
@@ -331,7 +331,7 @@ def test_image_inheritance() -> None:
 def test_image_from_dict_method() -> None:
     """Test that Image has from_dict class method."""
     assert hasattr(Image, "from_dict")
-    assert callable(getattr(Image, "from_dict"))
+    assert callable(Image.from_dict)
 
 
 @pytest.mark.unit
@@ -356,8 +356,6 @@ def test_image_from_dict_with_minimal_data() -> None:
 @pytest.mark.unit
 def test_image_from_dict_with_deprecated_files() -> None:
     """Test that Image.from_dict handles deprecated 'files' field."""
-    from stash.types.files import ImageFile
-
     # Mock file data that would be in the deprecated 'files' field
     file_data = {
         "id": "file1",
@@ -395,8 +393,6 @@ def test_image_from_dict_with_deprecated_files() -> None:
 @pytest.mark.unit
 def test_image_from_dict_with_visual_files() -> None:
     """Test that Image.from_dict handles visual_files field."""
-    from stash.types.files import ImageFile
-
     file_data = {
         "id": "file2",
         "path": "/path/to/image2.jpg",
@@ -507,8 +503,6 @@ def test_image_from_dict_field_filtering() -> None:
 @pytest.mark.unit
 def test_image_from_dict_files_removal_logic() -> None:
     """Test Image.from_dict handles 'files' field correctly."""
-    from stash.types.files import ImageFile
-
     file_data = {
         "id": "file3",
         "path": "/path/to/image3.jpg",

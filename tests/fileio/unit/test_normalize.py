@@ -37,8 +37,6 @@ class TestGetIdFromFilename:
 @pytest.fixture
 def mock_db_config():
     """Create a mock database config."""
-    from tests.fixtures.stash_processing_fixtures import MockDatabase
-
     with patch("metadata.database.require_database_config") as mock_decorator:
         mock_decorator.side_effect = lambda f: f
         mock_config = MagicMock()

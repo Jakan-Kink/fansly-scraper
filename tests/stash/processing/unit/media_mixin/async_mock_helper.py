@@ -124,7 +124,6 @@ def patch_async_methods(mixin):
 
         async def awaitable_add_tag(*args, **kwargs):
             orig_method(*args, **kwargs)
-            return None
 
         mixin._add_preview_tag = awaitable_add_tag
 
@@ -134,7 +133,6 @@ def patch_async_methods(mixin):
 
         async def awaitable_update_id(*args, **kwargs):
             orig_method(*args, **kwargs)
-            return None
 
         mixin._update_account_stash_id = awaitable_update_id
 
@@ -200,7 +198,7 @@ def make_awaitable_mock(obj):
 
         cls = obj.__class__
         if not hasattr(cls, "__awaitable_attrs_added"):
-            setattr(cls, "awaitable_attrs", AwaitableAttrsDescriptor())
+            cls.awaitable_attrs = AwaitableAttrsDescriptor()
             setattr(cls, "__awaitable_attrs_added", True)
 
     return obj

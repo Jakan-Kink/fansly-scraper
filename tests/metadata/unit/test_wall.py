@@ -14,11 +14,11 @@ from tests.fixtures import AccountFactory, PostFactory
 
 
 @pytest.mark.asyncio
-async def test_wall_creation(session: AsyncSession, session_sync):
+async def test_wall_creation(session: AsyncSession, session_sync, factory_session):
     """Test creating a wall with basic attributes.
 
     Uses AccountFactory to create test account.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account with factory - only use the ID
     account = AccountFactory(id=1, username="test_user")
@@ -50,11 +50,12 @@ async def test_wall_creation(session: AsyncSession, session_sync):
 async def test_wall_post_association(
     session: AsyncSession,
     session_sync,
+    factory_session,
 ):
     """Test associating posts with a wall.
 
     Uses AccountFactory and PostFactory for creating test data.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account with factory - get ID immediately
     account = AccountFactory(id=1, username="test_user")
@@ -104,11 +105,12 @@ async def test_process_account_walls(
     config,
     session: AsyncSession,
     session_sync,
+    factory_session,
 ):
     """Test processing walls data for an account.
 
     Uses AccountFactory and centralized config/session fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account with factory - get ID immediately
     account = AccountFactory(id=1, username="test_user")
@@ -147,11 +149,12 @@ async def test_wall_cleanup(
     config,
     session: AsyncSession,
     session_sync,
+    factory_session,
 ):
     """Test cleanup of removed walls.
 
     Uses AccountFactory and centralized config/session fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account with factory - get ID immediately
     account = AccountFactory(id=1, username="test_user")
@@ -197,11 +200,12 @@ async def test_process_wall_posts(
     config,
     session: AsyncSession,
     session_sync,
+    factory_session,
 ):
     """Test processing posts for a wall.
 
     Uses AccountFactory and centralized config/session fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account with factory - get ID immediately
     account = AccountFactory(id=1, username="test_user")

@@ -6,6 +6,7 @@ transform functions, and relationship data conversion.
 Coverage targets: Lines 257-311 (relationship processing methods)
 """
 
+import contextlib
 import gc
 from typing import Any
 
@@ -323,10 +324,9 @@ async def test_relationship_transform_variations() -> None:
     def flexible_transform(item):
         if hasattr(item, "id"):
             return item.id
-        elif isinstance(item, dict) and "id" in item:
+        if isinstance(item, dict) and "id" in item:
             return item["id"]
-        else:
-            return str(item)
+        return str(item)
 
     result = await obj._process_list_relationship(test_data, flexible_transform)
     expected = ["obj_id", "dict_id", "string_value"]
@@ -397,17 +397,11 @@ async def test_relationship_error_handling() -> None:
         raise ValueError("Transform error")
 
     # Should handle errors gracefully by returning None or empty list
-    try:
+    with contextlib.suppress(ValueError):
         await obj._process_single_relationship("test", error_transform)
-        # Depending on implementation, might return None or raise
-    except ValueError:
-        pass  # Expected behavior
 
-    try:
+    with contextlib.suppress(ValueError):
         await obj._process_list_relationship(["test"], error_transform)
-        # Depending on implementation, might return empty list or raise
-    except ValueError:
-        pass  # Expected behavior
 
 
 @pytest.mark.asyncio
@@ -450,14 +444,7 @@ async def test_relationship_default_transforms() -> None:
 
     try:
         # Set up data that _get_id can handle - use a different attribute to avoid type conflicts
-        setattr(
-            obj,
-            "test_items",
-            [
-                {"id": "dict_id"},  # Dict with id
-                MockTag("obj_id", "Object"),  # Object with id
-            ],
-        )
+        obj.test_items = [{"id": "dict_id"}, MockTag("obj_id", "Object")]
 
         # Temporarily override the relationship to use our test attribute
         TestStashObject.__relationships__ = {

@@ -19,8 +19,6 @@ async def setup_account(test_database, request):
     """Set up test account."""
     # Generate unique ID based on test name
     test_name = request.node.name
-    import hashlib
-
     unique_id = (
         int(
             hashlib.sha1(f"TestWallOperations_{test_name}".encode()).hexdigest()[:8],

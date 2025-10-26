@@ -107,8 +107,8 @@ def fansly_api(mock_http_session):
             result = fansly_api.get_account("123")
     """
     # Lazy import to avoid circular dependency
-    # Import order matters: config must be imported before api
-    from api.fansly import FanslyApi
+    # Circular chain: api.fansly -> config.logging -> config.fanslyconfig -> api
+    from api.fansly import FanslyApi  # noqa: PLC0415
 
     # Initialize with test device ID to avoid real HTTP request
     api = FanslyApi(
@@ -217,8 +217,6 @@ def create_mock_response(status_code=200, json_data=None, text="", reason_phrase
         # Use in test
         mock_http_session.get.return_value = response
     """
-    import json
-
     mock = MagicMock()
 
     # Set status code

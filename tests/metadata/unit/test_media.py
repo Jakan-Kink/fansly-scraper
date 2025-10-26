@@ -4,17 +4,18 @@ import json
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from metadata.media import Media, process_media_item_dict
-from tests.fixtures import AccountFactory, MediaFactory
+from tests.fixtures import AccountFactory, MediaFactory, MediaLocationFactory
 
 
 @pytest.mark.asyncio
-async def test_media_creation(session, session_sync):
+async def test_media_creation(session, session_sync, factory_session):
     """Test creating a Media object with basic attributes using MediaFactory.
 
     Uses MediaFactory to create test data with real database.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account first (foreign key requirement)
     account = AccountFactory(id=123)
@@ -46,11 +47,11 @@ async def test_media_creation(session, session_sync):
 
 
 @pytest.mark.asyncio
-async def test_process_video_metadata(session, session_sync, config):
+async def test_process_video_metadata(session, session_sync, config, factory_session):
     """Test processing video metadata with duration and dimensions.
 
     Uses real config fixture instead of MagicMock.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account first (foreign key requirement)
     account = AccountFactory(id=123)
@@ -77,11 +78,11 @@ async def test_process_video_metadata(session, session_sync, config):
 
 
 @pytest.mark.asyncio
-async def test_media_location(session, session_sync):
+async def test_media_location(session, session_sync, factory_session):
     """Test creating and associating MediaLocation with Media.
 
     Uses MediaFactory and sync session for creation.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account first (foreign key requirement)
     account = AccountFactory(id=123)
@@ -90,8 +91,6 @@ async def test_media_location(session, session_sync):
     media = MediaFactory(id=1, accountId=123)
 
     # Create location using sync session
-    from tests.fixtures import MediaLocationFactory
-
     location = MediaLocationFactory(
         mediaId=1, locationId="loc1", location="https://example.com/video.mp4"
     )
@@ -101,8 +100,6 @@ async def test_media_location(session, session_sync):
 
     # Verify in async session with eager loading
     session.expire_all()
-    from sqlalchemy.orm import selectinload
-
     stmt = select(Media).where(Media.id == 1).options(selectinload(Media.locations))
     saved_media = (await session.execute(stmt)).unique().scalar_one_or_none()
     assert len(saved_media.locations) == 1
@@ -110,11 +107,11 @@ async def test_media_location(session, session_sync):
 
 
 @pytest.mark.asyncio
-async def test_invalid_metadata(session, session_sync, config):
+async def test_invalid_metadata(session, session_sync, config, factory_session):
     """Test handling invalid metadata JSON.
 
     Uses real config fixture instead of MagicMock.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account first (foreign key requirement)
     account = AccountFactory(id=123)

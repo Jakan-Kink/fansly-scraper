@@ -115,7 +115,7 @@ async def test_config_factory(tmp_path, mocker):
     # Create a mock query result that always indicates media is not yet downloaded
     mock_result = mocker.Mock()
     mock_result.scalars = lambda: mock_result
-    mock_result.all = lambda: []  # No existing media
+    mock_result.all = list  # No existing media
     mock_result.scalar_one_or_none = lambda: None  # No existing media
 
     # Create a mock Media object that always indicates not downloaded

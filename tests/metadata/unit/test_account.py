@@ -11,29 +11,29 @@ from metadata.account import (
     AccountMediaBundle,
     TimelineStats,
     account_media_bundle_media,
+    process_account_data,
     process_media_bundles,
 )
 from tests.fixtures import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
+    MediaFactory,
 )
 
 
 @pytest.mark.asyncio
-async def test_account_media_bundle_creation(session, session_sync):
+async def test_account_media_bundle_creation(session, session_sync, factory_session):
     """Test creating an AccountMediaBundle with ordered content.
 
     Note: Uses both async session (for queries) and sync session (for factories).
     FactoryBoy requires sync sessions, but the test logic uses async.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     # Create account using factory (sync)
     AccountFactory(id=1, username="test_user")
 
     # Create Media records first (required by foreign key constraints)
-    from tests.fixtures import MediaFactory
-
     MediaFactory(id=101, accountId=1)
     MediaFactory(id=102, accountId=1)
 
@@ -75,14 +75,12 @@ async def test_account_media_bundle_creation(session, session_sync):
 
 
 @pytest.mark.asyncio
-async def test_update_optimization(session, session_sync, config):
+async def test_update_optimization(session, session_sync, config, factory_session):
     """Test that attributes are only updated when values actually change.
 
     Uses real config fixture instead of mock, and AccountFactory for initial data.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
-    from metadata.account import process_account_data
-
     # Create initial account using factory (sync)
     account = AccountFactory(id=1, username="test_user", displayName="Test User")
 
@@ -120,14 +118,12 @@ async def test_update_optimization(session, session_sync, config):
 
 
 @pytest.mark.asyncio
-async def test_timeline_stats_optimization(session, session_sync, config):
+async def test_timeline_stats_optimization(session, session_sync, config, factory_session):
     """Test that timeline stats are only updated when values change.
 
     Uses real config fixture instead of mock, and AccountFactory for initial data.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
-    from metadata.account import process_account_data
-
     # Create initial account using factory (sync)
     account = AccountFactory(id=1, username="test_user")
 
@@ -176,14 +172,12 @@ async def test_timeline_stats_optimization(session, session_sync, config):
 
 
 @pytest.mark.asyncio
-async def test_process_media_bundles(session, session_sync, config):
+async def test_process_media_bundles(session, session_sync, config, factory_session):
     """Test processing media bundles from API response.
 
     Uses real config fixture and factories for test data creation.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
-    from tests.fixtures import MediaFactory
-
     # Create account using factory
     AccountFactory(id=1, username="test_user")
 

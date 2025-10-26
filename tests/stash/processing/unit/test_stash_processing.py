@@ -12,6 +12,7 @@ from stash.processing import StashProcessing
 from stash.types import Image
 from tests.fixtures import AccountFactory, PerformerFactory
 
+
 # Most fixtures are imported from tests.fixtures via conftest.py:
 # - mock_config, mock_state, mock_context, mock_database (from stash_integration_fixtures)
 # - stash_processor (for integration tests)
@@ -137,7 +138,9 @@ class TestStashProcessingAccount:
         mock_session.execute.reset_mock()
 
         # Call _find_account
-        with patch("stash.processing.mixins.account.print_warning") as mock_print_warning:
+        with patch(
+            "stash.processing.mixins.account.print_warning"
+        ) as mock_print_warning:
             account = await processor._find_account(session=mock_session)
 
         # Verify no account and warning was printed

@@ -42,17 +42,16 @@ def measure_time(func):
             return result
 
         return async_wrapper
-    else:
 
-        def sync_wrapper(*args, **kwargs):
-            gc.collect()  # Clean up before measurement
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            duration = time.time() - start_time
-            print(f"{func.__name__} took {duration:.2f} seconds")
-            return result
+    def sync_wrapper(*args, **kwargs):
+        gc.collect()  # Clean up before measurement
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        duration = time.time() - start_time
+        print(f"{func.__name__} took {duration:.2f} seconds")
+        return result
 
-        return sync_wrapper
+    return sync_wrapper
 
 
 async def create_bulk_data(
@@ -339,10 +338,6 @@ class TestPerformancePatterns:
 @pytest.mark.asyncio
 async def test_memory_usage(test_database):
     """Test memory usage patterns."""
-    import os
-
-    import psutil
-
     process = psutil.Process(os.getpid())
 
     def get_memory_mb() -> float:

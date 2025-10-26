@@ -85,11 +85,11 @@ async def test_client_validation_error(mock_session, mock_client) -> None:
         raise AssertionError("Expected ValueError was not raised")
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
-        print(f"Caught exception value: {str(e)}")
-        print(f"Caught exception repr: {repr(e)}")
+        print(f"Caught exception value: {e!s}")
+        print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
             raise AssertionError(
-                f"Expected ValueError but got {type(e).__name__}: {str(e)}"
+                f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
         assert "Invalid GraphQL query" in error_msg
@@ -149,11 +149,11 @@ async def test_client_query_error(mock_session, mock_client) -> None:
         raise AssertionError("Expected ValueError was not raised")
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
-        print(f"Caught exception value: {str(e)}")
-        print(f"Caught exception repr: {repr(e)}")
+        print(f"Caught exception value: {e!s}")
+        print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
             raise AssertionError(
-                f"Expected ValueError but got {type(e).__name__}: {str(e)}"
+                f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
         assert "GraphQL query error" in error_msg
@@ -272,11 +272,11 @@ async def test_client_network_error(mock_session, mock_client) -> None:
         raise AssertionError("Expected ValueError was not raised")
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
-        print(f"Caught exception value: {str(e)}")
-        print(f"Caught exception repr: {repr(e)}")
+        print(f"Caught exception value: {e!s}")
+        print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
             raise AssertionError(
-                f"Expected ValueError but got {type(e).__name__}: {str(e)}"
+                f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
         assert "Failed to connect" in error_msg
@@ -325,11 +325,11 @@ async def test_client_server_error(mock_session, mock_client) -> None:
         raise AssertionError("Expected ValueError was not raised")
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
-        print(f"Caught exception value: {str(e)}")
-        print(f"Caught exception repr: {repr(e)}")
+        print(f"Caught exception value: {e!s}")
+        print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
             raise AssertionError(
-                f"Expected ValueError but got {type(e).__name__}: {str(e)}"
+                f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
         assert "GraphQL server error" in error_msg

@@ -4,4 +4,5 @@ from tests.stash.processing.integration.test_full_workflow.test_integration impo
     TestFullWorkflowIntegration,
 )
 
+
 __all__ = ["TestFullWorkflowIntegration"]

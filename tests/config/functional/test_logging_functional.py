@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -46,7 +47,7 @@ def logging_config(log_dir, uuid_test_db_factory):
     os.environ["TESTING"] = "1"
     # Initialize logging with this config
     init_logging_config(config)
-    yield config
+    return config
 
 
 def read_log_file(log_dir: Path, filename: str) -> list[str]:
@@ -373,8 +374,6 @@ def test_console_output(logging_config, capsys, mock_config):
         capsys.readouterr()
 
         # Add a small delay to ensure output is captured
-        import time
-
         # textio_logger should write to console
         textio_logger.info("Textio console message")
         logger.complete()  # Ensure flushing

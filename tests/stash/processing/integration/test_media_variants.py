@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from stash.types import Image, Scene
 from tests.fixtures import MediaFactory, MediaLocationFactory
 
 
@@ -46,8 +47,6 @@ async def test_process_hls_variant(
     session_sync.commit()
 
     # Mock internal methods to simulate finding media in Stash
-    from stash.types import Scene
-
     mock_scene = MagicMock(spec=Scene)
     mock_scene.id = "scene_123"
 
@@ -109,8 +108,6 @@ async def test_process_dash_variant(
     session_sync.commit()
 
     # Mock internal methods to simulate finding media in Stash
-    from stash.types import Scene
-
     mock_scene = MagicMock(spec=Scene)
     mock_scene.id = "scene_123"
 
@@ -172,8 +169,6 @@ async def test_process_preview_variant(
     session_sync.commit()
 
     # Mock internal methods to simulate finding media in Stash
-    from stash.types import Image
-
     mock_image = MagicMock(spec=Image)
     mock_image.id = "image_123"
 

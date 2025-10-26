@@ -142,7 +142,7 @@ class TestTagManagement:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
     @pytest.mark.asyncio
@@ -224,7 +224,7 @@ class TestTagManagement:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
     @pytest.mark.asyncio
@@ -267,7 +267,7 @@ class TestTagManagement:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
 
@@ -346,7 +346,7 @@ class TestPerformerManagement:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
 
@@ -403,7 +403,7 @@ class TestStudioHierarchy:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
     @pytest.mark.asyncio
@@ -467,7 +467,7 @@ class TestStudioHierarchy:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
     @pytest.mark.asyncio
@@ -558,7 +558,7 @@ class TestStudioHierarchy:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
 
@@ -676,7 +676,7 @@ class TestDuplicateManagement:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
     @pytest.mark.asyncio
@@ -792,7 +792,7 @@ class TestDuplicateManagement:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
 
     @pytest.mark.asyncio
@@ -963,5 +963,5 @@ class TestDuplicateManagement:
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )

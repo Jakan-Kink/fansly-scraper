@@ -7,7 +7,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import text
 
-from metadata.account import AccountMedia, AccountMediaBundle
+from metadata.account import AccountMedia, AccountMediaBundle, process_media_bundles
 from metadata.media import process_media_info
 
 
@@ -118,8 +118,6 @@ async def test_process_media_bundle_from_timeline(test_database, config, timelin
         await session.commit()
 
         # Process the bundle
-        from metadata.account import process_media_bundles
-
         await process_media_bundles(config, 1, [bundle_data], session=session)
 
         # Verify the results

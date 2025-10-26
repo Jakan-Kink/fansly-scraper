@@ -160,11 +160,9 @@ def test_validate_adjust_token_invalid_raises(mock_find_spec, mock_config):
     with (
         patch("config.validation.open_get_started_url"),
         patch("config.browser.find_leveldb_folders", return_value=[]),
+        pytest.raises(ConfigError, match="Reached.*authorization token.*still invalid"),
     ):
-        with pytest.raises(
-            ConfigError, match="Reached.*authorization token.*still invalid"
-        ):
-            validate_adjust_token(mock_config)
+        validate_adjust_token(mock_config)
 
 
 def test_validate_adjust_user_agent_valid(mock_config):

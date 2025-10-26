@@ -32,9 +32,12 @@ from metadata.database import Database
 from textio import print_error, print_info, print_warning
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 async def setup_database(test_database_sync: Database):
-    """Create database tables before each test."""
+    """Create database tables before each test.
+
+    Note: Not autouse - tests must explicitly request this fixture if they need it.
+    """
     try:
         # First, ensure tables are dropped if they exist
         async with test_database_sync.async_session_scope() as session:
@@ -171,8 +174,6 @@ async def test_cascade_operations(test_config, shared_db_path):
     print_info(f"Using shared database path: {shared_db_path}")
 
     # Create a real Database instance, not TestDatabase
-    from metadata.database import Database
-
     database = Database(custom_config)
 
     try:
@@ -485,10 +486,8 @@ async def test_concurrent_access(test_database_sync: Database, test_account: Acc
         for task in tasks:
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
 
 @pytest.mark.asyncio

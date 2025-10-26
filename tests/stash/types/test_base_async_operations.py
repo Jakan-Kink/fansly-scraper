@@ -14,6 +14,7 @@ from stash.types.base import StashObject
 
 from ...fixtures.stash_fixtures import TestStashObject
 
+
 # =============================================================================
 # Async Methods Tests (find_by_id, save) (Lines 195, 204-214)
 # =============================================================================

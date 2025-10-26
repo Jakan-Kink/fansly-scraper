@@ -58,15 +58,13 @@ from .metadata_factories import (
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
-)
-from .metadata_factories import (
-    GroupFactory as MetadataGroupFactory,  # Alias to avoid collision with Stash GroupFactory
-)
-from .metadata_factories import (
     MediaFactory,
     MediaLocationFactory,
     MessageFactory,
     PostFactory,
+)
+from .metadata_factories import (
+    GroupFactory as MetadataGroupFactory,  # Alias to avoid collision with Stash GroupFactory
 )
 from .stash_api_fixtures import (
     enable_scene_creation,
@@ -182,6 +180,7 @@ from .stash_type_factories import (
     StudioFactory,
     TagFactory,
 )
+
 
 FIXTURES_DIR = Path(__file__).parent
 
@@ -466,9 +465,9 @@ def anonymize_response(
         """Recursively anonymize values based on field mappings."""
         if isinstance(value, dict):
             return {k: _anonymize_value(k, v) for k, v in value.items()}
-        elif isinstance(value, list):
+        if isinstance(value, list):
             return [_anonymize_value(key, item) for item in value]
-        elif key in field_mappings and isinstance(value, str):
+        if key in field_mappings and isinstance(value, str):
             pass
             # faker_method = getattr(fake, field_mappings[key], None)
             # if faker_method:

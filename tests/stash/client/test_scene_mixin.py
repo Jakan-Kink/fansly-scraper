@@ -1,5 +1,6 @@
 """Unit tests for SceneClientMixin."""
 
+import re
 from datetime import datetime
 from unittest.mock import AsyncMock, create_autospec, patch
 
@@ -132,23 +133,17 @@ def add_scene_filename_methods(client: StashClient) -> None:
 
     def is_valid_scene_filename(filename: str) -> bool:
         """Check if a filename is a valid scene filename."""
-        import re
-
         # Matches format: anything_YYYY-MM-DD_ID.extension
         pattern = r".*_\d{4}-\d{2}-\d{2}_\w+\.[^\.]+$"
         return bool(re.match(pattern, filename))
 
     def parse_scene_filename(filename: str) -> tuple[str, str]:
         """Parse a scene filename to extract date and ID."""
-        import re
-
         match = re.match(r".*_(\d{4}-\d{2}-\d{2})_(\w+)\.[^\.]+$", filename)
         if not match:
             raise ValueError(f"Invalid scene filename: {filename}")
         date_str, scene_id = match.groups()
         # Validate date
-        from datetime import datetime
-
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
         except ValueError:
@@ -345,7 +340,7 @@ async def test_find_scenes_error(stash_client: StashClient) -> None:
                 return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
             except Exception as e:
                 # Properly handle the exception
-                self.log.error(f"Error finding scenes: {e}")
+                self.log.exception(f"Error finding scenes: {e}")
                 return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
 
     # Create our test instance
@@ -557,9 +552,6 @@ async def test_find_duplicate_scenes_error(stash_client: StashClient) -> None:
 
     # Set execute to throw an exception
     client.execute = AsyncMock(side_effect=Exception("Test error"))
-
-    # Import the mixin to call its method directly
-    from stash.client.mixins.scene import SceneClientMixin
 
     # Call the method directly through the mixin
     result = await SceneClientMixin.find_duplicate_scenes(client)
@@ -1109,7 +1101,6 @@ async def test_scene_edge_cases(scene_mixin_client: StashClient) -> None:
         if not id:  # Empty string or None
             raise ValueError("Scene ID cannot be empty")
         # Otherwise return None for non-existent scenes
-        return None
 
     # Replace the find_scene method with our custom implementation
     scene_mixin_client.find_scene = custom_find_scene

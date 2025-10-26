@@ -156,16 +156,18 @@ async def test_find_images(stash_client: StashClient, mock_image: Image) -> None
 @pytest.mark.asyncio
 async def test_find_images_error(stash_client: StashClient) -> None:
     """Test handling errors when finding images."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
+    with (
+        patch.object(
+            stash_client,
+            "execute",
+            new_callable=AsyncMock,
+            side_effect=Exception("Test error"),
+        ),
+        pytest.raises(TypeError),
     ):
-        with pytest.raises(TypeError):
-            # This will raise TypeError because we can't provide megapixels and filesize
-            # in the error case. This test needs a special mock for the error return.
-            await stash_client.find_images()
+        # This will raise TypeError because we can't provide megapixels and filesize
+        # in the error case. This test needs a special mock for the error return.
+        await stash_client.find_images()
 
 
 @pytest.mark.asyncio
@@ -188,7 +190,7 @@ async def test_find_images_error_fixed() -> None:
             try:
                 return await self.execute(*args, **kwargs)
             except Exception as e:
-                self.log.error(f"Failed to find images: {e}")
+                self.log.exception(f"Failed to find images: {e}")
                 # Return empty results on error
                 return FindImagesResultType(
                     count=0, images=[], megapixels=0.0, filesize=0.0

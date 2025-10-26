@@ -135,7 +135,7 @@ async def test_process_hashtags_to_tags_multiple(tag_mixin):
                     }
                 ],
             )
-        elif tag_name == "tag2":
+        if tag_name == "tag2":
             return MagicMock(
                 count=1,
                 tags=[

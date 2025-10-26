@@ -34,7 +34,7 @@ async def test_process_direct_messages(
     """Test processing direct messages from conversation data.
 
     Uses AccountFactory and centralized fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     if not conversation_data.get("response", {}).get("messages"):
         pytest.skip("No messages found in conversation data")
@@ -105,7 +105,7 @@ async def test_process_group_messages(
     """Test processing group messages.
 
     Uses centralized fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     if not group_data.get("response", {}).get("data"):
         pytest.skip("No group data found in test data")
@@ -147,7 +147,7 @@ async def test_process_message_attachments(
     """Test processing messages with attachments.
 
     Uses centralized fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     messages_with_attachments = []
 
@@ -181,7 +181,9 @@ async def test_process_message_attachments(
         stmt = (
             select(Message)
             .options(selectinload(Message.attachments))
-            .where(Message.id == int(msg_data["id"]))  # Convert to int for bigint column
+            .where(
+                Message.id == int(msg_data["id"])
+            )  # Convert to int for bigint column
         )
 
         result = await session.execute(stmt)
@@ -207,7 +209,7 @@ async def test_process_message_media_variants(
     """Test processing messages with media variants like HLS/DASH streams.
 
     Uses centralized fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     messages = conversation_data["response"]["messages"]
     messages_with_variants = [
@@ -244,7 +246,9 @@ async def test_process_message_media_variants(
         stmt = (
             select(Message)
             .options(selectinload(Message.attachments))
-            .where(Message.id == int(msg_data["id"]))  # Convert to int for bigint column
+            .where(
+                Message.id == int(msg_data["id"])
+            )  # Convert to int for bigint column
         )
         result = await session.execute(stmt)
         message = result.unique().scalar_one()
@@ -275,7 +279,7 @@ async def test_process_message_media_bundles(
     """Test processing messages with media bundles.
 
     Uses centralized fixtures.
-    factory_session is autouse=True so it's automatically applied.
+    Tests must explicitly request factory_session or fixtures that depend on it.
     """
     messages = conversation_data["response"]["messages"]
     bundles = conversation_data["response"].get("accountMediaBundles", [])
@@ -344,7 +348,7 @@ async def test_process_message_permissions(
     for group_data in groups_data:
         GroupFactory(
             id=group_data["id"],
-            accountId=group_data.get("accountId") or group_data.get("createdBy"),
+            createdBy=group_data.get("accountId") or group_data.get("createdBy"),
         )
 
     # Also extract groups from messages if they're referenced
@@ -357,7 +361,7 @@ async def test_process_message_permissions(
                 # Create a minimal group for testing
                 GroupFactory(
                     id=group_id,
-                    accountId=msg.get("senderId") or msg.get("recipientId"),
+                    createdBy=msg.get("senderId") or msg.get("recipientId"),
                 )
 
     session.expire_all()
@@ -369,7 +373,8 @@ async def test_process_message_permissions(
     for media_data in media_items:
         result = await session.execute(
             select(AccountMedia).where(
-                AccountMedia.id == int(media_data["id"])  # Convert to int for bigint column
+                AccountMedia.id
+                == int(media_data["id"])  # Convert to int for bigint column
             )
         )
         stored_media = result.scalar_one_or_none()

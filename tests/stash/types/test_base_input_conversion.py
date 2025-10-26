@@ -6,6 +6,7 @@ Covers object-to-input transformation, dirty state checking, and field processin
 Coverage targets: Lines 530-600 (to_input methods and related helpers)
 """
 
+import contextlib
 from typing import Any
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ from ...fixtures.stash_fixtures import (
     TestStashObjectNoCreate,
     TestStashUpdateInput,
 )
+
 
 # =============================================================================
 # to_input Method Tests (Lines 530-600)
@@ -563,8 +565,8 @@ def test_vars_filtering_precise() -> None:
     )
 
     # Add fields that should be filtered using setattr to avoid mypy errors
-    setattr(input_obj, "_internal_field", "filtered")  # Starts with underscore
-    setattr(input_obj, "client_mutation_id", "filtered")  # Explicit filter
+    input_obj._internal_field = "filtered"  # Starts with underscore
+    input_obj.client_mutation_id = "filtered"  # Explicit filter
 
     # Test the exact line 589 logic
     filtered_vars = {
@@ -595,8 +597,8 @@ async def test_real_vars_filtering_line_589() -> None:
     )
 
     # Add problematic fields using setattr to avoid mypy errors
-    setattr(input_obj, "_private", "private")
-    setattr(input_obj, "client_mutation_id", "should_filter")
+    input_obj._private = "private"
+    input_obj.client_mutation_id = "should_filter"
 
     # Now test by calling a method that uses this line 589 logic
     # We need to trigger the actual vars(input_obj) filtering in _to_input_all
@@ -641,8 +643,8 @@ def test_input_obj_vars_filtering() -> None:
     )
 
     # Add some internal fields that should be filtered using setattr to avoid mypy errors
-    setattr(input_obj, "_internal", "should_be_filtered")
-    setattr(input_obj, "client_mutation_id", "should_be_filtered")
+    input_obj._internal = "should_be_filtered"
+    input_obj.client_mutation_id = "should_be_filtered"
 
     # Test the filtering logic
     filtered_vars = {
@@ -720,7 +722,6 @@ def test_line_494_might_be_unreachable() -> None:
     """
     # This test exists to document that line 494 may be unreachable
     # due to the logical flow of the code
-    pass
 
 
 @pytest.mark.asyncio
@@ -746,9 +747,8 @@ async def test_to_input_all_input_type_none_is_new_true_race_condition() -> None
             if self._check_count == 1:
                 # Return something truthy to pass the initial check
                 return TestStashUpdateInput
-            else:
-                # Return None to make input_type None
-                return None
+            # Return None to make input_type None
+            return None
 
         @property
         def __type_name__(self):
@@ -801,11 +801,8 @@ async def test_input_conversion_error_scenarios() -> None:
         obj.mark_dirty()
 
         # Should handle the error appropriately
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             await obj.to_input()
-            # Might convert to dict or raise error
-        except (TypeError, ValueError):
-            pass  # Expected for invalid return type
 
 
 @pytest.mark.asyncio

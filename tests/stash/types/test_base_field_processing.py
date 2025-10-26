@@ -15,6 +15,7 @@ from stash.types.base import StashObject
 
 from ...fixtures.stash_fixtures import TestStashObject
 
+
 # =============================================================================
 # Field Names and Metadata Tests (Line 173)
 # =============================================================================
@@ -82,16 +83,15 @@ def test_get_field_names_no_class_attribute() -> None:
             # Simulate the StashObject._get_field_names logic
             try:
                 if hasattr(cls, "__field_names__"):
-                    field_names_attr = getattr(cls, "__field_names__")
+                    field_names_attr = cls.__field_names__
                     return (
                         field_names_attr
                         if isinstance(field_names_attr, set)
                         else set(field_names_attr)
                     )
-                else:
-                    # This is the path we want to test - building from strawberry definition
-                    strawberry_fields = cls.__strawberry_definition__.fields
-                    return {field.name for field in strawberry_fields}
+                # This is the path we want to test - building from strawberry definition
+                strawberry_fields = cls.__strawberry_definition__.fields
+                return {field.name for field in strawberry_fields}
             except AttributeError:
                 return {"id"}  # Fallback
 

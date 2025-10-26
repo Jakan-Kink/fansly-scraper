@@ -26,17 +26,17 @@ from metadata.attachment import ContentType
 from metadata.media import Media
 from stash.processing import StashProcessing
 from stash.types import Gallery, Image, Scene
-from tests.fixtures import MetadataGroupFactory  # Import SQLAlchemy Group factory
 from tests.fixtures import (
     AccountFactory,
     AttachmentFactory,
     MediaFactory,
     MessageFactory,
+    MetadataGroupFactory,  # Import SQLAlchemy Group factory
     PostFactory,
 )
-from tests.fixtures.database_fixtures import config  # Real PostgreSQL config
-from tests.fixtures.database_fixtures import session  # Real async session
 from tests.fixtures.database_fixtures import (
+    config,  # Real PostgreSQL config
+    session,  # Real async session
     session_sync,  # Real sync session (used by factories)
 )
 from tests.fixtures.stash_api_fixtures import (
@@ -44,16 +44,15 @@ from tests.fixtures.stash_api_fixtures import (
 )
 from tests.fixtures.stash_api_fixtures import (
     mock_client,
-)
-from tests.fixtures.stash_api_fixtures import mock_performer as base_mock_performer
-from tests.fixtures.stash_api_fixtures import mock_scene as base_mock_scene
-from tests.fixtures.stash_api_fixtures import mock_studio as base_mock_studio
-from tests.fixtures.stash_api_fixtures import (
     mock_transport,
     stash_client,
     stash_context,
     test_query,
 )
+from tests.fixtures.stash_api_fixtures import mock_performer as base_mock_performer
+from tests.fixtures.stash_api_fixtures import mock_scene as base_mock_scene
+from tests.fixtures.stash_api_fixtures import mock_studio as base_mock_studio
+
 
 __all__ = [
     # Re-exported fixtures
@@ -583,9 +582,9 @@ def stash_processor(mock_config, mock_state, mock_context):
 
     # Disable prints for testing
     with (
-        patch("stash.processing.print_info"),
-        patch("stash.processing.print_warning"),
-        patch("stash.processing.print_error"),
+        patch("textio.textio.print_info"),
+        patch("textio.textio.print_warning"),
+        patch("textio.textio.print_error"),
     ):
         processor = StashProcessing.from_config(mock_config, mock_state)
 

@@ -6,12 +6,14 @@ full object lifecycle, and integration between different components.
 Coverage targets: Integration workflows, complete object lifecycle
 """
 
+import time
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
 from ...fixtures.stash_fixtures import MockTag, TestStashObject
+
 
 # =============================================================================
 # Integration Tests
@@ -407,8 +409,6 @@ async def test_edge_case_integration() -> None:
 @pytest.mark.asyncio
 async def test_performance_integration() -> None:
     """Test performance aspects of integrated workflows."""
-    import time
-
     start_time = time.time()
 
     # Create and process multiple objects

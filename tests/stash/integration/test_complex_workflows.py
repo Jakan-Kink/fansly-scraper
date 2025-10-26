@@ -189,7 +189,7 @@ async def test_full_content_workflow(
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
         except Exception as e:
             raise e
@@ -298,7 +298,7 @@ async def test_concurrent_operations(
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
         except Exception as e:
             # Re-raise other exceptions that aren't connection-related
@@ -395,7 +395,7 @@ async def test_error_handling(
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
-                f"Connection error - test requires running Stash instance: {str(e)}"
+                f"Connection error - test requires running Stash instance: {e!s}"
             )
         except Exception as e:
             # Re-raise other exceptions that aren't connection-related

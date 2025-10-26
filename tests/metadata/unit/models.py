@@ -5,6 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from metadata.base import Base
 
+
 # Create a separate metadata for testing
 test_metadata = MetaData()
 

@@ -18,6 +18,7 @@ from stash.types.files import (
     MoveFilesInput,
     SetFingerprintsInput,
     StashID,
+    fingerprint_resolver,
     StashIDInput,
     VideoCaption,
     VideoFile,
@@ -334,9 +335,6 @@ def test_base_file_methods() -> None:
 @pytest.mark.unit
 def test_base_file_fingerprint_resolver() -> None:
     """Test BaseFile fingerprint resolver logic."""
-    # Import the resolver function directly
-    from stash.types.files import fingerprint_resolver
-
     # Create a test file with fingerprints
     fingerprints = [
         Fingerprint(type_="MD5", value="abc123"),
