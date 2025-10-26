@@ -520,6 +520,222 @@ class FanslyApi:
 
         return True
 
+    def login(self, username: str, password: str) -> dict[str, Any]:
+        """Login to Fansly and obtain session token.
+
+        This performs the login flow to obtain an authorization token and session cookie.
+        After successful login, the token is automatically set in the instance.
+
+        NOTE: Firefox DevTools may show "No response data available" for the login
+        response, but the authorization token and session ID are extracted from:
+        1. The response JSON (if available)
+        2. The f-s-c session cookie (base64 encoded)
+        3. Subsequent API requests that use these values
+
+        Args:
+            username: Fansly username or email
+            password: Account password
+
+        Returns:
+            dict containing login response data (may be empty if DevTools shows no data)
+
+        Raises:
+            RuntimeError: If login fails or response is invalid
+
+        Example:
+            # Create API instance with empty token initially
+            api = FanslyApi(
+                token="",  # Will be set by login
+                user_agent=user_agent,
+                check_key=check_key,
+                device_id=device_id
+            )
+            response = api.login("username", "password")
+            # Token and session_id are now set automatically from response/cookie
+
+            # Verify login was successful
+            if api.token and api.session_id != "null":
+                print("Login successful!")
+            else:
+                print("Login may have failed - check logs")
+        """
+        login_url = "https://apiv3.fansly.com/api/v1/login?ngsw-bypass=true"
+
+        # Update client timestamp before login
+        self.update_client_timestamp()
+
+        # Build request body (matches browser observation)
+        body = {
+            "username": username,
+            "password": password,
+            "deviceId": self.device_id,
+        }
+
+        # Build headers (matches browser observation, no authorization token for login)
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Content-Type": "application/json",
+            "Referer": "https://fansly.com/",
+            "Origin": "https://fansly.com",
+            "User-Agent": self.user_agent,
+            "DNT": "1",
+            "Sec-GPC": "1",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site",
+            # Fansly-specific headers (observed in browser)
+            "fansly-client-id": self.device_id,
+            "fansly-client-ts": str(self.client_timestamp),
+            "fansly-client-check": self.get_fansly_client_check(login_url),
+        }
+
+        logger.info(f"Attempting login for user: {username}")
+
+        try:
+            response = self.http_session.post(
+                login_url,
+                json=body,
+                headers=headers,
+            )
+
+            # Validate response
+            response.raise_for_status()
+
+            # Parse response (may be empty if DevTools shows "No response data available")
+            try:
+                response_data = response.json()
+                logger.debug(f"Login response data: {response_data}")
+            except Exception as e:
+                logger.warning(f"Could not parse login response JSON: {e}")
+                response_data = {"success": True, "response": {}}
+
+            # Extract session cookie (f-s-c) from response FIRST
+            # This cookie is CRITICAL - it's used to derive the authorization token
+            # Observed format: ODM4NTY5NDk3NTcxOTA5NjMyOjE6MTplMzIwZmU5ODUzYTU5YzU2YmU5ZGE2ODU5MWQ2Njk
+            # Decoded: sessionId:1:1:hash
+            session_cookie = None
+            for cookie in response.cookies.jar:
+                if cookie.name == "f-s-c":
+                    session_cookie = cookie.value
+                    if session_cookie and len(session_cookie) > 20:
+                        logger.info(
+                            f"Session cookie obtained: f-s-c={session_cookie[:20]}"
+                        )
+                    else:
+                        logger.info("Session cookie obtained")
+                    break
+
+            if not session_cookie:
+                raise RuntimeError("Login failed: No f-s-c session cookie in response")
+
+            # Extract session ID from cookie
+            # Cookie format (base64): sessionId:1:1:hash
+            try:
+                import base64
+
+                # Add padding if needed
+                padding = 4 - len(session_cookie) % 4
+                if padding != 4:
+                    session_cookie_padded = session_cookie + ("=" * padding)
+                else:
+                    session_cookie_padded = session_cookie
+
+                decoded_cookie = base64.b64decode(session_cookie_padded).decode("utf-8")
+                logger.debug(f"Decoded session cookie: {decoded_cookie}")
+
+                # Format: sessionId:1:1:hash
+                parts = decoded_cookie.split(":")
+                if len(parts) >= 1 and parts[0].isdigit():
+                    self.session_id = parts[0]
+                    logger.info(f"Session ID extracted from cookie: {self.session_id}")
+                else:
+                    logger.warning(f"Unexpected cookie format: {decoded_cookie}")
+
+            except Exception as e:
+                logger.error(f"Could not extract session ID from cookie: {e}")
+                raise RuntimeError(f"Login failed: Could not parse session cookie: {e}")
+
+            # Extract authorization token from response
+            # Based on observations:
+            # - Authorization token format (base64): sessionId:1:2:hash
+            # - Different from cookie which is: sessionId:1:1:hash
+            # - The token is in response.response.session.token
+
+            token_found = False
+            if "response" in response_data and response_data["response"]:
+                resp_inner = response_data["response"]
+                logger.debug(
+                    f"Response inner keys: {list(resp_inner.keys()) if resp_inner else 'empty'}"
+                )
+
+                # Check for token in session object (correct location)
+                if "session" in resp_inner and isinstance(resp_inner["session"], dict):
+                    session_data = resp_inner["session"]
+                    if "token" in session_data and session_data["token"]:
+                        self.token = session_data["token"]
+                        logger.info(
+                            "Authorization token obtained from response.session.token"
+                        )
+                        token_found = True
+
+                # Fallback: try other possible locations
+                if not token_found:
+                    for key in [
+                        "token",
+                        "authorization",
+                        "authToken",
+                        "sessionToken",
+                        "auth",
+                    ]:
+                        if key in resp_inner and resp_inner[key]:
+                            self.token = resp_inner[key]
+                            logger.info(
+                                f"Authorization token obtained from response.{key}"
+                            )
+                            token_found = True
+                            break
+
+            if not token_found:
+                logger.warning("Authorization token not found in response")
+                logger.warning(
+                    "This may be normal if DevTools shows 'No response data available'"
+                )
+                logger.warning(
+                    "You may need to manually set the token from a subsequent API request"
+                )
+                logger.warning(
+                    "Or the token might be provided through a different mechanism"
+                )
+
+            logger.info(f"Login successful for user: {username}")
+
+            # Log status for debugging
+            if self.token:
+                logger.info("✓ Authorization token set")
+            else:
+                logger.warning(
+                    "✗ Authorization token NOT set - may need manual configuration"
+                )
+
+            if self.session_id and self.session_id != "null":
+                logger.info(f"✓ Session ID set: {self.session_id}")
+            else:
+                logger.warning("✗ Session ID NOT set")
+
+            return response_data
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Login failed with HTTP error: {e}")
+            if e.response:
+                logger.error(f"Response body: {e.response.text}")
+            raise RuntimeError(
+                f"Login failed: {e.response.status_code} - {e.response.text if e.response else 'Unknown'}"
+            )
+        except Exception as e:
+            logger.error(f"Login failed with error: {e}")
+            raise RuntimeError(f"Login failed: {e}")
+
     @staticmethod
     def get_timestamp_ms() -> int:
         timestamp = datetime.now(timezone.utc).timestamp()

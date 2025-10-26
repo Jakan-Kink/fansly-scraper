@@ -1,6 +1,7 @@
 """Utility functions and classes for the fansly-scraper project."""
 
 from .browser import open_get_started_url, open_url
+from .checkkey import guess_check_key
 from .common import (
     batch_list,
     get_post_id_from_request,
@@ -13,7 +14,6 @@ from .web import (
     get_flat_qs_dict,
     get_qs_value,
     get_release_info_from_github,
-    guess_check_key,
     guess_user_agent,
     split_url,
 )

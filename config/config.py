@@ -174,13 +174,25 @@ def _handle_account_section(config: FanslyConfig, replace_me_str: str) -> None:
         account_section, "User_Agent", fallback=replace_me_str
     )
 
-    default_check_key = "qybZy9-fyszis-bybxyf"
+    # Default check key (current as of 2025-10-25)
+    # This is the evaluated result of: ["fySzis","oybZy8"].reverse().join("-")+"-bubayf"
+    default_check_key = "oybZy8-fySzis-bubayf"
+
     config.check_key = config._parser.get(
         account_section, "Check_Key", fallback=default_check_key
     )
 
-    if config.check_key in ["negwij-zyZnek-wavje1", "negwij-zyZnak-wavje1"]:
+    # Replace known outdated check keys with current default
+    if config.check_key in [
+        "negwij-zyZnek-wavje1",
+        "negwij-zyZnak-wavje1",
+        "qybZy9-fyszis-bybxyf",  # Old default
+    ]:
         config.check_key = default_check_key
+
+    # Load login credentials (optional - for automatic login)
+    config.username = config._parser.get(account_section, "username", fallback=None)
+    config.password = config._parser.get(account_section, "password", fallback=None)
 
 
 def _handle_other_section(config: FanslyConfig) -> None:
@@ -397,22 +409,6 @@ def _handle_cache_section(config: FanslyConfig) -> None:
     )
 
 
-def _handle_logic_section(config: FanslyConfig) -> None:
-    """Handle Logic section configuration."""
-    logic_section = "Logic"
-    _ensure_section_exists(config._parser, logic_section)
-
-    key_default_pattern = r"""this\.checkKey_\s*=\s*["']([^"']+)["']"""
-    main_js_default_pattern = r'''\ssrc\s*=\s*"(main\..*?\.js)"'''
-
-    config.check_key_pattern = config._parser.get(
-        logic_section, "check_key_pattern", fallback=key_default_pattern
-    )
-    config.main_js_pattern = config._parser.get(
-        logic_section, "main_js_pattern", fallback=main_js_default_pattern
-    )
-
-
 def _handle_stash_section(config: FanslyConfig) -> None:
     """Handle StashContext section configuration."""
     stash_section = "StashContext"
@@ -531,7 +527,6 @@ def load_config(config: FanslyConfig) -> None:
         _handle_other_section(config)
         _handle_options_section(config)
         _handle_cache_section(config)
-        _handle_logic_section(config)
         _handle_stash_section(config)
         _handle_logging_section(config)
 

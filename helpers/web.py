@@ -116,85 +116,9 @@ def split_url(url: str) -> NamedTuple:
     return SplitURL(base_url, file_url)
 
 
-def guess_check_key(
-    main_js_pattern: str,
-    check_key_pattern: str,
-    user_agent: str,
-) -> str | None:
-    """Tries to guess the check key from the Fansly homepage.
-
-    :param main_js_pattern: A regular expression to locate the main.*.js file.
-    :type main_js_pattern: str
-
-    :param check_key_pattern: A regular expression to parse the check key.
-    :type check_key_pattern: str
-
-    :param user_agent: Browser user agent to use for requests.
-    :type user_agent: str
-
-    :return: The check key string if found or None otherwise.
-    :rtype: Optional[str]
-    """
-    fansly_url = "https://fansly.com"
-
-    headers = {
-        "User-Agent": user_agent,
-    }
-
-    try:
-        html_response = httpx.get(
-            fansly_url,
-            headers=headers,
-            timeout=30.0,
-            follow_redirects=True,
-        )
-
-        if html_response.status_code == 200:
-
-            if html_response.text:
-                main_js_match = re.search(
-                    pattern=main_js_pattern,
-                    string=html_response.text,
-                    flags=re.IGNORECASE | re.MULTILINE,
-                )
-
-                if main_js_match:
-
-                    main_js = main_js_match.group(1)
-
-                    main_js_url = f"{fansly_url}/{main_js}"
-
-                    js_response = httpx.get(
-                        main_js_url,
-                        headers=headers,
-                        timeout=30.0,
-                        follow_redirects=True,
-                    )
-
-                    if js_response.status_code == 200:
-
-                        if js_response.text:
-
-                            check_key_match = re.search(
-                                pattern=check_key_pattern,
-                                string=js_response.text,
-                                flags=re.IGNORECASE | re.MULTILINE,
-                            )
-
-                            if check_key_match:
-
-                                check_key = check_key_match.group(1)
-
-                                return check_key
-
-    except Exception:
-        pass
-
-    return None
-
-
 def guess_user_agent(user_agents: dict, based_on_browser: str, default_ua: str) -> str:
     """Returns the guessed browser's user agent or a default one."""
+    from textio import print_error, print_warning
 
     if based_on_browser == "Microsoft Edge":
         based_on_browser = "Edg"  # msedge only reports "Edg" as its identifier

@@ -71,6 +71,8 @@ class FanslyConfig:
     token: str | None = None
     user_agent: str | None = None
     check_key: str | None = None
+    username: str | None = None  # For automatic login
+    password: str | None = None  # For automatic login
     # session_id: str = 'null'
 
     # Options
@@ -142,10 +144,6 @@ class FanslyConfig:
     cached_device_id: str | None = None
     cached_device_id_timestamp: int | None = None
 
-    # Logic
-    check_key_pattern: str | None = None
-    main_js_pattern: str | None = None
-
     # StashContext
     stash_context_conn: dict[str, str] | None = None
 
@@ -166,19 +164,26 @@ class FanslyConfig:
     # region Methods
 
     def get_api(self) -> FanslyApi:
-        """Get the API instance without session setup."""
+        """Get the API instance without session setup.
+
+        If username/password are configured, creates API with empty token for login.
+        Otherwise requires a valid token to be configured.
+        """
         if self._api is None:
             token = self.get_unscrambled_token()
             user_agent = self.user_agent
 
-            if token and user_agent and self.check_key:
+            # Allow empty token if username/password are provided (for login flow)
+            has_login_credentials = self.username and self.password
+
+            if user_agent and self.check_key and (token or has_login_credentials):
                 # Initialize rate limiter
                 from api.rate_limiter import RateLimiter
 
                 rate_limiter = RateLimiter(self)
 
                 self._api = FanslyApi(
-                    token=token,
+                    token=token or "",  # Empty string if using login flow
                     user_agent=user_agent,
                     check_key=self.check_key,
                     device_id=self.cached_device_id,
@@ -186,6 +191,19 @@ class FanslyConfig:
                     on_device_updated=self._save_config,
                     rate_limiter=rate_limiter,
                 )
+
+                # If we have login credentials but no token, perform login
+                if has_login_credentials and not token:
+                    try:
+                        self._api.login(self.username, self.password)  # type: ignore
+                        # Update config with the new token
+                        self.token = self._api.token
+                        self._save_config()
+                    except Exception as e:
+                        raise RuntimeError(f"Login failed: {e}")
+
+        if self._api is None:
+            raise RuntimeError("Failed to create API instance - check configuration")
 
         return self._api
 
@@ -260,6 +278,13 @@ class FanslyConfig:
             "check_key",
             str(self.check_key) if self.check_key is not None else "",
         )
+
+        # Save login credentials (optional - only if they exist)
+        if self.username:
+            self._parser.set("MyAccount", "username", self.username)
+        if self.password:
+            self._parser.set("MyAccount", "password", self.password)
+
         # self._parser.set('MyAccount', 'session_id', self.session_id)
 
         if self.download_directory is None:
@@ -361,10 +386,6 @@ class FanslyConfig:
             )
             self.cached_device_id = self._api.device_id
             self.cached_device_id_timestamp = self._api.device_id_timestamp
-
-        # Logic
-        self._parser.set("Logic", "check_key_pattern", str(self.check_key_pattern))
-        self._parser.set("Logic", "main_js_pattern", str(self.main_js_pattern))
 
         # Logging
         if not self._parser.has_section("Logging"):

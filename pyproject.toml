@@ -53,6 +53,8 @@ asyncpg = ">=0.30.0,<0.31.0"
 psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
 httpx-retries = "^0.4.3"
 ffmpeg-python = "^0.2.0"
+jsbeautifier = "^1.15.4"
+javascript = "^1!1.2.6"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -71,6 +73,7 @@ flake8-pyproject = ">=1.2.3"
 pyupgrade = ">=3.19.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 mypy = ">=1.11.0"
+ruff = "^0.14.2"
 
 [tool.poetry.group.test.dependencies]
 pytest = ">=8.3"

@@ -9,7 +9,8 @@ import httpx
 from config.modes import DownloadMode
 from errors import ConfigError
 from helpers.browser import open_get_started_url
-from helpers.web import guess_check_key, guess_user_agent
+from helpers.checkkey import guess_check_key
+from helpers.web import guess_user_agent
 from pathio.pathio import ask_correct_dir
 from textio import print_config, print_error, print_info, print_warning
 from textio.textio import input_enter_continue
@@ -136,6 +137,14 @@ def validate_adjust_token(config: FanslyConfig) -> None:
 
     :param FanslyConfig config: The configuration to validate and correct.
     """
+    # If username and password are configured, skip token validation
+    # Token will be obtained via login after user_agent and check_key are extracted
+    if config.username and config.password:
+        print_info(
+            "Username and password configured - will perform login after extracting required settings"
+        )
+        return
+
     # only if config_token is not set up already; verify if plyvel is installed
     plyvel_installed, browser_name = False, None
 
@@ -346,11 +355,8 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
     print_warning("!!! FANSLY MAY BAN YOU FOR USING THIS SOFTWARE, BE WARNED !!!")
     print()
 
-    if config.user_agent and config.main_js_pattern and config.check_key_pattern:
-
+    if config.user_agent:
         guessed_key = guess_check_key(
-            config.main_js_pattern,
-            config.check_key_pattern,
             config.user_agent,
         )
 
