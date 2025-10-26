@@ -13,8 +13,8 @@ from urllib.parse import urlparse
 
 import httpx
 from httpx_retries import Retry, RetryTransport
-from websockets import client as ws_client
 
+from api.websocket import FanslyWebSocket
 from config.logging import textio_logger as logger
 from helpers.web import get_flat_qs_dict, split_url
 
@@ -87,6 +87,9 @@ class FanslyApi:
 
         # Session setup is now async and must be done separately
         self.session_id = "null"
+
+        # WebSocket client for persistent connection (anti-detection)
+        self._websocket_client: FanslyWebSocket | None = None
 
     # region HTTP Header Management
 
@@ -422,50 +425,77 @@ class FanslyApi:
     # region WebSocket Communication
 
     async def get_active_session_async(self) -> str:
-        # const websocket = WebSocket("ws://localhost:8001/")
-        # const event = {type: "play", column: 3}
-        # websocket.send(JSON.stringify(event))
+        """Get active session ID and start persistent WebSocket connection.
 
-        # token = {
-        #     "token": self.token,
-        # }
+        This replaces the old one-time WebSocket connection with a persistent
+        background connection for anti-detection purposes. The WebSocket client
+        maintains the connection for the lifetime of the API instance.
 
-        # message = {
-        #     "t": 1,
-        #     "d": json.dumps(token),
-        # }
+        Returns:
+            Session ID string
 
-        # message_str = json.dumps(message)
-        message_str = '{"t":1,"d":"{\\"token\\":\\"' + self.token + '\\"}"}'
+        Raises:
+            RuntimeError: If WebSocket connection or authentication fails
+        """
+        # If WebSocket client already exists and is connected, reuse it
+        if self._websocket_client is not None and self._websocket_client.connected:
+            if self._websocket_client.session_id:
+                logger.info(
+                    "Reusing existing WebSocket session: %s",
+                    self._websocket_client.session_id,
+                )
+                return self._websocket_client.session_id
+            else:
+                logger.warning("WebSocket connected but no session_id, reconnecting...")
+                await self._websocket_client.stop()
+                self._websocket_client = None
 
-        # headers = self.get_http_headers("", add_fansly_headers=False)
+        # Create new WebSocket client with current session cookies
+        logger.info("Starting persistent WebSocket connection for anti-detection")
 
-        ssl_context = ssl.SSLContext()
-        ssl_context.verify_mode = ssl.CERT_NONE
-        ssl_context.check_hostname = False
+        # Extract cookies as dict for WebSocket client
+        cookies_dict = {}
+        for cookie in self.http_session.cookies.jar:
+            cookies_dict[cookie.name] = cookie.value
 
-        # TODO: Security
-        async with ws_client.connect(
-            uri="wss://wsv3.fansly.com",
-            user_agent_header=self.user_agent,
-            origin="https://fansly.com",
-            ssl=ssl_context,
-            # extra_headers=headers,
-        ) as websocket:
-            # await websocket.send('p')
-            # ping_response = await websocket.recv()
+        self._websocket_client = FanslyWebSocket(
+            token=self.token,
+            user_agent=self.user_agent,
+            cookies=cookies_dict,
+            enable_logging=False,  # Set to True for debugging
+            on_unauthorized=self._handle_websocket_unauthorized,
+            on_rate_limited=self._handle_websocket_rate_limited,
+        )
 
-            await websocket.send(message_str)
-            response_str = await websocket.recv()
+        try:
+            # Start WebSocket in background (connects and authenticates)
+            await self._websocket_client.start_background()
 
-            response = json.loads(response_str)
+            # Wait a moment for authentication to complete
+            import asyncio
 
-            if int(response["t"]) == 0:
-                raise RuntimeError(f"WebSocket error: {response}")
+            for _ in range(10):  # Wait up to 1 second
+                if self._websocket_client.session_id:
+                    break
+                await asyncio.sleep(0.1)
 
-            response_data = json.loads(response["d"])
+            if not self._websocket_client.session_id:
+                raise RuntimeError(
+                    "WebSocket authentication failed - no session ID received"
+                )
 
-            return response_data["session"]["id"]
+            logger.info(
+                "WebSocket session established: %s", self._websocket_client.session_id
+            )
+            return self._websocket_client.session_id
+
+        except Exception as e:
+            logger.error("Failed to establish WebSocket session: %s", e)
+            # Clean up on failure
+            if self._websocket_client:
+                await self._websocket_client.stop()
+                self._websocket_client = None
+            raise RuntimeError(f"WebSocket session setup failed: {e}")
 
     async def get_active_session(self) -> str:
         """Get active session ID asynchronously."""
@@ -706,5 +736,61 @@ class FanslyApi:
                 self.on_device_updated()
 
         return self.device_id
+
+    def _handle_websocket_unauthorized(self) -> None:
+        """Handle 401 Unauthorized from WebSocket.
+
+        This is called when the WebSocket receives a 401 error code,
+        indicating the session is no longer valid. Clears the session
+        and token to force re-authentication.
+        """
+        logger.warning("WebSocket reported 401 Unauthorized - session invalidated")
+        self.session_id = "null"
+        # Note: We don't clear self.token here because username/password login
+        # flow may need it. The application should handle re-login if needed.
+
+    def _handle_websocket_rate_limited(self) -> None:
+        """Handle 429 Rate Limited from WebSocket (out-of-band).
+
+        This is called when the WebSocket receives a 429 error code,
+        triggering the rate limiter's adaptive backoff without an HTTP response.
+        """
+        logger.warning("WebSocket reported 429 Rate Limited - triggering rate limiter")
+        if self.rate_limiter:
+            # Trigger adaptive backoff by recording a 429 response
+            # Use 0.0 for response_time since this is out-of-band
+            self.rate_limiter.record_response(429, 0.0)
+        else:
+            logger.warning(
+                "Rate limiter not available - cannot apply adaptive backoff from WebSocket 429"
+            )
+
+    async def close_websocket(self) -> None:
+        """Close the persistent WebSocket connection.
+
+        This method should be called when the API instance is no longer needed
+        to properly clean up the background WebSocket connection.
+        """
+        if self._websocket_client is not None:
+            logger.info("Closing persistent WebSocket connection")
+            try:
+                await self._websocket_client.stop()
+            except Exception as e:
+                logger.warning("Error stopping WebSocket: %s", e)
+            finally:
+                self._websocket_client = None
+
+    def __del__(self) -> None:
+        """Cleanup on instance destruction.
+
+        Note: This is a synchronous destructor, so we can't properly await
+        the async websocket cleanup. Users should call close_websocket() explicitly
+        for proper cleanup. This is just a best-effort cleanup.
+        """
+        if self._websocket_client is not None:
+            logger.warning(
+                "FanslyApi instance destroyed with active WebSocket - "
+                "call close_websocket() explicitly for proper cleanup"
+            )
 
     # region
