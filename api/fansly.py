@@ -1,10 +1,8 @@
 """Fansly Web API"""
 
 import binascii
-import json
 import math
 import random
-import ssl
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
