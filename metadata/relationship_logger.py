@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from textio import json_output
 
+
 # Track missing relationships by type
 missing_relationships: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
 

@@ -10,15 +10,17 @@ This module only provides specialized loggers and utilities.
 
 import sys
 from pprint import pformat
+from typing import Any
 
 from config import stash_logger
+
 
 # Create specialized loggers
 client_logger = stash_logger.bind(name="client")
 processing_logger = stash_logger.bind(name="processing")
 
 
-def debug_print(obj, logger_name: str | None = None):
+def debug_print(obj: Any, logger_name: str | None = None) -> None:
     """Debug printing with proper formatting.
 
     Args:

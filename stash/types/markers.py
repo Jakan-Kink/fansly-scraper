@@ -7,6 +7,7 @@ from strawberry import ID, lazy
 
 from .base import StashObject
 
+
 if TYPE_CHECKING:
     from .scene import Scene
     from .tag import Tag

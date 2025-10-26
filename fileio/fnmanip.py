@@ -10,6 +10,7 @@ from PIL import Image
 from errors.mp4 import InvalidMP4Error
 from fileio.mp4 import hash_mp4file
 
+
 # turn off for our purpose unnecessary PIL safety features
 Image.MAX_IMAGE_PIXELS = None
 

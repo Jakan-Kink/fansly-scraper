@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import strawberry
 from strawberry import ID
 
+
 if TYPE_CHECKING:
     pass
 else:

@@ -18,6 +18,7 @@ from rich.text import Text
 
 from helpers.rich_progress import get_rich_console
 
+
 if TYPE_CHECKING:
     from .rate_limiter import RateLimiter
 

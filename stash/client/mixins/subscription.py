@@ -9,6 +9,7 @@ from gql import Client, gql
 
 from ...types import Job, JobStatus, JobStatusUpdate, LogEntry
 
+
 T = TypeVar("T")
 U = TypeVar("U")
 

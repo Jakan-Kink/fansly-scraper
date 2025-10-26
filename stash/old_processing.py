@@ -51,6 +51,7 @@ from .types import (
     VideoFile,
 )
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState

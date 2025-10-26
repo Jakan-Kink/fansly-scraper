@@ -16,6 +16,7 @@ from .media import MediaProcessingMixin
 from .studio import StudioProcessingMixin
 from .tag import TagProcessingMixin
 
+
 __all__ = [
     "AccountProcessingMixin",
     "BatchProcessingMixin",

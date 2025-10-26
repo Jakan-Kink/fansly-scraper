@@ -40,6 +40,7 @@ from .base import Base
 from .database import require_database_config
 from .post import Post, process_timeline_posts
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState

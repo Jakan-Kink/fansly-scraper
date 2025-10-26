@@ -42,6 +42,7 @@ from config import db_logger
 
 from .logging_config import DatabaseLogger
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
 

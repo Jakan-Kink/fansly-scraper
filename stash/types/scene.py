@@ -9,6 +9,7 @@ from strawberry import ID, lazy
 from .base import BulkUpdateIds, BulkUpdateStrings, StashObject
 from .files import StashID, StashIDInput, VideoFile
 
+
 if TYPE_CHECKING:
     from .gallery import Gallery
     from .group import Group

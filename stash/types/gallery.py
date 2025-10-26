@@ -13,6 +13,7 @@ from .enums import BulkUpdateIdMode
 from .files import Folder, GalleryFile
 from .image import Image
 
+
 if TYPE_CHECKING:
     from .performer import Performer
     from .scene import Scene

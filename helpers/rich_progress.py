@@ -25,7 +25,9 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+from rich.table import Column
 from rich.text import Text
+
 
 # Global console instance for coordinated output
 _console = Console()

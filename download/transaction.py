@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from errors import DuplicatePageError
 
+
 # Type variable for the transaction helper
 T = TypeVar("T")
 

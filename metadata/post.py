@@ -32,6 +32,7 @@ from .base import Base
 from .database import require_database_config
 from .hashtag import Hashtag, process_post_hashtags
 
+
 if TYPE_CHECKING:
     from config import FanslyConfig
     from download.core import DownloadState

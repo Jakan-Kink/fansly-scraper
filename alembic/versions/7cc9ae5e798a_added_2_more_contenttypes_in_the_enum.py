@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
+
 # revision identifiers, used by Alembic.
 revision: str = "7cc9ae5e798a"
 down_revision: str | None = "00c9f171789c"

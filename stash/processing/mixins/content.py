@@ -25,6 +25,7 @@ from ...logging import debug_print
 from ...logging import processing_logger as logger
 from ...types import Performer, Studio
 
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -34,6 +34,7 @@ from .metadatahandling import MetadataHandling
 from .modes import DownloadMode
 from .validation import validate_adjust_config
 
+
 from .args import map_args_to_config  # isort:skip
 from .decorators import with_database_session  # isort:skip
 

@@ -26,6 +26,7 @@ from ...logging import debug_print
 from ...logging import processing_logger as logger
 from ...types import Image, ImageFile, Performer, Scene, Studio, VideoFile
 
+
 if TYPE_CHECKING:
     pass
 

@@ -20,6 +20,7 @@ from typing import Any
 
 from loguru import logger
 
+
 if sys.platform == "win32":
     # Set console mode to handle UTF-8
     try:
