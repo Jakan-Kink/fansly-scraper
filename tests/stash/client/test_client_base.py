@@ -1,7 +1,7 @@
 """Unit tests for StashClientBase."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -253,7 +253,7 @@ async def test_datetime_conversion(mock_session, mock_client) -> None:
         client = await StashClientBase.create()
 
         # Test datetime conversion
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         variables = {
             "date": now,
             "nested": {"date": now},

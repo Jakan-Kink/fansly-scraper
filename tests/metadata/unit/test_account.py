@@ -1,6 +1,6 @@
 """Unit tests for metadata.account module."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -136,7 +136,7 @@ async def test_timeline_stats_optimization(session, session_sync, config):
         accountId=1,
         imageCount=10,
         videoCount=5,
-        fetchedAt=datetime.now(timezone.utc),
+        fetchedAt=datetime.now(UTC),
     )
     session_sync.add(stats)
     session_sync.commit()
@@ -151,7 +151,7 @@ async def test_timeline_stats_optimization(session, session_sync, config):
         "timelineStats": {
             "imageCount": 10,
             "videoCount": 5,
-            "fetchedAt": int(datetime(2023, 10, 10, tzinfo=timezone.utc).timestamp()),
+            "fetchedAt": int(datetime(2023, 10, 10, tzinfo=UTC).timestamp()),
         },
     }
     await process_account_data(config, data, session=session)
@@ -202,7 +202,7 @@ async def test_process_media_bundles(session, session_sync, config):
         {
             "id": 1,
             "accountId": 1,
-            "createdAt": int(datetime.now(timezone.utc).timestamp()),
+            "createdAt": int(datetime.now(UTC).timestamp()),
             "bundleContent": [
                 {"accountMediaId": 101, "pos": 2},
                 {"accountMediaId": 102, "pos": 1},

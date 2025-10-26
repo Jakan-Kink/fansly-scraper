@@ -1,6 +1,6 @@
 """Integration tests for the metadata package."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select, text
@@ -190,7 +190,7 @@ async def test_database_constraints(test_database):
 
         # Try to create message without sender (should fail)
         message = Message(
-            id=1, content="Test", createdAt=datetime.now(timezone.utc)
+            id=1, content="Test", createdAt=datetime.now(UTC)
         )  # Missing required senderId
         session.add(message)
         with pytest.raises(Exception):

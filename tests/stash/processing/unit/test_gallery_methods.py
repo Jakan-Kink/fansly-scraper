@@ -1,6 +1,6 @@
 """Unit tests for gallery-related methods."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,7 +16,7 @@ class MockHasMetadata:
     def __init__(self):
         self.id = 12345
         self.content = "Test content"
-        self.createdAt = datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+        self.createdAt = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
         self.attachments = []
         self.accountMentions = []
         self.hashtags = []
@@ -354,7 +354,7 @@ class TestGalleryMethods:
         content_long = "A" * 200
         content_with_newlines = "First line\nSecond line\nThird line"
         username = "test_user"
-        created_at = datetime(2023, 1, 1, 12, 0, tzinfo=timezone.utc)
+        created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
 
         # Use the real method for this test
         StashProcessing._generate_title_from_content = MagicMock(

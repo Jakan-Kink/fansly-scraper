@@ -12,15 +12,18 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import psutil
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metadata import Account, Message, Post
+
 
 if TYPE_CHECKING:
     pass
@@ -61,7 +64,7 @@ async def create_bulk_data(
         account = Account(
             id=i + 1,
             username=f"perf_user_{i}",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(account)
         accounts.append(account)
@@ -75,7 +78,7 @@ async def create_bulk_data(
                 id=len(posts) + 1,
                 accountId=account.id,
                 content=f"Performance test post {i}",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             posts.append(post)
         session.add_all(posts)  # Use add_all instead of bulk_save_objects for async
@@ -89,7 +92,7 @@ async def create_bulk_data(
                 id=len(messages) + 1,
                 senderId=account.id,
                 content=f"Performance test message {i}",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             messages.append(message)
         session.add_all(messages)  # Use add_all instead of bulk_save_objects for async
@@ -142,7 +145,7 @@ async def test_bulk_insert_performance(test_database):
         account = Account(
             id=1,
             username="bulk_test_user",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(account)
         await session.flush()
@@ -153,7 +156,7 @@ async def test_bulk_insert_performance(test_database):
                     id=batch * BATCH_SIZE + i + 1,
                     accountId=account.id,
                     content=f"Bulk test post {i}",
-                    createdAt=datetime.now(timezone.utc),
+                    createdAt=datetime.now(UTC),
                 )
                 for i in range(BATCH_SIZE)
             ]
@@ -177,7 +180,7 @@ async def test_query_optimization(test_database):
         account = Account(
             id=1,
             username="test_perf_user",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(account)
         await session.flush()
@@ -189,7 +192,7 @@ async def test_query_optimization(test_database):
                 id=i + 1,
                 accountId=account.id,
                 content=f"Performance test post {i}",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             posts.append(post)
         session.add_all(posts)
@@ -387,7 +390,7 @@ async def test_query_caching(test_database):
         account = Account(
             id=1,
             username="test_perf_user",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(account)
         await session.flush()
@@ -398,7 +401,7 @@ async def test_query_caching(test_database):
                 id=i + 1,
                 accountId=account.id,
                 content=f"Performance test post {i}",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             session.add(post)
         await session.commit()

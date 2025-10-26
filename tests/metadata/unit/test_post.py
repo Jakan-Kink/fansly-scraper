@@ -1,6 +1,6 @@
 """Unit tests for post metadata functionality."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -152,7 +152,7 @@ async def test_process_pinned_posts(session: AsyncSession, factory_session, conf
         {
             "postId": 1,
             "pos": 0,
-            "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "createdAt": int(datetime.now(UTC).timestamp() * 1000),
         }
     ]
 
@@ -197,7 +197,7 @@ async def test_process_pinned_posts_nonexistent(
             {
                 "postId": 999,  # Nonexistent post
                 "pos": 0,
-                "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "createdAt": int(datetime.now(UTC).timestamp() * 1000),
             }
         ]
 
@@ -245,7 +245,7 @@ async def test_process_pinned_posts_update(
         {
             "postId": 1,
             "pos": 0,
-            "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "createdAt": int(datetime.now(UTC).timestamp() * 1000),
         }
     ]
     await process_pinned_posts(config, account, initial_data, session=session)
@@ -255,7 +255,7 @@ async def test_process_pinned_posts_update(
         {
             "postId": 1,
             "pos": 1,  # Changed position
-            "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "createdAt": int(datetime.now(UTC).timestamp() * 1000),
         }
     ]
     await process_pinned_posts(config, account, updated_data, session=session)
@@ -313,7 +313,7 @@ async def test_post_reply_fields(session: AsyncSession, factory_session):
 @pytest.mark.parametrize(
     "expires_at",
     [
-        datetime.now(timezone.utc),  # With expiration
+        datetime.now(UTC),  # With expiration
         None,  # Without expiration
     ],
 )
@@ -341,7 +341,7 @@ async def test_post_expiration(session: AsyncSession, factory_session, expires_a
     assert queried_post is not None
     if expires_at is not None:
         assert queried_post.expiresAt is not None
-        assert queried_post.expiresAt.replace(tzinfo=timezone.utc) == expires_at
+        assert queried_post.expiresAt.replace(tzinfo=UTC) == expires_at
     else:
         assert queried_post.expiresAt is None
 

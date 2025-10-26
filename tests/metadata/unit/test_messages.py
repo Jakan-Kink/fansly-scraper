@@ -1,6 +1,6 @@
 """Unit tests for metadata.messages module."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -171,7 +171,7 @@ async def test_process_messages_metadata(session: AsyncSession, session_sync, co
             "senderId": account1_id,
             "recipientId": account2_id,
             "content": "Test message",
-            "createdAt": int(datetime.now(timezone.utc).timestamp()),
+            "createdAt": int(datetime.now(UTC).timestamp()),
             "attachments": [
                 {
                     "contentId": 1001,  # Must be integer, not string

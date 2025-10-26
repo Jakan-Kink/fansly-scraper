@@ -1,6 +1,6 @@
 """Tests for gallery creation methods in GalleryProcessingMixin."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -31,7 +31,7 @@ class TestGalleryCreation:
             id=12345,
             accountId=10000,
             content="Test content #test #hashtag",
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
         # Query fresh from async session (use .unique() for joined eager loads)
@@ -63,7 +63,7 @@ class TestGalleryCreation:
             id=67890,
             accountId=12345,
             content="Test content #test",
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
         # Query fresh from async session
@@ -220,7 +220,7 @@ class TestGalleryCreation:
             id=67890,
             accountId=12345,
             content="Test post content",
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
         # Query fresh from async session

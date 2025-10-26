@@ -1,6 +1,6 @@
 """Unit tests for metadata.attachment module."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -48,7 +48,7 @@ async def test_post_attachment_ordering(session, test_account):
         id=1,
         accountId=test_account.id,
         content="Test post",
-        createdAt=datetime.now(timezone.utc),
+        createdAt=datetime.now(UTC),
     )
     session.add(post)
     await session.flush()
@@ -80,7 +80,7 @@ async def test_message_attachment_ordering(session, test_account):
         id=1,
         senderId=test_account.id,
         content="Test message",
-        createdAt=datetime.now(timezone.utc),
+        createdAt=datetime.now(UTC),
     )
     session.add(message)
     await session.commit()
@@ -118,7 +118,7 @@ async def test_attachment_content_resolution(session, test_account):
         id=1,
         accountId=test_account.id,
         content="Test post",
-        createdAt=datetime.now(timezone.utc),
+        createdAt=datetime.now(UTC),
     )
     session.add(post)
     await session.flush()
@@ -158,12 +158,12 @@ async def test_attachment_exclusivity(session, test_account):
     )
 
     # Create post and message
-    post = Post(id=1, accountId=test_account.id, createdAt=datetime.now(timezone.utc))
+    post = Post(id=1, accountId=test_account.id, createdAt=datetime.now(UTC))
     message = Message(
         id=1,
         senderId=test_account.id,
         content="Test",
-        createdAt=datetime.now(timezone.utc),
+        createdAt=datetime.now(UTC),
     )
     session.add_all([post, message])
     await session.flush()

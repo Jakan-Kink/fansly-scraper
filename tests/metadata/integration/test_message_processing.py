@@ -2,7 +2,8 @@
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -75,7 +76,7 @@ async def test_process_direct_messages(
         "id": 1,
         "senderId": test_account.id,
         "content": "Test message content",
-        "createdAt": int(datetime.now(timezone.utc).timestamp()),
+        "createdAt": int(datetime.now(UTC).timestamp()),
     }
 
     # Process test message

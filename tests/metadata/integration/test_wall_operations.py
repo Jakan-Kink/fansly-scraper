@@ -1,6 +1,7 @@
 """Integration tests for wall operations."""
 
-from datetime import datetime, timezone
+import hashlib
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -60,7 +61,7 @@ async def test_wall_post_integration(test_database, setup_account):
                 id=i,
                 accountId=setup_account.id,
                 content=f"Post {i}",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             for i in range(1, 5)
         ]
@@ -110,7 +111,7 @@ async def test_wall_updates_with_posts(test_database, config, setup_account):
                 id=i,
                 accountId=setup_account.id,
                 content=f"Post {i}",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             for i in range(1, 3)
         ]
@@ -172,7 +173,7 @@ async def test_wall_post_processing(test_database, config, setup_account):
                     "id": i,
                     "accountId": setup_account.id,
                     "content": f"Post {i}",
-                    "createdAt": int(datetime.now(timezone.utc).timestamp()),
+                    "createdAt": int(datetime.now(UTC).timestamp()),
                 }
                 for i in range(1, 4)
             ],

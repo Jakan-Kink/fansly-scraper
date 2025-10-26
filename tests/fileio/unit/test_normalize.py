@@ -1,12 +1,13 @@
 """Unit tests for the normalize module."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from fileio.normalize import get_id_from_filename, normalize_filename
 from metadata.media import Media
+from tests.fixtures.stash_processing_fixtures import MockDatabase
 
 
 class TestGetIdFromFilename:
@@ -56,9 +57,7 @@ class TestNormalizeFilename:
         mock_config, mock_database = mock_db_config
 
         # Set up a media object with createdAt datetime
-        media = Media(
-            id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
-        )
+        media = Media(id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC))
         mock_database.set_result(media)
 
         # The mock is already set up with a datetime of 2023-01-01 15:30 UTC
@@ -89,9 +88,7 @@ class TestNormalizeFilename:
         mock_config, mock_database = mock_db_config
 
         # Set up a media object with createdAt datetime
-        media = Media(
-            id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=timezone.utc)
-        )
+        media = Media(id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC))
         mock_database.set_result(media)
 
         # Test various extensions get preserved, using the mock's datetime

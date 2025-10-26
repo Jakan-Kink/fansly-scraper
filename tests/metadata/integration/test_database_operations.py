@@ -18,7 +18,9 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
-from datetime import datetime, timezone
+
+from metadata.database import Database
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -120,7 +122,7 @@ async def test_complex_relationships(
             id=1,
             accountId=account.id,
             mediaId=media.id,
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(account_media)
 
@@ -129,7 +131,7 @@ async def test_complex_relationships(
             id=1,
             accountId=account.id,
             content="Test post",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(post)
 
@@ -138,7 +140,7 @@ async def test_complex_relationships(
             id=1,
             senderId=account.id,
             content="Test message",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(message)
         await session.commit()
@@ -180,7 +182,7 @@ async def test_cascade_operations(test_config, shared_db_path):
             test_account = Account(
                 id=555,  # Use a different ID than our main test account
                 username="standalone_media_owner",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             session.add(test_account)
             await session.commit()
@@ -192,7 +194,7 @@ async def test_cascade_operations(test_config, shared_db_path):
                 mimetype="image/jpeg",
                 width=800,
                 height=600,
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             session.add(standalone_media)
             await session.commit()
@@ -204,7 +206,7 @@ async def test_cascade_operations(test_config, shared_db_path):
             account = Account(
                 id=999,  # Use a simple ID for testing
                 username="test_cascade_user",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             session.add(account)
             await session.commit()
@@ -225,7 +227,7 @@ async def test_cascade_operations(test_config, shared_db_path):
                 id=999,
                 accountId=account.id,
                 mediaId=account_owned_media.id,
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             session.add(account_media)
             await session.commit()
@@ -309,7 +311,7 @@ async def test_database_constraints(
         media = Media(
             id=100,
             accountId=test_account.id,
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(media)
         await session.flush()
@@ -320,7 +322,7 @@ async def test_database_constraints(
             id=100,
             accountId=999,  # Non-existent account
             mediaId=media.id,
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(account_media)
         await session.commit()
@@ -340,7 +342,7 @@ async def test_database_constraints(
             id=101,
             accountId=test_account.id,
             mediaId=999,  # Non-existent media
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(account_media)
         await session.commit()
@@ -360,7 +362,7 @@ async def test_database_constraints(
         message = Message(
             id=1,
             content="Test",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(message)
         with pytest.raises((exc.IntegrityError, exc.StatementError)):
@@ -373,7 +375,7 @@ async def test_database_constraints(
             id=1,
             senderId=999,  # Non-existent account
             content="Test",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session.add(message)
         await session.commit()
@@ -397,7 +399,7 @@ async def test_transaction_isolation(test_database_sync: Database):
         account1 = Account(
             id=1,
             username="test_user_1",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=datetime.now(UTC),
         )
         session1.add(account1)
 
@@ -411,7 +413,7 @@ async def test_transaction_isolation(test_database_sync: Database):
             account2 = Account(
                 id=2,
                 username="test_user_2",
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             session2.add(account2)
             await session2.commit()
@@ -445,7 +447,7 @@ async def test_concurrent_access(test_database_sync: Database, test_account: Acc
                         id=start_id + i,
                         senderId=account_id,
                         content=f"Message {i} from task {id(asyncio.current_task())}",
-                        createdAt=datetime.now(timezone.utc),
+                        createdAt=datetime.now(UTC),
                     )
                     session.add(msg)
                     message_ids.append(msg.id)
@@ -503,7 +505,7 @@ async def test_query_performance(
                 id=i + 1,
                 accountId=test_account.id,
                 mediaId=media.id,
-                createdAt=datetime.now(timezone.utc),
+                createdAt=datetime.now(UTC),
             )
             session.add(account_media)
         await session.commit()
@@ -543,7 +545,7 @@ async def test_bulk_operations(test_database_sync: Database):
                     account = Account(
                         id=i + 1,
                         username=f"bulk_user_{i}",
-                        createdAt=datetime.now(timezone.utc),
+                        createdAt=datetime.now(UTC),
                     )
                     session.add(account)
                 await session.commit()

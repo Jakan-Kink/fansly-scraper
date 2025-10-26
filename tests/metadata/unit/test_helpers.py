@@ -5,7 +5,8 @@ import logging
 import os
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -145,7 +146,7 @@ def test_utc_time_handling(log_setup):
 
     with patch("textio.logging.datetime") as mock_datetime:
         # Mock the current UTC time
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_datetime.now.return_value = now
         mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 

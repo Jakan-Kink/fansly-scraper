@@ -4,10 +4,11 @@ This test module uses real database fixtures and factories instead of mocks
 to provide more reliable integration testing while maintaining test isolation.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from metadata import Account, AccountMedia
 from metadata.attachment import Attachment, ContentType
@@ -173,7 +174,7 @@ async def test_process_items_with_gallery_no_attachments(
         id=123,
         accountId=12345,
         content="Test content",
-        createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=timezone.utc),
+        createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
     )
 
     # Query fresh from async session
@@ -222,13 +223,13 @@ async def test_process_items_with_gallery_with_multiple_items(
         id=123,
         accountId=12345,
         content="Test post 1",
-        createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=timezone.utc),
+        createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
     )
     post2 = PostFactory(
         id=456,
         accountId=12345,
         content="Test post 2",
-        createdAt=datetime(2024, 5, 2, 12, 0, 0, tzinfo=timezone.utc),
+        createdAt=datetime(2024, 5, 2, 12, 0, 0, tzinfo=UTC),
     )
 
     # Query fresh from async session
