@@ -1,0 +1,122 @@
+{
+    "success": true,
+    "response": {
+        "messages": [
+            {
+                "id": "720752212945612800",
+                "type": 1,
+                "dataVersion": 1,
+                "content": "Testing new camera setup with lighting",
+                "groupId": "720709197191393280",
+                "senderId": "720167541418237953",
+                "correlationId": "0",
+                "inReplyTo": null,
+                "inReplyToRoot": null,
+                "createdAt": 1733811915,
+                "attachments": [
+                    {
+                        "messageId": "720752212945612800",
+                        "contentType": 1,
+                        "contentId": "720419390651346944",
+                        "pos": 0
+                    }
+                ],
+                "embeds": [],
+                "interactions": [],
+                "likes": [],
+                "totalTipAmount": 0
+            }
+        ],
+        "accountMedia": [
+            {
+                "id": "720419390651346944",
+                "accountId": "720222192536395776",
+                "mediaId": "720419390651346944",
+                "previewId": null,
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1732540480,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [
+                        {
+                            "id": "720419425749282816",
+                            "accountMediaId": "720419390651346944",
+                            "type": 0,
+                            "flags": 2,
+                            "price": 0,
+                            "metadata": "",
+                            "validAfter": null,
+                            "validBefore": null,
+                            "verificationFlags": 2,
+                            "verificationMetadata": "{}"
+                        }
+                    ],
+                    "accountPermissionFlags": {
+                        "flags": 6,
+                        "metadata": "{\"4\":\"{\\\"subscriptionTierId\\\":\\\"720571263870967808\\\"}\"}"
+                    }
+                },
+                "media": {
+                    "id": "720419390651346944",
+                    "type": 2,
+                    "status": 1,
+                    "accountId": "720222192536395776",
+                    "mimetype": "video/mp4",
+                    "flags": 298,
+                    "location": "/720222192536395776/720419390651346944.mp4",
+                    "width": 1920,
+                    "height": 1080,
+                    "metadata": "{\"duration\":43.883,\"resolutionMode\":1,\"frameRate\":30}",
+                    "updatedAt": 1732540474,
+                    "createdAt": 1732540471,
+                    "variants": [
+                        {
+                            "id": "720419390651346945",
+                            "type": 1,
+                            "status": 1,
+                            "mimetype": "image/jpeg",
+                            "flags": 0,
+                            "location": "/720222192536395776/720419390651346945.jpeg",
+                            "width": 1280,
+                            "height": 720,
+                            "metadata": "{\"resolutionMode\":1}",
+                            "updatedAt": 1732540474
+                        },
+                        {
+                            "id": "720419390651346946",
+                            "type": 302,
+                            "status": 1,
+                            "mimetype": "application/vnd.apple.mpegurl",
+                            "flags": 0,
+                            "location": null,
+                            "width": 1920,
+                            "height": 1080,
+                            "metadata": "{\"duration\":43.883,\"resolutionMode\":1,\"frameRate\":30,\"variants\":[{\"w\":1920,\"h\":1080},{\"w\":1280,\"h\":720},{\"w\":854,\"h\":480},{\"w\":640,\"h\":360}]}",
+                            "updatedAt": 1732540474
+                        }
+                    ],
+                    "variantHash": {},
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://cdn3.fansly.com/720222192536395776/720419390651346944.mp4"
+                        }
+                    ]
+                },
+                "likeCount": 0,
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 6,
+                "access": true
+            }
+        ],
+        "accountMediaBundles": [],
+        "tips": [],
+        "tipGoals": [],
+        "accountMediaOrders": [],
+        "stories": [],
+        "storyOrders": []
+    }
+}

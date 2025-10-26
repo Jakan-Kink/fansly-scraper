@@ -1,79 +1,115 @@
-"""Console Output"""
+"""Console Output
 
+This module provides user-facing output functions that use the centralized
+logging configuration from config/logging.py.
+
+Functions:
+- print_* - Convenience functions for different message types
+- json_output - For structured JSON logging
+
+Note: All logger configuration is now centralized in config/logging.py.
+This module only provides the output functions.
+"""
 
 import os
 import platform
 import subprocess
 import sys
-
-from functools import partialmethod
-from loguru import logger
-from pathlib import Path
 from time import sleep
 
+from config.logging import json_logger, textio_logger
 
-LOG_FILE_NAME: str = 'fansly_downloader_ng.log'
 
+def json_output(level: int, log_type: str, message: str) -> None:
+    """Output JSON-formatted log messages.
 
-# most of the time, we utilize this to display colored output rather than logging or prints
-def output(level: int, log_type: str, color: str, message: str) -> None:
-    try:
-        logger.level(log_type, no = level, color = color)
+    Args:
+        level: Log level number (1=INFO, 2=DEBUG)
+        log_type: Type/category of log message
+        message: The message to log
+    """
+    # Map old levels to loguru levels
+    level_map = {
+        1: "INFO",  # Most common, used for normal logging
+        2: "DEBUG",  # Used for detailed info like unknown attributes
+    }
 
-    except TypeError:
-        # level failsafe
-        pass 
+    # Default to INFO if level not in map
+    loguru_level = level_map.get(level, "INFO")
 
-    logger.__class__.type = partialmethod(logger.__class__.log, log_type)
+    # Format the message with log_type on first line and message on next
+    formatted_message = f"[{log_type}]\n{message}"
 
-    logger.remove()
-
-    logger.add(
-        sys.stdout,
-        format="<level>{level}</level> | <white>{time:HH:mm}</white> <level>|</level><light-white>| {message}</light-white>",
-        level=log_type,
-    )
-    logger.add(
-        Path.cwd() / LOG_FILE_NAME,
-        encoding='utf-8',
-        format="[{level} ] [{time:YYYY-MM-DD} | {time:HH:mm}]: {message}",
-        level=log_type,
-        rotation='1MB',
-        retention=5,
-    )
-
-    logger.type(message)
+    # Use the centralized json logger with mapped level
+    json_logger.opt(depth=1).log(loguru_level, formatted_message)
 
 
 def print_config(message: str) -> None:
-    output(5, ' Config', '<light-magenta>', message)
+    """Print a configuration message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.opt(depth=1).log("CONFIG", message)
 
 
 def print_debug(message: str) -> None:
-    output(7,' DEBUG', '<light-red>', message)
+    """Print a debug message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.opt(depth=1).log("DEBUG", message)
 
 
-def print_error(message: str, number: int=-1) -> None:
+def print_error(message: str, number: int = -1) -> None:
+    """Print an error message.
+
+    Args:
+        message: The message to print.
+        number: Optional error number to display.
+    """
     if number >= 0:
-        output(2, f' [{number}]ERROR', '<red>', message)
+        # Use loguru's color markup to add the error number in red
+        textio_logger.opt(depth=1).log("ERROR", f"<red>[{number}]</red> {message}")
     else:
-        output(2, ' ERROR', '<red>', message)
+        textio_logger.opt(depth=1).log("ERROR", message)
 
 
 def print_info(message: str) -> None:
-    output(1, ' Info', '<light-blue>', message)
+    """Print an info message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.opt(depth=1).log("INFO", message)
 
 
 def print_info_highlight(message: str) -> None:
-    output(4, ' lnfo', '<light-red>', message)
+    """Print a highlighted info message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.opt(depth=1).log("-INFO-", message)
 
 
 def print_update(message: str) -> None:
-    output(6,' Updater', '<light-green>', message)
+    """Print an update message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.opt(depth=1).log("UPDATE", message)
 
 
 def print_warning(message: str) -> None:
-    output(3, ' WARNING', '<yellow>', message)
+    """Print a warning message.
+
+    Args:
+        message: The message to print.
+    """
+    textio_logger.opt(depth=1).log("WARNING", message)
 
 
 def input_enter_close(interactive: bool) -> None:
@@ -81,10 +117,10 @@ def input_enter_close(interactive: bool) -> None:
     In non-interactive mode sleeps instead, then exits.
     """
     if interactive:
-        input('\nPress <ENTER> to close ...')
+        input("\nPress <ENTER> to close ...")
 
     else:
-        print('\nExiting in 15 seconds ...')
+        print("\nExiting in 15 seconds ...")
         sleep(15)
 
     sys.exit()
@@ -95,9 +131,9 @@ def input_enter_continue(interactive: bool) -> None:
     In non-interactive mode sleeps instead.
     """
     if interactive:
-        input('\nPress <ENTER> to attempt to continue ...')
+        input("\nPress <ENTER> to attempt to continue ...")
     else:
-        print('\nContinuing in 15 seconds ...')
+        print("\nContinuing in 15 seconds ...")
         sleep(15)
 
 
@@ -105,19 +141,19 @@ def input_enter_continue(interactive: bool) -> None:
 def clear_terminal() -> None:
     system = platform.system()
 
-    if system == 'Windows':
-        os.system('cls')
+    if system == "Windows":
+        os.system("cls")
 
-    else: # Linux & macOS
-        os.system('clear')
+    else:  # Linux & macOS
+        os.system("clear")
 
 
 # cross-platform compatible, re-name downloaders terminal output window title
 def set_window_title(title) -> None:
     current_platform = platform.system()
 
-    if current_platform == 'Windows':
-        subprocess.call('title {}'.format(title), shell=True)
+    if current_platform == "Windows":
+        subprocess.call(f"title {title}", shell=True)
 
-    elif current_platform == 'Linux' or current_platform == 'Darwin':
-        subprocess.call(['printf', r'\33]0;{}\a'.format(title)])
+    elif current_platform == "Linux" or current_platform == "Darwin":
+        subprocess.call(["printf", rf"\33]0;{title}\a"])

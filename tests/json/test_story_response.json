@@ -1,0 +1,45 @@
+{
+    "success": true,
+    "response": {
+        "stories": [
+            {
+                "id": "123456789012345678",
+                "authorId": "987654321098765432",
+                "title": "Test Story Title",
+                "description": "Test Story Description",
+                "content": "This is a test story content that demonstrates the structure of a story response.",
+                "createdAt": 1738261832,
+                "updatedAt": 1738261832,
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 2,
+                "access": true
+            }
+        ],
+        "accounts": [
+            {
+                "id": "987654321098765432",
+                "username": "test_user",
+                "displayName": "Test User",
+                "flags": 18,
+                "version": 1,
+                "createdAt": 1673792358000,
+                "followCount": 100,
+                "subscriberCount": 0,
+                "permissions": {
+                    "accountPermissionFlags": {
+                        "flags": 2
+                    }
+                },
+                "profileAccess": true
+            }
+        ]
+    }
+}

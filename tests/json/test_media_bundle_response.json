@@ -1,0 +1,127 @@
+{
+    "success": true,
+    "response": {
+        "accountMediaBundles": [
+            {
+                "id": "123456789012345678",
+                "accountId": "987654321098765432",
+                "previewId": "123456789012345670",
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1738940200,
+                "deletedAt": null,
+                "deleted": false,
+                "accountMediaIds": [
+                    "123456789012345671",
+                    "123456789012345672",
+                    "123456789012345673"
+                ],
+                "bundleContent": [
+                    {
+                        "accountMediaId": "123456789012345671",
+                        "pos": 0
+                    },
+                    {
+                        "accountMediaId": "123456789012345672",
+                        "pos": 1
+                    },
+                    {
+                        "accountMediaId": "123456789012345673",
+                        "pos": 2
+                    }
+                ],
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 0,
+                        "metadata": "{}"
+                    }
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 0,
+                "access": false
+            }
+        ],
+        "accountMedia": [
+            {
+                "id": "123456789012345671",
+                "accountId": "987654321098765432",
+                "mediaId": "123456789012345674",
+                "previewId": null,
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1738940200,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                },
+                "media": {
+                    "id": "123456789012345674",
+                    "type": 1,
+                    "status": 1,
+                    "accountId": "987654321098765432",
+                    "mimetype": "image/jpeg",
+                    "flags": 154,
+                    "location": "/987654321098765432/123456789012345674.jpeg",
+                    "width": 1920,
+                    "height": 1080,
+                    "metadata": "{\"dominant\":{\"r\":128,\"g\":128,\"b\":128},\"resolutionMode\":2}",
+                    "updatedAt": 1738940200,
+                    "createdAt": 1738940200,
+                    "variants": [],
+                    "variantHash": {},
+                    "locations": []
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 2,
+                "access": false
+            },
+            {
+                "id": "123456789012345672",
+                "accountId": "987654321098765432",
+                "mediaId": "123456789012345675",
+                "previewId": null,
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1738940200,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                },
+                "media": {
+                    "id": "123456789012345675",
+                    "type": 2,
+                    "status": 1,
+                    "accountId": "987654321098765432",
+                    "mimetype": "video/mp4",
+                    "flags": 154,
+                    "location": "/987654321098765432/123456789012345675.mp4",
+                    "width": 1920,
+                    "height": 1080,
+                    "metadata": "{\"originalHeight\":1080,\"originalWidth\":1920,\"duration\":60.0,\"resolutionMode\":1,\"frameRate\":30}",
+                    "updatedAt": 1738940200,
+                    "createdAt": 1738940200,
+                    "variants": [],
+                    "variantHash": {},
+                    "locations": []
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 2,
+                "access": false
+            }
+        ]
+    }
+}

@@ -1,0 +1,134 @@
+"""account createdAt plus others
+
+Revision ID: 00c9f171789c
+Revises: merge_recent_migrations
+Create Date: 2024-12-23 17:29:40.906442
+
+"""
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+
+from alembic import op
+
+# revision identifiers, used by Alembic.
+revision: str = "00c9f171789c"
+down_revision: str | None = "merge_recent_migrations"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    """Add account timestamps and update foreign key constraints.
+
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level to accommodate API data that
+    may arrive in non-standard order.
+    """
+    # PostgreSQL: Foreign key behavior is controlled at constraint level (DEFERRABLE, etc.)
+    # No PRAGMA equivalent needed
+
+    # Create media_story_states table with foreign key included in creation
+    op.create_table(
+        "media_story_states",
+        sa.Column("accountId", sa.Integer(), nullable=False),
+        sa.Column("status", sa.Integer(), nullable=True),
+        sa.Column("storyCount", sa.Integer(), nullable=True),
+        sa.Column("version", sa.Integer(), nullable=True),
+        sa.Column("createdAt", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("updatedAt", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("hasActiveStories", sa.Boolean(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["accountId"], ["accounts.id"], name="fk_media_story_states_account_id"
+        ),
+        sa.PrimaryKeyConstraint("accountId"),
+    )
+
+    # Handle account_media_bundle_media table changes
+    with op.batch_alter_table(
+        "account_media_bundle_media", recreate="always"
+    ) as batch_op:
+        # First drop existing indexes and constraints
+        batch_op.drop_index("ix_account_media_bundle_media_bundle_id")
+        batch_op.drop_index("ix_account_media_bundle_media_media_id")
+
+        # Then recreate with new constraints
+        batch_op.create_foreign_key(
+            "fk_account_media_bundle_media_bundle",
+            "account_media_bundles",
+            ["bundle_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
+        batch_op.create_foreign_key(
+            "fk_account_media_bundle_media_media",
+            "account_media",
+            ["media_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
+
+    # Handle accounts table changes
+    with op.batch_alter_table("accounts") as batch_op:
+        batch_op.add_column(
+            sa.Column("createdAt", sa.DateTime(timezone=True), nullable=True)
+        )
+        batch_op.add_column(sa.Column("subscribed", sa.Boolean(), nullable=True))
+
+    # Create walls index if it doesn't exist
+    # PostgreSQL: Use pg_indexes instead of sqlite_master
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text("SELECT indexname FROM pg_indexes WHERE indexname='ix_walls_accountId'")
+    )
+    if result.fetchone() is None:
+        op.create_index(
+            op.f("ix_walls_accountId"), "walls", ["accountId"], unique=False
+        )
+
+
+def downgrade() -> None:
+    """Revert account timestamps and foreign key changes.
+
+    Note: PostgreSQL enforces foreign keys by default. The application handles
+    data integrity at the business logic level.
+    """
+    # PostgreSQL: No PRAGMA equivalent needed
+
+    # Drop walls index if it exists
+    # PostgreSQL: Use pg_indexes instead of sqlite_master
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text("SELECT indexname FROM pg_indexes WHERE indexname='ix_walls_accountId'")
+    )
+    if result.fetchone() is not None:
+        op.drop_index(op.f("ix_walls_accountId"), table_name="walls")
+
+    # Handle accounts table changes
+    with op.batch_alter_table("accounts") as batch_op:
+        batch_op.drop_column("subscribed")
+        batch_op.drop_column("createdAt")
+
+    # Handle account_media_bundle_media table changes
+    with op.batch_alter_table(
+        "account_media_bundle_media", recreate="always"
+    ) as batch_op:
+        # Drop new constraints
+        batch_op.drop_constraint(
+            "fk_account_media_bundle_media_bundle", type_="foreignkey"
+        )
+        batch_op.drop_constraint(
+            "fk_account_media_bundle_media_media", type_="foreignkey"
+        )
+
+        # Recreate original indexes
+        batch_op.create_index(
+            "ix_account_media_bundle_media_media_id", ["media_id"], unique=False
+        )
+        batch_op.create_index(
+            "ix_account_media_bundle_media_bundle_id", ["bundle_id"], unique=False
+        )
+
+    # Drop media_story_states table
+    op.drop_table("media_story_states")

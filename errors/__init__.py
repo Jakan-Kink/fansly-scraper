@@ -1,7 +1,6 @@
 """Errors/Exceptions"""
 
-
-#region Constants
+# region Constants
 
 EXIT_SUCCESS: int = 0
 EXIT_ERROR: int = -1
@@ -15,9 +14,10 @@ UPDATE_FAILED: int = -10
 UPDATE_MANUALLY: int = -11
 UPDATE_SUCCESS: int = 1
 
-#endregion
+# endregion
 
-#region Exceptions
+# region Exceptions
+
 
 class DuplicateCountError(RuntimeError):
     """The purpose of this error is to prevent unnecessary computation or requests to fansly.
@@ -36,7 +36,7 @@ class DuplicateCountError(RuntimeError):
 
 class ConfigError(RuntimeError):
     """This error is raised when configuration data is invalid.
-    
+
     Invalid data may have been provided by config.ini or command-line.
     """
 
@@ -98,6 +98,7 @@ class MediaError(RuntimeError):
     def __init__(self, *args):
         super().__init__(*args)
 
+
 class M3U8Error(MediaError):
     """This error is raised when M3U8 data is invalid eg.
     both no audio and no video.
@@ -106,27 +107,77 @@ class M3U8Error(MediaError):
     def __init__(self, *args):
         super().__init__(*args)
 
-#endregion
+
+class MediaHashMismatchError(MediaError):
+    """Raised when a media file's hash doesn't match the database record."""
+
+    def __init__(self, *args):
+        super().__init__(*args)
+
+
+class DuplicatePageError(RuntimeError):
+    """Raised when all posts on a page are already in metadata."""
+
+    def __init__(
+        self,
+        page_type: str,
+        page_id: str | None = None,
+        cursor: str | None = None,
+        wall_name: str | None = None,
+    ):
+        self.page_type = page_type
+        self.page_id = page_id
+        self.cursor = cursor
+        self.wall_name = wall_name
+        self.message = (
+            f"All posts on {page_type}"
+            + (f" '{wall_name}'" if wall_name else "")
+            + (f" ({page_id})" if page_id and not wall_name else "")
+            + (f" before {cursor}" if cursor else "")
+            + " already in metadata"
+        )
+        super().__init__(self.message)
+
+
+class InvalidTraceLogError(RuntimeError):
+    """Raised when trace_logger is used with a level other than TRACE.
+
+    The trace_logger is specifically for TRACE level messages only.
+    Using any other level (DEBUG, INFO, etc.) is a programming error.
+    """
+
+    def __init__(self, level_name: str):
+        self.level_name = level_name
+        self.message = (
+            f"trace_logger only accepts TRACE level messages, got {level_name}"
+        )
+        super().__init__(self.message)
+
+
+# endregion
 
 
 __all__ = [
-    'EXIT_ABORT',
-    'EXIT_ERROR',
-    'EXIT_SUCCESS',
-    'API_ERROR',
-    'CONFIG_ERROR',
-    'DOWNLOAD_ERROR',
-    'SOME_USERS_FAILED',
-    'UNEXPECTED_ERROR',
-    'UPDATE_FAILED',
-    'UPDATE_MANUALLY',
-    'UPDATE_SUCCESS',
-    'ApiError',
-    'ApiAccountInfoError',
-    'ApiAuthenticationError',
-    'ConfigError',
-    'DownloadError',
-    'DuplicateCountError',
-    'MediaError',
-    'M3U8Error',
+    "EXIT_ABORT",
+    "EXIT_ERROR",
+    "EXIT_SUCCESS",
+    "API_ERROR",
+    "CONFIG_ERROR",
+    "DOWNLOAD_ERROR",
+    "SOME_USERS_FAILED",
+    "UNEXPECTED_ERROR",
+    "UPDATE_FAILED",
+    "UPDATE_MANUALLY",
+    "UPDATE_SUCCESS",
+    "ApiError",
+    "ApiAccountInfoError",
+    "ApiAuthenticationError",
+    "ConfigError",
+    "DownloadError",
+    "DuplicateCountError",
+    "MediaError",
+    "MediaHashMismatchError",
+    "M3U8Error",
+    "DuplicatePageError",
+    "InvalidTraceLogError",
 ]

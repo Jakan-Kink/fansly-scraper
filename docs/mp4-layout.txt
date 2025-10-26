@@ -138,16 +138,16 @@ EXTERNAL MPEG-7 META DATA ONLY
      -> 4 bytes version/flags = byte hex version + 24-bit hex flags
          (current = 0)
      -> 1 nibble size of access offsets = 4 bits one byte multiples
-       - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+       - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
      -> 1 nibble size of data lengths = 4 bits one byte multiples
-       - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+       - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
      -> 1 nibble size of starting offset = 4 bits one byte multiples
-       - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+       - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
      -> 1 nibble reserved = 4 bits set to zero
      -> 2 bytes number of locations = short unsigned index total
      -> 2+ bytes item reference = short unsigned id
      -> 2+ bytes stream data reference = short unsigned index from 'dref' box
-       - if meta data item in same file set to zero  
+       - if meta data item in same file set to zero
      -> 1-8+ bytes starting offset =  byte - dlong unsigned offset
      -> 2+ bytes number of access points = short unsigned index total
      -> 1-8+ bytes access offset =  byte - dlong unsigned relative offset
@@ -716,7 +716,7 @@ of the file.
                      (current = 0)
                  -> 4 bytes number of descriptions = long unsigned total
                      (default = 1)
- 
+
                  -> 4 bytes description length = long unsigned length
                  -> 4 bytes description visual format = long ASCII text string 'mp4v'
                    - if encoded to ISO/IEC 14496-10 or 3GPP AVC standards then use:
@@ -946,15 +946,15 @@ of the file.
                   * 8+ bytes QUICKTIME video gamma atom
                       = long unsigned offset + long ASCII text string 'gama'
                     -> 4 bytes decimal level = long fixed point level
-                 
+
                   * 8+ bytes QUICKTIME video field order atom
                       = long unsigned offset + long ASCII text string 'fiel'
                     -> 2 bytes field count/order = byte integer total + byte integer order
-                 
+
                   * 8+ bytes QUICKTIME video m-jpeg quantize table atom
                       = long unsigned offset + long ASCII text string 'mjqt'
                     -> quantization table = hex dump
-                   
+
                   * 8+ bytes QUICKTIME video m-jpeg huffman table atom
                       = long unsigned offset + long ASCII text string 'mjht'
                     -> huffman table = hex dump
@@ -1064,16 +1064,16 @@ of the file.
               -> 4 bytes version/flags = byte hex version + 24-bit hex flags
                   (current = 0)
               -> 1 nibble size of access offsets = 4 bits one byte multiples
-                - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+                - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
               -> 1 nibble size of data lengths = 4 bits one byte multiples
-                - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+                - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
               -> 1 nibble size of starting offset = 4 bits one byte multiples
-                - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+                - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
               -> 1 nibble reserved = 4 bits set to zero
               -> 2 bytes number of locations = short unsigned index total
               -> 2+ bytes item reference = short unsigned id
               -> 2+ bytes stream data reference = short unsigned index from 'dref' box
-                - if meta data item in same file set to zero  
+                - if meta data item in same file set to zero
               -> 1-8+ bytes starting offset =  byte - dlong unsigned offset
               -> 2+ bytes number of access points = short unsigned index total
               -> 1-8+ bytes access offset =  byte - dlong unsigned relative offset
@@ -1202,16 +1202,16 @@ of the file.
            -> 4 bytes version/flags = byte hex version + 24-bit hex flags
                (current = 0)
            -> 1 nibble size of access offsets = 4 bits one byte multiples
-             - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+             - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
            -> 1 nibble size of data lengths = 4 bits one byte multiples
-             - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+             - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
            -> 1 nibble size of starting offset = 4 bits one byte multiples
-             - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8  
+             - 8-bit offset = 0 ; 32-bit offset = 4 ; 64-bit offset = 8
            -> 1 nibble reserved = 4 bits set to zero
            -> 2 bytes number of locations = short unsigned index total
            -> 2+ bytes item reference = short unsigned id
            -> 2+ bytes stream data reference = short unsigned index from 'dref' box
-             - if meta data item in same file set to zero  
+             - if meta data item in same file set to zero
            -> 1-8+ bytes starting offset =  byte - dlong unsigned offset
            -> 2+ bytes number of access points = short unsigned index total
            -> 1-8+ bytes access offset =  byte - dlong unsigned relative offset

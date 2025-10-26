@@ -1,0 +1,133 @@
+{
+    "success": true,
+    "response": {
+        "posts": [
+            {
+                "id": "123456789012345678",
+                "accountId": "987654321098765432",
+                "content": "Test post content with #hashtags",
+                "fypFlags": 0,
+                "inReplyTo": null,
+                "inReplyToRoot": null,
+                "createdAt": 1738940199,
+                "expiresAt": null,
+                "attachments": [
+                    {
+                        "pos": 0,
+                        "contentType": 2,
+                        "contentId": "123456789012345670"
+                    }
+                ],
+                "likeCount": 5,
+                "replyCount": 1,
+                "timelineReadPermissionFlags": [],
+                "accountTimelineReadPermissionFlags": {
+                    "flags": 0,
+                    "metadata": "{}"
+                },
+                "mediaLikeCount": 0,
+                "totalTipAmount": 0,
+                "attachmentTipAmount": 0,
+                "accountMentions": []
+            }
+        ],
+        "accountMedia": [
+            {
+                "id": "123456789012345670",
+                "accountId": "987654321098765432",
+                "mediaId": "123456789012345671",
+                "previewId": null,
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1738940200,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                },
+                "likeCount": 3,
+                "media": {
+                    "id": "123456789012345671",
+                    "type": 1,
+                    "status": 1,
+                    "accountId": "987654321098765432",
+                    "mimetype": "image/jpeg",
+                    "flags": 154,
+                    "location": "/987654321098765432/123456789012345671.jpeg",
+                    "width": 1920,
+                    "height": 1080,
+                    "metadata": "{\"dominant\":{\"r\":128,\"g\":128,\"b\":128},\"resolutionMode\":2}",
+                    "updatedAt": 1738940108,
+                    "createdAt": 1738940104,
+                    "variants": [],
+                    "variantHash": {},
+                    "locations": []
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 2,
+                "access": false
+            }
+        ],
+        "accountMediaBundles": [
+            {
+                "id": "123456789012345672",
+                "accountId": "987654321098765432",
+                "previewId": null,
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1738940200,
+                "deletedAt": null,
+                "deleted": false,
+                "accountMediaIds": [
+                    "123456789012345673",
+                    "123456789012345674"
+                ],
+                "bundleContent": [
+                    {
+                        "accountMediaId": "123456789012345673",
+                        "pos": 0
+                    },
+                    {
+                        "accountMediaId": "123456789012345674",
+                        "pos": 1
+                    }
+                ],
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 0,
+                        "metadata": "{}"
+                    }
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 0,
+                "access": false
+            }
+        ],
+        "accounts": [
+            {
+                "id": "987654321098765432",
+                "username": "test_user",
+                "displayName": "Test User",
+                "flags": 18,
+                "version": 1,
+                "createdAt": 1673792358000,
+                "followCount": 100,
+                "subscriberCount": 0,
+                "permissions": {
+                    "accountPermissionFlags": {
+                        "flags": 2
+                    }
+                },
+                "following": true,
+                "profileAccess": true
+            }
+        ]
+    }
+}

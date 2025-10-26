@@ -14,7 +14,7 @@ Notes about the challenges and important changes during the major rewrite.
 * Renamed `utilise_duplicate_threshold` to `use_duplicate_threshold` but code retains compatibility with older `config.ini` files.
 * Introduced `use_suffix` option in `config.ini`. If I have a folder for all my Fansly downloads, I do not see the point of suffixing every creator's subfolder with `_fansly`. This especially makes no sense any more since the rewritten code does not need to parse out the creator's folder from an arbitrary path in odd places. I did, however, retain the previous behavior - it defaults to `True`.
 * Having the program version in a config file (`config.ini`) makes no sense and is potentially dangerous. The program version should (and is now) in a proper file heading block and can be read from there. Versioning a config file might make sense in some cases but all the changes to config structure so far can easily be handled by the config read/validation functions without reliance on versioning.
-* While reworking `delete_deprecated_files()` I found a bug - `os.path.splitext()` includes the full path to the file name thus the `in` must have always failed. (See https://docs.python.org/3/library/os.path.html - "`root + ext == path`")
+* While reworking `delete_deprecated_files()` I found a bug - `os.path.splitext()` includes the full path to the file name thus the `in` must have always failed. (See <https://docs.python.org/3/library/os.path.html> - "`root + ext == path`")
 * I corrected the ratios for `rich`'s `TextColumn`/`BarColumn`: They are `int`s now, I assumed 2/5 thus 1; 5 (were: 0.355; 2).
 * Switched to `Enum`s (`StrEnum`) for `download_mode` and `download_type` to be explicit and prevent magical string values floating around
 * I made all hard errors `raise` and introduced an `interactive` flag (also as `config.ini` option) to bypass any `Press <ENTER> to continue` prompts. Thus you can now automate/schedule it using `Task Scheduler` on Windows or `cron` on Linux/UNIX or just have it run through while you are away. What is more, this also helps multiple user processing - an account info error due to invalid user name should not prevent all other users from being downloaded and can be caught in the user loop.
@@ -29,3 +29,113 @@ Notes about the challenges and important changes during the major rewrite.
 * `Fansly Downloader` now also logs output to file, at least all stuff going through `loguru`. Log-rollover is at 1 MiB size and keeping the last 5 files.
 
 -- prof79
+
+# Additional Changes (since 2a6e63f)
+
+Major Infrastructure Changes:
+* Switched from requirements.txt to Poetry for dependency management
+* Added pre-commit hooks: pyupgrade, flake8, black, bandit
+* Added SQLAlchemy 2.x and Alembic for metadata database support
+* Added test suite with pytest
+
+Database Schema:
+* Added initial schema for metadata tracking:
+  - Accounts and their relationships
+  - Posts and attachments
+  - Media and variants
+  - Messages and groups
+  - Walls and posts
+* Added Alembic migrations with downgrade paths
+* Added batch operations for SQLite compatibility
+
+Code Quality and Testing:
+* Added type checking and fixed cyclic imports
+* Added bandit security checks to pre-commit
+* Added flake8 compliance checks
+* Added black code formatting
+* Added test suite with:
+  - Unit tests for metadata models
+  - Integration tests for database operations
+  - Test fixtures and utilities
+  - Coverage reporting
+
+Deduplication Changes:
+* Moved source of truth from filenames to database:
+  ```python
+  # Old approach (up to and including 2a6e63f) - hash in filename:
+  video_123_hash2_abc123.mp4
+
+  # New approach - clean filename with hash in database:
+  video_123.mp4  # File on disk
+  Media(         # Database record
+      content_hash="abc123",
+      is_downloaded=True,
+      local_filename="video_123.mp4"
+  )
+  ```
+* Added migration support for old hash formats:
+  - hash0 (_hash_) - Original format
+  - hash1 (_hash1_) - Improved video hashing
+  - hash2 (_hash2_) - Fixed video hashing
+* Preserves hash2 values as trusted source
+* Recalculates hashes for older formats
+* Supports both filename and hash-based lookups
+
+Database Operations:
+* Added metadata database support with SQLAlchemy 2.x
+* Added relationship handling between models
+* Added write-through caching for improved performance
+* Added proper database cleanup and resource management
+* Added query-first approach pattern with SQLAlchemy 2.x style:
+  ```python
+  # Query first (SQLAlchemy 2.x style)
+  obj = session.execute(
+      select(Model).where(Model.id == id)
+  ).scalar_one_or_none()
+
+  # Check required fields
+  if required_field not in data:
+      log_error()
+      return
+
+  # Create and add if needed
+  if not obj:
+      obj = Model(**data)
+      session.add(obj)
+  ```
+* Added network path optimization:
+  ```python
+  # Use local temp files for network paths
+  local_path = get_local_db_path(remote_path)
+
+  # Background sync for large databases
+  sync_manager = BackgroundSync(
+      remote_path=remote_path,
+      local_path=local_path,
+      config=config  # Controls sync intervals
+  )
+
+  # Configurable sync intervals
+  db_sync_commits = 1000  # Sync after N commits
+  db_sync_seconds = 60   # Sync every N seconds
+  db_sync_min_size = 50  # Min size in MB for background sync
+  ```
+
+Error Handling and Logging:
+* Added database operation logging with context
+* Added relationship tracking and logging
+* Added proper exception handling for database operations
+* Added logging for missing relationships and foreign keys
+
+Configuration:
+* Added Alembic configuration for migrations
+* Added pre-commit configuration
+* Added pytest configuration
+
+These changes focus on:
+* Modern Python tooling and code quality
+* Metadata tracking and persistence
+* Database relationship management
+* Structured testing approach
+
+--Jakan

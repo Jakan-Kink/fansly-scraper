@@ -1,0 +1,1 @@
+"""Stash processing test package."""

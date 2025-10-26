@@ -1,0 +1,1 @@
+"""Stash integration test package."""

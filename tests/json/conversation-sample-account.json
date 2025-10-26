@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "response": {
+    "conversations": [
+      {
+        "id": "737344486891335693",
+        "accountId": "737318930569244672",
+        "lastMessageId": "737344486891335694",
+        "lastMessage": {
+          "id": "737344486891335694",
+          "senderId": "737318930569244672",
+          "content": "Hello, this is a test message from the conversation sample.",
+          "createdAt": 1737290990,
+          "updatedAt": 1737290990,
+          "attachments": []
+        },
+        "createdAt": 1737290990,
+        "updatedAt": 1737290990
+      }
+    ],
+    "accounts": [
+      {
+        "id": "737318930569244672",
+        "username": "testaccount",
+        "displayName": "Test Account",
+        "about": "This is a test account for API testing purposes",
+        "location": "US",
+        "joinDate": 1737200000,
+        "lastSeen": 1737290990,
+        "flags": 0,
+        "subscriptionTiers": [
+          {
+            "id": "737318930569244674",
+            "price": 1000,
+            "currency": "USD",
+            "description": "Basic subscription tier",
+            "benefits": ["Access to timeline", "Basic messaging"],
+            "flags": 2
+          }
+        ]
+      }
+    ]
+  }
+}

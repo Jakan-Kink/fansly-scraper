@@ -47,7 +47,7 @@ jobs:
       shell: pwsh
       run: |
         $versionName = ${Env:SHORT_SHA}
-        
+
         if (${Env:GITHUB_REF} -match '^refs/tags/v')
         {
           $versionName = ${Env:GITHUB_REF_NAME}
@@ -145,11 +145,11 @@ jobs:
       with:
         name: ${{ env.PRODUCT_NAME }}
         path: dist
- 
+
     - name: Display structure of downloaded files
       run: ls -R
       working-directory: dist
-  
+
     - name: Publish on-demand release
       if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
       uses: "marvinpinto/action-automatic-releases@latest"

@@ -1,0 +1,83 @@
+{
+    "success": true,
+    "response": {
+        "messages": [
+            {
+                "id": "123456789012345678",
+                "type": 1,
+                "dataVersion": 1,
+                "content": "Test message content",
+                "groupId": "123456789012345670",
+                "senderId": "987654321098765432",
+                "correlationId": "123456789012345671",
+                "inReplyTo": null,
+                "inReplyToRoot": null,
+                "createdAt": 1733815029,
+                "attachments": [
+                    {
+                        "pos": 0,
+                        "contentType": 1,
+                        "contentId": "123456789012345672"
+                    }
+                ],
+                "embeds": [],
+                "interactions": [
+                    {
+                        "userId": "123456789012345673",
+                        "readAt": 1733815037211,
+                        "deliveredAt": 1733815033720
+                    }
+                ],
+                "likes": [],
+                "totalTipAmount": 0
+            }
+        ],
+        "accountMedia": [
+            {
+                "id": "123456789012345672",
+                "accountId": "987654321098765432",
+                "mediaId": "123456789012345674",
+                "previewId": null,
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1733815029,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                },
+                "media": {
+                    "id": "123456789012345674",
+                    "type": 1,
+                    "status": 1,
+                    "accountId": "987654321098765432",
+                    "mimetype": "image/jpeg",
+                    "flags": 154,
+                    "location": "/987654321098765432/123456789012345674.jpeg",
+                    "width": 1920,
+                    "height": 1080,
+                    "metadata": "{\"dominant\":{\"r\":128,\"g\":128,\"b\":128},\"resolutionMode\":2}",
+                    "updatedAt": 1733815029,
+                    "createdAt": 1733815029,
+                    "variants": [],
+                    "variantHash": {},
+                    "locations": []
+                },
+                "purchased": false,
+                "whitelisted": false,
+                "accountPermissionFlags": 2,
+                "access": true
+            }
+        ],
+        "accountMediaBundles": [],
+        "tips": [],
+        "tipGoals": [],
+        "accountMediaOrders": [],
+        "stories": [],
+        "storyOrders": []
+    }
+}

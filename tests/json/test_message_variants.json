@@ -1,0 +1,380 @@
+{
+    "success": true,
+    "response": {
+        "messages": [
+            {
+                "id": "123456789012345678",
+                "type": 1,
+                "dataVersion": 1,
+                "content": "Test message with media",
+                "groupId": "123456789012345670",
+                "senderId": "123456789012345671",
+                "correlationId": "0",
+                "createdAt": 1733811915,
+                "attachments": [
+                    {
+                        "messageId": "123456789012345678",
+                        "contentType": 1,
+                        "contentId": "123456789012345672",
+                        "pos": 0
+                    }
+                ],
+                "interactions": [],
+                "likes": []
+            },
+            {
+                "id": "123456789012345679",
+                "type": 1,
+                "dataVersion": 1,
+                "content": "Test message with advanced media variants",
+                "groupId": "123456789012345670",
+                "senderId": "123456789012345671",
+                "correlationId": "1",
+                "createdAt": 1733811916,
+                "attachments": [
+                    {
+                        "messageId": "123456789012345679",
+                        "contentType": 2,
+                        "contentId": "123456789012345683",
+                        "pos": 0
+                    }
+                ],
+                "interactions": [],
+                "likes": []
+            }
+        ],
+        "accountMedia": [
+            {
+                "id": "123456789012345672",
+                "accountId": "123456789012345671",
+                "mediaId": "123456789012345673",
+                "previewId": "123456789012345674",
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1733811900,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [
+                        {
+                            "id": "123456789012345675",
+                            "accountMediaId": "123456789012345672",
+                            "type": 0,
+                            "flags": 2,
+                            "price": 0,
+                            "metadata": "",
+                            "validAfter": null,
+                            "validBefore": null,
+                            "verificationFlags": 2,
+                            "verificationMetadata": "{}"
+                        }
+                    ],
+                    "accountPermissionFlags": {
+                        "flags": 6,
+                        "metadata": "{\"4\":\"{\\\"subscriptionTierId\\\":\\\"123456789012345676\\\"}\"}"
+                    }
+                },
+                "media": {
+                    "id": "123456789012345673",
+                    "type": 2,
+                    "status": 1,
+                    "accountId": "123456789012345671",
+                    "mimetype": "video/mp4",
+                    "flags": 298,
+                    "location": "/123456789012345671/123456789012345673.mp4",
+                    "width": 1920,
+                    "height": 1080,
+                    "metadata": "{\"originalHeight\":1080,\"originalWidth\":1920,\"duration\":20.667,\"resolutionMode\":1,\"frameRate\":29.99}",
+                    "variants": [
+                        {
+                            "id": "123456789012345677",
+                            "type": 302,
+                            "status": 1,
+                            "mimetype": "application/vnd.apple.mpegurl",
+                            "width": 1920,
+                            "height": 1080,
+                            "metadata": "{\"variants\":[{\"w\":1920,\"h\":1080},{\"w\":1280,\"h\":720},{\"w\":854,\"h\":480},{\"w\":640,\"h\":360}]}",
+                            "locations": [
+                                {
+                                    "locationId": "102",
+                                    "location": "https://example.com/stream.m3u8"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "123456789012345678",
+                            "type": 303,
+                            "status": 1,
+                            "mimetype": "application/dash+xml",
+                            "width": 1920,
+                            "height": 1080,
+                            "metadata": "{\"variants\":[{\"w\":1920,\"h\":1080},{\"w\":1280,\"h\":720},{\"w\":854,\"h\":480},{\"w\":640,\"h\":360}]}",
+                            "locations": [
+                                {
+                                    "locationId": "103",
+                                    "location": "https://example.com/stream.mpd"
+                                }
+                            ]
+                        }
+                    ],
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://example.com/video.mp4"
+                        }
+                    ]
+                },
+                "preview": {
+                    "id": "123456789012345674",
+                    "type": 1,
+                    "status": 1,
+                    "accountId": "123456789012345671",
+                    "mimetype": "image/jpeg",
+                    "location": "/123456789012345671/preview.jpeg",
+                    "width": 1920,
+                    "height": 1080,
+                    "metadata": "{\"resolutionMode\":1}",
+                    "variants": [
+                        {
+                            "id": "123456789012345679",
+                            "type": 1,
+                            "mimetype": "image/jpeg",
+                            "width": 1280,
+                            "height": 720,
+                            "location": "/123456789012345671/preview_720p.jpeg"
+                        },
+                        {
+                            "id": "123456789012345680",
+                            "type": 1,
+                            "mimetype": "image/jpeg",
+                            "width": 854,
+                            "height": 480,
+                            "location": "/123456789012345671/preview_480p.jpeg"
+                        }
+                    ],
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://example.com/preview.jpeg"
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "123456789012345683",
+                "accountId": "123456789012345671",
+                "mediaId": "123456789012345684",
+                "previewId": "123456789012345685",
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1733811916,
+                "deletedAt": null,
+                "deleted": false,
+                "permissions": {
+                    "permissionFlags": [
+                        {
+                            "id": "123456789012345686",
+                            "accountMediaId": "123456789012345683",
+                            "type": 0,
+                            "flags": 2,
+                            "price": 0,
+                            "metadata": "",
+                            "validAfter": null,
+                            "validBefore": null,
+                            "verificationFlags": 2,
+                            "verificationMetadata": "{}"
+                        }
+                    ],
+                    "accountPermissionFlags": {
+                        "flags": 6,
+                        "metadata": "{\"4\":\"{\\\"subscriptionTierId\\\":\\\"123456789012345676\\\"}\"}"
+                    }
+                },
+                "media": {
+                    "id": "123456789012345684",
+                    "type": 2,
+                    "status": 1,
+                    "accountId": "123456789012345671",
+                    "mimetype": "video/mp4",
+                    "flags": 298,
+                    "location": "/123456789012345671/123456789012345684.mp4",
+                    "width": 3840,
+                    "height": 2160,
+                    "metadata": "{\"originalHeight\":2160,\"originalWidth\":3840,\"duration\":60.0,\"resolutionMode\":1,\"frameRate\":60,\"videoCodec\":\"h264\",\"audioCodec\":\"aac\"}",
+                    "variants": [
+                        {
+                            "id": "123456789012345687",
+                            "type": 302,
+                            "status": 1,
+                            "mimetype": "application/vnd.apple.mpegurl",
+                            "width": 3840,
+                            "height": 2160,
+                            "metadata": "{\"variants\":[{\"w\":3840,\"h\":2160,\"codec\":\"h264\"},{\"w\":1920,\"h\":1080,\"codec\":\"h264\"},{\"w\":1280,\"h\":720,\"codec\":\"h264\"},{\"w\":854,\"h\":480,\"codec\":\"h264\"}],\"segmentDuration\":6,\"audioOnly\":false}",
+                            "locations": [
+                                {
+                                    "locationId": "102",
+                                    "location": "https://example.com/h264_stream.m3u8"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "123456789012345688",
+                            "type": 302,
+                            "status": 1,
+                            "mimetype": "application/vnd.apple.mpegurl",
+                            "width": 3840,
+                            "height": 2160,
+                            "metadata": "{\"variants\":[{\"w\":3840,\"h\":2160,\"codec\":\"h265\"},{\"w\":1920,\"h\":1080,\"codec\":\"h265\"},{\"w\":1280,\"h\":720,\"codec\":\"h265\"},{\"w\":854,\"h\":480,\"codec\":\"h265\"}],\"segmentDuration\":6,\"audioOnly\":false}",
+                            "locations": [
+                                {
+                                    "locationId": "102",
+                                    "location": "https://example.com/h265_stream.m3u8"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "123456789012345689",
+                            "type": 303,
+                            "status": 1,
+                            "mimetype": "application/dash+xml",
+                            "width": 3840,
+                            "height": 2160,
+                            "metadata": "{\"variants\":[{\"w\":3840,\"h\":2160,\"codec\":\"h264\"},{\"w\":1920,\"h\":1080,\"codec\":\"h264\"},{\"w\":1280,\"h\":720,\"codec\":\"h264\"},{\"w\":854,\"h\":480,\"codec\":\"h264\"}],\"segmentDuration\":6,\"audioOnly\":false}",
+                            "locations": [
+                                {
+                                    "locationId": "103",
+                                    "location": "https://example.com/h264_stream.mpd"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "123456789012345690",
+                            "type": 302,
+                            "status": 1,
+                            "mimetype": "application/vnd.apple.mpegurl",
+                            "width": null,
+                            "height": null,
+                            "metadata": "{\"audioOnly\":true,\"codec\":\"aac\",\"bitrate\":128000}",
+                            "locations": [
+                                {
+                                    "locationId": "102",
+                                    "location": "https://example.com/audio_only.m3u8"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "123456789012345691",
+                            "type": 2,
+                            "status": 3,
+                            "mimetype": "video/mp4",
+                            "flags": 0,
+                            "location": "/123456789012345671/123456789012345684_1080p.mp4",
+                            "width": 1920,
+                            "height": 1080,
+                            "metadata": "{\"resolutionMode\":1,\"status\":\"processing\"}",
+                            "updatedAt": 1733811917
+                        },
+                        {
+                            "id": "123456789012345692",
+                            "type": 2,
+                            "status": 2,
+                            "mimetype": "video/mp4",
+                            "flags": 0,
+                            "location": "/123456789012345671/123456789012345684_720p.mp4",
+                            "width": 1280,
+                            "height": 720,
+                            "metadata": "{\"resolutionMode\":1,\"status\":\"failed\",\"error\":\"Transcoding failed\"}",
+                            "updatedAt": 1733811917
+                        }
+                    ],
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://example.com/original.mp4"
+                        }
+                    ]
+                },
+                "preview": {
+                    "id": "123456789012345685",
+                    "type": 1,
+                    "status": 1,
+                    "accountId": "123456789012345671",
+                    "mimetype": "image/jpeg",
+                    "flags": 298,
+                    "location": "/123456789012345671/123456789012345685.jpeg",
+                    "width": 3840,
+                    "height": 2160,
+                    "metadata": "{\"resolutionMode\":1}",
+                    "variants": [
+                        {
+                            "id": "123456789012345693",
+                            "type": 1,
+                            "status": 1,
+                            "mimetype": "image/jpeg",
+                            "width": 1920,
+                            "height": 1080,
+                            "location": "/123456789012345671/123456789012345685_1080p.jpeg",
+                            "metadata": "{\"resolutionMode\":1,\"quality\":85}"
+                        },
+                        {
+                            "id": "123456789012345694",
+                            "type": 1,
+                            "status": 1,
+                            "mimetype": "image/webp",
+                            "width": 1920,
+                            "height": 1080,
+                            "location": "/123456789012345671/123456789012345685_1080p.webp",
+                            "metadata": "{\"resolutionMode\":1,\"quality\":85}"
+                        }
+                    ],
+                    "locations": [
+                        {
+                            "locationId": "1",
+                            "location": "https://example.com/preview_4k.jpeg"
+                        }
+                    ]
+                }
+            }
+        ],
+        "accountMediaBundles": [
+            {
+                "id": "123456789012345681",
+                "accountId": "123456789012345671",
+                "permissionFlags": 0,
+                "price": 0,
+                "createdAt": 1733811900,
+                "deletedAt": null,
+                "deleted": false,
+                "accountMediaIds": [
+                    "123456789012345672"
+                ],
+                "bundleContent": [
+                    {
+                        "accountMediaId": "123456789012345672",
+                        "pos": 0
+                    }
+                ],
+                "permissions": {
+                    "permissionFlags": [
+                        {
+                            "id": "123456789012345682",
+                            "accountMediaId": "123456789012345681",
+                            "type": 0,
+                            "flags": 2,
+                            "price": 0,
+                            "metadata": "",
+                            "validAfter": null,
+                            "validBefore": null,
+                            "verificationFlags": 2,
+                            "verificationMetadata": "{}"
+                        }
+                    ],
+                    "accountPermissionFlags": {
+                        "flags": 2,
+                        "metadata": "{}"
+                    }
+                }
+            }
+        ]
+    }
+}

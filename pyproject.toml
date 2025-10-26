@@ -1,0 +1,268 @@
+[project]
+name = "fansly-scraper"
+version = "0.11.0"
+description = "Easy-to-use fansly.com content scraping tool. Enjoy your Fansly content offline anytime, anywhere in the highest possible content resolution! Fully customizable to download in bulk or single: photos, videos & audio from the timeline, messages, collection & single posts."
+authors = [
+    {name ="prof79"},
+    {name ="Avnsx"},
+    {name ="pawnstar81"},
+    {name ="UpAndDown666"},
+    {name ="icewinterberry12"},
+    {name ="1gintonic"},
+    {name ="Jakan", email ="github@jakan.co"},
+]
+credits = [
+    "Avnsx",
+    "KasumiDev",
+    "FletcherD",
+    "XelaRellum",
+    "sunbart",
+]
+license = "GPL-3.0-only"
+readme = "README.md"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.14"
+imagehash = "4.3.1"
+loguru = ">=0.7.2"
+m3u8 = ">=4.0.0"
+pillow = ">=10.2"
+plyvel-ci = ">=1.5"
+psutil = ">=5.9.8"
+python-dateutil = ">=2.8.2,<3.0.0"
+rich = ">=13.7.0,<14.0.0"
+strenum = ">=0.4.15,<0.5.0"
+websockets = ">=12.0,<13.0"
+alembic = ">=1.14.0"
+aiosqlite = ">=0.20.0"
+greenlet = ">=3.1.1"
+aiomultiprocess = ">=0.9.1"
+toml = ">=0.10.2"
+sqlalchemy = {extras = ["asyncio"], version = ">=2.0.37"}
+httpx = {extras = ["http2"], version = "^0.28.1"}
+strawberry-graphql = ">=0.258.0"
+gql = {extras = ["httpx", "websockets"], version = ">=3.5.0"}
+websocket-client = ">=1.8.0"
+psycopg2-binary = ">=2.9.10,<3.0.0"
+asyncpg = ">=0.30.0,<0.31.0"
+psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
+httpx-retries = "^0.4.3"
+ffmpeg-python = "^0.2.0"
+jsbeautifier = "^1.15.4"
+javascript = "^1!1.2.6"
+
+
+[tool.poetry.group.dev.dependencies]
+pyinstaller = ">=6.11.1"
+types-python-dateutil = ">=2.9.0.20241206"
+types-requests = ">=2.32.0.20241016"
+types-setuptools = ">=75.6.0.20241126"
+types-pillow = ">=10.2.0"
+memory-profiler = ">=0.61.0"
+pylint = ">=3.3.3"
+pre-commit = ">=4.0.1"
+black = ">=24.10.0"
+isort = ">=5.13.2"
+flake8 = ">=7.1.1"
+flake8-pyproject = ">=1.2.3"
+pyupgrade = ">=3.19.1"
+bandit = {extras = ["toml"], version = ">=1.8.0"}
+mypy = ">=1.11.0"
+ruff = "^0.14.2"
+
+[tool.poetry.group.test.dependencies]
+pytest = ">=8.3"
+pytest-cov = ">=6.0.0"
+pytest-asyncio = ">=0.26.0"
+pytest-timeout = ">=2.3.1"
+pytest-randomly = ">=3.16.0"
+pytest-mock = ">=3.14.0"
+pytest-xdist = ">=3.6.1"
+coverage = {extras = ["toml"], version = ">=7.8"}
+psutil = ">=7.0.0"
+types-psutil = ">=7.0.0.20250401"
+types-tqdm = ">=4.67.0.20241221"
+radon = ">=6.0.1"
+pytest-loguru = ">=0.4.0"
+factory-boy = "^3.3.3"
+
+
+[tool.bandit]
+# Exclude test files
+exclude_dirs = ["tests"]
+# Skip specific checks
+skips = [
+    'B110',  # try-except-pass
+    'B113',  # request-without-timeout
+    'B311',  # random
+    'B404',  # import-subprocess
+    'B601',  # paramiko
+    'B602',  # subprocess-popen-with-shell-equals-true
+    'B603',  # subprocess-without-shell-equals-true
+    'B605',  # start-process-with-partial-path
+    'B606',  # start-process-with-no-shell
+    'B607',  # start-process-with-partial-path
+    'B608',  # hardcoded-sql-expressions
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.flake8]
+max-line-length = 88
+max-complexity = 14
+max-doc-length = 140
+extend-ignore = [
+    "E203",
+    "E501",
+    "E704",
+    "F401",
+    "W505",
+]
+namespace-packages = true
+per-file-ignores = ["tests/**/*.py:F841"]
+
+[tool.isort]
+profile = "black"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-config=pyproject.toml",
+    "--randomly-seed=1234",
+    "--timeout=300",
+    "-n=8",  # Use 8 parallel workers
+    "-v",  # Add verbose output for better debugging
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+xfail_strict = true
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+    "ignore::sqlalchemy.exc.SAWarning",
+    "ignore::coverage.exceptions.CoverageWarning",
+    "ignore::pluggy.PluggyTeardownRaisedWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "functional: marks tests as functional tests",
+    "performance: marks tests as performance tests",
+    "asyncio: mark a test as an async test",
+    "full_workflow: marks tests that run the complete workflow",
+    "comprehensive: marks tests that check for comprehensive coverage",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+data_file = ".coverage"
+omit = [
+    "*/venv/*",
+    "*/venv_test/*",
+    "*/__pycache__/*",
+    "*/tests/*",
+    "docs/*",
+    "*/migrations/*",
+    "*/.pytest_cache/*",
+    "*/.git/*",
+    "*/.github/*",
+    "*/htmlcov/*",
+    "stash/example.py"  # Example code, not production code
+]
+command_line = "-m pytest discover -s tests/"
+parallel = false
+concurrency = ["multiprocessing"]
+disable_warnings = [
+    "no-data-collected",
+    "module-not-imported",
+    "couldnt-parse",
+]
+# Fix for Mock serialization issues in parallel mode
+sigterm = true
+
+[tool.coverage.report]
+exclude_also = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    "pass",
+    "\\.\\.\\.$",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if False:",
+    "if TESTING:"
+]
+ignore_errors = true
+skip_empty = true
+skip_covered = true
+precision = 2
+show_missing = true
+fail_under = 70
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Coverage Report"
+show_contexts = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
+package_depth = 2
+
+[tool.mypy]
+python_version = "3.12"
+exclude = [
+    "tests/",
+    "venv_test/",]
+strict = true
+# Start off with these
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# Getting these passing should be easy
+strict_equality = true
+strict_concatenate = true
+
+# Strongly recommend enabling this one as soon as you can
+check_untyped_defs = true
+
+# These shouldn't be too much additional work, but may be tricky to
+# get passing if you use a lot of untyped libraries
+disallow_subclassing_any = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+
+# These next few are various gradations of forcing use of type annotations
+disallow_untyped_calls = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+
+# This one isn't too hard to get passing, but return on investment is lower
+no_implicit_reexport = true
+
+# This one can be tricky to get passing if you use a lot of untyped libraries
+warn_return_any = true
