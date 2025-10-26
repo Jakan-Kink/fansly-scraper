@@ -55,7 +55,7 @@ def read_log_file(log_dir: Path, filename: str) -> list[str]:
     if not log_file.exists():
         return []
     # Ensure file has been flushed to disk
-    with open(log_file, encoding="utf-8") as f:
+    with log_file.open(encoding="utf-8") as f:
         return [line.strip() for line in f.readlines()]
 
 
@@ -235,12 +235,12 @@ def test_log_file_rotation(logging_config, log_dir):
 
     # Create a base log file
     log_path = log_dir / "fansly_downloader_ng.log"
-    with open(log_path, "w") as f:
+    with log_path.open("w") as f:
         f.write("Test log content\n")
 
     # Create a rotated log file
     rotated_path = log_dir / "fansly_downloader_ng.log.1.gz"
-    with open(rotated_path, "w") as f:
+    with rotated_path.open("w") as f:
         f.write("Rotated log content\n")
 
     # Check that we have the expected files

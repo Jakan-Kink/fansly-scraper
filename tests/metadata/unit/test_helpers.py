@@ -178,7 +178,7 @@ def test_rollover_on_init(log_setup):
     temp_dir, log_filename, logger = log_setup
 
     # Create an initial log file
-    with open(log_filename, "w") as f:
+    with Path(log_filename).open("w") as f:
         f.write("X" * 1000)
 
     # Set old modification time

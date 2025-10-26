@@ -90,7 +90,7 @@ class TestBrowserIntegration(unittest.TestCase):
         # Create .ldb files in the folders
         for path in leveldb_paths:
             os.makedirs(path)
-            with open(os.path.join(path, "000001.ldb"), "w") as f:
+            with Path(os.path.join(path, "000001.ldb")).open("w") as f:
                 f.write("test")
 
         # Create some non-leveldb folders

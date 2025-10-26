@@ -25,7 +25,7 @@ def valid_mp4_file(temp_dir):
     file_path = temp_dir / "valid.mp4"
 
     # Create the most minimal valid MP4 file
-    with open(file_path, "wb") as f:
+    with file_path.open("wb") as f:
         # ftyp box (24 bytes)
         f.write(bytes.fromhex("00000018 66747970 6D703432 00000000 6D703432 00000000"))
         # free box (16 bytes)
@@ -33,7 +33,7 @@ def valid_mp4_file(temp_dir):
         # mdat box (16 bytes)
         f.write(bytes.fromhex("00000010 6D646174 00000000 00000000"))
 
-    yield file_path
+    return file_path
 
 
 @pytest.fixture
@@ -42,11 +42,11 @@ def invalid_mp4_file(temp_dir):
     file_path = temp_dir / "invalid.mp4"
 
     # Create an invalid MP4 file (missing ftyp box)
-    with open(file_path, "wb") as f:
+    with file_path.open("wb") as f:
         # moov box (16 bytes)
         f.write(bytes.fromhex("00000010 6D6F6F76 00000000 00000000"))
 
-    yield file_path
+    return file_path
 
 
 @pytest.fixture
@@ -54,10 +54,10 @@ def too_small_file(temp_dir):
     """Create a file that's too small to be an MP4."""
     file_path = temp_dir / "too_small.mp4"
 
-    with open(file_path, "wb") as f:
+    with file_path.open("wb") as f:
         f.write(bytes.fromhex("0000"))  # Only 2 bytes
 
-    yield file_path
+    return file_path
 
 
 class TestMP4Integration:
@@ -65,7 +65,7 @@ class TestMP4Integration:
 
     def test_get_boxes_with_real_file(self, valid_mp4_file):
         """Test get_boxes with a real MP4 file."""
-        with open(valid_mp4_file, "rb") as f:
+        with valid_mp4_file.open("rb") as f:
             boxes = list(get_boxes(f))
 
         # Validate box count and types
@@ -76,9 +76,8 @@ class TestMP4Integration:
 
     def test_get_boxes_with_invalid_file(self, invalid_mp4_file):
         """Test get_boxes with an invalid MP4 file."""
-        with open(invalid_mp4_file, "rb") as f:
-            with pytest.raises(InvalidMP4Error):
-                list(get_boxes(f))
+        with invalid_mp4_file.open("rb") as f, pytest.raises(InvalidMP4Error):
+            list(get_boxes(f))
 
     def test_hash_mp4file_with_real_file(self, valid_mp4_file):
         """Test hash_mp4file with a real MP4 file."""

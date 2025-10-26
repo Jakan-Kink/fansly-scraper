@@ -18,7 +18,7 @@ def timeline_data():
     json_path = (
         Path(__file__).parent.parent.parent / "json" / "timeline-sample-account.json"
     )
-    with open(json_path, encoding="utf-8") as f:
+    with json_path.open(encoding="utf-8") as f:
         data = json.load(f)["response"]
         # Make sure we have at least two posts for testing
         if len(data.get("posts", [])) < 2:
