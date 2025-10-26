@@ -32,8 +32,8 @@ class TagClientMixin(StashClientProtocol):
                 clean_data = sanitize_model_data(result["findTag"])
                 return Tag(**clean_data)
             return None
-        except Exception as e:
-            self.log.exception(f"Failed to find tag {id}: {e}")
+        except Exception:
+            self.log.exception(f"Failed to find tag {id}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -74,8 +74,8 @@ class TagClientMixin(StashClientProtocol):
                 {"filter": filter_, "tag_filter": tag_filter},
             )
             return FindTagsResultType(**result["findTags"])
-        except Exception as e:
-            self.log.exception(f"Failed to find tags: {e}")
+        except Exception:
+            self.log.exception("Failed to find tags")
             return FindTagsResultType(count=0, tags=[])
 
     async def create_tag(self, tag: Tag) -> Tag:
@@ -115,7 +115,7 @@ class TagClientMixin(StashClientProtocol):
                 if results.count > 0:
                     return Tag(**sanitize_model_data(results.tags[0]))
                 raise  # Re-raise if we couldn't find the tag
-            self.log.exception(f"Failed to create tag: {e}")
+            self.log.exception("Failed to create tag")
             raise
 
     async def tags_merge(
@@ -145,8 +145,8 @@ class TagClientMixin(StashClientProtocol):
             self.find_tag.cache_clear()
             self.find_tags.cache_clear()
             return Tag(**sanitize_model_data(result["tagsMerge"]))
-        except Exception as e:
-            self.log.exception(f"Failed to merge tags {source} into {destination}: {e}")
+        except Exception:
+            self.log.exception(f"Failed to merge tags {source} into {destination}")
             raise
 
     async def bulk_tag_update(
@@ -196,8 +196,8 @@ class TagClientMixin(StashClientProtocol):
             self.find_tag.cache_clear()
             self.find_tags.cache_clear()
             return [Tag(**sanitize_model_data(tag)) for tag in result["bulkTagUpdate"]]
-        except Exception as e:
-            self.log.exception(f"Failed to bulk update tags {ids}: {e}")
+        except Exception:
+            self.log.exception(f"Failed to bulk update tags {ids}")
             raise
 
     async def update_tag(self, tag: Tag) -> Tag:
@@ -235,6 +235,6 @@ class TagClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_tag.mark_clean()
             return updated_tag
-        except Exception as e:
-            self.log.exception(f"Failed to update tag: {e}")
+        except Exception:
+            self.log.exception("Failed to update tag")
             raise

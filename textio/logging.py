@@ -95,13 +95,13 @@ class SizeAndTimeRotatingFileHandler(BaseRotatingHandler):
             )
         return interval * intervals[when]
 
-    def _compute_next_rollover(self):
+    def _compute_next_rollover(self) -> float:
         current_time = time.time()
         if self.utc:
             current_time = datetime.now(UTC).timestamp()
         return current_time + self.interval
 
-    def _ensure_compression_state(self):
+    def _ensure_compression_state(self) -> None:
         """Ensure all files that should be compressed are compressed."""
         if not self.compression:
             return
@@ -374,7 +374,7 @@ class SizeTimeRotatingHandler:
         keep_uncompressed: int = 0,
         encoding: str = "utf-8",
         log_level: str | int = "INFO",
-    ):
+    ) -> None:
         """Initialize the handler.
 
         Args:
@@ -420,6 +420,13 @@ class SizeTimeRotatingHandler:
 
     def _ensure_log_directory(self) -> None:
         """Ensure the log directory exists and is writable."""
+
+        def _raise_permission_error(msg: str, cause: Exception | None = None) -> None:
+            """Raise PermissionError with optional cause."""
+            if cause:
+                raise PermissionError(msg) from cause
+            raise PermissionError(msg)
+
         try:
             # Create directory if it doesn't exist
             self.filename.parent.mkdir(parents=True, exist_ok=True)
@@ -427,7 +434,9 @@ class SizeTimeRotatingHandler:
             # Test write permissions
             if self.filename.exists():
                 if not os.access(self.filename, os.W_OK):
-                    raise PermissionError(f"Cannot write to log file: {self.filename}")
+                    _raise_permission_error(
+                        f"Cannot write to log file: {self.filename}"
+                    )
             else:
                 # Test directory write permissions by creating a temp file
                 test_file = self.filename.parent / f".{self.filename.name}.test"
@@ -435,9 +444,10 @@ class SizeTimeRotatingHandler:
                     test_file.touch()
                     test_file.unlink()
                 except OSError as e:
-                    raise PermissionError(
-                        f"Cannot write to log directory: {self.filename.parent}"
-                    ) from e
+                    _raise_permission_error(
+                        f"Cannot write to log directory: {self.filename.parent}",
+                        cause=e,
+                    )
 
         except Exception as e:
             # Avoid printing to stderr during cleanup - pytest may have closed it

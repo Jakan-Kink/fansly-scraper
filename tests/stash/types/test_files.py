@@ -18,11 +18,11 @@ from stash.types.files import (
     MoveFilesInput,
     SetFingerprintsInput,
     StashID,
-    fingerprint_resolver,
     StashIDInput,
     VideoCaption,
     VideoFile,
     VisualFile,
+    fingerprint_resolver,
 )
 
 

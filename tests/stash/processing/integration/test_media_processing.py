@@ -302,9 +302,8 @@ class TestMediaProcessingIntegration:
                 # First call - process the main attachment
                 # This should trigger recursive call
                 return await original_method(attachment_obj, item, acc, session)
-            else:
-                # Recursive call for aggregated attachment
-                return mock_sub_result
+            # Recursive call for aggregated attachment
+            return mock_sub_result
 
         stash_processor.process_creator_attachment = mock_recursive_call
 

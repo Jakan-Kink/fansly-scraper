@@ -56,7 +56,7 @@ class FanslyWebSocket:
         enable_logging: bool = False,
         on_unauthorized: Callable[[], Any] | None = None,
         on_rate_limited: Callable[[], Any] | None = None,
-    ):
+    ) -> None:
         """Initialize Fansly WebSocket client.
 
         Args:
@@ -335,7 +335,7 @@ class FanslyWebSocket:
             await self._handle_message(response)
 
             if not self.session_id:
-                raise RuntimeError("Failed to authenticate WebSocket connection")
+                raise RuntimeError("Failed to authenticate WebSocket connection")  # noqa: TRY301 - simple error, no need for helper function
 
             # Start ping loop
             self._start_ping_loop()

@@ -23,7 +23,7 @@ class RateLimiter:
     with support for burst traffic and adaptive rate limiting based on server responses.
     """
 
-    def __init__(self, config: "FanslyConfig"):
+    def __init__(self, config: "FanslyConfig") -> None:
         """
         Initialize the rate limiter.
 
