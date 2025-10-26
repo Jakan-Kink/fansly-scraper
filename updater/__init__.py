@@ -7,7 +7,7 @@ from textio import print_warning
 from .utils import check_for_update, delete_deprecated_files, post_update_steps
 
 
-def self_update(config: FanslyConfig):
+def self_update(config: FanslyConfig) -> None:
     """Performs self-updating if necessary."""
 
     release_info = get_release_info_from_github(config.program_version)

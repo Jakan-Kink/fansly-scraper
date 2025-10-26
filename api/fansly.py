@@ -95,7 +95,7 @@ class FanslyApi:
     def get_text_accept(self) -> str:
         return "application/json, text/plain, */*"
 
-    def set_text_accept(self, headers: dict[str, str]):
+    def set_text_accept(self, headers: dict[str, str]) -> None:
         headers["Accept"] = self.get_text_accept()
 
     def get_common_headers(self, alternate_token: str | None = None) -> dict[str, str]:
@@ -769,7 +769,7 @@ class FanslyApi:
         return raw_string.lstrip("0")
 
     @staticmethod
-    def int32(val):
+    def int32(val: int) -> int:
         from ctypes import c_int32
 
         if -(2**31) <= val < 2**31:

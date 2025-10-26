@@ -2,11 +2,13 @@ import functools
 import json
 import re
 import string
+from collections.abc import Callable
+from typing import Any
 
 from .logging import debug_print
 
 
-def normalize_str(string_in):
+def normalize_str(string_in: str) -> str:
     # remove punctuation
     punctuation = re.compile(f"[{string.punctuation}]")
     string_in = re.sub(punctuation, " ", string_in)
@@ -21,7 +23,7 @@ def normalize_str(string_in):
     return string_in
 
 
-def str_compare(s1, s2, ignore_case=True):
+def str_compare(s1: str, s2: str, ignore_case: bool = True) -> bool:
     s1 = normalize_str(s1)
     s2 = normalize_str(s2)
     if ignore_case:
@@ -30,7 +32,9 @@ def str_compare(s1, s2, ignore_case=True):
     return s1 == s2
 
 
-def async_lru_cache(maxsize=128, exclude_arg_indices=None):
+def async_lru_cache(
+    maxsize: int = 128, exclude_arg_indices: list[int] | None = None
+) -> Callable:
     """Decorator to add LRU caching to an async function.
 
     Args:
@@ -49,15 +53,15 @@ def async_lru_cache(maxsize=128, exclude_arg_indices=None):
     - cache_info(): Get info about cache size and capacity
     """
 
-    def decorator(func):
+    def decorator(func: Callable) -> Callable:
         # Create cache
         cache = {}
 
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Create cache key from args and kwargs
             # Convert any dicts to sorted JSON for consistent keys
-            def make_key_part(arg):
+            def make_key_part(arg: Any) -> Any:
                 if isinstance(arg, dict):
                     return json.dumps(arg, sort_keys=True)
                 if isinstance(arg, (list, tuple)):

@@ -15,7 +15,7 @@ from .media import download_media_infos
 from .types import DownloadType
 
 
-async def download_messages(config: FanslyConfig, state: DownloadState):
+async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
     # This is important for directory creation later on.
     state.download_type = DownloadType.MESSAGES
 

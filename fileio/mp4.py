@@ -8,9 +8,9 @@ https://sanjeev-pandey.medium.com/understanding-the-mpeg-4-moov-atom-pseudo-stre
 
 __all__ = [
     "MP4Box",
-    "hash_mp4file",
     "get_boxes",
     "hash_mp4box",
+    "hash_mp4file",
 ]
 
 
@@ -18,6 +18,7 @@ import os
 from collections.abc import Callable, Iterable
 from io import BufferedReader
 from pathlib import Path
+from typing import Any
 
 from errors.mp4 import InvalidMP4Error
 
@@ -88,7 +89,7 @@ def get_boxes(reader: BufferedReader) -> Iterable[MP4Box]:
         yield box
 
 
-def hash_mp4box(algorithm, reader: BufferedReader, box: MP4Box):
+def hash_mp4box(algorithm: Any, reader: BufferedReader, box: MP4Box) -> None:
     """Hashes an MPEG-4 box atom.
 
     `algorithm` must be a `hashlib` algorithm.
@@ -107,7 +108,7 @@ def hash_mp4box(algorithm, reader: BufferedReader, box: MP4Box):
 
 
 def hash_mp4file(
-    algorithm,
+    algorithm: Any,
     file_name: Path,
     print: Callable | None = None,
     use_broken_algo: bool = False,

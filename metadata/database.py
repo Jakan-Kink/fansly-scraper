@@ -25,7 +25,7 @@ import asyncio
 import atexit
 import os
 from collections.abc import AsyncGenerator, Callable, Generator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import TracebackType
 from typing import Any
 
 from requests.structures import CaseInsensitiveDict
@@ -127,6 +128,11 @@ class StashContext:
         """Enter async context manager."""
         return await self.get_client()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit async context manager."""
         await self.close()

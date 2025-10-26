@@ -200,7 +200,6 @@ from .scene import (
     ScenesDestroyInput,
     SceneStreamEndpoint,
     SceneUpdateInput,
-    VideoCaption,
 )
 from .studio import (
     FindStudiosResultType,

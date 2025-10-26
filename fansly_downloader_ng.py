@@ -7,6 +7,8 @@ __version__ = "0.11.0"
 import asyncio
 import atexit
 import base64
+import contextlib
+import gc
 import random
 import signal
 import sys
@@ -16,6 +18,7 @@ import traceback
 # from memory_profiler import profile
 from datetime import datetime
 from time import monotonic
+from types import FrameType
 
 from config import (
     DownloadMode,
@@ -189,7 +192,7 @@ def print_logo() -> None:
     print(f"{(100 - len(__version__) - 1) // 2 * ' '}v{__version__}\n")
 
 
-def _handle_interrupt(signum, frame):
+def _handle_interrupt(signum: int, frame: FrameType | None) -> None:
     """Handle interrupt signal (Ctrl+C)."""
     print_error("\nInterrupted by user")
     # Set a flag instead of calling sys.exit directly
@@ -665,7 +668,7 @@ async def main(config: FanslyConfig) -> int:
     return exit_code
 
 
-async def cleanup_with_global_timeout(config: FanslyConfig):
+async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
     """Perform cleanup with a global timeout to ensure program exits."""
     cleanup_start = time.time()
     max_cleanup_time = 40  # Increased maximum cleanup time to 40 seconds

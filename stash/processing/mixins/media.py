@@ -11,6 +11,7 @@ This mixin handles processing of media objects into Stash. It includes:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -38,9 +39,9 @@ class MediaProcessingMixin:
     async def fetch_media_by_account_mimetype(
         self,
         account: Account,
-        mimetype_filter: str = None,
+        mimetype_filter: str = "",
         session: AsyncSession | None = None,
-    ) -> list[Media]:
+    ) -> Sequence[Media]:
         """Fetch all media for an account filtered by mimetype.
 
         This method efficiently retrieves media in batches by account ID and optionally
@@ -56,6 +57,8 @@ class MediaProcessingMixin:
             List of Media objects that match the criteria
         """
         # Ensure we have a fresh account instance
+        if not session:
+            raise ValueError("Session is required for fetching media")
         stmt = select(Account).where(Account.id == account.id)
         result = await session.execute(stmt)
         account = result.scalar_one()
@@ -64,7 +67,7 @@ class MediaProcessingMixin:
         media_query = select(Media).where(Media.accountId == account.id)
 
         # Add mimetype filter if provided
-        if mimetype_filter:
+        if mimetype_filter and mimetype_filter.strip():
             media_query = media_query.where(Media.mimetype.like(mimetype_filter))
 
         # Only get downloaded media
@@ -306,8 +309,8 @@ class MediaProcessingMixin:
 
     def _create_nested_path_or_conditions(
         self,
-        media_ids: list[str],
-    ) -> dict[str, dict]:
+        media_ids: Sequence[str],
+    ) -> dict[str, dict[str, Any]]:
         """Create nested OR conditions for path filters properly formatted for Stash GraphQL.
 
         Args:
@@ -497,7 +500,9 @@ class MediaProcessingMixin:
 
     async def _find_stash_files_by_id(
         self,
-        stash_files: list[tuple[str, str]],  # List of (stash_id, mime_type) tuples
+        stash_files: list[
+            tuple[str | int, str]
+        ],  # List of (stash_id, mime_type) tuples
     ) -> list[tuple[dict, Scene | Image]]:
         """Find files in Stash by stash ID.
 
@@ -510,18 +515,19 @@ class MediaProcessingMixin:
         found = []
 
         # Group by mime type
-        image_ids = []
-        scene_ids = []
-        image_id_map = {}  # stash_id -> mime_type mapping
-        scene_id_map = {}  # stash_id -> mime_type mapping
+        image_ids: list[str] = []
+        scene_ids: list[str] = []
+        image_id_map: dict[str, str] = {}  # stash_id -> mime_type mapping
+        scene_id_map: dict[str, str] = {}  # stash_id -> mime_type mapping
 
         for stash_id, mime_type in stash_files:
+            stash_id_str = str(stash_id)
             if mime_type and mime_type.startswith("image"):
-                image_ids.append(stash_id)
-                image_id_map[stash_id] = mime_type
+                image_ids.append(stash_id_str)
+                image_id_map[stash_id_str] = mime_type
             else:  # video or application -> scenes
-                scene_ids.append(stash_id)
-                scene_id_map[stash_id] = mime_type
+                scene_ids.append(stash_id_str)
+                scene_id_map[stash_id_str] = mime_type
 
         # Maximum batch size to prevent API overload
         MAX_BATCH_SIZE = 20
@@ -614,7 +620,7 @@ class MediaProcessingMixin:
         )
         return found
 
-    def _chunk_list(self, items: list, chunk_size: int) -> list[list]:
+    def _chunk_list(self, items: Sequence[str], chunk_size: int) -> list[Sequence[str]]:
         """Split a list into chunks of specified size.
 
         Args:
@@ -644,8 +650,8 @@ class MediaProcessingMixin:
         }
 
         # Group media IDs by mime type
-        image_ids = []
-        scene_ids = []  # Both video and application use find_scenes
+        image_ids: list[str] = []
+        scene_ids: list[str] = []  # Both video and application use find_scenes
         for media_id, mime_type in media_files:
             if mime_type and mime_type.startswith("image"):
                 image_ids.append(media_id)
@@ -1443,7 +1449,7 @@ class MediaProcessingMixin:
 
     async def _process_media_batch_by_mimetype(
         self,
-        media_list: list[Media],
+        media_list: Sequence[Media],
         item: Any,
         account: Account,
     ) -> dict[str, list[Image | Scene]]:

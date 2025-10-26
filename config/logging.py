@@ -535,13 +535,17 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
     return max(level, _LEVEL_VALUES["DEBUG"])
 
 
-def update_logging_config(config, enabled: bool) -> None:
+def update_logging_config(config: Any, enabled: bool) -> None:
     """Update the logging configuration.
 
     Args:
         config: The FanslyConfig instance to use
         enabled: Whether debug mode should be enabled
     """
+    from config.fanslyconfig import FanslyConfig
+
+    if not isinstance(config, FanslyConfig):
+        raise TypeError("config must be an instance of FanslyConfig")
     global _config, _debug_enabled
     _config = config  # Update config reference
     _debug_enabled = enabled  # Update debug flag

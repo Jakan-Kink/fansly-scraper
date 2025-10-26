@@ -3,9 +3,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from sqlalchemy import BigInteger, CheckConstraint
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, func, select
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Integer, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.attributes import set_committed_value

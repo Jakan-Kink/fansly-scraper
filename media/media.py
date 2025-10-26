@@ -7,10 +7,11 @@ from textio import print_error
 
 from . import MediaItem
 
+
 # from pprint import pprint
 
 
-def simplify_mimetype(mimetype: str):
+def simplify_mimetype(mimetype: str) -> str:
     """Simplify (normalize) the MIME types in Fansly replies
     to usable standards.
     """
@@ -25,7 +26,7 @@ def simplify_mimetype(mimetype: str):
     return mimetype
 
 
-def parse_variant_metadata(variant_metadata_json: str):
+def parse_variant_metadata(variant_metadata_json: str) -> int:
     """Fixes Fansly API's current_variant_resolution height bug."""
 
     variant_metadata = json.loads(variant_metadata_json)
@@ -48,7 +49,7 @@ def parse_variant_metadata(variant_metadata_json: str):
 # TODO: Enums in Python for content_type?
 def parse_variants(
     item: MediaItem, content: dict, content_type: str, media_info: dict
-):  # content_type: media / preview
+) -> None:  # content_type: media / preview
     """Parse metadata and resolution variants of a Fansly media item.
 
     :param MediaItem item: The media to parse and correct.

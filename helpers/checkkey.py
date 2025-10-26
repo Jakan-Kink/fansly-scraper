@@ -10,10 +10,14 @@ NO REGEX FOR FINDING - uses structural AST traversal!
 Uses JSPyBridge for efficient Python-JavaScript communication.
 """
 
+import json
 import os
 import re
+import subprocess
+import tempfile
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -109,7 +113,7 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
     :return: The extracted checkKey value or None if extraction fails
     :rtype: str | None
     """
-    from textio import print_warning
+    from textio import print_warning  # Avoid circular import
 
     if not HAS_JSPYBRIDGE:
         # Fallback to subprocess method
@@ -117,15 +121,24 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
 
     try:
         # Parse JavaScript into AST
-        ast = acorn.parse(js_content, {"ecmaVersion": 2020, "sourceType": "script"})
+        ast = acorn.parse(js_content, {"ecmaVersion": "latest", "sourceType": "script"})
 
         # Find all assignments to this.checkKey_ (NO REGEX!)
+        # These can be in AssignmentExpression OR within SequenceExpression
         assignments = []
 
-        def check_assignment(node):
-            """Check if node is an assignment to this.checkKey_"""
+        def check_node(node: Any, _state: Any = None) -> None:
+            """Check if node is an assignment to this.checkKey_.
+
+            Args:
+                node: The AST node to check
+                _state: State object passed by acorn-walk (unused)
+            """
+            # Check for direct assignment: this.checkKey_ = value
             if (
-                node.type == "AssignmentExpression"
+                hasattr(node, "type")
+                and node.type == "AssignmentExpression"
+                and hasattr(node, "left")
                 and node.left.type == "MemberExpression"
                 and node.left.object.type == "ThisExpression"
                 and node.left.property.type == "Identifier"
@@ -138,14 +151,24 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
 
                 assignments.append({"position": start, "expression": expression})
 
-        # Walk the AST to find assignments
-        acorn_walk.simple(ast, {"AssignmentExpression": check_assignment})
+        # Walk the AST to find assignments (check all node types)
+        # Debug: count total assignment expressions found
+        assignment_count = [0]  # Use list for closure
+
+        def count_assignments(node: Any, _state: Any = None) -> None:
+            assignment_count[0] += 1
+            check_node(node, _state)
+
+        acorn_walk.simple(ast, {"AssignmentExpression": count_assignments})
 
         # Sort by position (first in file = first in execution)
         assignments.sort(key=lambda x: x["position"])
 
         if not assignments:
-            print_warning("No assignments to this.checkKey_ found in JavaScript")
+            print_warning(
+                f"No assignments to this.checkKey_ found in JavaScript "
+                f"(searched {assignment_count[0]} total assignments)"
+            )
             return None
 
         # Execute the first assignment to get the value
@@ -193,7 +216,7 @@ const jsContent = fs.readFileSync('{temp_js_path}', 'utf-8');
 let ast;
 try {{
     ast = acorn.parse(jsContent, {{
-        ecmaVersion: 2020,
+        ecmaVersion: 'latest',
         sourceType: 'script'
     }});
 }} catch (err) {{

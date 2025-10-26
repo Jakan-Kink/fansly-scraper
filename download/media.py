@@ -7,6 +7,7 @@ import shutil
 import tempfile
 from asyncio import sleep as async_sleep
 from pathlib import Path
+from typing import BinaryIO
 
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Column
@@ -298,7 +299,9 @@ async def _verify_temp_download(
     return False
 
 
-def _download_file(config: FanslyConfig, media_item: MediaItem, output_file) -> None:
+def _download_file(
+    config: FanslyConfig, media_item: MediaItem, output_file: BinaryIO
+) -> None:
     """Download file from URL to output file."""
     response = None
     try:
@@ -353,7 +356,7 @@ def _download_regular_file(
             task_id = progress.add_task("", total=file_size)
             progress.start()
 
-            with open(file_save_path, "wb") as output_file:
+            with file_save_path.open("wb") as output_file:
                 for chunk in response.iter_bytes(chunk_size=1_048_576):
                     if chunk:
                         output_file.write(chunk)
@@ -480,7 +483,7 @@ async def download_media(
     state: DownloadState,
     accessible_media: list[MediaItem],
     session: AsyncSession | None = None,
-):
+) -> None:
     """Downloads all media items to their respective target folders.
 
     Args:

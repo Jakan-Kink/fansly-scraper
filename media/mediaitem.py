@@ -1,7 +1,7 @@
 """Class to Represent Media Items"""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 

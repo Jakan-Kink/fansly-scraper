@@ -96,7 +96,7 @@ def username_has_valid_chars(name: str) -> bool:
     return not invalid_chars
 
 
-def copy_old_config_values():
+def copy_old_config_values() -> None:
     """Copies configuration values from an old configuration file to
     a new one.
 

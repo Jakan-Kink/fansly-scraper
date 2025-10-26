@@ -12,9 +12,10 @@ from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 
+
 if TYPE_CHECKING:
     from metadata import Base, Database
-    from stash import StashClient, StashContext  # noqa: F401
+    from stash import StashClient, StashContext
 
 
 @dataclass
@@ -499,7 +500,7 @@ class FanslyConfig:
     def get_background_tasks(self) -> list[asyncio.Task]:
         return self._background_tasks
 
-    def cancel_background_tasks(self):
+    def cancel_background_tasks(self) -> None:
         for task in self._background_tasks:
             if not task.done():
                 task.cancel()

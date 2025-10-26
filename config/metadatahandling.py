@@ -1,6 +1,7 @@
 """Metadata Handling"""
 
 from enum import auto
+from typing import Any, Self
 
 from strenum import StrEnum
 
@@ -11,7 +12,7 @@ class MetadataHandling(StrEnum):
     SIMPLE = auto()
 
     @classmethod
-    def _missing_(cls, value):
+    def _missing_(cls, value: Any) -> Self | None:
         """Handle case-insensitive lookup of enum values."""
         if isinstance(value, str):
             # Try to match case-insensitively
