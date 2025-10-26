@@ -15,7 +15,14 @@ import json
 import os
 import time
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Sequence
+from collections.abc import (
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Generator,
+    Sequence,
+)
 from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
 from functools import wraps
@@ -323,7 +330,7 @@ class TestDatabase(Database):
         statement: str,
         parameters: dict[str, Any] | Sequence[Any],
         context: ExecutionContext,
-        executemany: bool
+        executemany: bool,
     ) -> None:
         """Log query execution start time."""
         conn.info.setdefault("query_start_time", []).append(time.time())
@@ -335,7 +342,7 @@ class TestDatabase(Database):
         statement: str,
         parameters: dict[str, Any] | Sequence[Any],
         context: ExecutionContext,
-        executemany: bool
+        executemany: bool,
     ) -> None:
         """Log query execution time."""
         total = time.time() - conn.info["query_start_time"].pop()
@@ -444,7 +451,7 @@ def conversation_data(test_data_dir: str) -> dict[str, Any]:
         return json.load(f)  # type: ignore[no-any-return]
 
 
-def run_async(func: Callable[..., Awaitable[Any]]) -> Callable[..., Any]:
+def run_async(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., Any]:
     """Decorator to run async functions in sync tests."""
 
     @wraps(func)
@@ -719,7 +726,10 @@ async def create_test_entity(
     # Generate unique ID based on test name
     # Generate unique ID based on full test name and class name
     test_name = test_name.replace("::", "_")  # Replace :: with _ for class methods
-    unique_id = int(hashlib.sha1(test_name.encode(), usedforsecurity=False).hexdigest()[:8], 16) % 1000000
+    unique_id = (
+        int(hashlib.sha1(test_name.encode(), usedforsecurity=False).hexdigest()[:8], 16)
+        % 1000000
+    )
 
     # Check if entity already exists
     result = await session.execute(

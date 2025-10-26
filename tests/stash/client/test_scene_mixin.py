@@ -340,7 +340,7 @@ async def test_find_scenes_error(stash_client: StashClient) -> None:
                 return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
             except Exception as e:
                 # Properly handle the exception
-                self.log.exception(f"Error finding scenes: {e}")
+                self.log.exception("Error finding scenes")
                 return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
 
     # Create our test instance

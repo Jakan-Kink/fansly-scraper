@@ -531,7 +531,7 @@ class StashClientBase:
                 raise ValueError("Failed to start metadata scan - no job ID returned")
             return job_id
         except Exception as e:
-            self.log.exception(f"Failed to start metadata scan: {e}")
+            self.log.exception("Failed to start metadata scan")
             raise ValueError(f"Failed to start metadata scan: {e}")
 
     async def find_job(self, job_id: str) -> Job | None:
@@ -566,8 +566,8 @@ class StashClientBase:
             if job_data := result.get("findJob"):
                 return Job(**job_data)
             return None
-        except Exception as e:
-            self.log.exception(f"Failed to find job {job_id}: {e}")
+        except Exception:
+            self.log.exception(f"Failed to find job {job_id}")
             return None
 
     async def wait_for_job(

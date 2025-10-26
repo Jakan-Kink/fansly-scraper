@@ -48,7 +48,8 @@ def with_session() -> Callable[[Callable[..., RT]], Callable[..., RT]]:
                 (
                     (name, param)
                     for name, param in sig.parameters.items()
-                    if param.annotation in {"Session | None", "sqlalchemy.orm.Session | None"}
+                    if param.annotation
+                    in {"Session | None", "sqlalchemy.orm.Session | None"}
                 ),
                 ("session", sig.parameters.get("session")),
             )

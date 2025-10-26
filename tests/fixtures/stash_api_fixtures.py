@@ -383,9 +383,7 @@ def mock_account():
 
     # Make these properties that return fresh coroutines each time
     type(account.awaitable_attrs).username = property(lambda self: get_username())
-    type(account.awaitable_attrs).displayName = property(
-        lambda self: get_displayname()
-    )
+    type(account.awaitable_attrs).displayName = property(lambda self: get_displayname())
 
     # Make the mock account safe to call directly (returns itself when called)
     account.__call__ = MagicMock(return_value=account)

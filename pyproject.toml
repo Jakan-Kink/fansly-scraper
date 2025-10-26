@@ -88,8 +88,8 @@ factory-boy = "^3.3.3"
 
 
 [tool.bandit]
-# Exclude test files
-exclude_dirs = ["tests"]
+# Exclude test files and example scripts
+exclude_dirs = ["tests", "scripts"]
 # Skip specific checks
 skips = [
     'B110',  # try-except-pass

@@ -62,13 +62,13 @@ def upgrade() -> None:
 
     # Group duplicates by their lowercase value
     for _, group in groupby(duplicates, key=lambda x: x[1].lower()):
-        group = list(group)
-        if not group:
+        group_items = list(group)
+        if not group_items:
             continue
 
         # Use the first occurrence (lowest ID) as the canonical version
-        canonical = group[0]
-        duplicates = group[1:]
+        canonical = group_items[0]
+        duplicates = group_items[1:]
 
         if duplicates:
             # Log what we're merging

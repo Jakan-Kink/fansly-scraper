@@ -32,8 +32,8 @@ class MarkerClientMixin(StashClientProtocol):
                 clean_data = sanitize_model_data(result["findSceneMarker"])
                 return SceneMarker(**clean_data)
             return None
-        except Exception as e:
-            self.log.exception(f"Failed to find marker {id}: {e}")
+        except Exception:
+            self.log.exception(f"Failed to find marker {id}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -71,8 +71,8 @@ class MarkerClientMixin(StashClientProtocol):
                 {"filter": filter_, "marker_filter": marker_filter},
             )
             return FindSceneMarkersResultType(**result["findSceneMarkers"])
-        except Exception as e:
-            self.log.exception(f"Failed to find markers: {e}")
+        except Exception:
+            self.log.exception("Failed to find markers")
             return FindSceneMarkersResultType(count=0, scene_markers=[])
 
     async def create_marker(self, marker: SceneMarker) -> SceneMarker:
@@ -103,8 +103,8 @@ class MarkerClientMixin(StashClientProtocol):
             # Sanitize model data before creating SceneMarker
             clean_data = sanitize_model_data(result["sceneMarkerCreate"])
             return SceneMarker(**clean_data)
-        except Exception as e:
-            self.log.exception(f"Failed to create marker: {e}")
+        except Exception:
+            self.log.exception("Failed to create marker")
             raise
 
     async def scene_marker_tags(self, scene_id: str) -> list[dict[str, Any]]:
@@ -124,10 +124,8 @@ class MarkerClientMixin(StashClientProtocol):
                 {"scene_id": scene_id},
             )
             return result["sceneMarkerTags"]
-        except Exception as e:
-            self.log.exception(
-                f"Failed to get scene marker tags for scene {scene_id}: {e}"
-            )
+        except Exception:
+            self.log.exception(f"Failed to get scene marker tags for scene {scene_id}")
             return []
 
     async def update_marker(self, marker: SceneMarker) -> SceneMarker:
@@ -167,6 +165,6 @@ class MarkerClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_marker.mark_clean()
             return updated_marker
-        except Exception as e:
-            self.log.exception(f"Failed to update marker: {e}")
+        except Exception:
+            self.log.exception("Failed to update marker")
             raise

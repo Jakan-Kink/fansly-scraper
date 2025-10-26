@@ -368,7 +368,9 @@ class AccountMedia(Base):
         """Set up event listeners after all configuration is complete."""
 
         @event.listens_for(Account, "after_delete")
-        def delete_account_media(mapper: Mapper, connection: Connection, target: Account) -> None:
+        def delete_account_media(
+            mapper: Mapper, connection: Connection, target: Account
+        ) -> None:
             """Delete all AccountMedia records when Account is deleted."""
             connection.execute(cls.__table__.delete().where(cls.accountId == target.id))
 

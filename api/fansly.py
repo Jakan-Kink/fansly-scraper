@@ -186,8 +186,8 @@ class FanslyApi:
     def get_with_ngsw(
         self,
         url: str,
-        params: dict[str, str] = {},
-        cookies: dict[str, str] = {},
+        params: dict[str, str] = {},  # noqa: B006 - not mutated, only unpacked
+        cookies: dict[str, str] = {},  # noqa: B006 - not mutated, only read
         stream: bool = False,
         add_fansly_headers: bool = True,
         alternate_token: str | None = None,
@@ -293,7 +293,7 @@ class FanslyApi:
             Response containing account info
         """
         if isinstance(account_ids, list):
-            account_ids = ",".join(str(id) for id in account_ids)
+            account_ids = ",".join(str(account_id) for account_id in account_ids)
         else:
             account_ids = str(account_ids)
         return self.get_with_ngsw(
@@ -480,14 +480,14 @@ class FanslyApi:
                 await asyncio.sleep(0.1)
 
             if not self._websocket_client.session_id:
-                raise RuntimeError(
+                raise RuntimeError(  # noqa: TRY301 - simple error, no need for helper function
                     "WebSocket authentication failed - no session ID received"
                 )
 
             logger.info(
                 "WebSocket session established: %s", self._websocket_client.session_id
             )
-            return self._websocket_client.session_id
+            return self._websocket_client.session_id  # noqa: TRY300 - already in success path after raise check
 
         except Exception as e:
             logger.error("Failed to establish WebSocket session: %s", e)
@@ -627,7 +627,7 @@ class FanslyApi:
                     break
 
             if not session_cookie:
-                raise RuntimeError("Login failed: No f-s-c session cookie in response")
+                raise RuntimeError("Login failed: No f-s-c session cookie in response")  # noqa: TRY301 - simple error, no need for helper function
 
             # Extract session ID from cookie
             # Cookie format (base64): sessionId:1:1:hash
@@ -723,7 +723,7 @@ class FanslyApi:
             else:
                 logger.warning("✗ Session ID NOT set")
 
-            return response_data
+            return response_data  # noqa: TRY300 - already in success path, adding else would add unnecessary nesting
 
         except httpx.HTTPStatusError as e:
             logger.error(f"Login failed with HTTP error: {e}")
@@ -780,7 +780,7 @@ class FanslyApi:
         return c_int32(val).value
 
     @staticmethod
-    def rshift32(number: int, bits: int):
+    def rshift32(number: int, bits: int) -> int:
         int_max_value = 0x100000000
         return number >> bits if number >= 0 else (number + int_max_value) >> bits
 
@@ -860,9 +860,11 @@ class FanslyApi:
 
         decoded_response = response.json()
 
-        if "success" in decoded_response:
-            if str(decoded_response["success"]).lower() == "true":
-                return True
+        if (
+            "success" in decoded_response
+            and str(decoded_response["success"]).lower() == "true"
+        ):
+            return True
 
         raise RuntimeError(
             f"Fansly API: Invalid or failed JSON response:\n{decoded_response}"

@@ -141,10 +141,10 @@ def clear_terminal() -> None:
     system = platform.system()
 
     if system == "Windows":
-        subprocess.call(["cmd", "/c", "cls"])
+        subprocess.call(["cmd", "/c", "cls"])  # noqa: S607 - system command, trusted PATH
 
     else:  # Linux & macOS
-        subprocess.call(["clear"])
+        subprocess.call(["clear"])  # noqa: S607 - system command, trusted PATH
 
 
 # cross-platform compatible, re-name downloaders terminal output window title
@@ -152,7 +152,7 @@ def set_window_title(title: str) -> None:
     current_platform = platform.system()
 
     if current_platform == "Windows":
-        subprocess.call(["cmd", "/c", "title", title])
+        subprocess.call(["cmd", "/c", "title", title])  # noqa: S607 - system command, trusted PATH
 
     elif current_platform in {"Linux", "Darwin"}:
-        subprocess.call(["printf", rf"\33]0;{title}\a"])
+        subprocess.call(["printf", rf"\33]0;{title}\a"])  # noqa: S607 - system command, trusted PATH

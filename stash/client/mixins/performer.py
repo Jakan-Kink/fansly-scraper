@@ -98,8 +98,8 @@ class PerformerClientMixin(StashClientProtocol):
                 clean_data = sanitize_model_data(result["findPerformer"])
                 return Performer(**clean_data)
             return None
-        except Exception as e:
-            self.log.exception(f"Failed to find performer {performer}: {e}")
+        except Exception:
+            self.log.exception(f"Failed to find performer {performer}")
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -204,8 +204,8 @@ class PerformerClientMixin(StashClientProtocol):
                 {"filter": filter_, "performer_filter": performer_filter},
             )
             return FindPerformersResultType(**result["findPerformers"])
-        except Exception as e:
-            self.log.exception(f"Failed to find performers: {e}")
+        except Exception:
+            self.log.exception("Failed to find performers")
             return FindPerformersResultType(count=0, performers=[])
 
     async def create_performer(self, performer: Performer) -> Performer:
@@ -297,7 +297,7 @@ class PerformerClientMixin(StashClientProtocol):
                     return Performer(**sanitize_model_data(result.performers[0]))
                 raise  # Re-raise if we couldn't find the performer
 
-            self.log.exception(f"Failed to create performer: {e}")
+            self.log.exception("Failed to create performer")
             raise
 
     async def update_performer(self, performer: Performer) -> Performer:
@@ -379,8 +379,8 @@ class PerformerClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_performer.mark_clean()
             return updated_performer
-        except Exception as e:
-            self.log.exception(f"Failed to update performer: {e}")
+        except Exception:
+            self.log.exception("Failed to update performer")
             raise
 
     async def update_performer_image(
@@ -426,6 +426,6 @@ class PerformerClientMixin(StashClientProtocol):
                 {"input": input_data},
             )
             return Performer(**sanitize_model_data(result["performerUpdate"]))
-        except Exception as e:
-            self.log.exception(f"Failed to update performer image: {e}")
+        except Exception:
+            self.log.exception("Failed to update performer image")
             raise

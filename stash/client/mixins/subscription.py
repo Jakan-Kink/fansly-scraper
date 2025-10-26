@@ -295,7 +295,7 @@ class SubscriptionClientMixin:
         except TimeoutError:
             self.log.exception(f"Timeout waiting for job {job_id}")
             return None
-        except Exception as e:
-            self.log.exception(f"Failed to wait for job {job_id}: {e}")
+        except Exception:
+            self.log.exception(f"Failed to wait for job {job_id}")
             # Fall back to polling if subscription fails
             return await self.wait_for_job(job_id, status, timeout=timeout)

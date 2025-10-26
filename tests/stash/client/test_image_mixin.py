@@ -190,7 +190,7 @@ async def test_find_images_error_fixed() -> None:
             try:
                 return await self.execute(*args, **kwargs)
             except Exception as e:
-                self.log.exception(f"Failed to find images: {e}")
+                self.log.exception("Failed to find images")
                 # Return empty results on error
                 return FindImagesResultType(
                     count=0, images=[], megapixels=0.0, filesize=0.0
