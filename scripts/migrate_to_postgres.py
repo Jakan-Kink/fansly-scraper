@@ -27,7 +27,7 @@ import getpass
 import os
 import shutil
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import MetaData, create_engine, inspect, text
@@ -334,7 +334,7 @@ def backup_sqlite_file(sqlite_file: Path) -> Path:
     Returns:
         Path to backup file
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     backup_file = sqlite_file.with_suffix(f".backup_{timestamp}.sqlite3")
 
     print(f"  Creating backup: {backup_file.name}")

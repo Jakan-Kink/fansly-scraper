@@ -1,6 +1,6 @@
 """Unit tests for ImageClientMixin."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -27,7 +27,7 @@ def mock_image() -> Image:
                 width=1920,
                 height=1080,
                 parent_folder_id="789",
-                mod_time=datetime.now(),
+                mod_time=datetime.now(UTC),
                 fingerprints=[],
             )
         ],

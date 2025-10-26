@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import random
 import shutil
 import tempfile
 from asyncio import sleep as async_sleep
@@ -20,6 +19,7 @@ from errors import DownloadError, DuplicateCountError, M3U8Error, MediaError
 from fileio.dedupe import dedupe_media_file
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from helpers.common import batch_list
+from helpers.timer import timing_jitter
 from media import MediaItem
 from metadata import process_media_download
 from metadata.media import Media
@@ -636,4 +636,4 @@ async def download_media(
             print_warning(f"Skipping invalid item: {ex}")
 
         # Slow down a bit to be sure
-        await async_sleep(random.uniform(0.4, 0.75))
+        await async_sleep(timing_jitter(0.4, 0.75))

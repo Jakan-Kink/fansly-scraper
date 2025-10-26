@@ -80,7 +80,7 @@ def test_time_based_rotation(log_setup):
 
     with patch("textio.logging.datetime") as mock_datetime:
         # Mock the current time
-        now = datetime.now()
+        now = datetime.now(UTC)
         mock_datetime.now.return_value = now
         mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
 
@@ -212,7 +212,7 @@ def test_multiple_handlers(log_setup):
 
     with patch("textio.logging.datetime") as mock_datetime:
         # Mock the current time
-        now = datetime.now()
+        now = datetime.now(UTC)
         mock_datetime.now.return_value = now
         mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
 

@@ -1,6 +1,6 @@
 """Test for FanslyApi device update callback functionality"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from api.fansly import FanslyApi
@@ -20,7 +20,7 @@ class TestFanslyApiCallback:
             user_agent="test_user_agent",
             check_key="test_check_key",
             device_id="initial_device_id",
-            device_id_timestamp=int(datetime.now().timestamp() * 1000),
+            device_id_timestamp=int(datetime.now(UTC).timestamp() * 1000),
             on_device_updated=mock_callback,
         )
 

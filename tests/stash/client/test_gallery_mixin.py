@@ -1,6 +1,6 @@
 """Unit tests for GalleryClientMixin."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -56,7 +56,7 @@ def mock_gallery() -> Gallery:
                 path="/path/to/gallery",
                 basename="gallery",
                 parent_folder_id="123",
-                mod_time=datetime.now(),
+                mod_time=datetime.now(UTC),
                 size=1024,
                 fingerprints=[Fingerprint(type_="md5", value="abc123")],
             )
@@ -537,7 +537,7 @@ async def test_gallery_from_content(
         id=123,
         accountId=456,
         content="Test post content",
-        createdAt=datetime.now(),
+        createdAt=datetime.now(UTC),
     )
 
     # Test successful conversion and creation

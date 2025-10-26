@@ -3,7 +3,7 @@
 Tests image types including Image, ImageCreateInput, ImageUpdateInput and related types.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import PropertyMock, patch
 
 import pytest
@@ -276,7 +276,7 @@ def test_image_update_input_instantiation() -> None:
 def test_image_file_type_instantiation() -> None:
     """Test ImageFileType instantiation."""
     file_type = ImageFileType(
-        mod_time=datetime.now(), size=1024, width=1920, height=1080
+        mod_time=datetime.now(UTC), size=1024, width=1920, height=1080
     )
 
     assert isinstance(file_type.mod_time, datetime)

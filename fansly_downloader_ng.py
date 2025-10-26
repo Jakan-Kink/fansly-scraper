@@ -9,7 +9,6 @@ import atexit
 import base64
 import contextlib
 import gc
-import random
 import signal
 import sys
 import time
@@ -64,7 +63,7 @@ from errors import (
 )
 from fileio.dedupe import dedupe_init
 from helpers.common import open_location
-from helpers.timer import Timer
+from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
 from pathio import delete_temporary_pyinstaller_files
 from textio import (
@@ -231,7 +230,7 @@ async def load_client_account_into_db(
         state: Current download state
         client_user_name: Username of the client account
     """
-    await asyncio.sleep(random.uniform(0.4, 0.75))
+    await asyncio.sleep(timing_jitter(0.4, 0.75))
 
     try:
         response = config.get_api().get_creator_account_info(
@@ -357,7 +356,7 @@ async def main(config: FanslyConfig) -> int:
                 if not config.separate_metadata:
                     await get_creator_account_info(config, state)
                     print_info("Creator account info retrieved...")
-                await asyncio.sleep(random.uniform(0.4, 0.75))
+                await asyncio.sleep(timing_jitter(0.4, 0.75))
 
                 print_info("Getting following list... (from main)")
                 # Then get and process following list
@@ -366,7 +365,7 @@ async def main(config: FanslyConfig) -> int:
                 except Exception as e:
                     print_error(f"Error in session scope: {e}")
                     raise
-                await asyncio.sleep(random.uniform(0.4, 0.75))
+                await asyncio.sleep(timing_jitter(0.4, 0.75))
 
                 if usernames:
                     print_info(f"Following list: {', '.join(usernames)}")

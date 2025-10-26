@@ -3,7 +3,7 @@
 Tests file types including BaseFile, VideoFile, ImageFile and related input types.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 from strawberry import ID
@@ -348,7 +348,7 @@ def test_base_file_fingerprint_resolver() -> None:
         path="/test/image.jpg",
         basename="image.jpg",
         parent_folder_id=ID("parent1"),
-        mod_time=datetime.now(),
+        mod_time=datetime.now(UTC),
         size=1024,
         fingerprints=fingerprints,
         width=1920,
@@ -373,7 +373,7 @@ async def test_base_file_to_input_method() -> None:
         path="/test/video.mp4",
         basename="video.mp4",
         parent_folder_id=ID("parent1"),
-        mod_time=datetime.now(),
+        mod_time=datetime.now(UTC),
         size=2048,
         fingerprints=[],
         format="mp4",
@@ -409,7 +409,7 @@ async def test_base_file_to_input_no_id_raises() -> None:
         path="/test/no_id.jpg",
         basename="no_id.jpg",
         parent_folder_id=ID("parent1"),
-        mod_time=datetime.now(),
+        mod_time=datetime.now(UTC),
         size=1024,
         fingerprints=[],
         width=1920,
@@ -433,7 +433,7 @@ async def test_folder_to_input_method() -> None:
         id=ID("folder1"),
         path="/test/folder",
         parent_folder_id=ID("parent1"),
-        mod_time=datetime.now(),
+        mod_time=datetime.now(UTC),
     )
 
     # Test to_input method
@@ -458,7 +458,7 @@ async def test_folder_to_input_no_id_raises() -> None:
         id=ID("temp"),  # Temporary ID that we'll remove
         path="/test/no_id_folder",
         parent_folder_id=ID("parent1"),
-        mod_time=datetime.now(),
+        mod_time=datetime.now(UTC),
     )
 
     # Remove the ID attribute to simulate a folder without ID

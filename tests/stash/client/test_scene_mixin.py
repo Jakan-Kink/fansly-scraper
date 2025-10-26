@@ -1,7 +1,7 @@
 """Unit tests for SceneClientMixin."""
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, create_autospec, patch
 
 import pytest
@@ -216,7 +216,7 @@ def mock_scene() -> Scene:
                 frame_rate=30.0,
                 bit_rate=5000000,
                 parent_folder_id="789",
-                mod_time=datetime.now(),
+                mod_time=datetime.now(UTC),
                 fingerprints=[],
             )
         ],
@@ -945,7 +945,7 @@ async def test_scene_metadata_handling(
                 frame_rate=30.0,
                 bit_rate=5000000,
                 parent_folder_id="folder1",
-                mod_time=datetime.now(),
+                mod_time=datetime.now(UTC),
                 fingerprints=[],
             )
         ],

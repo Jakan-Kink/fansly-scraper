@@ -4,7 +4,7 @@ These tests require a running Stash instance.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -228,7 +228,7 @@ async def test_data_validation_workflow(
             id="new",
             title="[TEST] Data Validation - Scene",
             details="Created by data validation test",
-            date=datetime.now().strftime("%Y-%m-%d"),
+            date=datetime.now(UTC).strftime("%Y-%m-%d"),
             urls=["https://test.example.com/data-validation/scene"],
             organized=True,
             performers=[performer],

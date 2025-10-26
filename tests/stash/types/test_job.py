@@ -1,6 +1,6 @@
 """Tests for stash.types.job module."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 import pytest
@@ -75,7 +75,7 @@ class TestJob:
     def test_required_fields(self):
         """Test that required fields are properly defined."""
         # Test instantiation with required fields
-        now = datetime.now()
+        now = datetime.now(UTC)
         job = Job(
             id=ID("1"),
             status=JobStatus.READY,
@@ -96,9 +96,9 @@ class TestJob:
 
     def test_optional_fields(self):
         """Test optional fields can be set."""
-        now = datetime.now()
-        start_time = datetime.now()
-        end_time = datetime.now()
+        now = datetime.now(UTC)
+        start_time = datetime.now(UTC)
+        end_time = datetime.now(UTC)
 
         job = Job(
             id=ID("1"),
@@ -119,7 +119,7 @@ class TestJob:
 
     def test_job_status_transitions(self):
         """Test different job status values."""
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         # Test each status
         for status in JobStatus:
@@ -155,7 +155,7 @@ class TestJobStatusUpdate:
             status=JobStatus.RUNNING,
             subTasks=["task1"],
             description="Running job",
-            addTime=datetime.now(),
+            addTime=datetime.now(UTC),
         )
 
         update = JobStatusUpdate(type=JobStatusUpdateType.UPDATE, job=job)
@@ -171,7 +171,7 @@ class TestJobStatusUpdate:
             status=JobStatus.READY,
             subTasks=[],
             description="Test job",
-            addTime=datetime.now(),
+            addTime=datetime.now(UTC),
         )
 
         # Test each update type
@@ -206,7 +206,7 @@ class TestJobWorkflow:
 
     def test_job_lifecycle(self):
         """Test a complete job lifecycle."""
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         # Create job
         job = Job(
@@ -225,7 +225,7 @@ class TestJobWorkflow:
 
         # Start job
         job.status = JobStatus.RUNNING
-        job.startTime = datetime.now()
+        job.startTime = datetime.now(UTC)
         job.progress = 0.0
 
         assert job.status == JobStatus.RUNNING
@@ -238,7 +238,7 @@ class TestJobWorkflow:
 
         # Complete job
         job.status = JobStatus.FINISHED
-        job.endTime = datetime.now()
+        job.endTime = datetime.now(UTC)
         job.progress = 100.0
 
         assert job.status == JobStatus.FINISHED
@@ -247,7 +247,7 @@ class TestJobWorkflow:
 
     def test_job_failure(self):
         """Test job failure scenario."""
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         job = Job(
             id=ID("failure-1"),
@@ -260,7 +260,7 @@ class TestJobWorkflow:
 
         # Job fails
         job.status = JobStatus.FAILED
-        job.endTime = datetime.now()
+        job.endTime = datetime.now(UTC)
         job.error = "Task failed with error"
 
         assert job.status == JobStatus.FAILED
@@ -269,7 +269,7 @@ class TestJobWorkflow:
 
     def test_job_cancellation(self):
         """Test job cancellation scenario."""
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         job = Job(
             id=ID("cancel-1"),
@@ -287,7 +287,7 @@ class TestJobWorkflow:
 
         # Job is cancelled
         job.status = JobStatus.CANCELLED
-        job.endTime = datetime.now()
+        job.endTime = datetime.now(UTC)
 
         assert job.status == JobStatus.CANCELLED
         assert job.endTime is not None

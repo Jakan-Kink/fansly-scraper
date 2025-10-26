@@ -1,6 +1,5 @@
 """Wall Downloads"""
 
-import random
 import traceback
 from asyncio import sleep
 from typing import Any
@@ -10,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import FanslyConfig, with_database_session
 from errors import ApiError, DuplicatePageError
+from helpers.timer import timing_jitter
 from metadata import Wall, process_wall_posts
 from textio import (
     input_enter_continue,
@@ -242,7 +242,7 @@ async def download_wall(
                 # Get next before_cursor
                 try:
                     # Slow down to avoid the Fansly rate-limit
-                    await sleep(random.uniform(2, 4))
+                    await sleep(timing_jitter(2, 4))
 
                     # Get last post ID for next page
                     before_cursor = wall_data["posts"][-1]["id"]
