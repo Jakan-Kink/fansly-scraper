@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tests.fixtures.database_fixtures import AwaitableAttrsMock
-
 from stash.processing.mixins.batch import BatchProcessingMixin
 from stash.processing.mixins.content import ContentProcessingMixin
 from stash.processing.mixins.gallery import GalleryProcessingMixin
@@ -26,6 +24,7 @@ from stash.types import (
     Tag,
     VideoFile,
 )
+from tests.fixtures.database_fixtures import AwaitableAttrsMock
 
 
 __all__ = [

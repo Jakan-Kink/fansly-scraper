@@ -5,9 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from stash.types import Performer, Studio, Tag
-from tests.fixtures.metadata_factories import AccountFactory, PostFactory
-from tests.fixtures.stash_type_factories import PerformerFactory, StudioFactory, TagFactory
+from tests.fixtures.database_fixtures import AwaitableAttrsMock
+from tests.fixtures.stash_type_factories import (
+    PerformerFactory,
+    StudioFactory,
+    TagFactory,
+)
 
 
 class TestMetadataUpdate:
@@ -112,7 +115,6 @@ class TestMetadataUpdate:
         earlier_item.__class__.__name__ = "Post"
 
         # Use the generic AwaitableAttrsMock
-        from tests.fixtures.database_fixtures import AwaitableAttrsMock
         earlier_item.awaitable_attrs = AwaitableAttrsMock(earlier_item)
 
         # Call method with earlier item
@@ -226,6 +228,7 @@ class TestMetadataUpdate:
         self, media_mixin, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with tags."""
+
         # Create simple hashtag objects (just need value attribute for this test)
         class SimpleHashtag:
             def __init__(self, value):

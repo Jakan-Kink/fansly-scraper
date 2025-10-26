@@ -140,14 +140,14 @@ async def test_process_group_messages(
 @pytest.mark.asyncio
 async def test_process_message_attachments(
     session: AsyncSession,
-    session_sync,
+    factory_async_session,
     config,
     conversation_data,
 ):
     """Test processing messages with attachments.
 
     Uses centralized fixtures.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    factory_async_session configures factories with the database session for async tests.
     """
     messages_with_attachments = []
 
@@ -202,14 +202,14 @@ async def test_process_message_attachments(
 @pytest.mark.asyncio
 async def test_process_message_media_variants(
     session: AsyncSession,
-    session_sync,
+    factory_async_session,
     config,
     conversation_data,
 ):
     """Test processing messages with media variants like HLS/DASH streams.
 
     Uses centralized fixtures.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    factory_async_session configures factories with the database session for async tests.
     """
     messages = conversation_data["response"]["messages"]
     messages_with_variants = [
@@ -272,14 +272,14 @@ async def test_process_message_media_variants(
 @pytest.mark.asyncio
 async def test_process_message_media_bundles(
     session: AsyncSession,
-    session_sync,
+    factory_async_session,
     config,
     conversation_data,
 ):
     """Test processing messages with media bundles.
 
     Uses centralized fixtures.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    factory_async_session configures factories with the database session for async tests.
     """
     messages = conversation_data["response"]["messages"]
     bundles = conversation_data["response"].get("accountMediaBundles", [])
@@ -320,14 +320,14 @@ async def test_process_message_media_bundles(
 @pytest.mark.asyncio
 async def test_process_message_permissions(
     session: AsyncSession,
-    factory_session,
+    factory_async_session,
     config,
     conversation_data,
 ):
     """Test processing message media permissions.
 
     Uses centralized fixtures.
-    factory_session configures factories with the database session.
+    factory_async_session configures factories with the database session for async tests.
     """
     messages = conversation_data["response"]["messages"]
     media_items = conversation_data["response"].get("accountMedia", [])

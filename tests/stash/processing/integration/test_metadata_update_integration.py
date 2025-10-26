@@ -15,17 +15,13 @@ IMPORTANT NOTES:
 - These tests focus on Scene objects which can be fully tested end-to-end
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 from stash.processing.mixins.media import MediaProcessingMixin
 from stash.types import Scene
 from tests.fixtures.metadata_factories import AccountFactory, PostFactory
-from tests.fixtures.stash_api_fixtures import (
-    enable_scene_creation,
-    stash_client,
-    stash_context,
-)
 
 
 class TestMediaMixin(MediaProcessingMixin):

@@ -11,6 +11,7 @@ from stash.context import StashContext
 from stash.processing import StashProcessing
 from stash.types import Image
 from tests.fixtures import AccountFactory, PerformerFactory
+from tests.fixtures.database_fixtures import AwaitableAttrsMock
 
 
 # Most fixtures are imported from tests.fixtures via conftest.py:
@@ -286,22 +287,12 @@ class TestStashProcessingPerformer:
             id=12345,
             username="test_user",
         )
+        test_account_no_avatar.avatar = None
+        test_account_no_avatar.awaitable_attrs = AwaitableAttrsMock(
+            test_account_no_avatar
+        )
 
-        # Mock awaitable_attrs.avatar to return None
-        async def mock_get_no_avatar():
-            return None
-
-        mock_awaitable_attrs = MagicMock()
-        mock_awaitable_attrs.avatar = mock_get_no_avatar()
-
-        with patch.object(
-            type(test_account_no_avatar),
-            "awaitable_attrs",
-            new_callable=lambda: property(lambda self: mock_awaitable_attrs),
-        ):
-            await processor._update_performer_avatar(
-                test_account_no_avatar, mock_performer
-            )
+        await processor._update_performer_avatar(test_account_no_avatar, mock_performer)
 
         # Verify no avatar update was attempted
         assert not mock_performer.update_avatar.called
@@ -313,19 +304,10 @@ class TestStashProcessingPerformer:
         )
         mock_avatar_no_file = MagicMock()
         mock_avatar_no_file.local_filename = None
+        test_account_no_file.avatar = mock_avatar_no_file
+        test_account_no_file.awaitable_attrs = AwaitableAttrsMock(test_account_no_file)
 
-        # Mock awaitable_attrs.avatar to return avatar without local_filename
-        async def mock_get_avatar_no_file():
-            return mock_avatar_no_file
-
-        with patch.object(
-            test_account_no_file,
-            "awaitable_attrs",
-            MagicMock(avatar=mock_get_avatar_no_file()),
-        ):
-            await processor._update_performer_avatar(
-                test_account_no_file, mock_performer
-            )
+        await processor._update_performer_avatar(test_account_no_file, mock_performer)
 
         # Verify no avatar update was attempted
         assert not mock_performer.update_avatar.called
@@ -337,6 +319,10 @@ class TestStashProcessingPerformer:
         )
         mock_avatar_with_file = MagicMock()
         mock_avatar_with_file.local_filename = "avatar.jpg"
+        test_account_with_avatar.avatar = mock_avatar_with_file
+        test_account_with_avatar.awaitable_attrs = AwaitableAttrsMock(
+            test_account_with_avatar
+        )
 
         # Mock performer with default image
         mock_performer.image_path = "default=true"
@@ -355,26 +341,9 @@ class TestStashProcessingPerformer:
         # Reset mock_performer.update_avatar for the test
         mock_performer.update_avatar = AsyncMock()
 
-        # Mock both awaitable_attrs.avatar AND direct avatar access
-        # awaitable_attrs.avatar should be a coroutine that returns the mock
-        async def mock_get_avatar():
-            return mock_avatar_with_file
-
-        with (
-            patch.object(
-                test_account_with_avatar,
-                "awaitable_attrs",
-                MagicMock(avatar=mock_get_avatar()),
-            ),
-            patch.object(
-                test_account_with_avatar,
-                "avatar",
-                mock_avatar_with_file,
-            ),
-        ):
-            await processor._update_performer_avatar(
-                test_account_with_avatar, mock_performer
-            )
+        await processor._update_performer_avatar(
+            test_account_with_avatar, mock_performer
+        )
 
         # Verify avatar update was attempted
         processor.context.client.find_images.assert_called_once()
@@ -388,25 +357,9 @@ class TestStashProcessingPerformer:
         processor.context.client.find_images.return_value = mock_image_result
         mock_performer.update_avatar.reset_mock()
 
-        # Need to create a new coroutine for each await
-        async def mock_get_avatar_case4():
-            return mock_avatar_with_file
-
-        with (
-            patch.object(
-                test_account_with_avatar,
-                "awaitable_attrs",
-                MagicMock(avatar=mock_get_avatar_case4()),
-            ),
-            patch.object(
-                test_account_with_avatar,
-                "avatar",
-                mock_avatar_with_file,
-            ),
-        ):
-            await processor._update_performer_avatar(
-                test_account_with_avatar, mock_performer
-            )
+        await processor._update_performer_avatar(
+            test_account_with_avatar, mock_performer
+        )
 
         # Verify no avatar update was attempted
         processor.context.client.find_images.assert_called_once()
@@ -419,25 +372,11 @@ class TestStashProcessingPerformer:
         mock_performer.update_avatar.reset_mock()
         mock_performer.update_avatar.side_effect = Exception("Test error")
 
-        # Need to create a new coroutine for each await
-        async def mock_get_avatar_case5():
-            return mock_avatar_with_file
-
         # Mock print_error and logger
         with (
             patch("stash.processing.print_error") as mock_print_error,
             patch("stash.processing.logger.exception") as mock_logger_exception,
             patch("stash.processing.debug_print") as mock_debug_print,
-            patch.object(
-                test_account_with_avatar,
-                "awaitable_attrs",
-                MagicMock(avatar=mock_get_avatar_case5()),
-            ),
-            patch.object(
-                test_account_with_avatar,
-                "avatar",
-                mock_avatar_with_file,
-            ),
         ):
             # Call _update_performer_avatar
             await processor._update_performer_avatar(
