@@ -23,7 +23,7 @@ from tests.fixtures import AccountFactory, GroupFactory
 @pytest.fixture(scope="session")
 def group_data(test_data_dir: str):
     """Load group messages test data."""
-    with open(os.path.join(test_data_dir, "messages-group.json")) as f:
+    with Path(os.path.join(test_data_dir, "messages-group.json")).open() as f:
         return json.load(f)
 
 

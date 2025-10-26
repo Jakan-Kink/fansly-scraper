@@ -411,7 +411,7 @@ def load_json_fixture(filename: str) -> dict[str, Any]:
     if not fixture_path.exists():
         raise FileNotFoundError(f"Fixture file not found: {fixture_path}")
 
-    with open(fixture_path, encoding="utf-8") as f:
+    with fixture_path.open(encoding="utf-8") as f:
         data = json.load(f)
         if not isinstance(data, dict):
             raise ValueError(
@@ -431,7 +431,7 @@ def save_json_fixture(data: dict[str, Any], filename: str) -> None:
     fixture_path = FIXTURES_DIR / filename
     fixture_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(fixture_path, "w", encoding="utf-8") as f:
+    with fixture_path.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 

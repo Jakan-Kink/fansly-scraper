@@ -218,7 +218,7 @@ async def test_update_performer_avatar(
     """Test updating a performer's avatar."""
     mock_path = "/tmp/avatar.jpg"
     # Create a temporary file for testing
-    with open(mock_path, "w") as f:
+    with Path(mock_path).open("w") as f:
         f.write("test")
 
     # Create a modified performer with image_path set

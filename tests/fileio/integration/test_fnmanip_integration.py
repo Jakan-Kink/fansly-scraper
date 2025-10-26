@@ -45,7 +45,7 @@ def valid_mp4_file(temp_dir):
     file_path = temp_dir / "valid.mp4"
 
     # Create a minimal valid MP4 file
-    with open(file_path, "wb") as f:
+    with file_path.open("wb") as f:
         # ftyp box (24 bytes)
         f.write(bytes.fromhex("00000018 66747970 6D703432 00000000 6D703432 00000000"))
         # free box (16 bytes)
@@ -62,10 +62,10 @@ def invalid_image_file(temp_dir):
     file_path = temp_dir / "invalid_image.jpg"
 
     # Create a file that's not a valid image
-    with open(file_path, "wb") as f:
+    with file_path.open("wb") as f:
         f.write(b"This is not a valid image file")
 
-    yield file_path
+    return file_path
 
 
 @pytest.fixture
@@ -74,11 +74,11 @@ def invalid_mp4_file(temp_dir):
     file_path = temp_dir / "invalid.mp4"
 
     # Create an invalid MP4 file (missing ftyp box)
-    with open(file_path, "wb") as f:
+    with file_path.open("wb") as f:
         # moov box (16 bytes)
         f.write(bytes.fromhex("00000010 6D6F6F76 00000000 00000000"))
 
-    yield file_path
+    return file_path
 
 
 class TestExtractorsIntegration:

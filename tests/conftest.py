@@ -167,7 +167,7 @@ def json_timeline_data():
             "aggregationData": {},
         }
 
-    with open(timeline_file) as f:
+    with timeline_file.open() as f:
         return json.load(f)
 
 
@@ -184,7 +184,7 @@ def json_messages_group_data():
     if not messages_file.exists():
         return {"response": [], "aggregationData": {}}
 
-    with open(messages_file) as f:
+    with messages_file.open() as f:
         return json.load(f)
 
 
@@ -201,7 +201,7 @@ def json_conversation_data():
     if not conversation_file.exists():
         return {"response": [], "aggregationData": {}}
 
-    with open(conversation_file) as f:
+    with conversation_file.open() as f:
         return json.load(f)
 
 
@@ -549,7 +549,7 @@ def performance_tracker(performance_log_dir, request):
         def __exit__(self, exc_type, exc_val, exc_tb):
             result = self.perf_context.__exit__(exc_type, exc_val, exc_tb)
 
-            with open(self.log_file, "a") as f:
+            with self.log_file.open("a") as f:
                 f.write(f"Performance metrics for {self.operation_name}:\n")
                 f.write(f"Duration: {self.metrics['duration']:.3f} seconds\n")
                 f.write(f"Memory change: {self.metrics['memory_change']:.2f} MB\n")
