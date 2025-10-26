@@ -1,6 +1,6 @@
 """Scalar types from schema/types/scalars.graphql."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import strawberry
 
@@ -63,7 +63,7 @@ def _parse_timestamp(value: str) -> datetime:
             )
 
         # Add/subtract from now
-        return datetime.now() + timedelta(seconds=direction * seconds)
+        return datetime.now(UTC) + timedelta(seconds=direction * seconds)
 
     # Handle RFC3339 string
     return datetime.fromisoformat(value)

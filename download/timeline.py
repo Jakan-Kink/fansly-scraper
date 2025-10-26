@@ -1,6 +1,5 @@
 """Timeline Downloads"""
 
-import random
 import traceback
 
 # from pprint import pprint
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import FanslyConfig, with_database_session
 from errors import ApiError, DuplicatePageError
+from helpers.timer import timing_jitter
 from metadata import process_timeline_posts
 from textio import (
     input_enter_continue,
@@ -230,7 +230,7 @@ async def download_timeline(
                 # get next timeline_cursor
                 try:
                     # Slow down to avoid the Fansly rate-limit which was introduced in late August 2023
-                    await sleep(random.uniform(2, 4))
+                    await sleep(timing_jitter(2, 4))
 
                     timeline_cursor = timeline["posts"][-1]["id"]
 

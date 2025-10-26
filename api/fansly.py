@@ -2,7 +2,6 @@
 
 import binascii
 import math
-import random
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -14,6 +13,7 @@ from httpx_retries import Retry, RetryTransport
 
 from api.websocket import FanslyWebSocket
 from config.logging import textio_logger as logger
+from helpers.timer import timing_jitter
 from helpers.web import get_flat_qs_dict, split_url
 
 
@@ -81,7 +81,9 @@ class FanslyApi:
             self.device_id_timestamp = device_id_timestamp
 
         else:
-            self.device_id_timestamp = int(datetime(1990, 1, 1, 0, 0).timestamp())
+            self.device_id_timestamp = int(
+                datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp()
+            )
             self.update_device_id()
 
         # Session setup is now async and must be done separately
@@ -747,7 +749,7 @@ class FanslyApi:
         #   January 1, 1970 Universal Coordinated Time (UTC).
         ms = self.get_timestamp_ms()
 
-        random_value = 5000 - math.floor(10000 * random.random())
+        random_value = 5000 - math.floor(10000 * timing_jitter(0.0, 1.0))
 
         fansly_client_ts = ms + random_value
 

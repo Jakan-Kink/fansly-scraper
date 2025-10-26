@@ -4,11 +4,33 @@ This is based on https://realpython.com/python-timer/ with
 minor modifiactions.
 """
 
+import random
 import time
 from collections.abc import Callable
 from contextlib import ContextDecorator
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
+
+
+def timing_jitter(min_val: float, max_val: float) -> float:
+    """Generate non-cryptographic random jitter for timing purposes.
+
+    This function uses random.uniform() which is NOT suitable for security
+    or cryptographic purposes. For cryptographic randomness, use the secrets
+    module instead.
+
+    Args:
+        min_val: Minimum jitter value (inclusive)
+        max_val: Maximum jitter value (inclusive)
+
+    Returns:
+        Random float between min_val and max_val
+
+    Example:
+        >>> jitter = timing_jitter(0.5, 1.5)  # Add 0.5-1.5s jitter to timing
+        >>> ping_interval = 30.0 + timing_jitter(-2.0, 2.0)  # Vary ping interval
+    """
+    return random.uniform(min_val, max_val)  # noqa: S311 - timing jitter only, not cryptographic
 
 
 class TimerError(Exception):

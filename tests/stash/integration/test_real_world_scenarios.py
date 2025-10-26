@@ -70,7 +70,7 @@ def mock_post() -> Post:
         id=456,
         accountId=123,
         content="Test post content #tag1 #tag2",
-        createdAt=datetime.now(),
+        createdAt=datetime.now(UTC),
     )
 
 
@@ -81,7 +81,7 @@ def mock_media() -> Media:
         id=789,
         accountId=123,
         local_filename="test_video.mp4",
-        createdAt=datetime.now(),
+        createdAt=datetime.now(UTC),
     )
 
 
@@ -207,17 +207,13 @@ async def test_batch_import_workflow(
         async with stash_cleanup_tracker(stash_client) as cleanup:
             # Create base performer/studio with unique names
             performer = Performer.from_account(mock_account)
-            performer.name = (
-                f"Test Account Batch {datetime.now().timestamp()}"  # Make name unique
-            )
+            performer.name = f"Test Account Batch {datetime.now(UTC).timestamp()}"  # Make name unique
             await performer.save(stash_client)
             assert performer.id is not None
             cleanup["performers"].append(performer.id)
 
             studio = await Studio.from_account(mock_account)
-            studio.name = (
-                f"test_account_batch_{datetime.now().timestamp()}"  # Make name unique
-            )
+            studio.name = f"test_account_batch_{datetime.now(UTC).timestamp()}"  # Make name unique
             await studio.save(stash_client)
             assert studio.id is not None
             cleanup["studios"].append(studio.id)
@@ -229,7 +225,7 @@ async def test_batch_import_workflow(
                     id=1000 + i,
                     accountId=mock_account.id,
                     content=f"Test post {i} content #tag{i}",
-                    createdAt=datetime.now(),
+                    createdAt=datetime.now(UTC),
                 )
                 posts.append(post)
 
@@ -318,7 +314,7 @@ async def test_incremental_update_workflow(
             # Create initial content with unique names
             performer = Performer.from_account(mock_account)
             performer.name = (
-                f"Test Account Incr {datetime.now().timestamp()}"  # Make name unique
+                f"Test Account Incr {datetime.now(UTC).timestamp()}"  # Make name unique
             )
             await performer.save(stash_client)
             assert performer.id is not None
@@ -326,7 +322,7 @@ async def test_incremental_update_workflow(
 
             studio = await Studio.from_account(mock_account)
             studio.name = (
-                f"test_account_incr_{datetime.now().timestamp()}"  # Make name unique
+                f"test_account_incr_{datetime.now(UTC).timestamp()}"  # Make name unique
             )
             await studio.save(stash_client)
             assert studio.id is not None
@@ -337,7 +333,7 @@ async def test_incremental_update_workflow(
                 id="new",
                 title=f"{mock_account.username} - Initial",
                 details="Initial content",
-                date=datetime.now().strftime("%Y-%m-%d"),
+                date=datetime.now(UTC).strftime("%Y-%m-%d"),
                 urls=["https://example.com/posts/initial"],
                 organized=True,
                 performers=[performer],
@@ -354,7 +350,7 @@ async def test_incremental_update_workflow(
                     id="new",
                     title=f"{mock_account.username} - New {i}",
                     details=f"New content {i}",
-                    date=datetime.now().strftime("%Y-%m-%d"),
+                    date=datetime.now(UTC).strftime("%Y-%m-%d"),
                     urls=[f"https://example.com/posts/new_{i}"],
                     organized=True,
                     performers=[performer],

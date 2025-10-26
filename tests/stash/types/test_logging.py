@@ -1,6 +1,6 @@
 """Tests for stash.types.logging module."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 import pytest
@@ -56,7 +56,7 @@ class TestLogEntry:
 
     def test_instantiation(self):
         """Test LogEntry can be instantiated."""
-        now = datetime.now()
+        now = datetime.now(UTC)
         entry = LogEntry(time=now, level=LogLevel.INFO, message="Test log message")
 
         assert entry.time == now
@@ -65,7 +65,7 @@ class TestLogEntry:
 
     def test_all_log_levels(self):
         """Test LogEntry with all log levels."""
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         for level in LogLevel:
             entry = LogEntry(
@@ -77,7 +77,7 @@ class TestLogEntry:
     def test_different_timestamps(self):
         """Test LogEntry with different timestamps."""
         # Test with current time
-        now = datetime.now()
+        now = datetime.now(UTC)
         entry1 = LogEntry(time=now, level=LogLevel.DEBUG, message="Current time entry")
         assert entry1.time == now
 
@@ -90,7 +90,7 @@ class TestLogEntry:
 
     def test_message_content(self):
         """Test LogEntry with various message content."""
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         # Test empty message
         entry1 = LogEntry(time=now, level=LogLevel.INFO, message="")
@@ -113,7 +113,7 @@ class TestLoggingScenarios:
 
     def test_error_logging(self):
         """Test error log entry."""
-        error_time = datetime.now()
+        error_time = datetime.now(UTC)
         error_entry = LogEntry(
             time=error_time,
             level=LogLevel.ERROR,
@@ -126,7 +126,7 @@ class TestLoggingScenarios:
 
     def test_progress_logging(self):
         """Test progress log entry."""
-        progress_time = datetime.now()
+        progress_time = datetime.now(UTC)
         progress_entry = LogEntry(
             time=progress_time,
             level=LogLevel.PROGRESS,
@@ -139,7 +139,7 @@ class TestLoggingScenarios:
 
     def test_debug_logging(self):
         """Test debug log entry."""
-        debug_time = datetime.now()
+        debug_time = datetime.now(UTC)
         debug_entry = LogEntry(
             time=debug_time,
             level=LogLevel.DEBUG,
@@ -152,7 +152,7 @@ class TestLoggingScenarios:
 
     def test_warning_logging(self):
         """Test warning log entry."""
-        warning_time = datetime.now()
+        warning_time = datetime.now(UTC)
         warning_entry = LogEntry(
             time=warning_time,
             level=LogLevel.WARNING,
@@ -165,7 +165,7 @@ class TestLoggingScenarios:
 
     def test_trace_logging(self):
         """Test trace log entry."""
-        trace_time = datetime.now()
+        trace_time = datetime.now(UTC)
         trace_entry = LogEntry(
             time=trace_time,
             level=LogLevel.TRACE,
@@ -178,7 +178,7 @@ class TestLoggingScenarios:
 
     def test_info_logging(self):
         """Test info log entry."""
-        info_time = datetime.now()
+        info_time = datetime.now(UTC)
         info_entry = LogEntry(
             time=info_time,
             level=LogLevel.INFO,

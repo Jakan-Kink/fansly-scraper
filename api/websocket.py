@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
 import ssl
 from collections.abc import Callable
 from contextlib import suppress
@@ -23,6 +22,7 @@ from websockets import client as ws_client
 from websockets.exceptions import WebSocketException
 
 from config.logging import textio_logger as logger
+from helpers.timer import timing_jitter
 
 
 class FanslyWebSocket:
@@ -388,7 +388,7 @@ class FanslyWebSocket:
                 while self.connected and not self._stop_event.is_set():
                     try:
                         # Randomize ping interval between 20-25 seconds (matching browser)
-                        ping_interval = random.uniform(
+                        ping_interval = timing_jitter(
                             self.PING_INTERVAL_MIN, self.PING_INTERVAL_MAX
                         )
                         await asyncio.sleep(ping_interval)

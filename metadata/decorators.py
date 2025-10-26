@@ -4,13 +4,14 @@ import asyncio
 import contextlib
 import functools
 import inspect
-import random
 import sqlite3
 import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 from sqlalchemy.exc import OperationalError
+
+from helpers.timer import timing_jitter
 
 
 # Lazy import to avoid circular dependency issues during alembic migrations
@@ -143,7 +144,7 @@ def _calculate_retry_delay(
     """
     delay = min(max_delay, base_delay * (2**attempt))
     if jitter:
-        delay *= random.uniform(0.5, 1.5)
+        delay *= timing_jitter(0.5, 1.5)
     return delay
 
 

@@ -5,7 +5,7 @@ These tests require a running Stash instance.
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -27,7 +27,7 @@ async def create_test_data(
     """Create test data for cleanup."""
     # Enable scene creation
     Scene.__create_input_type__ = SceneCreateInput
-    timestamp = datetime.now().timestamp()
+    timestamp = datetime.now(UTC).timestamp()
 
     # Create performer
     performer = Performer(
@@ -96,7 +96,7 @@ class TestTagManagement:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create unique tag names with timestamp to avoid conflicts
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
 
                 # Create parent tag
                 parent_tag = Tag(
@@ -163,7 +163,7 @@ class TestTagManagement:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create unique timestamp for this test
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
 
                 # Create test data with initial tags
                 performer, studio, tags, scenes = await create_test_data(
@@ -243,7 +243,7 @@ class TestTagManagement:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create unique timestamp for this test
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
 
                 # Create unused tags
                 unused_tags = []
@@ -367,7 +367,7 @@ class TestStudioHierarchy:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create unique timestamp to avoid conflicts
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
 
                 # Create parent studio
                 parent_studio = Studio(
@@ -420,7 +420,7 @@ class TestStudioHierarchy:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create parent studio with content
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
                 performer, parent_studio, tags, parent_scenes = await create_test_data(
                     stash_client,
                     prefix=f"parent_studio_{timestamp}",
@@ -484,7 +484,7 @@ class TestStudioHierarchy:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create test data with studios and content
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
 
                 # Create parent studio with content
                 performer, parent_studio, tags, parent_scenes = await create_test_data(
@@ -579,7 +579,7 @@ class TestDuplicateManagement:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create unique timestamp for this test
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
                 test_id = f"dup_test_{timestamp}"
 
                 # Create base content
@@ -602,7 +602,7 @@ class TestDuplicateManagement:
                         id="new",
                         title=f"original_scene_{i}_{test_id}",
                         details=f"Original test scene {i}",
-                        date=datetime.now().strftime("%Y-%m-%d"),
+                        date=datetime.now(UTC).strftime("%Y-%m-%d"),
                         urls=[f"https://example.com/original/{test_id}/scene_{i}"],
                         organized=True,
                         performers=[performer],
@@ -620,7 +620,7 @@ class TestDuplicateManagement:
                         id="new",
                         title=f"duplicate_scene_{i}_{test_id}",
                         details=f"Duplicate of test scene {i}",  # Similar content
-                        date=datetime.now().strftime("%Y-%m-%d"),  # Same date
+                        date=datetime.now(UTC).strftime("%Y-%m-%d"),  # Same date
                         urls=[f"https://example.com/duplicate/{test_id}/scene_{i}"],
                         organized=True,
                         performers=[performer],  # Same performer
@@ -693,7 +693,7 @@ class TestDuplicateManagement:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create unique timestamp for this test
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
                 test_id = f"detect_{timestamp}"
 
                 # Create base content
@@ -715,7 +715,7 @@ class TestDuplicateManagement:
                     id="new",
                     title=f"original_{test_id}",
                     details="Original content for duplicate detection test",
-                    date=datetime.now().strftime("%Y-%m-%d"),
+                    date=datetime.now(UTC).strftime("%Y-%m-%d"),
                     urls=[f"https://example.com/original/{test_id}"],
                     organized=True,
                     performers=[performer],
@@ -730,7 +730,7 @@ class TestDuplicateManagement:
                     id="new",
                     title=f"duplicate_{test_id}",
                     details="Duplicate content for detection test",
-                    date=datetime.now().strftime("%Y-%m-%d"),
+                    date=datetime.now(UTC).strftime("%Y-%m-%d"),
                     urls=[f"https://example.com/duplicate/{test_id}"],
                     organized=True,
                     performers=[performer],
@@ -809,7 +809,7 @@ class TestDuplicateManagement:
         try:
             async with stash_cleanup_tracker(stash_client) as cleanup:
                 # Create unique timestamp for this test
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
                 test_id = f"manage_{timestamp}"
 
                 # Create base content
@@ -831,7 +831,7 @@ class TestDuplicateManagement:
                     id="new",
                     title=f"primary_{test_id}",
                     details="Primary content",
-                    date=datetime.now().strftime("%Y-%m-%d"),
+                    date=datetime.now(UTC).strftime("%Y-%m-%d"),
                     urls=[f"https://example.com/primary/{test_id}"],
                     organized=True,
                     performers=[performer],
@@ -848,7 +848,7 @@ class TestDuplicateManagement:
                         id="new",
                         title=f"duplicate_{i}_{test_id}",
                         details=f"Duplicate {i} content",
-                        date=datetime.now().strftime("%Y-%m-%d"),
+                        date=datetime.now(UTC).strftime("%Y-%m-%d"),
                         urls=[f"https://example.com/duplicate/{test_id}/{i}"],
                         organized=True,
                         performers=[performer],

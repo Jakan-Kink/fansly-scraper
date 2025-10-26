@@ -1,7 +1,7 @@
 """Test metadata types from stash/types/metadata.py."""
 
 import types
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import get_args, get_origin, get_type_hints
 
 import pytest
@@ -355,7 +355,7 @@ class TestMetadataInstantiation:
         assert filter_input.minModTime is None
 
         # Test with datetime
-        now = datetime.now()
+        now = datetime.now(UTC)
         filter_input = ScanMetaDataFilterInput(minModTime=now)
         assert filter_input.minModTime == now
 

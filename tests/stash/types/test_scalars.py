@@ -3,7 +3,7 @@
 Tests scalar types including Time and Timestamp scalars.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 from strawberry.types.scalar import ScalarWrapper
@@ -80,7 +80,7 @@ def test_time_parsing() -> None:
     assert result.day == 25
 
     # Test with non-string (should pass through)
-    dt = datetime.now()
+    dt = datetime.now(UTC)
     result = Time._scalar_definition.parse_value(dt)
     assert result == dt
 
@@ -121,7 +121,7 @@ def test_timestamp_parsing() -> None:
     assert isinstance(result, datetime)
 
     # Test with non-string (should pass through)
-    dt = datetime.now()
+    dt = datetime.now(UTC)
     result = Timestamp._scalar_definition.parse_value(dt)
     assert result == dt
 
@@ -135,14 +135,14 @@ def test_parse_timestamp_function() -> None:
     assert result.year == 2023
 
     # Test relative time in past
-    before = datetime.now()
+    before = datetime.now(UTC)
     result = _parse_timestamp("<1h")
 
     # Should be in the past
     assert result < before
 
     # Test relative time in future
-    before = datetime.now()
+    before = datetime.now(UTC)
     result = _parse_timestamp(">1m")
 
     # Should be in the future

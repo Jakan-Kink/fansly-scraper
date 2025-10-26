@@ -1,11 +1,10 @@
 """Message Downloading"""
 
-import random
-
 # from pprint import pprint
 from asyncio import sleep
 
 from config import FanslyConfig
+from helpers.timer import timing_jitter
 from metadata import process_groups_response, process_messages_metadata
 from textio import input_enter_continue, print_error, print_info, print_warning
 
@@ -87,7 +86,7 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
                     try:
                         # Fansly rate-limiting fix
                         # (don't know if messages were affected at all)
-                        await sleep(random.uniform(2, 4))
+                        await sleep(timing_jitter(2, 4))
                         msg_cursor = messages["messages"][-1]["id"]
 
                     except IndexError:

@@ -1,7 +1,6 @@
 """Fansly Account Information"""
 
 import asyncio
-import random
 from typing import Any
 
 import httpx
@@ -11,6 +10,7 @@ from sqlalchemy.future import select
 from config import FanslyConfig, with_database_session
 from config.modes import DownloadMode
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
+from helpers.timer import timing_jitter
 from metadata import Base, TimelineStats, process_account_data
 from textio import json_output, print_error, print_info
 
@@ -299,7 +299,7 @@ async def _get_following_page(
         limit=page_size,
         offset=total_fetched,
     )
-    await asyncio.sleep(random.uniform(2, 4))
+    await asyncio.sleep(timing_jitter(2, 4))
 
     json_output(1, f"following_list_page_{page}", response.json())
     following_data = config.get_api().get_json_response_contents(response)
@@ -324,7 +324,7 @@ async def _get_following_page(
     )
     json_output(1, f"account_details_page_{page}", account_response.json())
     account_data = config.get_api().get_json_response_contents(account_response)
-    await asyncio.sleep(random.uniform(2, 4))
+    await asyncio.sleep(timing_jitter(2, 4))
 
     return account_data, len(account_ids)
 

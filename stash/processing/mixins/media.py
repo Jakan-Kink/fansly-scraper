@@ -12,7 +12,7 @@ This mixin handles processing of media objects into Stash. It includes:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -394,7 +394,7 @@ class MediaProcessingMixin:
                 {
                     "id": f"batch-{account.id}",
                     "content": f"Media from {account.username}",
-                    "createdAt": datetime.now(),
+                    "createdAt": datetime.now(UTC),
                 },
             )
 
@@ -432,7 +432,7 @@ class MediaProcessingMixin:
                 {
                     "id": f"batch-{account.id}",
                     "content": f"Media from {account.username}",
-                    "createdAt": datetime.now(),
+                    "createdAt": datetime.now(UTC),
                 },
             )
 
@@ -470,7 +470,7 @@ class MediaProcessingMixin:
                 {
                     "id": f"batch-{account.id}",
                     "content": f"Media from {account.username}",
-                    "createdAt": datetime.now(),
+                    "createdAt": datetime.now(UTC),
                 },
             )
 
