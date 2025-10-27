@@ -222,28 +222,26 @@ def delete_temporary_pyinstaller_files() -> None:
     Files older than an hour will be deleted.
     """
     try:
-        base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
 
     except Exception:
         return
 
-    temp_dir = os.path.abspath(os.path.join(base_path, ".."))
+    temp_dir = Path(base_path).parent
     current_time = time.time()
 
-    for folder in os.listdir(temp_dir):
+    for folder in temp_dir.iterdir():
         with contextlib.suppress(Exception):
-            item = os.path.join(temp_dir, folder)
-
             if (
-                folder.startswith("_MEI")
-                and os.path.isdir(item)
-                and (current_time - os.path.getctime(item)) > 3600
+                folder.name.startswith("_MEI")
+                and folder.is_dir()
+                and (current_time - folder.stat().st_ctime) > 3600
             ):
-                for root, dirs, files in os.walk(item, topdown=False):
+                for root, dirs, files in os.walk(folder, topdown=False):
                     for file in files:
-                        os.remove(os.path.join(root, file))
+                        Path(root).joinpath(file).unlink()
 
-                    for dir in dirs:
-                        os.rmdir(os.path.join(root, dir))
+                    for ind_dir in dirs:
+                        Path(root).joinpath(ind_dir).rmdir()
 
-                os.rmdir(item)
+                folder.rmdir()

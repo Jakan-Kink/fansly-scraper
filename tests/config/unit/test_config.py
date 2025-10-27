@@ -27,7 +27,7 @@ def config():
 @pytest.fixture
 def temp_config_dir():
     with TemporaryDirectory() as temp_dir:
-        original_cwd = os.getcwd()
+        original_cwd = Path.cwd()
         os.chdir(temp_dir)
         # Create logs directory in both places
         logs_dir = Path(temp_dir) / "logs"
@@ -360,7 +360,7 @@ db_sync_commits = 200
         )
 
     # Change to temp_dir so copy_old_config_values can find the files
-    original_cwd = os.getcwd()
+    original_cwd = Path.cwd()
     os.chdir(temp_config_dir)
     try:
         copy_old_config_values()
@@ -381,7 +381,7 @@ db_sync_commits = 200
 
 def test_copy_old_config_no_files(temp_config_dir):
     # Change to temp_dir where no config files exist
-    original_cwd = os.getcwd()
+    original_cwd = Path.cwd()
     os.chdir(temp_config_dir)
     try:
         copy_old_config_values()  # Should do nothing and not raise

@@ -11,8 +11,8 @@ This module only provides database monitoring and statistics.
 """
 
 import inspect
-import os
 import time
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import event
@@ -37,7 +37,7 @@ def get_caller_info() -> str:
     Skips internal SQLAlchemy calls and common wrapper functions.
     Returns a string with the most relevant caller info.
     """
-    repo_root = os.getcwd()  # assume repo root is the current working directory
+    repo_root = Path.cwd()  # assume repo root is the current working directory
     st = inspect.stack()
     # List of functions we want to skip
     skip_funcs = {
@@ -80,21 +80,22 @@ def get_caller_info() -> str:
         if frame.function in skip_funcs:
             continue
         # Compute a relative path if possible.
-        if repo_root in filename:
-            relative_path = os.path.relpath(filename, repo_root)
-        else:
+        filepath = Path(filename)
+        try:
+            relative_path = str(filepath.relative_to(repo_root))
+        except ValueError:
             # Otherwise, return only the basename.
-            relative_path = os.path.basename(filename)
+            relative_path = filepath.name
         return f"{relative_path}:{frame.lineno} in {frame.function}"
     # Fallback: list the deepest three frames in the stack.
     deepest = st[-5:]
     frames_info = []
     for frame in deepest:
-        filename = frame.filename
+        filepath = Path(frame.filename)
         try:
-            relative_path = os.path.relpath(filename, repo_root)
+            relative_path = str(filepath.relative_to(repo_root))
         except Exception:
-            relative_path = os.path.basename(filename)
+            relative_path = filepath.name
         frames_info.append(f"{relative_path}:{frame.lineno} in {frame.function}")
     return "\n".join(frames_info)
 
