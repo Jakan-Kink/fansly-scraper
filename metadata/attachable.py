@@ -29,7 +29,7 @@ class Attachable(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     type: Mapped[str] = mapped_column(String(50))
 
-    __mapper_args__ = {
+    __mapper_args__ = {  # noqa: RUF012 - SQLAlchemy ORM configuration, not instance data
         "polymorphic_identity": "attachable",
         "polymorphic_on": type,
     }
