@@ -195,7 +195,7 @@ async def test_full_content_workflow(
                 f"Connection error - test requires running Stash instance: {e!s}"
             )
         except Exception as e:
-            raise e
+            raise
 
 
 @pytest.mark.integration
@@ -308,7 +308,7 @@ async def test_concurrent_operations(
             )
         except Exception as e:
             # Re-raise other exceptions that aren't connection-related
-            raise e
+            raise
 
 
 @pytest.mark.asyncio
@@ -405,4 +405,4 @@ async def test_error_handling(
             )
         except Exception as e:
             # Re-raise other exceptions that aren't connection-related
-            raise e
+            raise

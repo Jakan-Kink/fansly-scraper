@@ -257,7 +257,7 @@ async def test_process_fields_conversion_error() -> None:
 
     # Create a converter that raises ZeroDivisionError
     def error_converter(x: str) -> str:
-        1 / 0  # Will raise ZeroDivisionError
+        1 / 0  # noqa: B018
         return ""  # This line won't be reached
 
     # Create a temporary class to avoid modifying class variable via instance

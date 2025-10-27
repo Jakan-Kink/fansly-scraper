@@ -450,7 +450,7 @@ class TestErrorHandlingComponents:
         # Create a process function that raises exception on first item
         async def process_batch(batch):
             if batch[0] == mock_posts[0]:
-                raise Exception("Test error")
+                raise Exception("Test error")  # noqa: TRY002
             return True
 
         # Setup minimal components for testing

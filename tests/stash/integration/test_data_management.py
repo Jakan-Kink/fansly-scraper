@@ -195,7 +195,7 @@ class TestTagManagement:
                     await stash_client.update_scene(scene)
 
                 # Merge duplicate tags
-                for orig, dup in zip(tags, duplicate_tags):
+                for orig, dup in zip(tags, duplicate_tags, strict=True):
                     merged_tag = await stash_client.tags_merge(
                         source=[dup.id], destination=orig.id
                     )
@@ -323,7 +323,7 @@ class TestPerformerManagement:
                 main_performer = performers[0]
 
                 # Update all scenes from both performers to use main performer
-                for performer_id, scenes in scenes_by_performer.items():
+                for scenes in scenes_by_performer.values():
                     for scene in scenes:
                         scene.performers = [main_performer]
                         updated = await stash_client.update_scene(scene)
@@ -879,7 +879,7 @@ class TestDuplicateManagement:
                 assert updated_primary.organized is True
 
                 # Check duplicates
-                for i, dup in enumerate(duplicates):
+                for dup in duplicates:
                     updated_dup = await stash_client.find_scene(dup.id)
                     assert "DUPLICATE" in updated_dup.title
                     assert updated_dup.organized is False

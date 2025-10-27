@@ -720,7 +720,7 @@ async def test_scenes_update_error(
 
             # Check for missing or None result and raise appropriate error
             if not result or not result.get("scenesUpdate"):
-                raise Exception("Failed to update scenes")
+                raise Exception("Failed to update scenes")  # noqa: TRY002
 
             # Process results normally
             return [

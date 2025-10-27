@@ -183,7 +183,7 @@ async def test_content_import_workflow(
         if "Stash instance" in str(e):
             pytest.skip("Test requires running Stash instance: {e}")
         else:
-            raise e
+            raise
 
 
 @pytest.mark.asyncio
@@ -289,7 +289,7 @@ async def test_batch_import_workflow(
         if "Stash instance" in str(e):
             pytest.skip("Test requires running Stash instance: {e}")
         else:
-            raise e
+            raise
 
 
 @pytest.mark.asyncio
@@ -404,4 +404,4 @@ async def test_incremental_update_workflow(
         if "Stash instance" in str(e):
             pytest.skip("Test requires running Stash instance: {e}")
         else:
-            raise e
+            raise

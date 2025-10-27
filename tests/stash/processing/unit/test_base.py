@@ -268,7 +268,7 @@ class TestStashProcessingBase:
             patch("stash.processing.base.logger.exception") as mock_logger_exception,
             patch("stash.processing.base.debug_print") as mock_debug_print,
         ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling, not specific message
+            with pytest.raises(Exception):  # noqa: PT011, B017
                 await base_processor._safe_background_processing(
                     mock_account, mock_performer
                 )

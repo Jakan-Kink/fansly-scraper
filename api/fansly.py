@@ -483,12 +483,6 @@ class FanslyApi:
                 raise RuntimeError(  # noqa: TRY301 - simple error, no need for helper function
                     "WebSocket authentication failed - no session ID received"
                 )
-
-            logger.info(
-                "WebSocket session established: %s", self._websocket_client.session_id
-            )
-            return self._websocket_client.session_id  # noqa: TRY300 - already in success path after raise check
-
         except Exception as e:
             logger.error("Failed to establish WebSocket session: %s", e)
             # Clean up on failure
@@ -496,6 +490,11 @@ class FanslyApi:
                 await self._websocket_client.stop()
                 self._websocket_client = None
             raise RuntimeError(f"WebSocket session setup failed: {e}")
+        else:
+            logger.info(
+                "WebSocket session established: %s", self._websocket_client.session_id
+            )
+            return self._websocket_client.session_id
 
     async def get_active_session(self) -> str:
         """Get active session ID asynchronously."""

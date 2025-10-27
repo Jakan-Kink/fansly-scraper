@@ -60,7 +60,7 @@ async def test_process_hashtags_to_tags_creation_error_exists(tag_mixin):
     def mock_create_tag(*args, **kwargs):
         if mock_create_tag.first_call:
             mock_create_tag.first_call = False
-            raise Exception("tag with name 'test_tag' already exists")
+            raise Exception("tag with name 'test_tag' already exists")  # noqa: TRY002
         return existing_tag
 
     mock_create_tag.first_call = True

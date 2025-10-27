@@ -184,7 +184,7 @@ class TestAccountProcessingMixin:
             ) as mock_logger_exception,
             patch("stash.processing.mixins.account.debug_print") as mock_debug_print,
         ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling, not specific message
+            with pytest.raises(Exception):  # noqa: PT011, B017
                 await mixin.process_creator(session=mock_session)
 
             # Verify error handling
