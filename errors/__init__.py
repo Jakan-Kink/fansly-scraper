@@ -1,5 +1,8 @@
 """Errors/Exceptions"""
 
+from typing import Any
+
+
 # region Constants
 
 EXIT_SUCCESS: int = 0
@@ -40,7 +43,7 @@ class ConfigError(RuntimeError):
     Invalid data may have been provided by config.ini or command-line.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
@@ -51,7 +54,7 @@ class ApiError(RuntimeError):
     invalid user names or - in rare cases - changes to the Fansly API itself.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
@@ -62,7 +65,7 @@ class ApiAuthenticationError(ApiError):
     This may primarily be caused by an invalid token.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
@@ -73,7 +76,7 @@ class ApiAccountInfoError(ApiError):
     This may primarily be caused by an invalid user name.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
@@ -84,7 +87,7 @@ class DownloadError(RuntimeError):
     and so on.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
@@ -95,7 +98,7 @@ class MediaError(RuntimeError):
     Fansly API calls.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
@@ -104,14 +107,14 @@ class M3U8Error(MediaError):
     both no audio and no video.
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
 class MediaHashMismatchError(MediaError):
     """Raised when a media file's hash doesn't match the database record."""
 
-    def __init__(self, *args):
+    def __init__(self, *args: Any) -> None:
         super().__init__(*args)
 
 
