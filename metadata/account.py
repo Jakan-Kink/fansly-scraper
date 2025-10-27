@@ -51,7 +51,7 @@ async def process_media_bundles_data(
     config: FanslyConfig,
     data: dict[str, any],
     session: AsyncSession | None = None,
-    id_fields: list[str] = ["senderId", "recipientId"],
+    id_fields: list[str] | None = None,
 ) -> None:
     """Process media bundles from data.
 
@@ -61,6 +61,9 @@ async def process_media_bundles_data(
         config: FanslyConfig instance for database access
         id_fields: List of field names to check for account ID
     """
+    if id_fields is None:
+        id_fields = ["senderId", "recipientId"]
+
     if "accountMediaBundles" not in data:
         return
 
@@ -247,7 +250,7 @@ class MediaStoryState(Base):
         Boolean, nullable=True, default=False
     )
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize a Story instance with timestamp conversion."""
         self.convert_timestamps(kwargs, ("createdAt", "updatedAt"))
         super().__init__(**kwargs)
@@ -364,12 +367,12 @@ class AccountMedia(Base):
     )
 
     @classmethod
-    def __declare_last__(cls):
+    def __declare_last__(cls) -> None:
         """Set up event listeners after all configuration is complete."""
 
         @event.listens_for(Account, "after_delete")
         def delete_account_media(
-            mapper: Mapper, connection: Connection, target: Account
+            _mapper: Mapper, connection: Connection, target: Account
         ) -> None:
             """Delete all AccountMedia records when Account is deleted."""
             connection.execute(cls.__table__.delete().where(cls.accountId == target.id))
@@ -623,7 +626,7 @@ async def _process_single_bundle(
     )
 
     # Get or create bundle
-    bundle_obj, created = await AccountMediaBundle.async_get_or_create(
+    bundle_obj, _ = await AccountMediaBundle.async_get_or_create(
         session,
         {"id": bundle["id"]},
         {
@@ -762,7 +765,7 @@ async def process_banner(
 async def process_account_data(
     config: FanslyConfig,
     data: dict[str, any],
-    state: DownloadState | None = None,
+    _state: DownloadState | None = None,
     session: AsyncSession | None = None,
 ) -> None:
     """Process account data.
@@ -844,7 +847,7 @@ async def process_account_data(
             Base.convert_timestamps(stats_data, ("fetchedAt",))
 
         # Get or create timeline stats
-        stats, created = await TimelineStats.async_get_or_create(
+        stats, _ = await TimelineStats.async_get_or_create(
             session,
             {"accountId": account.id},
             {
@@ -869,7 +872,7 @@ async def process_account_data(
         Base.convert_timestamps(story_data, ("createdAt", "updatedAt"))
 
         # Get or create story state
-        story, created = await MediaStoryState.async_get_or_create(
+        story, _ = await MediaStoryState.async_get_or_create(
             session,
             {"accountId": account.id},
             {

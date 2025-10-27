@@ -314,7 +314,7 @@ async def test_process_fields_none_converted_value() -> None:
     original_conversions = obj.__field_conversions__.copy()
     type(obj).__field_conversions__ = {
         **obj.__field_conversions__,
-        "name": lambda x: None,
+        "name": lambda _x: None,
     }
 
     try:
@@ -406,7 +406,7 @@ async def test_field_conversion_error_handling() -> None:
     try:
         # Add converters that raise different types of errors
         type(obj).__field_conversions__ = {
-            "name": lambda x: 1 / 0,  # ZeroDivisionError (now handled)
+            "name": lambda _x: 1 / 0,  # ZeroDivisionError (now handled)
             "description": lambda x: x.nonexistent_method(),  # AttributeError
             "tags": lambda x: x + "invalid",  # TypeError potential
         }

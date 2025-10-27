@@ -127,7 +127,7 @@ class DuplicatePageError(RuntimeError):
         page_id: str | None = None,
         cursor: str | None = None,
         wall_name: str | None = None,
-    ):
+    ) -> None:
         self.page_type = page_type
         self.page_id = page_id
         self.cursor = cursor
@@ -149,7 +149,7 @@ class InvalidTraceLogError(RuntimeError):
     Using any other level (DEBUG, INFO, etc.) is a programming error.
     """
 
-    def __init__(self, level_name: str):
+    def __init__(self, level_name: str) -> None:
         self.level_name = level_name
         self.message = (
             f"trace_logger only accepts TRACE level messages, got {level_name}"

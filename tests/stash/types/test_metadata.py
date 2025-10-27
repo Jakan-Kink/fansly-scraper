@@ -92,8 +92,8 @@ class TestMetadataInputTypes:
         # List fields
 
         # Handle both old and new union type representations
-        sceneIDs_origin = get_origin(hints["sceneIDs"])
-        markerIDs_origin = get_origin(hints["markerIDs"])
+        sceneIDs_origin = get_origin(hints["sceneIDs"])  # noqa: N806 #to match style in GraphQL
+        markerIDs_origin = get_origin(hints["markerIDs"])  # noqa: N806 #to match style in GraphQL
 
         # Check if it's either the new UnionType or the old union
         assert sceneIDs_origin == types.UnionType or sceneIDs_origin == list | type(

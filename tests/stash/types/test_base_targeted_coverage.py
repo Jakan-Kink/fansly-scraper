@@ -175,7 +175,7 @@ async def test_relationship_edge_case_coverage() -> None:
     assert result is None
 
     # Test _process_single_relationship when transform returns None
-    result = await obj._process_single_relationship("test", lambda x: None)
+    result = await obj._process_single_relationship("test", lambda _x: None)
     assert result is None
 
     # Test _process_list_relationship with None/empty values
@@ -225,7 +225,7 @@ async def test_field_conversion_error_scenarios() -> None:
         # Test specifically the ArithmeticError exception handling in _process_fields
         # This targets the except (ValueError, TypeError, ArithmeticError) clause
         TestStashObject.__field_conversions__ = {
-            "description": lambda x: 1
+            "description": lambda _x: 1
             / 0,  # ZeroDivisionError (subclass of ArithmeticError)
         }
 

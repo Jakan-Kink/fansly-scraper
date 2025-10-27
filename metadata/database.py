@@ -28,7 +28,7 @@ from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 from alembic.command import upgrade as alembic_upgrade
@@ -50,22 +50,14 @@ if TYPE_CHECKING:
 logs_dir = Path("logs")
 logs_dir.mkdir(exist_ok=True)
 
-# Global database logger
-_db_logger: DatabaseLogger | None = None
-
-
 def get_db_logger() -> DatabaseLogger:
     """Get the global database logger, initializing it if needed."""
-    global _db_logger
-    if _db_logger is None:
-        _db_logger = DatabaseLogger()
-    return _db_logger
+    if not hasattr(get_db_logger, "instance"):
+        get_db_logger.instance = DatabaseLogger()
+    return get_db_logger.instance
 
 
-RT = TypeVar("RT")  # Return type for decorator
-
-
-def require_database_config(func: Callable[..., RT]) -> Callable[..., RT]:
+def require_database_config[RT](func: Callable[..., RT]) -> Callable[..., RT]:
     """Decorator to ensure database configuration is present."""
     is_async = asyncio.iscoroutinefunction(func)
 

@@ -65,7 +65,9 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
     # Parse timestamp
     try:
         # Parse date but we only need it for validation, not using the actual datetime object
-        datetime.strptime(f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M")
+        datetime.strptime(
+            f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M"
+        ).replace(tzinfo=UTC)
 
         # For files without timezone indicator
         if config and id_part:
@@ -92,10 +94,7 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
             # This is the most common case for Fansly downloads
             local_dt = datetime.strptime(
                 f"{date_str} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M"
-            )
-            local_dt = local_dt.replace(
-                tzinfo=ZoneInfo("America/New_York")
-            )  # EST/EDT timezone
+            ).replace(tzinfo=ZoneInfo("America/New_York"))  # EST/EDT timezone
             utc_dt = local_dt.astimezone(UTC)
             ts_str = utc_dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
             return f"{ts_str}_{id_part}.{extension}"

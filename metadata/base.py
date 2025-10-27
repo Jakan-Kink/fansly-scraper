@@ -55,7 +55,7 @@ class Base(AsyncAttrs, DeclarativeBase):
         when they are loaded from the database.
     """
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__()
         # Set attributes from kwargs
         for key, value in kwargs.items():

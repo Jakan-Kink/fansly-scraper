@@ -15,7 +15,7 @@ import time
 import traceback
 
 # from memory_profiler import profile
-from datetime import datetime
+from datetime import UTC, datetime
 from time import monotonic
 from types import FrameType
 
@@ -191,7 +191,7 @@ def print_logo() -> None:
     print(f"{(100 - len(__version__) - 1) // 2 * ' '}v{__version__}\n")
 
 
-def _handle_interrupt(signum: int, frame: FrameType | None) -> None:
+def _handle_interrupt(_signum: int, _frame: FrameType | None) -> None:
     """Handle interrupt signal (Ctrl+C)."""
     print_error("\nInterrupted by user")
     # Set a flag instead of calling sys.exit directly
@@ -330,7 +330,7 @@ async def main(config: FanslyConfig) -> int:
     print_info(f"Check Key: {config.check_key}")
     print_info(
         f"Device ID: {api.device_id} "
-        f"({datetime.fromtimestamp(api.device_id_timestamp / 1000)})"
+        f"({datetime.fromtimestamp(api.device_id_timestamp / 1000, tz=UTC)})"
     )
     print_info(f"Session ID: {api.session_id}")
     client_user_name = api.get_client_user_name()

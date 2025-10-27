@@ -1,18 +1,14 @@
 """Transaction utilities for download operations."""
 
 from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from errors import DuplicatePageError
 
 
-# Type variable for the transaction helper
-T = TypeVar("T")
-
-
-async def in_transaction_or_new(
+async def in_transaction_or_new[T](
     session: AsyncSession,
     func: Callable[..., Coroutine[Any, Any, T]],
     debug: bool = False,
@@ -61,6 +57,3 @@ async def in_transaction_or_new(
                 await session.flush()
                 await session.commit()
                 return results
-    except DuplicatePageError:
-        # Let DuplicatePageError propagate to be handled by the caller
-        raise
