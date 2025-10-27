@@ -291,12 +291,12 @@ def test_config():
     return config
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def temp_config_dir():
     """Create a temporary directory and change to it for config file testing."""
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        original_cwd = os.getcwd()
+        original_cwd = Path.cwd()
         os.chdir(temp_dir)
         try:
             yield Path(temp_dir)

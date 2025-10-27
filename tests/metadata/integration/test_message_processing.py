@@ -1,7 +1,6 @@
 """Integration tests for message processing functionality."""
 
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,7 +22,7 @@ from tests.fixtures import AccountFactory, GroupFactory
 @pytest.fixture(scope="session")
 def group_data(test_data_dir: str):
     """Load group messages test data."""
-    with Path(os.path.join(test_data_dir, "messages-group.json")).open() as f:
+    with (Path(test_data_dir) / "messages-group.json").open() as f:
         return json.load(f)
 
 

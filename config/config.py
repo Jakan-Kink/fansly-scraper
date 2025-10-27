@@ -1,10 +1,7 @@
 """Configuration File Manipulation"""
 
 import configparser
-import os
 from configparser import ConfigParser
-from os import getcwd
-from os.path import join
 from pathlib import Path
 
 from config.fanslyconfig import FanslyConfig
@@ -104,11 +101,11 @@ def copy_old_config_values() -> None:
 
     The hardcoded file names are from `old_config.ini` to `config.ini`.
     """
-    current_directory = getcwd()
-    old_config_path = join(current_directory, "old_config.ini")
-    new_config_path = join(current_directory, "config.ini")
+    current_directory = Path.cwd()
+    old_config_path = current_directory / "old_config.ini"
+    new_config_path = current_directory / "config.ini"
 
-    if os.path.isfile(old_config_path) and os.path.isfile(new_config_path):
+    if old_config_path.is_file() and new_config_path.is_file():
         old_config = ConfigParser(interpolation=None)
         old_config.read(old_config_path)
 

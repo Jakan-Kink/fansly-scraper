@@ -17,12 +17,12 @@ from textio.logging import SizeAndTimeRotatingFileHandler
 @pytest.fixture
 def log_setup():
     """Set up test environment."""
-    temp_dir = tempfile.mkdtemp()
-    log_filename = os.path.join(temp_dir, "test.log")
+    temp_dir = Path(tempfile.mkdtemp())
+    log_filename = str(temp_dir / "test.log")
     logger = logging.getLogger("test_logger")
     logger.setLevel(logging.INFO)
 
-    yield temp_dir, log_filename, logger
+    yield str(temp_dir), log_filename, logger
 
     # Cleanup
     handler_list = (
@@ -34,9 +34,9 @@ def log_setup():
 
     # Remove test files
     try:
-        for filename in os.listdir(temp_dir):
-            os.remove(os.path.join(temp_dir, filename))
-        os.rmdir(temp_dir)
+        for file_path in temp_dir.iterdir():
+            file_path.unlink()
+        temp_dir.rmdir()
     except OSError as e:
         print(f"Warning: Cleanup issue: {e}")
 
@@ -58,11 +58,11 @@ def test_size_based_rotation(log_setup):
         logger.info("X" * 50)  # Each log should be > 50 bytes
 
     # Check that we have the expected number of files
-    files = os.listdir(temp_dir)
+    files = list(Path(temp_dir).iterdir())
     assert len(files) == 4  # Original + 3 backups
-    assert os.path.exists(f"{log_filename}.1")
-    assert os.path.exists(f"{log_filename}.2")
-    assert os.path.exists(f"{log_filename}.3")
+    assert Path(f"{log_filename}.1").exists()
+    assert Path(f"{log_filename}.2").exists()
+    assert Path(f"{log_filename}.3").exists()
 
 
 def test_time_based_rotation(log_setup):
@@ -101,7 +101,7 @@ def test_time_based_rotation(log_setup):
         logger.info("Third log")
 
     # Check that we have the expected number of files
-    files = os.listdir(temp_dir)
+    files = list(Path(temp_dir).iterdir())
     assert len(files) == 3  # Original + 2 backups
 
 
@@ -127,7 +127,7 @@ def test_compression_gz(log_setup):
 
     # Check that the rotated file is compressed
     compressed_file = f"{log_filename}.1.gz"
-    assert os.path.exists(compressed_file)
+    assert Path(compressed_file).exists()
 
     # Verify the content is readable
     with gzip.open(compressed_file, "rt") as f:
@@ -162,7 +162,7 @@ def test_utc_time_handling(log_setup):
         logger.info("Another test")
 
     # Check that rotation occurred
-    assert os.path.exists(f"{log_filename}.1")
+    assert Path(f"{log_filename}.1").exists()
 
 
 def test_invalid_compression(log_setup):
@@ -192,10 +192,10 @@ def test_rollover_on_init(log_setup):
     logger.addHandler(handler)
 
     # Check that the file was rotated on initialization
-    assert os.path.exists(f"{log_filename}.1")
+    assert Path(f"{log_filename}.1").exists()
 
     # Original file should be empty or very small
-    assert os.path.getsize(log_filename) < 100
+    assert Path(log_filename).stat().st_size < 100
 
 
 def test_multiple_handlers(log_setup):
@@ -222,5 +222,5 @@ def test_multiple_handlers(log_setup):
         logger.info("Test")  # Should trigger time rotation
 
     # Check files
-    files = os.listdir(temp_dir)
+    files = list(Path(temp_dir).iterdir())
     assert len(files) >= 2  # Should have at least original + backup

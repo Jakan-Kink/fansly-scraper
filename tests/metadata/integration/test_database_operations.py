@@ -84,8 +84,8 @@ def shared_db_path(request):
     finally:
         # Clean up the tempfile after the test
         try:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
+            if Path(temp_path).exists():
+                Path(temp_path).unlink()
                 print_info(f"Removed test database: {temp_path}")
         except Exception as e:
             print_warning(f"Failed to clean up test database {temp_path}: {e}")

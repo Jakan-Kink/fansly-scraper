@@ -2,7 +2,6 @@
 
 import contextlib
 import json
-import os
 import shutil
 import sqlite3
 import tempfile
@@ -22,12 +21,12 @@ class TestBrowserIntegration(unittest.TestCase):
     def setUp(self):
         """Set up temporary test directory structure."""
         self.temp_dir = tempfile.mkdtemp()
-        self.firefox_profile = os.path.join(self.temp_dir, "firefox", "profile")
-        self.storage_dir = os.path.join(self.firefox_profile, "storage", "default")
-        os.makedirs(self.storage_dir)
+        self.firefox_profile = Path(self.temp_dir) / "firefox" / "profile"
+        self.storage_dir = self.firefox_profile / "storage" / "default"
+        self.storage_dir.mkdir(parents=True)
 
         # Create a test SQLite database
-        self.db_path = os.path.join(self.storage_dir, "webappsstore.sqlite")
+        self.db_path = self.storage_dir / "webappsstore.sqlite"
         self.create_test_sqlite_db()
 
     def tearDown(self):
@@ -66,37 +65,36 @@ class TestBrowserIntegration(unittest.TestCase):
 
     def test_get_token_from_firefox_profile_integration(self):
         """Test getting token from a real Firefox profile structure."""
-        token = get_token_from_firefox_profile(self.firefox_profile)
-        self.assertEqual(token, "test-fansly-token")
+        token = get_token_from_firefox_profile(str(self.firefox_profile))
+        assert token == "test-fansly-token"
 
     def test_get_token_from_firefox_db_integration(self):
         """Test getting token directly from SQLite database."""
-        token = get_token_from_firefox_db(self.db_path)
-        self.assertEqual(token, "test-fansly-token")
+        token = get_token_from_firefox_db(str(self.db_path))
+        assert token == "test-fansly-token"
 
     def test_find_leveldb_folders_integration(self):
         """Test finding LevelDB folders in a directory structure."""
         # Create some test leveldb folders
         leveldb_paths = [
-            os.path.join(
-                self.temp_dir, "browser1", "Default", "Local Storage", "leveldb"
-            ),
-            os.path.join(
-                self.temp_dir, "browser2", "Profile 1", "Local Storage", "leveldb"
-            ),
+            Path(self.temp_dir) / "browser1" / "Default" / "Local Storage" / "leveldb",
+            Path(self.temp_dir)
+            / "browser2"
+            / "Profile 1"
+            / "Local Storage"
+            / "leveldb",
         ]
 
         # Create .ldb files in the folders
         for path in leveldb_paths:
-            os.makedirs(path)
-            with Path(os.path.join(path, "000001.ldb")).open("w") as f:
-                f.write("test")
+            path.mkdir(parents=True)
+            (path / "000001.ldb").write_text("test")
 
         # Create some non-leveldb folders
-        os.makedirs(os.path.join(self.temp_dir, "browser3", "Other"))
+        (Path(self.temp_dir) / "browser3" / "Other").mkdir(parents=True)
 
         found_folders = find_leveldb_folders(self.temp_dir)
 
-        self.assertEqual(len(found_folders), 2)
+        assert len(found_folders) == 2
         for path in leveldb_paths:
-            self.assertTrue(any(str(path) in str(found) for found in found_folders))
+            assert any(str(path) in str(found) for found in found_folders)

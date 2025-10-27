@@ -2,10 +2,10 @@
 
 import json
 import os
-import os.path
 import platform
 import sqlite3
 import traceback
+from pathlib import Path
 from time import sleep
 
 import plyvel
@@ -30,7 +30,7 @@ def get_token_from_firefox_profile(directory: str) -> str | None:
         if "storage" in root:
             for file in files:
                 if file.endswith(".sqlite"):
-                    sqlite_file = os.path.join(root, file)
+                    sqlite_file = str(Path(root) / file)
                     session_active_session = get_token_from_firefox_db(sqlite_file)
                     if session_active_session is not None:
                         return session_active_session
@@ -141,47 +141,41 @@ def get_browser_config_paths() -> list[str]:
             )
 
         browser_paths = [
-            os.path.join(local_appdata, "Google", "Chrome", "User Data"),
-            os.path.join(local_appdata, "Microsoft", "Edge", "User Data"),
-            os.path.join(appdata, "Mozilla", "Firefox", "Profiles"),
-            os.path.join(appdata, "Opera Software", "Opera Stable"),
-            os.path.join(appdata, "Opera Software", "Opera GX Stable"),
-            os.path.join(local_appdata, "BraveSoftware", "Brave-Browser", "User Data"),
+            str(Path(local_appdata) / "Google" / "Chrome" / "User Data"),
+            str(Path(local_appdata) / "Microsoft" / "Edge" / "User Data"),
+            str(Path(appdata) / "Mozilla" / "Firefox" / "Profiles"),
+            str(Path(appdata) / "Opera Software" / "Opera Stable"),
+            str(Path(appdata) / "Opera Software" / "Opera GX Stable"),
+            str(Path(local_appdata) / "BraveSoftware" / "Brave-Browser" / "User Data"),
         ]
 
     elif platform.system() == "Darwin":  # macOS
-        home = os.path.expanduser("~")
+        home = Path.home()
         # regarding safari comp:
         # https://stackoverflow.com/questions/58479686/permissionerror-errno-1-operation-not-permitted-after-macos-catalina-update
 
         browser_paths = [
-            os.path.join(home, "Library", "Application Support", "Google", "Chrome"),
-            os.path.join(home, "Library", "Application Support", "Microsoft Edge"),
-            os.path.join(home, "Library", "Application Support", "Firefox", "Profiles"),
-            os.path.join(
-                home, "Library", "Application Support", "com.operasoftware.Opera"
-            ),
-            os.path.join(
-                home, "Library", "Application Support", "com.operasoftware.OperaGX"
-            ),
-            os.path.join(home, "Library", "Application Support", "BraveSoftware"),
+            str(home / "Library" / "Application Support" / "Google" / "Chrome"),
+            str(home / "Library" / "Application Support" / "Microsoft Edge"),
+            str(home / "Library" / "Application Support" / "Firefox" / "Profiles"),
+            str(home / "Library" / "Application Support" / "com.operasoftware.Opera"),
+            str(home / "Library" / "Application Support" / "com.operasoftware.OperaGX"),
+            str(home / "Library" / "Application Support" / "BraveSoftware"),
         ]
 
     elif platform.system() == "Linux":
-        home = os.path.expanduser("~")
+        home = Path.home()
 
         browser_paths = [
-            os.path.join(home, ".config", "google-chrome", "Default"),
-            os.path.join(
-                home, ".mozilla", "firefox"
+            str(home / ".config" / "google-chrome" / "Default"),
+            str(
+                home / ".mozilla" / "firefox"
             ),  # firefox non-snap (couldn't verify with ubuntu)
-            os.path.join(
-                home, "snap", "firefox", "common", ".mozilla", "firefox"
+            str(
+                home / "snap" / "firefox" / "common" / ".mozilla" / "firefox"
             ),  # firefox snap
-            os.path.join(
-                home, ".config", "opera"
-            ),  # btw opera gx, does not exist for linux
-            os.path.join(home, ".config", "BraveSoftware", "Brave-Browser", "Default"),
+            str(home / ".config" / "opera"),  # btw opera gx, does not exist for linux
+            str(home / ".config" / "BraveSoftware" / "Brave-Browser" / "Default"),
         ]
 
     return browser_paths
@@ -201,7 +195,7 @@ def find_leveldb_folders(root_path: str) -> set[str]:
     for root, dirs, files in os.walk(root_path):
         for dir_name in dirs:
             if "leveldb" in dir_name.lower():
-                leveldb_folders.add(os.path.join(root, dir_name))
+                leveldb_folders.add(str(Path(root) / dir_name))
                 break
 
         for file in files:
