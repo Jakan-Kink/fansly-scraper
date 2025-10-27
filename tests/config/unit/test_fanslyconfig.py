@@ -28,13 +28,13 @@ from config.modes import DownloadMode
 # to prevent PostgreSQL connection attempts in these unit tests.
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def config_path(tmp_path):
     """Create a temporary config file path."""
     return tmp_path / "config.ini"
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_parser():
     """Create a mock ConfigParser with required sections."""
     parser = ConfigParser(interpolation=None)
@@ -46,7 +46,7 @@ def mock_parser():
     return parser
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def config(config_path, mock_parser):
     """Create a FanslyConfig instance for unit testing (no database).
 
