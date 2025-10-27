@@ -106,7 +106,7 @@ async def test_process_hashtags_to_tags_creation_error_other(tag_mixin):
     hashtag.value = "test_tag"
 
     # Process the hashtag and expect the error to be raised
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
         await tag_mixin._process_hashtags_to_tags([hashtag])
 
     assert str(exc_info.value) == "Some other error"

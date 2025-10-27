@@ -36,7 +36,7 @@ class TestDownloadMode:
         assert DownloadMode("Normal") == DownloadMode.NORMAL
 
         # Test with invalid value
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid_mode"):
             DownloadMode("invalid_mode")
 
     def test_string_representation(self):

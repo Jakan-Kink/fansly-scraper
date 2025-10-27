@@ -420,7 +420,7 @@ async def test_base_file_to_input_no_id_raises() -> None:
     delattr(test_file, "id")
 
     # Should raise ValueError for missing ID
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
         await test_file.to_input()
     assert "ID" in str(excinfo.value)
 
@@ -465,6 +465,6 @@ async def test_folder_to_input_no_id_raises() -> None:
     delattr(test_folder, "id")
 
     # Should raise ValueError for missing ID
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
         await test_folder.to_input()
     assert "ID" in str(excinfo.value)

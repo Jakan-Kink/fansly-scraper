@@ -322,13 +322,13 @@ async def test_error_handling(
     async with stash_cleanup_tracker(stash_client) as cleanup:
         try:
             # Test invalid scene creation
-            with pytest.raises(Exception) as exc_info:
-                scene = Scene(
-                    id="new",
-                    title="",  # Empty title
-                    urls=[],  # No URLs
-                    organized=True,
-                )
+            scene = Scene(
+                id="new",
+                title="",  # Empty title
+                urls=[],  # No URLs
+                organized=True,
+            )
+            with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
                 await stash_client.create_scene(scene)
             assert "title must be set" in str(exc_info.value).lower()
 
@@ -352,7 +352,7 @@ async def test_error_handling(
                     id="999999", name="Invalid Studio"
                 ),  # Use invalid Studio object instead of string
             )
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
                 await stash_client.create_scene(scene)
             assert "studio" in str(exc_info.value).lower()
 
@@ -367,7 +367,7 @@ async def test_error_handling(
                         id=f"999999{i}", name=f"Invalid Studio {i}"
                     ),  # Use invalid Studio objects
                 )
-                with pytest.raises(Exception) as exc_info:
+                with pytest.raises(Exception) as exc_info:  # noqa: PT011 - testing concurrent error handling
                     await stash_client.create_scene(scene)
                 print(
                     f"Expected error on concurrent invalid studio {i}: {exc_info.value}"

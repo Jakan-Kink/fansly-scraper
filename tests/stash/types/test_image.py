@@ -337,7 +337,7 @@ def test_image_from_dict_method() -> None:
 @pytest.mark.unit
 def test_image_from_dict_missing_id_raises() -> None:
     """Test that Image.from_dict raises when ID is missing."""
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
         Image.from_dict({})
     assert "ID field" in str(excinfo.value)
 
@@ -349,8 +349,10 @@ def test_image_from_dict_with_minimal_data() -> None:
     image = Image.from_dict(data)
     assert image.id == "image1"
     # Default lists should be empty
-    assert isinstance(image.visual_files, list) and image.visual_files == []
-    assert isinstance(image.galleries, list) and image.galleries == []
+    assert isinstance(image.visual_files, list)
+    assert image.visual_files == []
+    assert isinstance(image.galleries, list)
+    assert image.galleries == []
 
 
 @pytest.mark.unit

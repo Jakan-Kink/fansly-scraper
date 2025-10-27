@@ -370,7 +370,7 @@ async def test_query_errors(mock_session, mock_client) -> None:
     mock_client.close_async = AsyncMock()
     client.client = mock_client
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011 - message validated by assertions below
         await client.execute("query {", {})  # Intentionally malformed query
 
     error_msg = str(exc_info.value)

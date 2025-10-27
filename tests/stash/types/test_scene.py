@@ -268,7 +268,7 @@ def test_scene_relationships() -> None:
 @pytest.mark.unit
 def test_from_dict_missing_id_raises() -> None:
     """Test that Scene.from_dict raises when ID is missing."""
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
         Scene.from_dict({})
     assert "ID field" in str(excinfo.value)
 
@@ -280,8 +280,10 @@ def test_from_dict_with_minimal_data() -> None:
     scene = Scene.from_dict(data)
     assert scene.id == "scene1"
     # Default lists should be empty
-    assert isinstance(scene.files, list) and scene.files == []
-    assert isinstance(scene.stash_ids, list) and scene.stash_ids == []
+    assert isinstance(scene.files, list)
+    assert scene.files == []
+    assert isinstance(scene.stash_ids, list)
+    assert scene.stash_ids == []
 
 
 @pytest.mark.unit

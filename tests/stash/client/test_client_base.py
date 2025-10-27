@@ -466,7 +466,7 @@ async def test_get_configuration_defaults(mock_session, mock_client) -> None:
 
         # Test error handling
         mock_session.execute = AsyncMock(side_effect=ValueError("Test error"))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Test error"):
             await client.get_configuration_defaults()
 
 

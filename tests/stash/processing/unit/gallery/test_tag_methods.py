@@ -128,7 +128,7 @@ class TestTagMethods:
         mixin.context.client.create_tag = AsyncMock(side_effect=Exception(error_msg))
 
         # Call the method and expect error
-        with pytest.raises(Exception) as excinfo:
+        with pytest.raises(Exception) as excinfo:  # noqa: PT011 - message validated by assertion below
             await mixin._process_hashtags_to_tags([hashtag1])
 
         # Verify the error is re-raised

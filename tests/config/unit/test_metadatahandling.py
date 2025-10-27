@@ -50,7 +50,7 @@ class TestMetadataHandling:
         assert MetadataHandling._missing_("invalid_value") is None
 
         # Instantiating with invalid value should raise ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid_value"):
             MetadataHandling("invalid_value")
 
     def test_string_representation(self):

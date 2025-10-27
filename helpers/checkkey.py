@@ -135,31 +135,56 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
                 _state: State object passed by acorn-walk (unused)
             """
             # Check for direct assignment: this.checkKey_ = value
-            if (
-                hasattr(node, "type")
-                and node.type == "AssignmentExpression"
-                and hasattr(node, "left")
-                and node.left.type == "MemberExpression"
-                and node.left.object.type == "ThisExpression"
-                and node.left.property.type == "Identifier"
-                and node.left.property.name == "checkKey_"
-            ):
-                # Extract the expression from the source
-                start = node.right.start
-                end = node.right.end
-                expression = js_content[start:end]
+            # Use str() to convert JavaScript strings to Python strings for comparison
+            try:
+                if (
+                    str(node.type) == "AssignmentExpression"
+                    and str(node.left.type) == "MemberExpression"
+                    and str(node.left.object.type) == "ThisExpression"
+                    and str(node.left.property.type) == "Identifier"
+                    and str(node.left.property.name) == "checkKey_"
+                ):
+                    # Extract the expression from the source
+                    start = int(node.right.start)
+                    end = int(node.right.end)
+                    expression = js_content[start:end]
 
-                assignments.append({"position": start, "expression": expression})
+                    assignments.append({"position": start, "expression": expression})
+            except (AttributeError, TypeError):
+                # Skip nodes that don't have the expected structure
+                pass
 
-        # Walk the AST to find assignments (check all node types)
-        # Debug: count total assignment expressions found
+        # Walk the AST to find assignments
+        # Check both direct AssignmentExpression and those within SequenceExpression
         assignment_count = [0]  # Use list for closure
 
         def count_assignments(node: Any, _state: Any = None) -> None:
             assignment_count[0] += 1
             check_node(node, _state)
 
-        acorn_walk.simple(ast, {"AssignmentExpression": count_assignments})
+        # Also check within SequenceExpression (for minified code like: a=1,b=2,c=3)
+        def check_sequence(node: Any, _state: Any = None) -> None:
+            try:
+                # SequenceExpression has an 'expressions' array
+                if hasattr(node, "expressions"):
+                    for expr in node.expressions:
+                        if str(expr.type) == "AssignmentExpression":
+                            count_assignments(expr, _state)
+            except (AttributeError, TypeError):
+                pass
+
+        acorn_walk.simple(
+            ast,
+            {
+                "AssignmentExpression": count_assignments,
+                "SequenceExpression": check_sequence,
+            },
+        )
+
+        # Allow JSPyBridge async callbacks to complete
+        import time
+
+        time.sleep(0.1)
 
         # Sort by position (first in file = first in execution)
         assignments.sort(key=lambda x: x["position"])

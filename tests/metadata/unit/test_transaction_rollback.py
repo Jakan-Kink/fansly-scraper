@@ -57,9 +57,12 @@ class TestNestedTransactionRollback:
             result = session.execute(text("SELECT * FROM test ORDER BY id"))
             rows = result.fetchall()
             assert len(rows) == 3
-            assert rows[0][0] == 1 and rows[0][1] == "outer"
-            assert rows[1][0] == 2 and rows[1][1] == "nested1"
-            assert rows[2][0] == 3 and rows[2][1] == "nested2"
+            assert rows[0][0] == 1
+            assert rows[0][1] == "outer"
+            assert rows[1][0] == 2
+            assert rows[1][1] == "nested1"
+            assert rows[2][0] == 3
+            assert rows[2][1] == "nested2"
 
     def test_nested_transaction_error_recovery(self, test_database_sync: Database):
         """Test scenario where a nested transaction fails but outer transaction continues."""
@@ -99,9 +102,12 @@ class TestNestedTransactionRollback:
             result = session.execute(text("SELECT * FROM test ORDER BY id"))
             rows = result.fetchall()
             assert len(rows) == 3
-            assert rows[0][0] == 1 and rows[0][1] == "outer"
-            assert rows[1][0] == 2 and rows[1][1] == "nested1"
-            assert rows[2][0] == 3 and rows[2][1] == "nested3"
+            assert rows[0][0] == 1
+            assert rows[0][1] == "outer"
+            assert rows[1][0] == 2
+            assert rows[1][1] == "nested1"
+            assert rows[2][0] == 3
+            assert rows[2][1] == "nested3"
 
     def test_connection_failure_recovery(
         self, test_database_sync: Database, monkeypatch
@@ -170,7 +176,8 @@ class TestNestedTransactionRollback:
             result = session.execute(text("SELECT * FROM test WHERE id = 4"))
             row = result.fetchone()
             assert row is not None
-            assert row[0] == 4 and row[1] == "after_error"
+            assert row[0] == 4
+            assert row[1] == "after_error"
 
     def test_multiple_savepoint_errors(self, test_database_sync: Database, monkeypatch):
         """Test handling of multiple savepoint errors in sequence."""
@@ -223,4 +230,5 @@ class TestNestedTransactionRollback:
             result = session.execute(text("SELECT * FROM test WHERE id = 5"))
             row = result.fetchone()
             assert row is not None
-            assert row[0] == 5 and row[1] == "after_mock_error"
+            assert row[0] == 5
+            assert row[1] == "after_mock_error"

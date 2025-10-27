@@ -169,7 +169,7 @@ def test_invalid_compression(log_setup):
     """Test handling of invalid compression type."""
     temp_dir, log_filename, logger = log_setup
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid"):
         SizeAndTimeRotatingFileHandler(log_filename, compression="invalid")
 
 

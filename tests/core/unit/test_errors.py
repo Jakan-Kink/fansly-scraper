@@ -153,7 +153,7 @@ class TestDuplicatePageError:
     """Test DuplicatePageError exception."""
 
     @pytest.mark.parametrize(
-        "page_type,page_id,cursor,wall_name,expected_message",
+        ("page_type", "page_id", "cursor", "wall_name", "expected_message"),
         [
             ("timeline", None, None, None, "All posts on timeline already in metadata"),
             ("wall", "123", None, None, "All posts on wall (123) already in metadata"),

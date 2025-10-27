@@ -166,7 +166,7 @@ class TestAccountProcessingMixin:
         mixin._find_account.return_value = None
 
         # Call process_creator and expect error
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertions below
             await mixin.process_creator(session=mock_session)
 
         # Verify error message
@@ -178,14 +178,14 @@ class TestAccountProcessingMixin:
 
         # Call process_creator with error mocks
         with (
-            pytest.raises(Exception),
             patch("stash.processing.mixins.account.print_error") as mock_print_error,
             patch(
                 "stash.processing.mixins.account.logger.exception"
             ) as mock_logger_exception,
             patch("stash.processing.mixins.account.debug_print") as mock_debug_print,
         ):
-            await mixin.process_creator(session=mock_session)
+            with pytest.raises(Exception):  # noqa: PT011 - testing error handling, not specific message
+                await mixin.process_creator(session=mock_session)
 
             # Verify error handling
             mock_print_error.assert_called_once()
