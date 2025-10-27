@@ -570,7 +570,7 @@ def mock_media_bundle():
 # ============================================================================
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def stash_processor(mock_config, mock_state, mock_context):
     """Fixture for StashProcessing instance with REAL database.
 

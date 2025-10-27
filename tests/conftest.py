@@ -266,7 +266,7 @@ def sample_message():
 # This legacy fixture is kept as 'mock_config' for tests that don't need real databases.
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_config():
     """Create a basic FanslyConfig instance without database setup.
 
@@ -282,7 +282,7 @@ def mock_config():
     return config
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def test_config():
     """Alias for mock_config fixture for backwards compatibility."""
     config = FanslyConfig(program_version="0.11.0")
@@ -320,13 +320,13 @@ def temp_config_dir():
                         shutil.rmtree(item, ignore_errors=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def config_parser():
     """Create a ConfigParser instance for raw config manipulation."""
     return ConfigParser(interpolation=None)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_config_file(temp_config_dir, request):
     """Create a mock config file with specified content."""
     config_path = temp_config_dir / "config.ini"
@@ -347,7 +347,7 @@ def mock_config_file(temp_config_dir, request):
     return config_path
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_download_dir(temp_config_dir):
     """Create a mock download directory for testing."""
     download_dir = temp_config_dir / "downloads"
@@ -355,7 +355,7 @@ def mock_download_dir(temp_config_dir):
     return download_dir
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_metadata_dir(temp_config_dir):
     """Create a mock metadata directory for testing."""
     metadata_dir = temp_config_dir / "metadata"
@@ -363,7 +363,7 @@ def mock_metadata_dir(temp_config_dir):
     return metadata_dir
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_temp_dir(temp_config_dir):
     """Create a mock temporary directory for testing."""
     temp_dir = temp_config_dir / "temp"
@@ -371,7 +371,7 @@ def mock_temp_dir(temp_config_dir):
     return temp_dir
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def valid_api_config(mock_config_file):
     """Create a config file with valid API credentials."""
     with mock_config_file.open("w") as f:
