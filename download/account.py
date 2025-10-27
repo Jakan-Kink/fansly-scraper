@@ -306,10 +306,11 @@ async def _get_following_page(
     following_data = config.get_api().get_json_response_contents(response)
 
     # Extract account IDs
-    account_ids = []
-    for item in following_data:
-        if isinstance(item, dict) and "accountId" in item:
-            account_ids.append(item["accountId"])
+    account_ids = [
+        item["accountId"]
+        for item in following_data
+        if isinstance(item, dict) and "accountId" in item
+    ]
 
     if not account_ids:
         return [], 0

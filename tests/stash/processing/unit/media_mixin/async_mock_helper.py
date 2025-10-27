@@ -28,11 +28,7 @@ class AwaitableAttributesMock:
             return self._attr_mocks[name]
 
         # Get the attribute value from parent
-        if hasattr(self._parent, name):
-            value = getattr(self._parent, name)
-        else:
-            # Default to empty list for missing attributes
-            value = []
+        value = getattr(self._parent, name) if hasattr(self._parent, name) else []
 
         # Create and return an awaitable
         return async_return(value)

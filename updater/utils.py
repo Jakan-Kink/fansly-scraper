@@ -246,20 +246,20 @@ def check_for_update(config: FanslyConfig) -> bool:
     new_release = None
     current_platform = "macOS" if platform.system() == "Darwin" else platform.system()
 
-    for new_release in release_info["assets"]:
-        if current_platform in new_release["name"]:
-            d = dateutil.parser.isoparse(new_release["created_at"]).replace(tzinfo=None)
+    for asset in release_info["assets"]:
+        if current_platform in asset["name"]:
+            d = dateutil.parser.isoparse(asset["created_at"]).replace(tzinfo=None)
 
             parsed_date = (
                 f"{d.strftime('%d')} {d.strftime('%B')[:3]} {d.strftime('%Y')}"
             )
 
             new_release = {
-                "release_name": new_release["name"],
+                "release_name": asset["name"],
                 "release_version": new_version,
                 "created_at": parsed_date,
-                "download_count": new_release["download_count"],
-                "download_url": new_release["browser_download_url"],
+                "download_count": asset["download_count"],
+                "download_url": asset["browser_download_url"],
             }
 
     if new_release is None:

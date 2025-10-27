@@ -45,14 +45,7 @@ class MP4Box:
             for by in fourcc_bytes:
                 # See: http://facweb.cs.depaul.edu/sjost/it212/documents/ascii-pr.htm
                 # 32-126 inclusive
-                by_str: str = ""
-
-                if by < 32 or by > 126:
-                    by_str = f"[{by}]"
-
-                else:
-                    by_str = chr(by)
-
+                by_str = f"[{by}]" if by < 32 or by > 126 else chr(by)
                 fourcc += by_str
 
         return fourcc
