@@ -189,11 +189,13 @@ max-complexity = 14
     "S101",    # use of assert
     "S105",    # test fixtures use hardcoded test values
     "ANN001",  # missing type annotation for function argument
+    "ANN002",  # missing type annotation for *args
     "ANN003",  # missing type annotations for **kwargs in test helpers
     "ANN201",  # missing return type annotation
     "ANN202",  # missing return type annotation for private function
     "ANN204",  # missing return type annotation for special method
     "E721",    # type comparisons with == (checking type annotations in tests)
+    "RUF012",  # mutable class attributes in test fixtures and mock classes
     "D",       # pydocstyle
 ]
 "alembic/**/*.py" = [
@@ -206,6 +208,7 @@ max-complexity = 14
 ]
 "stash/types/*.py" = [
     "N815",    # mixedCase variable names match upstream Stash GraphQL schema
+    "RUF012",  # mutable class attributes are intentional in Strawberry GraphQL type definitions
 ]
 "stash/processing/*.py" = [
     "N815",    # mixedCase variable names match Fansly API response format
