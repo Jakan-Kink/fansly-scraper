@@ -1,8 +1,6 @@
 """Common Utility Functions"""
 
-import os
-import platform
-import subprocess
+import webbrowser
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -76,6 +74,8 @@ def open_location(
     """Opens the download directory in the platform's respective
     file manager application once the download process has finished.
 
+    Uses webbrowser.open() for cross-platform compatibility.
+
     :param filepath: The base path of all downloads.
     :type filepath: Path
     :param open_folder_when_finished: Open the folder or do nothing.
@@ -87,26 +87,15 @@ def open_location(
     :return: True when the folder was opened or False otherwise.
     :rtype: bool
     """
-    plat = platform.system()
-
     if not open_folder_when_finished or not interactive:
         return False
 
-    if not os.path.isfile(filepath) and not os.path.isdir(filepath):
+    if not filepath.is_file() and not filepath.is_dir():
         return False
 
-    # tested below and they work to open folder locations
-    if plat == "Windows":
-        # verified works
-        # pylint: disable-next=E1101
-        os.startfile(filepath)
-
-    elif plat == "Linux":
-        # verified works
-        subprocess.run(["xdg-open", filepath], check=False, shell=False)
-
-    elif plat == "Darwin":
-        # verified works
-        subprocess.run(["open", filepath], check=False, shell=False)
+    # Use webbrowser.open() for cross-platform file manager opening
+    # Convert Path to file:// URL for proper handling
+    file_url = filepath.as_uri()
+    webbrowser.open(file_url)
 
     return True
