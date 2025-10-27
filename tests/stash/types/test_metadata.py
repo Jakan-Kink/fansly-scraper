@@ -441,7 +441,9 @@ class TestMetadataWorkflows:
     def test_complete_scan_workflow(self):
         """Test complete scan metadata workflow."""
         # Create filter for recent files only
-        filter_input = ScanMetaDataFilterInput(minModTime=datetime(2024, 1, 1))
+        filter_input = ScanMetaDataFilterInput(
+            minModTime=datetime(2024, 1, 1, tzinfo=UTC)
+        )
 
         # Create comprehensive scan input
         scan_input = ScanMetadataInput(

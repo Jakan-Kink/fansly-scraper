@@ -16,7 +16,7 @@ Key changes from original:
 """
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -474,7 +474,7 @@ def integration_mock_performer():
     performer.tags = []
     performer.rating = None
     performer.favorite = False
-    performer.created_at = datetime(2024, 4, 1, 12, 0, 0)
+    performer.created_at = datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC)
     return performer
 
 
@@ -491,7 +491,7 @@ def integration_mock_studio():
     studio.tags = []
     studio.rating = None
     studio.favorite = False
-    studio.created_at = datetime(2024, 4, 1, 12, 0, 0)
+    studio.created_at = datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC)
     return studio
 
 

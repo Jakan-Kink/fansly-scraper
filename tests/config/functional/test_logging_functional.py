@@ -63,9 +63,8 @@ def read_log_file(log_dir: Path, filename: str) -> list[str]:
 def assert_log_contains(log_lines: list[str], message: str, level: str = None) -> bool:
     """Check if log contains message and optionally level."""
     for line in log_lines:
-        if message in line:
-            if level is None or level in line:
-                return True
+        if message in line and (level is None or level in line):
+            return True
     return False
 
 

@@ -515,10 +515,9 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
         )
 
     # Special handling for sqlalchemy logger - allow TRACE level when trace is enabled
-    if logger_name == "sqlalchemy":
-        if _config and _config.trace:
-            return _LEVEL_VALUES["TRACE"]
-        # For sqlalchemy when trace is disabled, fall through to normal handling
+    if logger_name == "sqlalchemy" and _config and _config.trace:
+        return _LEVEL_VALUES["TRACE"]
+    # For sqlalchemy when trace is disabled, fall through to normal handling
 
     # Force DEBUG level if debug mode is enabled (for non-trace loggers)
     if _debug_enabled:

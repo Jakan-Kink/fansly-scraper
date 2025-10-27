@@ -6,14 +6,13 @@ from time import sleep
 
 import httpx
 
+from config.logging import textio_logger
 from config.modes import DownloadMode
 from errors import ConfigError
 from helpers.browser import open_get_started_url
 from helpers.checkkey import guess_check_key
 from helpers.web import guess_user_agent
 from pathio.pathio import ask_correct_dir
-from textio import print_config, print_error, print_info, print_warning
-from textio.textio import input_enter_continue
 
 from .config import (
     save_config_or_raise,
@@ -46,7 +45,7 @@ def validate_creator_names(config: FanslyConfig) -> bool:
 
         # Remove invalid names from set
         if validated_name is None:
-            print_warning(
+            textio_logger.warning(
                 f"Invalid creator name '{user}' will be removed from processing."
             )
             config.user_names.remove(user)
@@ -67,7 +66,7 @@ def validate_creator_names(config: FanslyConfig) -> bool:
     # Empty username is allowed (will use following list)
     # But if there are usernames, they must be valid
     if len(config.user_names) == 0:
-        print_info("No usernames specified - will process following list")
+        textio_logger.info("No usernames specified - will process following list")
         return True
 
     return True
@@ -93,33 +92,33 @@ def validate_adjust_creator_name(name: str, interactive: bool = False) -> str | 
         replaceme_str = "ReplaceMe"
 
         if replaceme_str.lower() in name.lower():
-            print_warning(
+            textio_logger.warning(
                 f"Config.ini value '{name}' for TargetedCreator > Username is a placeholder value."
             )
             usern_error = True
 
         if not usern_error and " " in name:
-            print_warning(f"{usern_base_text} name must not contain spaces.")
+            textio_logger.warning(f"{usern_base_text} name must not contain spaces.")
             usern_error = True
 
         if not usern_error and not username_has_valid_length(name):
-            print_warning(
+            textio_logger.warning(
                 f"{usern_base_text} must be between 4 and 30 characters long!\n"
             )
             usern_error = True
 
         if not usern_error and not username_has_valid_chars(name):
-            print_warning(
+            textio_logger.warning(
                 f"{usern_base_text} should only contain\n{20 * ' '}alphanumeric characters, hyphens, or underscores!\n"
             )
             usern_error = True
 
         if not usern_error:
-            print_info(f"Name validation for @{name} successful!")
+            textio_logger.info(f"Name validation for @{name} successful!")
             return name
 
         if interactive:
-            print_config(
+            textio_logger.info(
                 f"Enter the username handle (eg. @MyCreatorsName or MyCreatorsName)"
                 f"\n{19 * ' '}of the Fansly creator you want to download content from."
             )
@@ -140,7 +139,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
     # If username and password are configured, skip token validation
     # Token will be obtained via login after user_agent and check_key are extracted
     if config.username and config.password:
-        print_info(
+        textio_logger.info(
             "Username and password configured - will perform login after extracting required settings"
         )
         return
@@ -156,7 +155,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
                 plyvel_installed = True
 
         except ImportError:
-            print_warning(
+            textio_logger.warning(
                 f"Fansly Downloader NG's automatic configuration for the authorization_token in the config.ini file will be skipped."
                 f"\n{20 * ' '}Your system is missing required plyvel (python module) builds by Siyao Chen (@liviaerxin)."
                 f"\n{20 * ' '}Installable with 'pip3 install plyvel-ci' or from github.com/liviaerxin/plyvel/releases/latest"
@@ -173,11 +172,11 @@ def validate_adjust_token(config: FanslyConfig) -> None:
             parse_browser_from_string,
         )
 
-        print_warning(
+        textio_logger.warning(
             f"Authorization token '{config.token}' is unmodified, missing or malformed"
             f"\n{20 * ' '}in the configuration file."
         )
-        print_config(
+        textio_logger.info(
             f"Trying to automatically configure Fansly authorization token"
             f"\n{19 * ' '}from any browser storage available on the local system ..."
         )
@@ -218,7 +217,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
 
                 if config.interactive:
                     # Save token to configuration?
-                    print_config(
+                    textio_logger.info(
                         f"Do you want to link the account '{fansly_account}' to Fansly Downloader? (found in: {browser_name})"
                     )
 
@@ -234,13 +233,13 @@ def validate_adjust_token(config: FanslyConfig) -> None:
                         ) or user_input_acc_verify.startswith("n"):
                             break  # break user input verification
 
-                        print_error(
+                        textio_logger.error(
                             f"Please enter either 'Yes' or 'No', to decide if you want to link to '{fansly_account}'."
                         )
 
                 else:
                     # Forcefully link account in interactive mode.
-                    print_warning(
+                    textio_logger.warning(
                         f"Interactive mode is automtatically linking the account '{fansly_account}' to Fansly Downloader. (found in: {browser_name})"
                     )
                     user_input_acc_verify = "y"
@@ -255,7 +254,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
 
                     save_config_or_raise(config)
 
-                    print_info(
+                    textio_logger.info(
                         "Success! Authorization token applied to config.ini file.\n"
                     )
 
@@ -296,18 +295,18 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
     based_on_browser = config.token_from_browser_name or "Chrome"
 
     if not config.useragent_is_valid():
-        print_warning(
+        textio_logger.warning(
             f"Browser user-agent '{config.user_agent}' in config.ini is most likely incorrect."
         )
 
         if config.token_from_browser_name is not None:
-            print_config(
+            textio_logger.info(
                 f"Adjusting it with an educated guess based on the combination of your \n"
                 f"{19 * ' '}operating system & specific browser."
             )
 
         else:
-            print_config(
+            textio_logger.info(
                 f"Adjusting it with an educated guess, hardcoded for Chrome browser."
                 f"\n{19 * ' '}If you're not using Chrome you might want to replace it in the config.ini file later on."
                 f"\n{19 * ' '}More information regarding this topic is on the Fansly Downloader NG Wiki."
@@ -342,7 +341,9 @@ def validate_adjust_user_agent(config: FanslyConfig) -> None:
 
         save_config_or_raise(config)
 
-        print_info("Success! Applied a browser user-agent to config.ini file.\n")
+        textio_logger.info(
+            "Success! Applied a browser user-agent to config.ini file.\n"
+        )
 
 
 def validate_adjust_check_key(config: FanslyConfig) -> None:
@@ -350,7 +351,9 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 
     :param FanslyConfig config: The configuration to validate and correct.
     """
-    print_warning("!!! FANSLY MAY BAN YOU FOR USING THIS SOFTWARE, BE WARNED !!!")
+    textio_logger.warning(
+        "!!! FANSLY MAY BAN YOU FOR USING THIS SOFTWARE, BE WARNED !!!"
+    )
     print()
 
     if config.user_agent:
@@ -362,17 +365,17 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
             config.check_key = guessed_key
             save_config_or_raise(config)
 
-            print_config(
+            textio_logger.info(
                 f"Check key guessed from Fansly homepage: `{config.check_key}`"
             )
             print()
 
             return
 
-        print_warning("Web retrieval of check key failed!")
+        textio_logger.warning("Web retrieval of check key failed!")
         print()
 
-    print_warning(
+    textio_logger.warning(
         f"Make sure, checking the main.js sources of the Fansly homepage, "
         f"\n{20 * ' '}that the expression assigend to `this.checkKey_` evaluates "
         f"\n{20 * ' '}to this text: `{config.check_key}`"
@@ -403,6 +406,8 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
                     save_config_or_raise(config)
 
     else:
+        from textio.textio import input_enter_continue
+
         input_enter_continue(config.interactive)
 
 
@@ -413,7 +418,7 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 #     """
 
 #     if config.session_id is None or config.session_id.lower() == 'null':
-#         print_warning(
+#         logger.warning(
 #             f"Session ID is invalid. Please provide a valid value from your browser's DevTools:"
 #             f"\n{20 * ' '}Look for `fansly-session-id` in requests or `id` from `session_active_session`"
 #             f"\n{20 * ' '}in local storage for https://fansly.com (18 digits)."
@@ -433,7 +438,7 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 #                 save_config_or_raise(config)
 
 #             else:
-#                 print_warning(
+#                 logger.warning(
 #                     f'Invalid session ID, should be 18 digits. Please try again.'
 #                 )
 
@@ -455,9 +460,9 @@ def validate_log_levels(config: FanslyConfig) -> None:
 
     for logger, level in config.log_levels.items():
         # Convert to uppercase and validate
-        level = level.upper()
-        if level not in valid_levels:
-            print_warning(
+        level_upper = level.upper()
+        if level_upper not in valid_levels:
+            textio_logger.warning(
                 f"Invalid log level '{level}' for logger '{logger}', using '{default_level}'"
             )
             config.log_levels[logger] = default_level
@@ -482,37 +487,37 @@ def validate_adjust_download_directory(config: FanslyConfig) -> None:
         if not config.temp_folder.exists():
             try:
                 config.temp_folder.mkdir(parents=True, exist_ok=True)
-                print_info(f"Created temp folder: '{config.temp_folder}'")
+                textio_logger.info(f"Created temp folder: '{config.temp_folder}'")
             except Exception as e:
-                print_warning(
+                textio_logger.warning(
                     f"Could not create temp folder '{config.temp_folder}': {e}"
                 )
-                print_info("Falling back to system default temp folder")
+                textio_logger.info("Falling back to system default temp folder")
                 config.temp_folder = None
         elif not config.temp_folder.is_dir():
-            print_warning(
+            textio_logger.warning(
                 f"Temp folder path '{config.temp_folder}' exists but is not a directory"
             )
-            print_info("Falling back to system default temp folder")
+            textio_logger.info("Falling back to system default temp folder")
             config.temp_folder = None
         else:
-            print_info(f"Using custom temp folder: '{config.temp_folder}'")
+            textio_logger.info(f"Using custom temp folder: '{config.temp_folder}'")
     # if user didn't specify custom downloads path
     if "local_dir" in str(config.download_directory).lower():
         config.download_directory = Path.cwd()
 
-        print_info(
+        textio_logger.info(
             f"Acknowledging local download directory: '{config.download_directory}'"
         )
 
     # if user specified a correct custom downloads path
     elif config.download_directory is not None and config.download_directory.is_dir():
-        print_info(
+        textio_logger.info(
             f"Acknowledging custom basis download directory: '{config.download_directory}'"
         )
 
     else:  # if their set directory, can't be found by the OS
-        print_warning(
+        textio_logger.warning(
             f"The custom base download directory file path '{config.download_directory}' seems to be invalid!"
             f"\n{20 * ' '}Please change it to a correct file path, for example: 'C:\\MyFanslyDownloads'"
             f"\n{20 * ' '}An Explorer window to help you set the correct path will open soon!"
@@ -540,7 +545,9 @@ def validate_adjust_download_mode(
     :param bool download_mode_set: Indicates whether a download mode as been set using args
     """
     current_download_mode = config.download_mode.capitalize()
-    print_info(f"The current download mode is set to '{current_download_mode}'.")
+    textio_logger.info(
+        f"The current download mode is set to '{current_download_mode}'."
+    )
 
     if config.interactive and not download_mode_set:
         done = False
@@ -557,7 +564,7 @@ def validate_adjust_download_mode(
                     for mode in DownloadMode
                     if mode != DownloadMode.NOTSET
                 ]
-                print_info(
+                textio_logger.info(
                     f"Available download modes are: {', '.join(available_modes)}."
                 )
                 new_download_mode = input(
@@ -565,12 +572,12 @@ def validate_adjust_download_mode(
                 ).strip()
                 try:
                     config.download_mode = DownloadMode(new_download_mode.upper())
-                    print_info(
+                    textio_logger.info(
                         f"The new download mode '{new_download_mode.capitalize()}' has been set!"
                     )
                     done = True
                 except ValueError:
-                    print_warning(
+                    textio_logger.warning(
                         f"The entered download mode '{new_download_mode}' seems to be invalid."
                     )
             else:

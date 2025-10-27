@@ -82,7 +82,7 @@ class TestLogEntry:
         assert entry1.time == now
 
         # Test with specific timestamp
-        specific_time = datetime(2023, 1, 1, 12, 0, 0)
+        specific_time = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         entry2 = LogEntry(
             time=specific_time, level=LogLevel.ERROR, message="Specific time entry"
         )
@@ -191,7 +191,7 @@ class TestLoggingScenarios:
 
     def test_log_sequence(self):
         """Test a sequence of log entries."""
-        base_time = datetime(2023, 6, 1, 10, 0, 0)
+        base_time = datetime(2023, 6, 1, 10, 0, 0, tzinfo=UTC)
 
         # Create a sequence of log entries
         entries = []

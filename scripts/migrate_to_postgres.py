@@ -426,10 +426,9 @@ def main() -> int:
         print(f"\n  Total rows copied: {total_rows}")
 
         # Verify migration
-        if args.verify:
-            if not verify_migration(sqlite_engine, pg_engine):
-                print("\n  ✗ Migration verification failed!")
-                return 1
+        if args.verify and not verify_migration(sqlite_engine, pg_engine):
+            print("\n  ✗ Migration verification failed!")
+            return 1
 
         # Set up Alembic version tracking
         # Stamp to the last migration before the Boolean conversion (06658bf47c03)

@@ -35,14 +35,13 @@ async def test_subscribe_to_jobs(stash_client: StashClient) -> None:
                     assert update.type is not None
                     assert update.job is not None
                     # Only process updates for our specific job
-                    if update.job.id == job_id:
+                    if update.job.id == job_id and update.job.status in [
+                        JobStatus.FINISHED,
+                        JobStatus.CANCELLED,
+                        JobStatus.FAILED,
+                    ]:
                         # Break if we hit a terminal state
-                        if update.job.status in [
-                            JobStatus.FINISHED,
-                            JobStatus.CANCELLED,
-                            JobStatus.FAILED,
-                        ]:
-                            break
+                        break
         except TimeoutError:
             pytest.fail("Timed out waiting for job updates")
 

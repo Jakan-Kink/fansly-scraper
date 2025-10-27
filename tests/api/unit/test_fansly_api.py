@@ -21,7 +21,7 @@ class TestFanslyApi:
     def test_init_with_device_info(self):
         """Test FanslyApi initialization with device ID parameters"""
         test_device_id = "test_device_id"
-        test_timestamp = int(datetime(2024, 1, 1).timestamp())
+        test_timestamp = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
         mock_callback = MagicMock()
 
         api = FanslyApi(

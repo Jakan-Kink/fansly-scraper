@@ -4,7 +4,7 @@ This module provides TestMixinClass definitions and Mock fixtures for Stash type
 used in unit tests for StashProcessing mixins.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -177,9 +177,8 @@ class TestMediaMixin(MediaProcessingMixin):
                         else:
                             file = file_data
                         return file
-            elif isinstance(stash_obj, Scene):
-                if stash_obj.files:
-                    return stash_obj.files[0]
+            elif isinstance(stash_obj, Scene) and stash_obj.files:
+                return stash_obj.files[0]
             return None
 
         self._get_file_from_stash_obj = get_file_from_stash_obj
@@ -501,7 +500,7 @@ def mock_item():
     item = MagicMock()
     item.id = 12345
     item.content = "Test content #test #hashtag"
-    item.createdAt = datetime(2024, 4, 1, 12, 0, 0)
+    item.createdAt = datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC)
     item.accountId = 12345
     item.stash_id = None
     item.__class__.__name__ = "Post"

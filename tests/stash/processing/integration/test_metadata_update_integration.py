@@ -15,7 +15,7 @@ IMPORTANT NOTES:
 - These tests focus on Scene objects which can be fully tested end-to-end
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -223,7 +223,7 @@ class TestMetadataUpdateIntegration:
         earlier_post = PostFactory(
             accountId=account.id,
             content="Earlier post",
-            createdAt=datetime(2024, 1, 1, 12, 0, 0),
+            createdAt=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
         )
         session_sync.commit()
 
@@ -231,7 +231,7 @@ class TestMetadataUpdateIntegration:
         later_post = PostFactory(
             accountId=account.id,
             content="Later post",
-            createdAt=datetime(2024, 6, 1, 12, 0, 0),
+            createdAt=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
         )
         session_sync.commit()
 

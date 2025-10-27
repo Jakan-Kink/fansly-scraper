@@ -1591,18 +1591,20 @@ class StashProcessing:
                     return True
 
                 # Aggregated posts (which might contain media)
-                if attachment.contentType == ContentType.AGGREGATED_POSTS:
-                    if post := await attachment.resolve_content():
-                        if await self._check_aggregated_posts([post]):
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _has_media_content",
-                                    "status": "has_aggregated_media",
-                                    "item_id": item.id,
-                                    "post_id": post.id,
-                                }
-                            )
-                            return True
+                if (
+                    attachment.contentType == ContentType.AGGREGATED_POSTS
+                    and (post := await attachment.resolve_content())
+                    and await self._check_aggregated_posts([post])
+                ):
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _has_media_content",
+                            "status": "has_aggregated_media",
+                            "item_id": item.id,
+                            "post_id": post.id,
+                        }
+                    )
+                    return True
 
         debug_print(
             {
@@ -1679,26 +1681,28 @@ class StashProcessing:
         if hasattr(item, "attachments"):
             image_index = 0
             for attachment in item.attachments:
-                if attachment.contentType == ContentType.AGGREGATED_POSTS:
-                    if post := await attachment.resolve_content():
-                        # Only create chapter if post has media
-                        if await self._has_media_content(post):
-                            # Generate chapter title using same method as gallery title
-                            title = self._generate_title_from_content(
-                                content=post.content,
-                                username=username,  # Use same username as parent
-                                created_at=post.createdAt,
-                            )
+                if (
+                    attachment.contentType == ContentType.AGGREGATED_POSTS
+                    and (post := await attachment.resolve_content())
+                    and await self._has_media_content(post)
+                ):
+                    # Only create chapter if post has media
+                    # Generate chapter title using same method as gallery title
+                    title = self._generate_title_from_content(
+                        content=post.content,
+                        username=username,  # Use same username as parent
+                        created_at=post.createdAt,
+                    )
 
-                            # Create chapter
-                            chapter = GalleryChapter(
-                                id="new",
-                                gallery=gallery,
-                                title=title,
-                                image_index=image_index,
-                            )
-                            gallery.chapters.append(chapter)
-                            image_index += 1  # Increment for next chapter
+                    # Create chapter
+                    chapter = GalleryChapter(
+                        id="new",
+                        gallery=gallery,
+                        title=title,
+                        image_index=image_index,
+                    )
+                    gallery.chapters.append(chapter)
+                    image_index += 1  # Increment for next chapter
 
         # Save gallery with chapters
         await gallery.save(self.context.client)

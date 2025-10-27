@@ -21,6 +21,8 @@ from typing import Any
 
 import httpx
 
+from config.logging import textio_logger
+
 
 def _setup_nvm_environment() -> None:
     """Configure environment to use nvm's Node.js from .nvmrc.
@@ -97,7 +99,7 @@ except ImportError:
     acorn_walk = None
 
 
-def extract_checkkey_from_js(js_content: str) -> str | None:
+def extract_checkkey_from_js(js_content: str) -> str | None:  # noqa: C901
     """Extract checkKey from JavaScript using AST parsing.
 
     This uses JSPyBridge with acorn to:
@@ -113,7 +115,6 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
     :return: The extracted checkKey value or None if extraction fails
     :rtype: str | None
     """
-    from textio import print_warning  # Avoid circular import
 
     if not HAS_JSPYBRIDGE:
         # Fallback to subprocess method
@@ -136,20 +137,20 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
             """
             # Check for direct assignment: this.checkKey_ = value
             # Use str() to convert JavaScript strings to Python strings for comparison
+            # Use separate if statements (combining with 'and' doesn't work with JSPyBridge)
             try:
-                if (
-                    str(node.type) == "AssignmentExpression"
-                    and str(node.left.type) == "MemberExpression"
-                    and str(node.left.object.type) == "ThisExpression"
-                    and str(node.left.property.type) == "Identifier"
-                    and str(node.left.property.name) == "checkKey_"
-                ):
-                    # Extract the expression from the source
-                    start = int(node.right.start)
-                    end = int(node.right.end)
-                    expression = js_content[start:end]
-
-                    assignments.append({"position": start, "expression": expression})
+                if str(node.type) == "AssignmentExpression":  # noqa: SIM102
+                    if str(node.left.type) == "MemberExpression":  # noqa: SIM102
+                        if str(node.left.object.type) == "ThisExpression":  # noqa: SIM102
+                            if str(node.left.property.type) == "Identifier":  # noqa: SIM102
+                                if str(node.left.property.name) == "checkKey_":
+                                    # Extract the expression from the source
+                                    start = int(node.right.start)
+                                    end = int(node.right.end)
+                                    expression = js_content[start:end]
+                                    assignments.append(
+                                        {"position": start, "expression": expression}
+                                    )
             except (AttributeError, TypeError):
                 # Skip nodes that don't have the expected structure
                 pass
@@ -165,11 +166,39 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
         # Also check within SequenceExpression (for minified code like: a=1,b=2,c=3)
         def check_sequence(node: Any, _state: Any = None) -> None:
             try:
-                # SequenceExpression has an 'expressions' array
+                # SequenceExpression has an 'expressions' array (JavaScript Proxy object)
                 if hasattr(node, "expressions"):
-                    for expr in node.expressions:
-                        if str(expr.type) == "AssignmentExpression":
-                            count_assignments(expr, _state)
+                    expressions_array = node.expressions
+                    # Use .length property to get array size
+                    length = int(expressions_array.length)
+                    # Iterate using index access
+                    for idx in range(length):
+                        expr = expressions_array[idx]
+                        # Inline the check instead of calling check_node
+                        # (nested callbacks don't work well with JSPyBridge async)
+                        # Use separate if statements (combining with 'and' doesn't work with JSPyBridge)
+                        try:
+                            if str(expr.type) == "AssignmentExpression":  # noqa: SIM102
+                                if str(expr.left.type) == "MemberExpression":  # noqa: SIM102
+                                    if str(expr.left.object.type) == "ThisExpression":  # noqa: SIM102
+                                        if str(expr.left.property.type) == "Identifier":  # noqa: SIM102
+                                            if (
+                                                str(expr.left.property.name)
+                                                == "checkKey_"
+                                            ):
+                                                # Extract the expression from the source
+                                                start = int(expr.right.start)
+                                                end = int(expr.right.end)
+                                                expression = js_content[start:end]
+                                                assignments.append(
+                                                    {
+                                                        "position": start,
+                                                        "expression": expression,
+                                                    }
+                                                )
+                                                assignment_count[0] += 1
+                        except (AttributeError, TypeError):
+                            pass
             except (AttributeError, TypeError):
                 pass
 
@@ -181,16 +210,27 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
             },
         )
 
-        # Allow JSPyBridge async callbacks to complete
+        # Wait for JSPyBridge async callbacks to complete
+        # Poll for results with a timeout instead of fixed sleep
         import time
 
-        time.sleep(0.1)
+        timeout_seconds = 10.0
+        poll_interval = 0.1  # Check every 100ms
+        elapsed = 0.0
+
+        while elapsed < timeout_seconds:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+            # Check if we found any assignments
+            if len(assignments) > 0:
+                break
 
         # Sort by position (first in file = first in execution)
         assignments.sort(key=lambda x: x["position"])
 
         if not assignments:
-            print_warning(
+            textio_logger.warning(
                 f"No assignments to this.checkKey_ found in JavaScript "
                 f"(searched {assignment_count[0]} total assignments)"
             )
@@ -201,17 +241,19 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
         from javascript import eval_js
 
         first_expression = assignments[0]["expression"]
-        checkkey_value = eval_js(first_expression)
+        # Normalize whitespace (beautified JS may have newlines)
+        normalized_expression = " ".join(first_expression.split())
+        checkkey_value = eval_js(normalized_expression)
 
-        return checkkey_value
+        return checkkey_value  # noqa: TRY300
 
     except Exception as e:
-        print_warning(f"JSPyBridge extraction error: {e}")
+        textio_logger.warning(f"JSPyBridge extraction error: {e}")
         # Fallback to subprocess method
         return _extract_checkkey_subprocess(js_content)
 
 
-def _extract_checkkey_subprocess(js_content: str) -> str | None:
+def _extract_checkkey_subprocess(js_content: str) -> str | None:  # noqa: PLR0911
     """Fallback: Extract checkKey using subprocess if JSPyBridge fails.
 
     :param js_content: The JavaScript content to parse
@@ -219,7 +261,6 @@ def _extract_checkkey_subprocess(js_content: str) -> str | None:
     :return: The extracted checkKey value or None if extraction fails
     :rtype: str | None
     """
-    from textio import print_warning  # Avoid circular import
 
     # Create temporary file for JavaScript content
     with tempfile.NamedTemporaryFile(
@@ -322,33 +363,33 @@ console.log(JSON.stringify({{
             output = json.loads(result.stdout.strip())
 
             if "error" in output:
-                print_warning(f"AST parsing error: {output['error']}")
+                textio_logger.warning(f"AST parsing error: {output['error']}")
                 return None
 
             if output.get("checkkey"):
                 return output["checkkey"]
 
         else:
-            print_warning(f"Node.js execution error: {result.stderr}")
+            textio_logger.warning(f"Node.js execution error: {result.stderr}")
             return None
 
     except FileNotFoundError:
-        print_warning(
+        textio_logger.warning(
             "Node.js not found. Install Node.js and run: npm install acorn acorn-walk"
         )
-        print_warning("Or install JSPyBridge: pip install javascript")
+        textio_logger.warning("Or install JSPyBridge: pip install javascript")
         return None
 
     except subprocess.TimeoutExpired:
-        print_warning("AST parsing timed out (file too large)")
+        textio_logger.warning("AST parsing timed out (file too large)")
         return None
 
     except json.JSONDecodeError as e:
-        print_warning(f"Failed to parse Node.js output: {e}")
+        textio_logger.warning(f"Failed to parse Node.js output: {e}")
         return None
 
     except Exception as e:
-        print_warning(f"Unexpected error during AST extraction: {e}")
+        textio_logger.warning(f"Unexpected error during AST extraction: {e}")
         return None
 
     finally:
@@ -361,7 +402,7 @@ console.log(JSON.stringify({{
     return None
 
 
-def guess_check_key(user_agent: str) -> str | None:
+def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
     """Tries to extract the check key from Fansly's main.js using AST parsing.
 
     This function:
@@ -377,7 +418,6 @@ def guess_check_key(user_agent: str) -> str | None:
     :return: The check key string, or None if extraction fails completely
     :rtype: str | None
     """
-    from textio import print_error, print_warning
 
     fansly_url = "https://fansly.com"
 
@@ -399,7 +439,7 @@ def guess_check_key(user_agent: str) -> str | None:
         )
 
         if html_response.status_code != 200:
-            print_warning(
+            textio_logger.warning(
                 f"Failed to download Fansly homepage: {html_response.status_code}"
             )
             return default_check_key
@@ -413,7 +453,7 @@ def guess_check_key(user_agent: str) -> str | None:
         )
 
         if not main_js_match:
-            print_warning("Could not find main.js URL in Fansly homepage")
+            textio_logger.warning("Could not find main.js URL in Fansly homepage")
             return default_check_key
 
         main_js = main_js_match.group(1)
@@ -428,7 +468,9 @@ def guess_check_key(user_agent: str) -> str | None:
         )
 
         if js_response.status_code != 200:
-            print_warning(f"Failed to download main.js: {js_response.status_code}")
+            textio_logger.warning(
+                f"Failed to download main.js: {js_response.status_code}"
+            )
             return default_check_key
 
         # Step 3: Extract checkKey using AST parsing (NO REGEX!)
@@ -439,13 +481,13 @@ def guess_check_key(user_agent: str) -> str | None:
             return checkkey
 
         # If AST extraction fails, fall back to default
-        print_warning("AST extraction failed, using default checkKey")
-        return default_check_key
+        textio_logger.warning("AST extraction failed, using default checkKey")
+        return default_check_key  # noqa: TRY300
 
     except httpx.RequestError as e:
-        print_error(f"Network error while downloading Fansly files: {e}", 4)
+        textio_logger.error(f"Network error while downloading Fansly files: {e}", 4)
         return default_check_key
 
     except Exception as e:
-        print_error(f"Unexpected error during checkKey extraction: {e}", 4)
+        textio_logger.error(f"Unexpected error during checkKey extraction: {e}", 4)
         return default_check_key

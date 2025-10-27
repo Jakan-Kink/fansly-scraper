@@ -68,10 +68,9 @@ class ContentProcessingMixin:
         # Get all messages with attachments in one query with relationships
         # For an awaitable account, we need to get the id properly
         account_id = account.id
-        if hasattr(account, "__await__"):
+        if hasattr(account, "__await__") and hasattr(account, "id"):
             # This might be an awaitable, try to access the id directly
-            if hasattr(account, "id"):
-                account_id = account.id
+            account_id = account.id
 
         stmt = (
             select(Message)
@@ -211,10 +210,9 @@ class ContentProcessingMixin:
 
         # Get account ID properly for query
         account_id = account.id
-        if hasattr(account, "__await__"):
+        if hasattr(account, "__await__") and hasattr(account, "id"):
             # This might be an awaitable, try to access the id directly
-            if hasattr(account, "id"):
-                account_id = account.id
+            account_id = account.id
 
         # Now get posts with proper eager loading
         stmt = (

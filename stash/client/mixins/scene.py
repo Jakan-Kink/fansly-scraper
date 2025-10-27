@@ -342,9 +342,13 @@ class SceneClientMixin(StashClientProtocol):
             self.find_scenes.cache_clear()
 
             # Check if the scene is in the cache and remove it
-            if hasattr(scene, "id") and scene.id is not None:
-                if hasattr(self, "scene_cache") and scene.id in self.scene_cache:
-                    del self.scene_cache[scene.id]
+            if (
+                hasattr(scene, "id")
+                and scene.id is not None
+                and hasattr(self, "scene_cache")
+                and scene.id in self.scene_cache
+            ):
+                del self.scene_cache[scene.id]
 
             # Create a Scene instance from the result
             # Sanitize model data before creating Scene

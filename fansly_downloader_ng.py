@@ -516,9 +516,8 @@ async def main(config: FanslyConfig) -> int:
 
                     # Restore the original database instance - don't cleanup the database
                     # since stash might still be using the shared memory
-                    if config.separate_metadata:
-                        if orig_database is not None:
-                            config._database = orig_database
+                    if config.separate_metadata and orig_database is not None:
+                        config._database = orig_database
 
             # Still continue if one creator failed
             except ApiAccountInfoError as e:

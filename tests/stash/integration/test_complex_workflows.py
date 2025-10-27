@@ -163,10 +163,13 @@ async def test_full_content_workflow(
                     # Wait for job
                     async for update in subscription:
                         print(f"Job update received: {update}")  # Debug print
-                        if update.job and update.job.id == job_id:
-                            if update.status in ["FINISHED", "CANCELLED"]:
-                                print(f"Job {job_id} finished")  # Debug print
-                                break
+                        if (
+                            update.job
+                            and update.job.id == job_id
+                            and update.status in ["FINISHED", "CANCELLED"]
+                        ):
+                            print(f"Job {job_id} finished")  # Debug print
+                            break
             except TimeoutError:
                 print("Timeout waiting for metadata generation job")
                 pytest.skip("Metadata generation timed out after 30 seconds")
@@ -279,12 +282,15 @@ async def test_concurrent_operations(
                     # Wait for all jobs
                     async for update in subscription:
                         print(f"Job update received: {update}")  # Debug print
-                        if update.job and update.job.id in job_ids:
-                            if update.status in ["FINISHED", "CANCELLED"]:
-                                finished_jobs.add(update.job.id)
-                                print(f"Job {update.job.id} finished")  # Debug print
-                                if len(finished_jobs) == len(job_ids):
-                                    break
+                        if (
+                            update.job
+                            and update.job.id in job_ids
+                            and update.status in ["FINISHED", "CANCELLED"]
+                        ):
+                            finished_jobs.add(update.job.id)
+                            print(f"Job {update.job.id} finished")  # Debug print
+                            if len(finished_jobs) == len(job_ids):
+                                break
 
             except TimeoutError:
                 print("Timeout waiting for metadata generation jobs")
