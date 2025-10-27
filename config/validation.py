@@ -228,9 +228,7 @@ def validate_adjust_token(config: FanslyConfig) -> None:
                             .lower()
                         )
 
-                        if user_input_acc_verify.startswith(
-                            "y"
-                        ) or user_input_acc_verify.startswith("n"):
+                        if user_input_acc_verify.startswith(("y", "n")):
                             break  # break user input verification
 
                         textio_logger.error(

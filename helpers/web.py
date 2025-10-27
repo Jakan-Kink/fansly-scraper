@@ -75,7 +75,7 @@ def get_flat_qs_dict(url: str) -> dict[str, str]:
 
     new_dict = OrderedDict()
 
-    for key in query.keys():
+    for key in query:
         value = query[key]
 
         if len(value) == 0:

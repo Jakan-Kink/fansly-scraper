@@ -49,13 +49,15 @@ async def download_media_infos(
     Returns:
         List of processed media info dictionaries
     """
+    if session is None:
+        raise RuntimeError("Database session is required for downloading media infos.")
     from metadata.account import process_media_bundles
 
     media_infos: list[dict] = []
 
     for ids in batch_list(media_ids, config.BATCH_SIZE):
         async with session.begin_nested():
-            media_ids_str = ",".join(str(id) for id in ids)
+            media_ids_str = ",".join(str(media_id) for media_id in ids)
 
             # Rate limiting is now handled by RateLimiter in FanslyApi
             # Retry on 429 since RateLimiter will apply backoff for the next attempt
@@ -344,7 +346,7 @@ def _download_regular_file(
             text_column = TextColumn("", table_column=Column(ratio=1))
             bar_column = BarColumn(bar_width=60, table_column=Column(ratio=5))
             file_size = int(response.headers.get("content-length", 0))
-            disable_loading_bar = False if file_size >= 20_000_000 else True
+            disable_loading_bar = file_size < 20_000_000
 
             progress = Progress(
                 text_column,

@@ -66,11 +66,11 @@ def get_unique_media_ids(info_object: dict[str, Any]) -> list[str]:
 
     all_media_ids = set()
 
-    for id in account_media_ids:
-        all_media_ids.add(id)
+    for media_id in account_media_ids:
+        all_media_ids.add(media_id)
 
-    for id in bundle_media_ids:
-        all_media_ids.add(id)
+    for media_id in bundle_media_ids:
+        all_media_ids.add(media_id)
 
     return list(all_media_ids)
 
@@ -174,8 +174,9 @@ async def process_download_accessible_media(
         batch = media_infos[i : i + batch_size]
         try:
             # Parse media info for the batch
-            for media_info in batch:
-                media_items.append(parse_media_info(state, media_info, post_id))
+            media_items.extend(
+                parse_media_info(state, media_info, post_id) for media_info in batch
+            )
 
             # Process the entire batch at once
             await process_media_info(

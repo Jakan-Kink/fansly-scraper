@@ -128,7 +128,7 @@ class Timer(ContextDecorator):
             elapsed = self.timers[self.name]
             # Assuming each start/stop cycle is one operation
             # We could add a counter if needed for more accuracy
-            operations = max(1, len([k for k in self.timers.keys() if k == self.name]))
+            operations = max(1, len([k for k in self.timers if k == self.name]))
             return self._format_time(elapsed / operations)
         return "0s"
 

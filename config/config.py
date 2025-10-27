@@ -44,14 +44,7 @@ def parse_items_from_line(line: str) -> list[str]:
     :return: A list of items (eg. names) parsed from the line.
     :rtype: list[str]
     """
-    names: list[str] = []
-
-    if "," in line:
-        names = line.split(",")
-
-    else:
-        names = line.split()
-
+    names = line.split(",") if "," in line else line.split()
     return names
 
 
