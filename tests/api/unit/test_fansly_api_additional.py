@@ -1,6 +1,6 @@
 """Additional unit tests for FanslyApi class to improve coverage"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -248,7 +248,7 @@ class TestFanslyApiAdditional:
             )
 
             # Verify the default timestamp is used (January 1st, 1990 at midnight)
-            expected_timestamp = int(datetime(1990, 1, 1, 0, 0).timestamp())
+            expected_timestamp = int(datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp())
             assert api.device_id_timestamp == expected_timestamp
 
             # Verify that update_device_id was called to fetch a new device ID
@@ -270,7 +270,7 @@ class TestFanslyApiAdditional:
 
             # The API should still use the default timestamp since both parameters
             # need to be provided to skip the update_device_id call
-            expected_timestamp = int(datetime(1990, 1, 1, 0, 0).timestamp())
+            expected_timestamp = int(datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp())
             assert api.device_id_timestamp == expected_timestamp
 
             # Verify that update_device_id was called
@@ -292,7 +292,7 @@ class TestFanslyApiAdditional:
 
             # The API should still use the default timestamp since both parameters
             # need to be provided to skip the update_device_id call
-            expected_timestamp = int(datetime(1990, 1, 1, 0, 0).timestamp())
+            expected_timestamp = int(datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp())
             assert api.device_id_timestamp == expected_timestamp
 
             # Verify that update_device_id was called

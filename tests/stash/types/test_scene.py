@@ -3,7 +3,7 @@
 Tests scene types including Scene, SceneCreateInput, SceneUpdateInput and related types.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import PropertyMock, patch
 
@@ -317,7 +317,7 @@ def test_from_dict_with_files() -> None:
         "basename": "video.mp4",
         "parent_folder_id": "parent1",
         "zip_file_id": None,
-        "mod_time": datetime(2020, 1, 1),
+        "mod_time": datetime(2020, 1, 1, tzinfo=UTC),
         "size": 1024,
         "fingerprints": [],
         "format": "mp4",

@@ -4,7 +4,7 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -362,8 +362,8 @@ def mock_account():
     account.displayName = "Test User"
     account.about = "Test account for unit tests"
     account.location = "Test Location"
-    account.joinDate = datetime(2024, 1, 1, 12, 0, 0)
-    account.lastSeen = datetime(2024, 1, 2, 12, 0, 0)
+    account.joinDate = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+    account.lastSeen = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
 
     # Setup awaitable_attrs for async access to properties
     # Each call to the property should return a new coroutine

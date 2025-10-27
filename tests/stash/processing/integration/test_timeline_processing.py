@@ -1,6 +1,6 @@
 """Tests for timeline processing functionality."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -180,7 +180,7 @@ async def test_process_expired_timeline_post(
 ):
     """Test processing a timeline post with expiration date."""
     # Arrange
-    mock_post.expiresAt = datetime(2024, 4, 1, 12, 0, 0)  # Set expiration
+    mock_post.expiresAt = datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC)  # Set expiration
 
     # Mock Stash client responses
     stash_processor.context.client.find_performer.return_value = mock_performer

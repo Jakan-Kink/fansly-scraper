@@ -14,10 +14,10 @@ import time
 from pathlib import Path
 from tkinter import Tk, filedialog
 
+from config.logging import textio_logger
 from download.downloadstate import DownloadState
 from download.types import DownloadType
 from media import MediaItem
-from textio import print_error, print_info
 
 from .types import PathConfig
 
@@ -31,10 +31,15 @@ def ask_correct_dir() -> Path:
         directory_name = filedialog.askdirectory()
 
         if Path(directory_name).is_dir():
-            print_info(f"Folder path chosen: {directory_name}")
+            textio_logger.opt(depth=1).log(
+                "INFO", f"Folder path chosen: {directory_name}"
+            )
             return Path(directory_name)
 
-        print_error("You did not choose a valid folder. Please try again!", 5)
+        textio_logger.opt(depth=1).log(
+            "ERROR",
+            "<red>[5]</red> You did not choose a valid folder. Please try again!",
+        )
 
 
 def set_create_directory_for_download(config: PathConfig, state: DownloadState) -> Path:
@@ -105,6 +110,8 @@ def get_creator_base_path(config: PathConfig, creator_name: str) -> Path:
     """
     suffix = "_fansly" if config.use_folder_suffix else ""
     target_name = f"{creator_name}{suffix}"
+    if config.download_directory is None:
+        raise RuntimeError("Download directory is not set in configuration.")
     target_path = config.download_directory / target_name
 
     # Check for existing case-insensitive match
@@ -165,6 +172,8 @@ def get_creator_database_path(config: PathConfig, creator_name: str) -> Path:
         return Path(config.metadata_db_file)
 
     # Otherwise use metadata dir in creator's base path
+    if config.download_directory is None:
+        raise RuntimeError("Download directory is not set in configuration.")
     metadata_dir = config.download_directory / "metadata"
     metadata_dir.mkdir(parents=True, exist_ok=True)
     return metadata_dir / "shared.db"

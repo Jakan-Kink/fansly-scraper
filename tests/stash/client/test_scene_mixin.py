@@ -9,11 +9,7 @@ import pytest
 from stash import StashClient
 from stash.client.mixins.scene import SceneClientMixin
 from stash.client_helpers import async_lru_cache
-from stash.types import (
-    FindScenesResultType,
-    Scene,
-    VideoFile,
-)
+from stash.types import FindScenesResultType, Scene, VideoFile
 from tests.stash.client.client_test_helpers import create_base_mock_client
 
 
@@ -94,9 +90,8 @@ def add_scene_update_methods(client: StashClient) -> None:
         if result and result.get("bulkSceneUpdate"):
             # Clear cache for updated scenes
             for scene in scenes:
-                if scene.get("id"):
-                    if scene["id"] in client.scene_cache:
-                        del client.scene_cache[scene["id"]]
+                if scene.get("id") and scene["id"] in client.scene_cache:
+                    del client.scene_cache[scene["id"]]
             return result["bulkSceneUpdate"]["id"]
         return []
 

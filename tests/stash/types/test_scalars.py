@@ -56,7 +56,7 @@ def test_time_serialization() -> None:
     assert hasattr(Time, "_scalar_definition")
 
     # Test with datetime object
-    dt = datetime(2023, 12, 25, 10, 30, 0)
+    dt = datetime(2023, 12, 25, 10, 30, 0, tzinfo=UTC)
     result = Time._scalar_definition.serialize(dt)
     assert isinstance(result, str)
     assert "2023-12-25T10:30:00" in result
@@ -92,7 +92,7 @@ def test_timestamp_serialization() -> None:
     assert hasattr(Timestamp, "_scalar_definition")
 
     # Test with datetime object
-    dt = datetime(2023, 12, 25, 10, 30, 0)
+    dt = datetime(2023, 12, 25, 10, 30, 0, tzinfo=UTC)
     result = Timestamp._scalar_definition.serialize(dt)
     assert isinstance(result, str)
     assert "2023-12-25T10:30:00" in result

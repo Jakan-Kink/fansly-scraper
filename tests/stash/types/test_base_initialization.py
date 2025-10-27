@@ -144,9 +144,9 @@ def test_stash_object_init_filters_fallback_to_strawberry() -> None:
             isinstance(obj, type)
             and issubclass(obj, StashObject)
             and hasattr(obj, "__field_names__")
+            and obj not in classes_to_clean
         ):
-            if obj not in classes_to_clean:
-                classes_to_clean.append(obj)
+            classes_to_clean.append(obj)
 
     for cls in classes_to_clean:
         if hasattr(cls, "__field_names__"):

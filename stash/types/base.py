@@ -165,9 +165,11 @@ class StashObject:
 
             # Also update original values to not include this field
             # This ensures to_input_dirty will include this field
-            if hasattr(self, "__original_values__"):
-                if name in self.__original_values__:
-                    del self.__original_values__[name]
+            if (
+                hasattr(self, "__original_values__")
+                and name in self.__original_values__
+            ):
+                del self.__original_values__[name]
 
     def is_dirty(self) -> bool:
         """Check if object has unsaved changes.

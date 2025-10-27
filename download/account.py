@@ -219,21 +219,22 @@ async def get_creator_account_info(
     _update_state_from_account(config, state, account)
 
     # Check for timeline duplication if enabled
-    if config.use_duplicate_threshold and "timelineStats" in account:
-        if "fetchedAt" in account["timelineStats"]:
-            # Get current TimelineStats from db
-            stmt = select(TimelineStats).where(
-                TimelineStats.accountId == state.creator_id
-            )
-            result = await session.execute(stmt)
-            if current_stats := await result.scalar_one_or_none():
-                # Convert API timestamp to datetime
-                stats_data = {"fetchedAt": account["timelineStats"]["fetchedAt"]}
-                Base.convert_timestamps(stats_data, ("fetchedAt",))
-                api_fetched_at = stats_data["fetchedAt"]
-                # Compare with db fetchedAt
-                if current_stats.fetchedAt == api_fetched_at:
-                    state.fetched_timeline_duplication = True
+    if (
+        config.use_duplicate_threshold
+        and "timelineStats" in account
+        and "fetchedAt" in account["timelineStats"]
+    ):
+        # Get current TimelineStats from db
+        stmt = select(TimelineStats).where(TimelineStats.accountId == state.creator_id)
+        result = await session.execute(stmt)
+        if current_stats := await result.scalar_one_or_none():
+            # Convert API timestamp to datetime
+            stats_data = {"fetchedAt": account["timelineStats"]["fetchedAt"]}
+            Base.convert_timestamps(stats_data, ("fetchedAt",))
+            api_fetched_at = stats_data["fetchedAt"]
+            # Compare with db fetchedAt
+            if current_stats.fetchedAt == api_fetched_at:
+                state.fetched_timeline_duplication = True
 
 
 async def _make_rate_limited_request(

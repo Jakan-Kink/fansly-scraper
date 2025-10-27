@@ -1,6 +1,7 @@
 """Configuration File Manipulation"""
 
 import configparser
+import os
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -9,7 +10,6 @@ from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from errors import ConfigError
 from helpers.browser import open_url
-from textio import print_config, print_info, print_warning
 
 
 def save_config_or_raise(config: FanslyConfig) -> bool:
@@ -443,8 +443,11 @@ def _handle_logging_section(config: FanslyConfig) -> None:
     valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     for logger, level in config.log_levels.items():
         if level not in valid_levels:
-            print_warning(
-                f"Invalid log level '{level}' for logger '{logger}', using 'INFO'"
+            from config.logging import textio_logger
+
+            textio_logger.opt(depth=1).log(
+                "WARNING",
+                f"Invalid log level '{level}' for logger '{logger}', using 'INFO'",
             )
             config.log_levels[logger] = "INFO"
 
@@ -490,19 +493,23 @@ def load_config(config: FanslyConfig) -> None:
     :param FanslyConfig config: The configuration object to fill.
     """
     # Initialize logging config first
-    from config.logging import init_logging_config, set_debug_enabled
+    from config.logging import init_logging_config, set_debug_enabled, textio_logger
 
     init_logging_config(config)
     set_debug_enabled(config.debug)
 
-    print_info("Reading config.ini file ...")
+    textio_logger.opt(depth=1).log("INFO", "Reading config.ini file ...")
     print()
 
     config.config_path = Path.cwd() / "config.ini"
 
     if not config.config_path.exists():
-        print_warning("Configuration file config.ini not found.")
-        print_config("A default configuration file will be generated for you ...")
+        textio_logger.opt(depth=1).log(
+            "WARNING", "Configuration file config.ini not found."
+        )
+        textio_logger.opt(depth=1).log(
+            "CONFIG", "A default configuration file will be generated for you ..."
+        )
         with config.config_path.open(mode="w", encoding="utf-8"):
             pass
 

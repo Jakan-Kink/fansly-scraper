@@ -231,15 +231,15 @@ async def test_process_fields() -> None:
     if (
         "name" in obj.__field_conversions__
         and obj.__field_conversions__["name"] is not None
+        and "name" in result
     ):
-        if "name" in result:
-            assert result["name"] == "Test Name"
+        assert result["name"] == "Test Name"
     if (
         "description" in obj.__field_conversions__
         and obj.__field_conversions__["description"] is not None
+        and "description" in result
     ):
-        if "description" in result:
-            assert result["description"] == "Test Desc"
+        assert result["description"] == "Test Desc"
 
     # Test with None value
     obj.description = None

@@ -1,6 +1,6 @@
 """Tests for metadata update methods in MediaProcessingMixin."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -109,7 +109,7 @@ class TestMetadataUpdate:
         earlier_item = MagicMock()
         earlier_item.id = 99999
         earlier_item.content = "Earlier content"
-        earlier_item.createdAt = datetime(2024, 3, 1, 0, 0, 0)  # Earlier!
+        earlier_item.createdAt = datetime(2024, 3, 1, 0, 0, 0, tzinfo=UTC)  # Earlier!
         earlier_item.hashtags = []
         earlier_item.accountMentions = []
         earlier_item.__class__.__name__ = "Post"

@@ -2,8 +2,8 @@
 
 import json
 
+from config.logging import textio_logger
 from download.downloadstate import DownloadState
-from textio import print_error
 
 from . import MediaItem
 
@@ -133,9 +133,8 @@ def parse_media_info(
     item.is_preview = media_info["previewId"] is not None
 
     # fix rare bug, of free / paid content being counted as preview
-    if item.is_preview:
-        if media_info["access"]:
-            item.is_preview = False
+    if item.is_preview and media_info["access"]:
+        item.is_preview = False
 
     # variables in api "media" = "default_" & "preview" = "preview" in our code
     # parse normal basic (paid/free) media from the default location, before parsing its variants
@@ -225,10 +224,10 @@ def parse_media_info(
 
         # if metadata didn't exist we need the user to notify us through github, because that would be detrimental
         if "Key-Pair-Id" not in item.download_url and not item.metadata:
-            print_error(
-                f"Failed downloading a video! Please open a GitHub issue ticket called 'Metadata missing' and copy paste this:\n\
+            textio_logger.opt(depth=1).log(
+                "ERROR",
+                f"<red>[14]</red> Failed downloading a video! Please open a GitHub issue ticket called 'Metadata missing' and copy paste this:\n\
                 \n\tMetadata Missing\n\tpost_id: {post_id} & media_id: {item.media_id} & creator username: {state.creator_name}\n",
-                14,
             )
             input("Press Enter to attempt continue downloading ...")
 

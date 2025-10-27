@@ -82,7 +82,9 @@ def test_time_based_rotation(log_setup):
         # Mock the current time
         now = datetime.now(UTC)
         mock_datetime.now.return_value = now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = lambda *args, **kw: datetime(
+            *args, **{"tzinfo": UTC, **kw}
+        )
 
         # Set the initial rollover time
         handler.rolloverAt = (now + timedelta(seconds=1)).timestamp()
@@ -214,7 +216,9 @@ def test_multiple_handlers(log_setup):
         # Mock the current time
         now = datetime.now(UTC)
         mock_datetime.now.return_value = now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = lambda *args, **kw: datetime(
+            *args, **{"tzinfo": UTC, **kw}
+        )
 
         # Write logs with simulated time and size triggers
         logger.info("X" * 150)  # Should trigger size rotation

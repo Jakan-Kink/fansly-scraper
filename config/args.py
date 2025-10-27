@@ -4,10 +4,9 @@ import argparse
 from functools import partial
 from pathlib import Path
 
-from config.logging import set_debug_enabled
+from config.logging import set_debug_enabled, textio_logger
 from errors import ConfigError
 from helpers.common import get_post_id_from_request, is_valid_post_id
-from textio import print_debug, print_warning
 
 from .config import parse_items_from_line, sanitize_creator_names, save_config_or_raise
 from .fanslyconfig import FanslyConfig
@@ -542,7 +541,7 @@ def _handle_debug_settings(args: argparse.Namespace, config: FanslyConfig) -> No
     set_debug_enabled(args.debug)
 
     if args.debug:
-        print_debug(f"Args: {args}")
+        textio_logger.opt(depth=1).log("DEBUG", f"Args: {args}")
         print()
 
 
@@ -579,9 +578,15 @@ def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> boo
     config_overridden = True
 
     if config.debug:
-        print_debug(f"Value of `args.users` is: {args.users}")
-        print_debug(f"`args.users` is None == {args.users is None}")
-        print_debug(f"`config.username` is: {config.user_names}")
+        textio_logger.opt(depth=1).log(
+            "DEBUG", f"Value of `args.users` is: {args.users}"
+        )
+        textio_logger.opt(depth=1).log(
+            "DEBUG", f"`args.users` is None == {args.users is None}"
+        )
+        textio_logger.opt(depth=1).log(
+            "DEBUG", f"`config.username` is: {config.user_names}"
+        )
         print()
 
     return config_overridden
@@ -811,10 +816,11 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
         config_overridden = True
 
     if config_overridden:
-        print_warning(
+        textio_logger.opt(depth=1).log(
+            "WARNING",
             "You have specified some command-line arguments that override config.ini settings.\n"
             f"{20 * ' '}A separate, temporary config file will be generated for this session\n"
-            f"{20 * ' '}to prevent accidental changes to your original configuration.\n"
+            f"{20 * ' '}to prevent accidental changes to your original configuration.\n",
         )
         config.config_path = config.config_path.parent / "config_args.ini"
         save_config_or_raise(config)

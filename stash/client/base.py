@@ -647,15 +647,18 @@ class StashClientBase:
         """
         try:
             # Close GQL client first
-            if hasattr(self, "client") and self.client:
-                if hasattr(self.client, "close_async"):
-                    try:
-                        await self.client.close_async()
-                    except Exception as e:
-                        # Just log any errors during client.close_async and continue
-                        self.log.debug(
-                            f"Non-critical error during client.close_async(): {e}"
-                        )
+            if (
+                hasattr(self, "client")
+                and self.client
+                and hasattr(self.client, "close_async")
+            ):
+                try:
+                    await self.client.close_async()
+                except Exception as e:
+                    # Just log any errors during client.close_async and continue
+                    self.log.debug(
+                        f"Non-critical error during client.close_async(): {e}"
+                    )
 
             # Close transports
             if hasattr(self, "http_transport") and hasattr(

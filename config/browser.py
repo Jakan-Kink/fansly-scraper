@@ -11,8 +11,6 @@ from time import sleep
 import plyvel
 import psutil
 
-from textio import print_config
-
 
 # Function to recursively search for "storage" folders and process SQLite files
 def get_token_from_firefox_profile(directory: str) -> str | None:
@@ -92,11 +90,14 @@ def get_token_from_firefox_db(
                 # Do not forcefully close user's browser in non-interactive/scheduled mode.
                 return None
 
-            print_config(
+            from config.logging import textio_logger
+
+            textio_logger.opt(depth=1).log(
+                "CONFIG",
                 f"Firefox browser is open but needs to be closed for automatic configurator"
                 f"\n{19 * ' '}to search your fansly account in the browsers storage."
                 f"\n{19 * ' '}Please save any important work within the browser & close the browser yourself"
-                f"\n{19 * ' '}or it will be closed automatically after continuing."
+                f"\n{19 * ' '}or it will be closed automatically after continuing.",
             )
 
             input(f"\n{19 * ' '}► Press <ENTER> to continue! ")
@@ -239,7 +240,11 @@ def close_browser_by_name(browser_name: str) -> None:
             closed = True
 
     if closed:
-        print_config(f"Successfully closed {browser_name} browser.")
+        from config.logging import textio_logger
+
+        textio_logger.opt(depth=1).log(
+            "CONFIG", f"Successfully closed {browser_name} browser."
+        )
         sleep(3)  # give browser time to close its children processes
 
 
@@ -302,11 +307,14 @@ def get_auth_token_from_leveldb_folder(
             # Do not forcefully close user's browser in non-interactive/scheduled mode.
             return None
 
-        print_config(
+        from config.logging import textio_logger
+
+        textio_logger.opt(depth=1).log(
+            "CONFIG",
             f"{used_browser} browser is open but it needs to be closed for automatic configurator"
             f"\n{19 * ' '}to search your Fansly account in the browser's storage."
             f"\n{19 * ' '}Please save any important work within the browser & close the browser yourself"
-            f"\n{19 * ' '}or it will be closed automatically after continuing."
+            f"\n{19 * ' '}or it will be closed automatically after continuing.",
         )
 
         input(f"\n{19 * ' '}► Press <ENTER> to continue! ")
