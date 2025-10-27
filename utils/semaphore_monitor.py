@@ -41,13 +41,17 @@ def get_process_semaphores() -> list[SemaphoreInfo]:
     """Get list of POSIX semaphores for current process."""
     try:
         # Run lsof to get file descriptors
+        # S607: Using standard system utility - full path would be less portable
         result = subprocess.run(
-            ["lsof", "-p", str(os.getpid())],
+            ["lsof", "-p", str(os.getpid())],  # noqa: S607
             capture_output=True,
             text=True,
             check=True,
         )
-
+    except (subprocess.SubprocessError, OSError) as e:
+        print_warning(f"Failed to get semaphore list: {e}")
+        return []
+    else:
         # Parse output for PSXSEM entries
         semaphores = []
         for line in result.stdout.splitlines():
@@ -70,9 +74,6 @@ def get_process_semaphores() -> list[SemaphoreInfo]:
                         continue
 
         return semaphores
-    except (subprocess.SubprocessError, OSError) as e:
-        print_warning(f"Failed to get semaphore list: {e}")
-        return []
 
 
 def cleanup_semaphores(pattern: str | None = None) -> None:

@@ -125,14 +125,16 @@ async def test_save_error_handling(
     test_stash_object.name = "Changed"
 
     # Mock to_input to ensure it returns a valid dict to get past input validation
-    with patch.object(
-        test_stash_object,
-        "to_input",
-        return_value={"id": "test_123", "name": "Changed"},
+    with (
+        patch.object(
+            test_stash_object,
+            "to_input",
+            return_value={"id": "test_123", "name": "Changed"},
+        ),
+        pytest.raises(ValueError, match="Failed to save TestStash"),
     ):
         # The mock client raises Exception, but it gets wrapped in ValueError by save method
-        with pytest.raises(ValueError, match="Failed to save TestStash"):
-            await test_stash_object.save(mock_stash_client_with_errors)
+        await test_stash_object.save(mock_stash_client_with_errors)
 
 
 @pytest.mark.asyncio
@@ -181,9 +183,11 @@ async def test_save_missing_operation_key() -> None:
     client.execute = AsyncMock(return_value={"wrongKey": {"id": "123"}})
 
     # Mock to_input to return proper dict with name to avoid the fixture requirement issue
-    with patch.object(obj, "to_input", return_value={"name": "Test"}):
-        with pytest.raises(ValueError, match="Missing 'testStashCreate' in response"):
-            await obj.save(client)
+    with (
+        patch.object(obj, "to_input", return_value={"name": "Test"}),
+        pytest.raises(ValueError, match="Missing 'testStashCreate' in response"),
+    ):
+        await obj.save(client)
 
 
 @pytest.mark.asyncio
@@ -314,9 +318,11 @@ async def test_save_error_scenarios() -> None:
     client = Mock()
     client.execute = AsyncMock(side_effect=Exception("GraphQL Error"))
 
-    with patch.object(obj, "to_input", return_value={"name": "Test"}):
-        with pytest.raises(ValueError, match="Failed to save"):
-            await obj.save(client)
+    with (
+        patch.object(obj, "to_input", return_value={"name": "Test"}),
+        pytest.raises(ValueError, match="Failed to save"),
+    ):
+        await obj.save(client)
 
 
 @pytest.mark.asyncio

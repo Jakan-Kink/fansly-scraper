@@ -138,7 +138,7 @@ class TestBackgroundProcessing:
 
         # Call _safe_background_processing and expect Exception
         with (
-            pytest.raises(Exception),  # noqa: PT011 - testing error handling, not specific message
+            pytest.raises(Exception),  # noqa: PT011, B017
             patch("stash.processing.logger.exception") as mock_logger_exception,
             patch("stash.processing.debug_print") as mock_debug_print,
         ):
@@ -227,7 +227,7 @@ class TestBackgroundProcessing:
         processor._update_account_stash_id.reset_mock()
 
         # Call continue_stash_processing with None values
-        with pytest.raises(ValueError, match="Account.*performer"):
+        with pytest.raises(ValueError, match=r"Account.*performer"):
             await processor.continue_stash_processing(None, None, session=mock_session)
 
         # Case 4: performer as dict

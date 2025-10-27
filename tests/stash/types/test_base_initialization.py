@@ -478,7 +478,7 @@ def test_stash_object_init_method_coverage() -> None:
     # We expect this to fail on line 129 when super().__init__() is called with kwargs,
     # but lines 128-129 will be executed and covered before the failure
     with pytest.raises(
-        TypeError, match="object.__init__\\(\\) takes exactly one argument"
+        TypeError, match=r"object.__init__\(\) takes exactly one argument"
     ):
         StashObject.__init__(obj, id="test_init_1", name="Test Object 1")
 

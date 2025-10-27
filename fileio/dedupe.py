@@ -27,10 +27,6 @@ from pathio import set_create_directory_for_download
 from textio import json_output, print_info, print_warning
 
 
-# Module-level variable to track dedupe_init passes
-_dedupe_pass_count = 0
-
-
 @require_database_config
 async def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
     """Update database records that have full paths stored in local_filename.
@@ -602,12 +598,11 @@ async def dedupe_init(
             "Session must be provided by @with_database_session decorator"
         )
 
-    # Use module-level variable to track pass count
-    global _dedupe_pass_count
-    if not globals().get("_dedupe_pass_count"):
-        _dedupe_pass_count = 0
-    _dedupe_pass_count += 1
-    call_count = _dedupe_pass_count
+    # Use function attribute to track pass count (avoids global variable)
+    if not hasattr(dedupe_init, "pass_count"):
+        dedupe_init.pass_count = 0
+    dedupe_init.pass_count += 1
+    call_count = dedupe_init.pass_count
 
     json_output(
         1,
@@ -871,7 +866,7 @@ async def dedupe_init(
         )
 
         # Process each record and commit immediately to prevent data loss
-        for i, media in enumerate(downloaded_list, 1):
+        for media in downloaded_list:
             # Update progress description with current ID
             progress_mgr.update_task(
                 db_check_task, description=f"Checking DB - ID: {media.id}"
@@ -1063,7 +1058,7 @@ async def dedupe_media_file(
     )
 
     # First try by ID
-    media_id, is_preview = get_id_from_filename(filename.name)
+    media_id, _ = get_id_from_filename(filename.name)
     if media_id:
         result = await session.execute(select(Media).filter_by(id=media_id))
         existing_by_id = result.scalar_one_or_none()

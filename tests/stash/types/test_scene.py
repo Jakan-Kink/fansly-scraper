@@ -313,7 +313,7 @@ def test_from_dict_with_files() -> None:
     # Prepare minimal VideoFile data
     file_dict: dict[str, Any] = {
         "id": "file1",
-        "path": "/tmp/video.mp4",
+        "path": "/tmp/video.mp4",  # noqa: S108
         "basename": "video.mp4",
         "parent_folder_id": "parent1",
         "zip_file_id": None,
@@ -337,7 +337,7 @@ def test_from_dict_with_files() -> None:
     # Check a few attributes
     assert vf.id == "file1"
     assert vf.basename == "video.mp4"
-    assert vf.path == "/tmp/video.mp4"
+    assert vf.path == "/tmp/video.mp4"  # noqa: S108
     assert vf.duration == 60.5
 
     # Test key relationships exist

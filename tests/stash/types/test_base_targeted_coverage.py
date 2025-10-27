@@ -287,7 +287,7 @@ def test_filter_init_args_real_attribute_error() -> None:
                         for field in cls.__strawberry_definition__.nonexistent
                     }
                 else:
-                    raise AttributeError("No strawberry definition")
+                    raise AttributeError("No strawberry definition")  # noqa: TRY301
                 return {k: v for k, v in kwargs.items() if k in valid_fields}
             except AttributeError:
                 # This is the fallback path we want to test
@@ -329,7 +329,7 @@ def test_get_field_names_real_attribute_error() -> None:
                         field.name for field in fields if not field.is_subscription
                     }
                 else:
-                    raise AttributeError("No strawberry definition")
+                    raise AttributeError("No strawberry definition")  # noqa: TRY301
             except AttributeError:
                 # This is the fallback path we want to test
                 cls.__field_names__ = {"id"}  # At minimum, include id field
@@ -405,6 +405,9 @@ async def test_comparison_edge_cases_comprehensive() -> None:
 
         def __eq__(self, other):
             return isinstance(other, CustomObject) and self.value == other.value
+
+        def __hash__(self):
+            return hash(self.value)
 
     obj = TestStashObject(id="comparison_test", name="Test", tags=[])
     obj.mark_clean()

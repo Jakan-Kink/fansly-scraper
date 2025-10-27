@@ -319,7 +319,7 @@ async def test_data_validation_workflow(
         if "Stash instance" in str(e):
             pytest.skip("Test requires running Stash instance: {e}")
         else:
-            raise e
+            raise
     finally:
         await ctx.cleanup()
 
@@ -377,13 +377,14 @@ async def test_concurrent_error_recovery(
                 ctx.created_ids["scenes"].append(
                     created.id
                 )  # Use attribute notation instead of dictionary access
-                return created
             except Exception as e:
                 print(f"Scene {i} creation failed: {e}")
                 if should_fail:
                     # Expected failure with invalid performer
                     return None
                 raise  # Unexpected failure
+            else:
+                return created
 
         # Create 5 scenes, 2 with invalid performers
         tasks = [create_scene(i, should_fail=(i % 2 == 0)) for i in range(5)]
@@ -408,13 +409,14 @@ async def test_concurrent_error_recovery(
                 )
                 created = await stash_client.create_gallery(gallery)
                 ctx.created_ids["galleries"].append(created.id)
-                return created
             except Exception as e:
                 print(f"Gallery {i} creation failed: {e}")
                 if should_fail:
                     # Expected failure with invalid performer
                     return None
                 raise  # Unexpected failure
+            else:
+                return created
 
         # Create 5 galleries, 2 with invalid performers
         tasks = [create_gallery(i, should_fail=(i % 2 == 0)) for i in range(5)]
@@ -441,7 +443,7 @@ async def test_concurrent_error_recovery(
         if "Stash instance" in str(e):
             pytest.skip("Test requires running Stash instance: {e}")
         else:
-            raise e
+            raise
     finally:
         await ctx.cleanup()
 
@@ -521,7 +523,7 @@ async def test_metadata_error_recovery(
         if "Stash instance" in str(e):
             pytest.skip("Test requires running Stash instance: {e}")
         else:
-            raise e
+            raise
     finally:
         await ctx.cleanup()
 
@@ -704,6 +706,6 @@ async def test_relationship_error_recovery(
         if "Stash instance" in str(e):
             pytest.skip("Test requires running Stash instance: {e}")
         else:
-            raise e
+            raise
     finally:
         await ctx.cleanup()

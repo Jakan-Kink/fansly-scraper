@@ -98,8 +98,8 @@ def test_equality_edge_cases() -> None:
     """Test equality edge cases."""
     obj = TestStashObject(id="edge_test", name="Test")
 
-    # Test equality with itself
-    assert obj == obj
+    # Test equality with itself (reflexive property)
+    assert obj == obj  # noqa: PLR0124
 
     # Test equality with None
     assert obj is not None
@@ -179,8 +179,8 @@ def test_equality_reflexivity() -> None:
     """Test that equality is reflexive."""
     obj = TestStashObject(id="reflexive_test", name="Test")
 
-    # a == a should always be True
-    assert obj == obj
+    # a == a should always be True (reflexive property)
+    assert obj == obj  # noqa: PLR0124
 
 
 @pytest.mark.unit

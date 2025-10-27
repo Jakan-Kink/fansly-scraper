@@ -234,6 +234,7 @@ class Base(AsyncAttrs, DeclarativeBase):
                 continue
 
             # Check if field is a datetime column
+            converted_value = value
             if (
                 key in mapper.columns
                 and isinstance(mapper.columns[key].type, DateTime)
@@ -241,12 +242,12 @@ class Base(AsyncAttrs, DeclarativeBase):
             ):
                 # Convert timestamp if needed
                 Base.convert_timestamps({key: value}, [key])
-                value = data[key]  # Get converted value
+                converted_value = value  # Get converted value
 
             current_value = getattr(instance, key)
-            if current_value != value:
+            if current_value != converted_value:
                 # Use setattr to ensure SQLAlchemy tracks the change
-                setattr(instance, key, value)
+                setattr(instance, key, converted_value)
                 updated = True
 
         return updated
