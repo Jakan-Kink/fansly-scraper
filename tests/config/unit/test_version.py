@@ -26,18 +26,18 @@ version = "1.0.0"
 
 def test_get_project_version_file_not_found():
     """Test handling when pyproject.toml is not found"""
-    with pytest.raises(FileNotFoundError):
-        with patch("builtins.open", mock_open()) as mock_file:
-            mock_file.side_effect = FileNotFoundError()
+    with patch("builtins.open", mock_open()) as mock_file:
+        mock_file.side_effect = FileNotFoundError()
+        with pytest.raises(FileNotFoundError):
             get_project_version()
 
 
 def test_get_project_version_invalid_toml():
     """Test handling invalid TOML content"""
-    with pytest.raises(KeyError):
-        with (
-            patch("builtins.open", mock_open(read_data="invalid = toml")),
-            patch("toml.load") as mock_toml_load,
-        ):
-            mock_toml_load.return_value = {}  # Empty dict to trigger KeyError
+    with (
+        patch("builtins.open", mock_open(read_data="invalid = toml")),
+        patch("toml.load") as mock_toml_load,
+    ):
+        mock_toml_load.return_value = {}  # Empty dict to trigger KeyError
+        with pytest.raises(KeyError):
             get_project_version()

@@ -753,7 +753,7 @@ async def test_main_keyboard_interrupt(mock_config, mock_args, mock_common_funct
 
 
 @pytest.mark.parametrize(
-    "error,expected_code",
+    ("error", "expected_code"),
     [
         (ApiError("API error"), API_ERROR),
         (ConfigError("Config error"), CONFIG_ERROR),

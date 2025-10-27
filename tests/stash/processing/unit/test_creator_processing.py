@@ -126,7 +126,7 @@ class TestCreatorProcessing:
         processor._find_account.return_value = None
 
         # Call process_creator and expect ValueError
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="No account found"):
             await processor.process_creator()
 
         # Reset all mocks again before testing the next case

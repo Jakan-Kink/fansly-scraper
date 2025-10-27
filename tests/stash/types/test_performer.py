@@ -4,8 +4,8 @@ Tests performer types including Performer, PerformerCreateInput, PerformerUpdate
 """
 
 import dataclasses
-import os
 import tempfile
+from pathlib import Path
 from typing import get_type_hints
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
@@ -402,7 +402,7 @@ async def test_performer_update_avatar_method() -> None:
 
     finally:
         # Clean up temp file
-        os.unlink(temp_path)
+        Path(temp_path).unlink()
 
 
 @pytest.mark.unit
@@ -434,12 +434,12 @@ async def test_performer_update_avatar_read_error() -> None:
 
     try:
         # Test error handling
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
             await performer.update_avatar(mock_client, temp_path)
         assert "Failed to update avatar" in str(excinfo.value)
 
     finally:
-        os.unlink(temp_path)
+        Path(temp_path).unlink()
 
 
 @pytest.mark.unit

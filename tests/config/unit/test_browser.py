@@ -18,7 +18,7 @@ from config.browser import (
 
 
 @pytest.mark.parametrize(
-    "input_name,expected",
+    ("input_name", "expected"),
     [
         ("Firefox", "Firefox"),
         ("firefox", "Firefox"),

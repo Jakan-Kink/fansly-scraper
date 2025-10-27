@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).parent.absolute().parent))
 
 
 @pytest.mark.parametrize(
-    "input_str, seed, expected",
+    ("input_str", "seed", "expected"),
     [
         ("a", 0, 7929297801672961),
         ("b", 0, 8684336938537663),
@@ -30,7 +30,7 @@ def test_cyrb53(input_str, seed, expected):
 
 
 @pytest.mark.parametrize(
-    "a, b, expected",
+    ("a", "b", "expected"),
     [
         (-559038834, 2654435761, -1447829970),
         (1103547958, 1597334677, -1401873042),

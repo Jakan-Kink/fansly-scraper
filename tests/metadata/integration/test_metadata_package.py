@@ -177,14 +177,14 @@ async def test_database_constraints(test_database):
         # Try to create media without account (should fail)
         media = Media(id=1)  # Missing required accountId
         session.add(media)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: PT011 - database constraint violation
             await session.commit()
         await session.rollback()
 
         # Try to create wall without account (should fail)
         wall = Wall(id=1, name="Test")  # Missing required accountId
         session.add(wall)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: PT011 - database constraint violation
             await session.commit()
         await session.rollback()
 
@@ -193,7 +193,7 @@ async def test_database_constraints(test_database):
             id=1, content="Test", createdAt=datetime.now(UTC)
         )  # Missing required senderId
         session.add(message)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: PT011 - database constraint violation
             await session.commit()
         await session.rollback()
 

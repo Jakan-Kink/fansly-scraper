@@ -181,7 +181,7 @@ async def test_create_studio_error(
         with patch.object(
             mock_studio, "to_input", new_callable=AsyncMock, return_value={}
         ):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
                 await stash_client.create_studio(mock_studio)
 
 
@@ -288,5 +288,5 @@ async def test_update_studio_error(
             new_callable=AsyncMock,
             return_value={"id": "123", "name": "Test"},
         ):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
                 await stash_client.update_studio(mock_studio)

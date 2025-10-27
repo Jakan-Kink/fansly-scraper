@@ -166,18 +166,16 @@ class TestStudioProcessingMixin:
         mixin.context.client.find_studios = AsyncMock(return_value=fansly_studio_result)
 
         # Call process_creator_studio and expect error
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
             await mixin.process_creator_studio(
                 account=mock_account, performer=mock_performer, session=mock_session
             )
 
-            # Verify error message
-            assert "Fansly Studio not found in Stash" in str(excinfo.value)
+        # Verify error message
+        assert "Fansly Studio not found in Stash" in str(excinfo.value)
 
-            # Verify find_studios called once
-            mixin.context.client.find_studios.assert_called_once_with(
-                q="Fansly (network)"
-            )
+        # Verify find_studios called once
+        mixin.context.client.find_studios.assert_called_once_with(q="Fansly (network)")
 
         # Test Case 4: Creation fails with exception then succeeds on retry
         mixin.context.client.find_studios.reset_mock()

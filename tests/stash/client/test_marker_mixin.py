@@ -279,7 +279,7 @@ async def test_create_marker_error(
         with patch.object(
             mock_marker, "to_input", new_callable=AsyncMock, return_value={}
         ):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
                 await stash_client.create_marker(mock_marker)
 
 
@@ -436,5 +436,5 @@ async def test_update_marker_error(
         with patch.object(
             mock_marker, "to_input", new_callable=AsyncMock, return_value={}
         ):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
                 await stash_client.update_marker(mock_marker)

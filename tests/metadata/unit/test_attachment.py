@@ -169,6 +169,6 @@ async def test_attachment_exclusivity(session, test_account):
     await session.flush()
 
     # Adding the attachment should fail
-    with pytest.raises(Exception):  # Should raise due to check constraint
-        session.add(attachment)
+    session.add(attachment)
+    with pytest.raises(Exception):  # noqa: PT011 - database constraint violations vary by backend
         await session.commit()

@@ -265,13 +265,13 @@ class TestStashProcessingBase:
         base_processor.continue_stash_processing.side_effect = Exception("Test error")
 
         with (
-            pytest.raises(Exception),
             patch("stash.processing.base.logger.exception") as mock_logger_exception,
             patch("stash.processing.base.debug_print") as mock_debug_print,
         ):
-            await base_processor._safe_background_processing(
-                mock_account, mock_performer
-            )
+            with pytest.raises(Exception):  # noqa: PT011 - testing error handling, not specific message
+                await base_processor._safe_background_processing(
+                    mock_account, mock_performer
+                )
 
             # Verify error logging
             mock_logger_exception.assert_called_once()

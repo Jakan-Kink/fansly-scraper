@@ -136,12 +136,12 @@ async def test_data_validation_workflow(
     ctx = TestContext(stash_client)
     try:
         # Test invalid performer creation
-        with pytest.raises(Exception) as exc_info:
-            performer = Performer(
-                id="new",
-                name="Test Performer",
-                gender=GenderEnum.INVALID,  # Invalid gender should fail
-            )
+        performer = Performer(
+            id="new",
+            name="Test Performer",
+            gender=GenderEnum.INVALID,  # Invalid gender should fail
+        )
+        with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
             await stash_client.create_performer(performer)
         assert "INVALID" in str(exc_info.value)
 
@@ -169,11 +169,11 @@ async def test_data_validation_workflow(
         ctx.created_ids["studios"].append(studio1_id)
 
         # Try to create another studio with the same name
-        with pytest.raises(Exception) as exc_info:
-            studio2 = Studio(
-                id="new",
-                name=studio_name,  # Same name should fail
-            )
+        studio2 = Studio(
+            id="new",
+            name=studio_name,  # Same name should fail
+        )
+        with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
             await stash_client.create_studio(studio2)
         assert "already exists" in str(exc_info.value).lower()
 
@@ -467,7 +467,8 @@ async def test_metadata_error_recovery(
             gender=GenderEnum.FEMALE,
         )
         performer = await stash_client.create_performer(performer)
-        assert performer and performer.id, "Performer creation failed"
+        assert performer is not None, "Performer creation failed"
+        assert performer.id, "Performer ID is missing"
         ctx.created_ids["performers"].append(performer.id)
 
         # Create scene with the verified performer
@@ -481,7 +482,8 @@ async def test_metadata_error_recovery(
             performers=[performer],
         )
         scene = await stash_client.create_scene(scene)
-        assert scene and scene.id, "Scene creation failed"
+        assert scene is not None, "Scene creation failed"
+        assert scene.id, "Scene ID is missing"
         ctx.created_ids["scenes"].append(scene.id)
 
         # Test metadata generation with invalid paths
@@ -545,7 +547,8 @@ async def test_relationship_error_recovery(
             gender=GenderEnum.FEMALE,
         )
         performer = await stash_client.create_performer(performer)
-        assert performer and performer.id, "Performer creation failed"
+        assert performer is not None, "Performer creation failed"
+        assert performer.id, "Performer ID is missing"
         performer_id = get_id(performer)
         ctx.created_ids["performers"].append(performer_id)
 
@@ -554,7 +557,8 @@ async def test_relationship_error_recovery(
             name="[TEST] Relationship Error - Studio",  # Unique name
         )
         studio = await stash_client.create_studio(studio)
-        assert studio and studio.id, "Studio creation failed"
+        assert studio is not None, "Studio creation failed"
+        assert studio.id, "Studio ID is missing"
         studio_id = get_id(studio)
         ctx.created_ids["studios"].append(studio_id)
 
@@ -563,7 +567,8 @@ async def test_relationship_error_recovery(
             name="[TEST] relationship_error_tag",  # Unique name
         )
         tag = await stash_client.create_tag(tag)
-        assert tag and tag.id, "Tag creation failed"
+        assert tag is not None, "Tag creation failed"
+        assert tag.id, "Tag ID is missing"
         tag_id = get_id(tag)
         ctx.created_ids["tags"].append(tag_id)
 
@@ -580,7 +585,8 @@ async def test_relationship_error_recovery(
             tags=[tag],
         )
         scene = await stash_client.create_scene(scene)
-        assert scene and scene.id, "Scene creation failed"
+        assert scene is not None, "Scene creation failed"
+        assert scene.id, "Scene ID is missing"
         scene_id = get_id(scene)
         ctx.created_ids["scenes"].append(scene_id)
 
