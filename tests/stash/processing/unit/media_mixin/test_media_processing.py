@@ -15,7 +15,7 @@ class TestMediaProcessing:
     """Test media processing methods in MediaProcessingMixin."""
 
     @staticmethod
-    def _convert_to_accessible_mock(mock_obj):
+    def _convert_to_accessible_mock(mock_obj) -> AccessibleAsyncMock | None:
         """Convert a regular mock to an AccessibleAsyncMock with proper attributes."""
         if mock_obj is None:
             return None
