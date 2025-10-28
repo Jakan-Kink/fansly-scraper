@@ -108,7 +108,7 @@ def fansly_api(mock_http_session):
     """
     # Lazy import to avoid circular dependency
     # Circular chain: api.fansly -> config.logging -> config.fanslyconfig -> api
-    from api.fansly import FanslyApi  # noqa: PLC0415
+    from api.fansly import FanslyApi
 
     # Initialize with test device ID to avoid real HTTP request
     api = FanslyApi(
@@ -163,7 +163,7 @@ def fansly_api_factory(mock_http_session):
         """Create a FanslyApi instance with specified parameters."""
         # Lazy import to avoid circular dependency
         # Circular chain: api.fansly -> config.logging -> config.fanslyconfig -> api
-        from api.fansly import FanslyApi  # noqa: PLC0415
+        from api.fansly import FanslyApi
 
         if device_id_timestamp is None:
             device_id_timestamp = int(datetime.now(UTC).timestamp() * 1000)

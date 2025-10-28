@@ -199,7 +199,7 @@ async def test_process_bundle_ordering(
     # Arrange
     # Create multiple media items in bundle
     media_items = [MagicMock(id=f"media_{i}", stash_id=None) for i in range(3)]
-    mock_media_bundle.accountMediaIds = [m.id for m in media_items]
+    mock_media_bundle.account_media_ids = [m.id for m in media_items]
     mock_media_bundle.bundleContent = [
         {"accountMediaId": m.id, "pos": i} for i, m in enumerate(media_items)
     ]
@@ -275,7 +275,7 @@ async def test_bundle_permission_inheritance(
 
     # Create media items
     media_items = [MagicMock(id=f"media_{i}", stash_id=None) for i in range(2)]
-    mock_media_bundle.accountMediaIds = [m.id for m in media_items]
+    mock_media_bundle.account_media_ids = [m.id for m in media_items]
 
     # Mock Stash client responses
     stash_processor.context.client.find_performer.return_value = (
