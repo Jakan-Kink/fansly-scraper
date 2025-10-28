@@ -57,3 +57,6 @@ async def in_transaction_or_new[T](
                 await session.flush()
                 await session.commit()
                 return results
+    except DuplicatePageError:
+        # Re-raise DuplicatePageError to be handled by the caller
+        raise

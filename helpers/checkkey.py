@@ -13,6 +13,7 @@ Uses JSPyBridge for efficient Python-JavaScript communication.
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from contextlib import suppress
@@ -99,7 +100,7 @@ except ImportError:
     acorn_walk = None
 
 
-def extract_checkkey_from_js(js_content: str) -> str | None:  # noqa: C901
+def extract_checkkey_from_js(js_content: str) -> str | None:
     """Extract checkKey from JavaScript using AST parsing.
 
     This uses JSPyBridge with acorn to:
@@ -350,9 +351,16 @@ console.log(JSON.stringify({{
             temp.write(node_script)
             temp_script = temp.name
 
-        # Execute Node.js script
+        # Execute Node.js script with absolute path
+        node_path = shutil.which("node")
+        if not node_path:
+            textio_logger.warning(
+                "Node.js not found in PATH. Install Node.js and run: npm install acorn acorn-walk"
+            )
+            return None
+
         result = subprocess.run(
-            ["node", temp_script],
+            [node_path, temp_script],
             check=False,
             capture_output=True,
             text=True,

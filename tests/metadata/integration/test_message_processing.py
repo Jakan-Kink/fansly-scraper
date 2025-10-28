@@ -152,9 +152,11 @@ async def test_process_message_attachments(
 
     # Look for messages with attachments in conversation data
     if conversation_data.get("response", {}).get("messages"):
-        for msg in conversation_data["response"]["messages"]:
-            if msg.get("attachments"):
-                messages_with_attachments.append(msg)
+        messages_with_attachments.extend(
+            msg
+            for msg in conversation_data["response"]["messages"]
+            if msg.get("attachments")
+        )
 
     if not messages_with_attachments:
         pytest.skip("No messages with attachments found in test data")

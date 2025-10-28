@@ -65,7 +65,7 @@ class PerformerClientMixin(StashClientProtocol):
         """
         try:
             # Parse input to handle different types
-            parsed_input = self._parse_obj_for_ID(performer)
+            parsed_input = self._parse_obj_for_id(performer)
 
             if isinstance(parsed_input, dict):
                 # If it's a name filter, try name then alias

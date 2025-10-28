@@ -94,10 +94,11 @@ async def test_relationship_integrity(test_database):
             for account in data["accounts"]:
                 print(f"\nVerifying relationships for account {account.id}")
                 # Test 1: Account -> AccountMedia relationship using ORM
-                account_media = await session.scalars(
+                account_media_result = await session.scalars(
                     select(AccountMedia).filter_by(accountId=account.id)
                 )
-                assert len(list(account_media)) == 3
+                account_media_list = list(account_media_result)
+                assert len(account_media_list) == 3
 
                 # Verify relationship count using async-safe method
                 integrity_check = await verify_relationship_integrity(
@@ -106,7 +107,7 @@ async def test_relationship_integrity(test_database):
                 assert integrity_check, "Relationship integrity check failed"
 
                 # Test 2: AccountMedia -> Media relationship using ORM
-                for account_media in account_media:
+                for account_media in account_media_list:
                     media = account_media.media
                     assert media is not None, (
                         f"Media {account_media.mediaId} not found for AccountMedia {account_media.id}"
@@ -177,14 +178,14 @@ async def test_database_constraints(test_database):
         # Try to create media without account (should fail)
         media = Media(id=1)  # Missing required accountId
         session.add(media)
-        with pytest.raises(Exception):  # noqa: PT011 - database constraint violation
+        with pytest.raises(Exception):  # noqa: PT011, B017 - database constraint violation
             await session.commit()
         await session.rollback()
 
         # Try to create wall without account (should fail)
         wall = Wall(id=1, name="Test")  # Missing required accountId
         session.add(wall)
-        with pytest.raises(Exception):  # noqa: PT011 - database constraint violation
+        with pytest.raises(Exception):  # noqa: PT011, B017 - database constraint violation
             await session.commit()
         await session.rollback()
 
@@ -193,7 +194,7 @@ async def test_database_constraints(test_database):
             id=1, content="Test", createdAt=datetime.now(UTC)
         )  # Missing required senderId
         session.add(message)
-        with pytest.raises(Exception):  # noqa: PT011 - database constraint violation
+        with pytest.raises(Exception):  # noqa: PT011, B017 - database constraint violation
             await session.commit()
         await session.rollback()
 

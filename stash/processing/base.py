@@ -283,13 +283,13 @@ class StashProcessingBase:
             if hasattr(self, "config") and hasattr(self.config, "get_background_tasks"):
                 background_tasks = self.config.get_background_tasks()
                 # Find tasks created by this instance
-                own_tasks = []
-                for task in background_tasks:
-                    # If task was created in our module
+                own_tasks = [
+                    task
+                    for task in background_tasks
                     if task.get_coro().__qualname__.startswith(
                         self.__class__.__module__
-                    ):
-                        own_tasks.append(task)
+                    )
+                ]
 
                 # Cancel own tasks
                 for task in own_tasks:

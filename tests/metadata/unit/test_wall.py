@@ -84,7 +84,7 @@ async def test_wall_post_association(
     await session.run_sync(lambda s: s.refresh(wall, attribute_names=["posts"]))
 
     # Associate posts with wall inside a synchronous context
-    await session.run_sync(lambda s: wall.posts.extend(posts))
+    await session.run_sync(lambda _s: wall.posts.extend(posts))
     await session.commit()
 
     # Verify associations with eager loading

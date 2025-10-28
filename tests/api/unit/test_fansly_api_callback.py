@@ -16,7 +16,7 @@ class TestFanslyApiCallback:
 
         # Initialize API with device info to avoid update during initialization
         api = FanslyApi(
-            token="test_token",
+            token="test_token",  # noqa: S106 # Test fixture token
             user_agent="test_user_agent",
             check_key="test_check_key",
             device_id="initial_device_id",

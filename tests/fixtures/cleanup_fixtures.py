@@ -133,7 +133,9 @@ def cleanup_http_sessions():
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
                         # If loop is running, schedule the close
-                        asyncio.create_task(session.aclose())
+                        task = asyncio.create_task(session.aclose())
+                        # Store reference to avoid RUF006, though we can't await in cleanup
+                        _ = task
                     else:
                         # If loop is not running, run until complete
                         loop.run_until_complete(session.aclose())

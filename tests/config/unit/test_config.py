@@ -466,7 +466,7 @@ def test_config_path_edge_cases(temp_config_dir, config):
         "mixed slashes": r"C:\Windows/style/mixed\slashes",
     }
 
-    for name, path in test_paths.items():
+    for path in test_paths.values():
         with config_path.open("w") as f:
             f.write(
                 f"""[Options]

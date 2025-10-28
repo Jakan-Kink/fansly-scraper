@@ -127,39 +127,37 @@ class TestNestedTransactionRollback:
         def mock_execute(self, statement, *args, **kwargs):
             # Only raise an error for a specific query to simulate a connection issue
             if "nested2" in str(statement):
-                raise Exception("Connection lost during transaction")
+                raise Exception("Connection lost during transaction")  # noqa: TRY002 # Test connection error simulation
             return original_execute(self, statement, *args, **kwargs)
 
         # Apply the mock
         monkeypatch.setattr(Session, "execute", mock_execute)
 
         # Test transaction with simulated connection error
-        with contextlib.suppress(Exception):
-            with test_database_sync.session_scope() as session:
-                with session.begin():
-                    # Insert in outer transaction
+        with (
+            contextlib.suppress(Exception),
+            test_database_sync.session_scope() as session,
+            session.begin(),
+        ):
+            # Insert in outer transaction
+            session.execute(text("INSERT INTO test (id, value) VALUES (1, 'outer')"))
+
+            # First nested transaction
+            with session.begin_nested():
+                session.execute(
+                    text("INSERT INTO test (id, value) VALUES (2, 'nested1')")
+                )
+
+            # Second nested transaction - will have connection issue
+            try:
+                with session.begin_nested():
+                    # This will trigger our mocked error
                     session.execute(
-                        text("INSERT INTO test (id, value) VALUES (1, 'outer')")
+                        text("INSERT INTO test (id, value) VALUES (3, 'nested2')")
                     )
-
-                    # First nested transaction
-                    with session.begin_nested():
-                        session.execute(
-                            text("INSERT INTO test (id, value) VALUES (2, 'nested1')")
-                        )
-
-                    # Second nested transaction - will have connection issue
-                    try:
-                        with session.begin_nested():
-                            # This will trigger our mocked error
-                            session.execute(
-                                text(
-                                    "INSERT INTO test (id, value) VALUES (3, 'nested2')"
-                                )
-                            )
-                    except Exception:
-                        # Expected error, but this should propagate to the outer transaction
-                        raise
+            except Exception:  # noqa: TRY203 # Test verifies error propagation behavior
+                # Expected error, but this should propagate to the outer transaction
+                raise
 
         # Restore the original execute method
         monkeypatch.setattr(Session, "execute", original_execute)
@@ -197,7 +195,7 @@ class TestNestedTransactionRollback:
 
             # First two attempts fail with savepoint error
             if rollback_attempts[0] <= 2:
-                raise Exception(
+                raise Exception(  # noqa: TRY002 # Test rollback error simulation
                     "Can't reconnect until invalid savepoint transaction is rolled back"
                 )
 
@@ -208,13 +206,15 @@ class TestNestedTransactionRollback:
         monkeypatch.setattr(Session, "rollback", mock_rollback)
 
         # Test transaction with mocked rollback errors
-        with contextlib.suppress(Exception):
-            with test_database_sync.session_scope() as session:
-                session.execute(text("INSERT INTO test (id, value) VALUES (1, 'test')"))
-                # Force an error to trigger rollback
-                session.execute(
-                    text("INSERT INTO test (id, value) VALUES (1, 'duplicate')")
-                )
+        with (
+            contextlib.suppress(Exception),
+            test_database_sync.session_scope() as session,
+        ):
+            session.execute(text("INSERT INTO test (id, value) VALUES (1, 'test')"))
+            # Force an error to trigger rollback
+            session.execute(
+                text("INSERT INTO test (id, value) VALUES (1, 'duplicate')")
+            )
 
         # Verify we had multiple rollback attempts
         assert rollback_attempts[0] > 0

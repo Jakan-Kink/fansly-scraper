@@ -111,49 +111,49 @@ Scene.safe_create = safe_scene_create
 
 # Export imported fixtures and utility functions
 __all__ = [
-    # Helper functions and classes
-    "sanitize_model_data",
-    "safe_scene_marker_create",
-    "safe_tag_create",
-    "safe_studio_create",
-    "safe_image_create",
-    "safe_scene_create",
     "AsyncResult",
     "AsyncSessionContext",
     "MockDatabase",
+    # Local fixtures (renamed with processing_ prefix to avoid conflicts with factory-based fixtures)
+    "mixin",
+    "mock_account",
     # Stash fixtures imported from stash/conftest.py
     "mock_client",
-    "mock_session",
-    "mock_transport",
-    "mock_account",
+    "mock_config",
+    "mock_context",
+    "mock_database",
+    "mock_gallery",
+    "mock_image",
+    "mock_item",
+    "mock_items",
     "mock_performer",
-    "mock_studio",
+    "mock_process_item",
+    "mock_progress_bars",
+    "mock_queue",
     "mock_scene",
+    "mock_semaphore",
+    "mock_session",
+    "mock_state",
+    "mock_studio",
+    "mock_transport",
+    "processing_mock_attachment",
+    "processing_mock_media",
+    "processing_mock_messages",
+    "processing_mock_multiple_messages",
+    "processing_mock_multiple_posts",
+    "processing_mock_posts",
+    "safe_image_create",
+    "safe_scene_create",
+    "safe_scene_marker_create",
+    "safe_studio_create",
+    "safe_tag_create",
+    # Helper functions and classes
+    "sanitize_model_data",
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",
-    "test_query",
-    # Local fixtures (renamed with processing_ prefix to avoid conflicts with factory-based fixtures)
-    "mixin",
-    "mock_items",
-    "mock_progress_bars",
-    "mock_semaphore",
-    "mock_process_item",
-    "mock_queue",
-    "processing_mock_posts",
-    "processing_mock_messages",
-    "mock_item",
-    "processing_mock_media",
-    "processing_mock_attachment",
-    "processing_mock_multiple_posts",
-    "processing_mock_multiple_messages",
-    "mock_gallery",
-    "mock_image",
-    "mock_context",
-    "mock_config",
-    "mock_state",
-    "mock_database",
     "stash_processor",
+    "test_query",
 ]
 
 
@@ -538,7 +538,7 @@ class MockDatabase:
 
     def reset_mocks(self):
         """Reset all mocks to their initial state."""
-        for name, value in self.session.__dict__.items():
+        for value in self.session.__dict__.values():
             if hasattr(value, "reset_mock"):
                 value.reset_mock()
 

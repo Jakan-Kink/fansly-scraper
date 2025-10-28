@@ -171,18 +171,17 @@ async def test_create_studio_error(
     stash_client: StashClient, mock_studio: Studio
 ) -> None:
     """Test handling errors when creating a studio."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
+    with (
+        patch.object(
+            stash_client,
+            "execute",
+            new_callable=AsyncMock,
+            side_effect=Exception("Test error"),
+        ),
+        patch.object(mock_studio, "to_input", new_callable=AsyncMock, return_value={}),
+        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
     ):
-        # Mock the to_input method
-        with patch.object(
-            mock_studio, "to_input", new_callable=AsyncMock, return_value={}
-        ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
-                await stash_client.create_studio(mock_studio)
+        await stash_client.create_studio(mock_studio)
 
 
 @pytest.mark.asyncio
@@ -274,19 +273,19 @@ async def test_update_studio_error(
     stash_client: StashClient, mock_studio: Studio
 ) -> None:
     """Test handling errors when updating a studio."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
-    ):
-        # Mock the to_input method to return data with more than just ID
-        # so that the update actually proceeds
-        with patch.object(
+    with (
+        patch.object(
+            stash_client,
+            "execute",
+            new_callable=AsyncMock,
+            side_effect=Exception("Test error"),
+        ),
+        patch.object(
             mock_studio,
             "to_input",
             new_callable=AsyncMock,
             return_value={"id": "123", "name": "Test"},
-        ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
-                await stash_client.update_studio(mock_studio)
+        ),
+        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
+    ):
+        await stash_client.update_studio(mock_studio)

@@ -442,19 +442,26 @@ class FanslyConfig:
         """
 
         if self.token is not None:
-            F, c = "fNs", self.token
+            scramble_suffix = "fNs"
+            token = self.token
 
-            if c[-3:] == F:
-                c = c.rstrip(F)
+            if token[-3:] == scramble_suffix:
+                scrambled_token = token.rstrip(scramble_suffix)
 
-                A, B, C = [""] * len(c), 7, 0
+                unscrambled_chars = [""] * len(scrambled_token)
+                step_size = 7
+                scrambled_index = 0
 
-                for D in range(B):
-                    for E in range(D, len(A), B):
-                        A[E] = c[C]
-                        C += 1
+                for offset in range(step_size):
+                    for result_position in range(
+                        offset, len(unscrambled_chars), step_size
+                    ):
+                        unscrambled_chars[result_position] = scrambled_token[
+                            scrambled_index
+                        ]
+                        scrambled_index += 1
 
-                return "".join(A)
+                return "".join(unscrambled_chars)
 
             return self.token
 

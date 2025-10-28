@@ -69,7 +69,9 @@ def add_scene_update_methods(client: StashClient) -> None:
     """Add scene update methods to a mock client."""
 
     # Create mocks for scene operations
-    async def mock_scene_generate_screenshot(scene_id: str, at: float | None = None) -> str:
+    async def mock_scene_generate_screenshot(
+        scene_id: str, at: float | None = None
+    ) -> str:
         result = await client.execute({"sceneGenerateScreenshot": None})
         if result and result.get("sceneGenerateScreenshot"):
             return result["sceneGenerateScreenshot"]
@@ -115,7 +117,9 @@ def add_scene_filename_methods(client: StashClient) -> None:
 
     # Add methods for scene filename validations
     async def mock_find_duplicate_scenes(
-        distance: float = 0.0, duration_diff: float = 0.0, exclude_ids: list | None = None
+        distance: float = 0.0,
+        duration_diff: float = 0.0,
+        exclude_ids: list | None = None,
     ) -> list[list[Scene]]:
         """Mock finding duplicate scenes."""
         result = await client.execute({"findDuplicateScenes": None})

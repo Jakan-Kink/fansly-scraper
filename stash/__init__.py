@@ -25,28 +25,24 @@ from .types import (  # Core types; Support types; Enums
 
 
 __all__ = [
-    # Client and Context
-    "StashClient",
-    "StashContext",
-    "StashProcessing",
-    # Core types
-    "Scene",
+    "CircumisedEnum",
+    "ConfigResult",
+    "FilterMode",
+    "FindFilterType",
     "Gallery",
+    "GenderEnum",
     "Group",
     "Image",
     "Performer",
-    "Studio",
-    "Tag",
-    # Support types
-    "ConfigResult",
-    "FindFilterType",
     "SavedFilter",
+    "Scene",
     "SceneMarker",
     "SceneMarkerTag",
-    "StashID",
-    # Enums
     "SortDirectionEnum",
-    "GenderEnum",
-    "CircumisedEnum",
-    "FilterMode",
+    "StashClient",
+    "StashContext",
+    "StashID",
+    "StashProcessing",
+    "Studio",
+    "Tag",
 ]

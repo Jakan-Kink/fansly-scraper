@@ -171,7 +171,7 @@ _CUSTOM_LEVELS = {
 logger.remove()
 
 # Register custom levels with loguru
-for level_name, level_data in _CUSTOM_LEVELS.items():
+for level_data in _CUSTOM_LEVELS.values():
     with contextlib.suppress(TypeError, ValueError):
         logger.level(
             level_data["name"],
@@ -202,8 +202,7 @@ def _auto_bind_logger(record: Any) -> Any:
         # Check if this is a SQLAlchemy-related logger
         logger_name = record.get("name", "")
         if (
-            logger_name.startswith("sqlalchemy.")
-            or logger_name.startswith("asyncpg")
+            logger_name.startswith(("sqlalchemy.", "asyncpg"))
             or logger_name == "alembic.runtime.migration"
         ):
             record["extra"]["logger"] = "db"
@@ -279,7 +278,7 @@ def setup_handlers() -> None:
     # Note: We read from global _handler_ids but don't modify it here
 
     # Remove any existing handlers
-    for handler_id, (handler, file_handler) in list(_handler_ids.items()):
+    for handler_id, (_handler, file_handler) in list(_handler_ids.items()):
         try:
             logger.remove(handler_id)
             if file_handler:
@@ -318,8 +317,7 @@ def setup_handlers() -> None:
         # For unbound logs, check if they're SQLAlchemy related
         logger_name = record.get("name", "")
         if (
-            logger_name.startswith("sqlalchemy.")
-            or logger_name.startswith("asyncpg")
+            logger_name.startswith(("sqlalchemy.", "asyncpg"))
             or logger_name == "alembic.runtime.migration"
         ):
             return False

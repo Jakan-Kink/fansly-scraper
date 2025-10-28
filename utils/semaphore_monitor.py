@@ -3,6 +3,7 @@
 import inspect
 import os
 import re
+import shutil
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -39,11 +40,16 @@ def _get_creation_stack() -> str:
 
 def get_process_semaphores() -> list[SemaphoreInfo]:
     """Get list of POSIX semaphores for current process."""
+    # Get absolute path to lsof for security
+    lsof_path = shutil.which("lsof")
+    if not lsof_path:
+        print_warning("lsof not found in PATH, cannot monitor semaphores")
+        return []
+
     try:
         # Run lsof to get file descriptors
-        # S607: Using standard system utility - full path would be less portable
         result = subprocess.run(
-            ["lsof", "-p", str(os.getpid())],  # noqa: S607
+            [lsof_path, "-p", str(os.getpid())],
             capture_output=True,
             text=True,
             check=True,

@@ -405,7 +405,7 @@ class TestDirectDownload:
     ):
         """Test successful direct HLS download using ffmpeg."""
         # Setup
-        config, mock_api, mock_response = mock_config
+        config, _mock_api, mock_response = mock_config
         output_path = tmp_path / "video.mp4"
         cookies = {"CloudFront-Policy": "abc", "CloudFront-Key-Pair-Id": "xyz"}
 
@@ -455,7 +455,7 @@ video_1080.m3u8"""
     ):
         """Test direct download handles ffmpeg errors and returns False."""
         # Setup
-        config, mock_api, mock_response = mock_config
+        config, _mock_api, mock_response = mock_config
         output_path = tmp_path / "video.mp4"
         cookies = {"CloudFront-Policy": "abc"}
 

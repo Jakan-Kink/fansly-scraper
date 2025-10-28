@@ -258,7 +258,7 @@ def _try_segment_download(
     Raises:
         M3U8Error: If download or conversion fails
     """
-    CHUNK_SIZE = 1_048_576
+    chunk_size = 1_048_576
 
     print_info("Using segment download path (downloading .ts files individually)...")
     print_debug(f"Target output path: {output_path}")
@@ -285,7 +285,7 @@ def _try_segment_download(
                 )
                 return
             with segment_full_path.open("wb") as ts_file:
-                for chunk in segment_response.iter_bytes(CHUNK_SIZE):
+                for chunk in segment_response.iter_bytes(chunk_size):
                     if chunk:
                         ts_file.write(chunk)
             if segment_full_path.exists():
@@ -345,10 +345,7 @@ def _try_segment_download(
             )
 
         # Check multi-threaded downloads
-        missing_segments = []
-        for file in segment_files:
-            if not file.exists():
-                missing_segments.append(file)
+        missing_segments = [file for file in segment_files if not file.exists()]
         if missing_segments:
             print_debug(f"Missing segments: {missing_segments}")
             raise M3U8Error(f"Stream segments failed to download: {missing_segments}")

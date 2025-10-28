@@ -102,210 +102,231 @@ class MediaProcessingMixin:
             ImageFile or VideoFile object, or None if no files found
         """
         if isinstance(stash_obj, Image):
-            # Get the primary ImageFile
-            logger.debug(f"Getting file from Image object: {stash_obj}")
-            if not hasattr(stash_obj, "visual_files") or not stash_obj.visual_files:
-                logger.debug("Image has no visual_files")
-                return None
+            return self._get_image_file_from_stash_obj(stash_obj)
+        if isinstance(stash_obj, Scene):
+            return self._get_video_file_from_stash_obj(stash_obj)
+        return None
 
-            logger.debug(f"Image has {len(stash_obj.visual_files)} visual files")
+    def _get_image_file_from_stash_obj(self, stash_obj: Image) -> ImageFile | None:
+        """Extract ImageFile from Stash Image object.
 
-            for file_data in stash_obj.visual_files:
-                logger.debug(f"Checking visual file: {file_data}")
+        Args:
+            stash_obj: Image object from Stash
 
-                # First check if file_data is already an ImageFile
-                if (
-                    hasattr(file_data, "__type_name__")
-                    and file_data.__type_name__ == "ImageFile"
-                ):
-                    logger.debug(f"Found existing ImageFile object: {file_data}")
-                    return file_data
+        Returns:
+            ImageFile object or None if no valid file found
+        """
+        logger.debug(f"Getting file from Image object: {stash_obj}")
+        if not hasattr(stash_obj, "visual_files") or not stash_obj.visual_files:
+            logger.debug("Image has no visual_files")
+            return None
 
-                # Otherwise, if it's a dict, try to create an ImageFile
-                if isinstance(file_data, dict):
-                    # Ensure all required fields exist for ImageFile
-                    required_fields = [
-                        "id",
-                        "path",
-                        "basename",
-                        "parent_folder_id",
-                        "size",
-                        "width",
-                        "height",
-                    ]
-                    missing_fields = [
-                        field for field in required_fields if field not in file_data
-                    ]
+        logger.debug(f"Image has {len(stash_obj.visual_files)} visual files")
 
-                    if missing_fields:
-                        logger.warning(
-                            f"Missing required fields for ImageFile: {missing_fields}. Cannot create ImageFile."
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _get_file_from_stash_obj",
-                                "status": "missing_required_fields",
-                                "missing_fields": missing_fields,
-                                "available_fields": list(file_data.keys()),
-                            }
-                        )
-                        continue
+        for file_data in stash_obj.visual_files:
+            logger.debug(f"Checking visual file: {file_data}")
 
-                    # Ensure fingerprints exists
-                    if "fingerprints" not in file_data:
-                        file_data["fingerprints"] = []
-                    # Ensure mod_time exists
-                    if "mod_time" not in file_data:
-                        file_data["mod_time"] = None
+            # First check if file_data is already an ImageFile
+            if (
+                hasattr(file_data, "__type_name__")
+                and file_data.__type_name__ == "ImageFile"
+            ):
+                logger.debug(f"Found existing ImageFile object: {file_data}")
+                return file_data
 
-                    # Create the ImageFile with all required fields
-                    try:
-                        file = ImageFile(**file_data)
-                        logger.debug(f"Created ImageFile from dict: {file}")
-                        return file
-                    except Exception as e:
-                        logger.error(f"Error creating ImageFile: {e}")
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _get_file_from_stash_obj",
-                                "status": "image_file_creation_failed",
-                                "error": str(e),
-                                "file_data": file_data,
-                            }
-                        )
-                        continue
-                else:
-                    # Not a dict or ImageFile, might be something else
-                    logger.warning(f"Unexpected file_data type: {type(file_data)}")
+            # Otherwise, if it's a dict, try to create an ImageFile
+            if isinstance(file_data, dict):
+                # Ensure all required fields exist for ImageFile
+                required_fields = [
+                    "id",
+                    "path",
+                    "basename",
+                    "parent_folder_id",
+                    "size",
+                    "width",
+                    "height",
+                ]
+                missing_fields = [
+                    field for field in required_fields if field not in file_data
+                ]
+
+                if missing_fields:
+                    logger.warning(
+                        f"Missing required fields for ImageFile: {missing_fields}. Cannot create ImageFile."
+                    )
                     debug_print(
                         {
-                            "method": "StashProcessing - _get_file_from_stash_obj",
-                            "status": "unexpected_file_data_type",
-                            "file_data_type": str(type(file_data)),
+                            "method": "StashProcessing - _get_image_file_from_stash_obj",
+                            "status": "missing_required_fields",
+                            "missing_fields": missing_fields,
+                            "available_fields": list(file_data.keys()),
                         }
                     )
                     continue
 
-            # If we get here, no valid files were found
-            logger.debug("No valid ImageFile found in visual_files")
-            return None
-        if isinstance(stash_obj, Scene):
-            # Get the primary VideoFile
-            scene_id = getattr(stash_obj, "id", "unknown")
-            logger.debug(f"Getting file from Scene object: {scene_id}")
+                # Ensure fingerprints exists
+                if "fingerprints" not in file_data:
+                    file_data["fingerprints"] = []
+                # Ensure mod_time exists
+                if "mod_time" not in file_data:
+                    file_data["mod_time"] = None
 
-            if not hasattr(stash_obj, "files") or not stash_obj.files:
-                logger.debug(f"Scene has no files: {scene_id}")
-                debug_print(
-                    {
-                        "method": "StashProcessing - _get_file_from_stash_obj",
-                        "status": "scene_has_no_files",
-                        "scene_id": scene_id,
-                    }
-                )
-                return None
-
-            # Enhanced logging for scene files
-            logger.debug(f"Scene {scene_id} has {len(stash_obj.files)} files")
-
-            try:
-                # Get the first file
-                file_data = stash_obj.files[0]
-                logger.debug(f"First file in scene: {file_data}")
-
-                # Check if already a VideoFile
-                if (
-                    hasattr(file_data, "__type_name__")
-                    and file_data.__type_name__ == "VideoFile"
-                ):
-                    logger.debug(f"Found existing VideoFile object: {file_data}")
-                    return file_data
-
-                # If it's a dict, try to create a VideoFile
-                if isinstance(file_data, dict):
-                    # Log available fields
-                    logger.debug(f"VideoFile data fields: {list(file_data.keys())}")
-
-                    # Ensure required fields
-                    required_fields = ["id", "path", "basename", "size"]
-                    missing_fields = [
-                        field for field in required_fields if field not in file_data
-                    ]
-
-                    if missing_fields:
-                        logger.warning(
-                            f"Missing required fields for VideoFile: {missing_fields}. Cannot create VideoFile."
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _get_file_from_stash_obj",
-                                "status": "missing_required_fields_video",
-                                "missing_fields": missing_fields,
-                                "available_fields": list(file_data.keys()),
-                                "scene_id": scene_id,
-                            }
-                        )
-                        return None
-
-                    # Ensure optional fields
-                    if "fingerprints" not in file_data:
-                        file_data["fingerprints"] = []
-                    if "mod_time" not in file_data:
-                        file_data["mod_time"] = None
-
-                    # Add extra debugging to see file paths
+                # Create the ImageFile with all required fields
+                try:
+                    file = ImageFile(**file_data)
+                    logger.debug(f"Created ImageFile from dict: {file}")
+                except Exception as e:
+                    logger.error(f"Error creating ImageFile: {e}")
                     debug_print(
                         {
-                            "method": "StashProcessing - _get_file_from_stash_obj",
-                            "status": "video_file_details",
-                            "scene_id": scene_id,
-                            "file_path": file_data.get("path"),
-                            "file_basename": file_data.get("basename"),
+                            "method": "StashProcessing - _get_image_file_from_stash_obj",
+                            "status": "image_file_creation_failed",
+                            "error": str(e),
+                            "file_data": file_data,
                         }
                     )
-
-                    # Create VideoFile
-                    try:
-                        file = VideoFile(**file_data)
-                        logger.debug(f"Created VideoFile from dict: {file}")
-                        return file
-                    except Exception as e:
-                        logger.error(f"Error creating VideoFile: {e}")
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _get_file_from_stash_obj",
-                                "status": "video_file_creation_failed",
-                                "error": str(e),
-                                "file_data": file_data,
-                                "scene_id": scene_id,
-                            }
-                        )
-                        return None
+                    continue
                 else:
+                    return file
+            else:
+                # Not a dict or ImageFile, might be something else
+                logger.warning(f"Unexpected file_data type: {type(file_data)}")
+                debug_print(
+                    {
+                        "method": "StashProcessing - _get_image_file_from_stash_obj",
+                        "status": "unexpected_file_data_type",
+                        "file_data_type": str(type(file_data)),
+                    }
+                )
+                continue
+
+        # If we get here, no valid files were found
+        logger.debug("No valid ImageFile found in visual_files")
+        return None
+
+    def _get_video_file_from_stash_obj(self, stash_obj: Scene) -> VideoFile | None:
+        """Extract VideoFile from Stash Scene object.
+
+        Args:
+            stash_obj: Scene object from Stash
+
+        Returns:
+            VideoFile object or None if no valid file found
+        """
+        scene_id = getattr(stash_obj, "id", "unknown")
+        logger.debug(f"Getting file from Scene object: {scene_id}")
+
+        if not hasattr(stash_obj, "files") or not stash_obj.files:
+            logger.debug(f"Scene has no files: {scene_id}")
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_video_file_from_stash_obj",
+                    "status": "scene_has_no_files",
+                    "scene_id": scene_id,
+                }
+            )
+            return None
+
+        # Enhanced logging for scene files
+        logger.debug(f"Scene {scene_id} has {len(stash_obj.files)} files")
+
+        try:
+            # Get the first file
+            file_data = stash_obj.files[0]
+            logger.debug(f"First file in scene: {file_data}")
+
+            # Check if already a VideoFile
+            if (
+                hasattr(file_data, "__type_name__")
+                and file_data.__type_name__ == "VideoFile"
+            ):
+                logger.debug(f"Found existing VideoFile object: {file_data}")
+                return file_data
+
+            # If it's a dict, try to create a VideoFile
+            if isinstance(file_data, dict):
+                # Log available fields
+                logger.debug(f"VideoFile data fields: {list(file_data.keys())}")
+
+                # Ensure required fields
+                required_fields = ["id", "path", "basename", "size"]
+                missing_fields = [
+                    field for field in required_fields if field not in file_data
+                ]
+
+                if missing_fields:
                     logger.warning(
-                        f"First file in scene is not a VideoFile or dict: {type(file_data)}"
+                        f"Missing required fields for VideoFile: {missing_fields}. Cannot create VideoFile."
                     )
                     debug_print(
                         {
-                            "method": "StashProcessing - _get_file_from_stash_obj",
-                            "status": "invalid_video_file_type",
-                            "file_type": str(type(file_data)),
+                            "method": "StashProcessing - _get_video_file_from_stash_obj",
+                            "status": "missing_required_fields_video",
+                            "missing_fields": missing_fields,
+                            "available_fields": list(file_data.keys()),
                             "scene_id": scene_id,
                         }
                     )
                     return None
-            except Exception as e:
-                logger.error(f"Error getting VideoFile from scene: {e}")
+
+                # Ensure optional fields
+                if "fingerprints" not in file_data:
+                    file_data["fingerprints"] = []
+                if "mod_time" not in file_data:
+                    file_data["mod_time"] = None
+
+                # Add extra debugging to see file paths
                 debug_print(
                     {
-                        "method": "StashProcessing - _get_file_from_stash_obj",
-                        "status": "video_file_access_failed",
-                        "error": str(e),
+                        "method": "StashProcessing - _get_video_file_from_stash_obj",
+                        "status": "video_file_details",
                         "scene_id": scene_id,
+                        "file_path": file_data.get("path"),
+                        "file_basename": file_data.get("basename"),
                     }
                 )
-                return None
-        return None
+
+                # Create VideoFile
+                try:
+                    file = VideoFile(**file_data)
+                    logger.debug(f"Created VideoFile from dict: {file}")
+                except Exception as e:
+                    logger.error(f"Error creating VideoFile: {e}")
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _get_video_file_from_stash_obj",
+                            "status": "video_file_creation_failed",
+                            "error": str(e),
+                            "file_data": file_data,
+                            "scene_id": scene_id,
+                        }
+                    )
+                    return None
+                else:
+                    return file
+            logger.warning(
+                f"First file in scene is not a VideoFile or dict: {type(file_data)}"
+            )
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_video_file_from_stash_obj",
+                    "status": "invalid_video_file_type",
+                    "file_type": str(type(file_data)),
+                    "scene_id": scene_id,
+                }
+            )
+            return None
+        except Exception as e:
+            logger.error(f"Error getting VideoFile from scene: {e}")
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_video_file_from_stash_obj",
+                    "status": "video_file_access_failed",
+                    "error": str(e),
+                    "scene_id": scene_id,
+                }
+            )
+            return None
 
     def _create_nested_path_or_conditions(
         self,
@@ -356,8 +377,8 @@ class MediaProcessingMixin:
     async def process_account_media_by_mimetype(
         self,
         account: Account,
-        performer: Performer,
-        studio: Studio | None = None,
+        _performer: Performer,
+        _studio: Studio | None = None,
         session: AsyncSession | None = None,
     ) -> dict[str, list[Image | Scene]]:
         """Process all media for an account grouped by mimetype.
@@ -368,8 +389,8 @@ class MediaProcessingMixin:
 
         Args:
             account: Account to process media for
-            performer: Performer object associated with the account
-            studio: Optional Studio object associated with the account
+            _performer: Performer object associated with the account - reserved for future use
+            _studio: Optional Studio object associated with the account - reserved for future use
             session: Optional database session to use
 
         Returns:
@@ -530,12 +551,12 @@ class MediaProcessingMixin:
                 scene_id_map[stash_id_str] = mime_type
 
         # Maximum batch size to prevent API overload
-        MAX_BATCH_SIZE = 20
+        max_batch_size = 20
 
         # Process images in batches
         if image_ids:
             # Split into batches
-            image_id_batches = self._chunk_list(image_ids, MAX_BATCH_SIZE)
+            image_id_batches = self._chunk_list(image_ids, max_batch_size)
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_id",
@@ -574,7 +595,7 @@ class MediaProcessingMixin:
         # Process scenes in batches
         if scene_ids:
             # Split into batches
-            scene_id_batches = self._chunk_list(scene_ids, MAX_BATCH_SIZE)
+            scene_id_batches = self._chunk_list(scene_ids, max_batch_size)
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_id",
@@ -661,19 +682,19 @@ class MediaProcessingMixin:
         found = []
 
         # Maximum batch size to prevent SQL parser stack overflow
-        MAX_BATCH_SIZE = 20
+        max_batch_size = 20
 
         # Process images in batches
         if image_ids:
-            # Split image_ids into batches of MAX_BATCH_SIZE
-            image_id_batches = self._chunk_list(image_ids, MAX_BATCH_SIZE)
+            # Split image_ids into batches of max_batch_size
+            image_id_batches = self._chunk_list(image_ids, max_batch_size)
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_path",
                     "status": "processing_image_batches",
                     "total_images": len(image_ids),
                     "batch_count": len(image_id_batches),
-                    "batch_size": MAX_BATCH_SIZE,
+                    "batch_size": max_batch_size,
                 }
             )
 
@@ -757,15 +778,15 @@ class MediaProcessingMixin:
 
         # Process scenes in batches (both video and application)
         if scene_ids:
-            # Split scene_ids into batches of MAX_BATCH_SIZE
-            scene_id_batches = self._chunk_list(scene_ids, MAX_BATCH_SIZE)
+            # Split scene_ids into batches of max_batch_size
+            scene_id_batches = self._chunk_list(scene_ids, max_batch_size)
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_path",
                     "status": "processing_scene_batches",
                     "total_scenes": len(scene_ids),
                     "batch_count": len(scene_id_batches),
-                    "batch_size": MAX_BATCH_SIZE,
+                    "batch_size": max_batch_size,
                 }
             )
 
@@ -934,7 +955,7 @@ class MediaProcessingMixin:
         current_date = None
         if current_date_str:
             try:
-                current_date = datetime.strptime(current_date_str, "%Y-%m-%d").date()
+                current_date = datetime.strptime(current_date_str, "%Y-%m-%d").date()  # noqa: DTZ007
             except ValueError:
                 logger.warning(
                     f"Invalid date format in stash object: {current_date_str}"
@@ -1473,13 +1494,13 @@ class MediaProcessingMixin:
             return result
 
         # Maximum batch size to avoid SQL parser overflow
-        MAX_BATCH_SIZE = 20
+        max_batch_size = 20
 
-        # Split into batches of MAX_BATCH_SIZE for processing
-        if len(media_list) > MAX_BATCH_SIZE:
+        # Split into batches of max_batch_size for processing
+        if len(media_list) > max_batch_size:
             # Process in batches
             batched_results = {"images": [], "scenes": []}
-            media_batches = self._chunk_list(media_list, MAX_BATCH_SIZE)
+            media_batches = self._chunk_list(media_list, max_batch_size)
 
             debug_print(
                 {
@@ -1487,7 +1508,7 @@ class MediaProcessingMixin:
                     "status": "splitting_into_batches",
                     "total_media": len(media_list),
                     "batch_count": len(media_batches),
-                    "batch_size": MAX_BATCH_SIZE,
+                    "batch_size": max_batch_size,
                 }
             )
 
@@ -1516,7 +1537,7 @@ class MediaProcessingMixin:
             # Return combined results from all batches
             return batched_results
 
-        # Process as a single batch if under MAX_BATCH_SIZE
+        # Process as a single batch if under max_batch_size
         return await self._process_batch_internal(media_list, item, account)
 
     async def _process_batch_internal(
@@ -1562,8 +1583,10 @@ class MediaProcessingMixin:
                 path_media.append((str(media.id), media.mimetype, media.id))
                 # Add variants
                 if hasattr(media, "variants") and media.variants:
-                    for variant in media.variants:
-                        path_media.append((str(variant.id), variant.mimetype, media.id))
+                    path_media.extend(
+                        (str(variant.id), variant.mimetype, media.id)
+                        for variant in media.variants
+                    )
 
         debug_print(
             {

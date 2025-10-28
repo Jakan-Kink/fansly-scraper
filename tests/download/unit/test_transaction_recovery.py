@@ -72,7 +72,9 @@ class TestTransactionRecovery:
                 # Simulate an error in the nested transaction
                 try:
                     # This should trigger a rollback to the savepoint
-                    raise ValueError("Test error in nested transaction")
+                    raise ValueError(
+                        "Test error in nested transaction"
+                    )  # Test error simulation pattern
                 except ValueError:
                     # This should be caught by the nested transaction context manager
                     # and trigger a rollback to the savepoint

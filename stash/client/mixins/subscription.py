@@ -17,7 +17,7 @@ U = TypeVar("U")
 class AsyncIteratorWrapper(AsyncIterator[T]):
     """Wrapper for async iterators that transforms their output."""
 
-    def __init__(self, iterator: AsyncIterator[U], transform: Callable[[U], T]):
+    def __init__(self, iterator: AsyncIterator[U], transform: Callable[[U], T]) -> None:
         """Initialize the wrapper.
 
         Args:
@@ -27,7 +27,7 @@ class AsyncIteratorWrapper(AsyncIterator[T]):
         self.iterator = iterator
         self.transform = transform
 
-    def __aiter__(self):
+    def __aiter__(self) -> "AsyncIteratorWrapper[T]":
         """Return self as an async iterator."""
         return self
 
@@ -48,7 +48,7 @@ class SubscriptionClientMixin:
     """Mixin for subscription-related client methods."""
 
     @asynccontextmanager
-    async def _subscription_client(self):
+    async def _subscription_client(self) -> AsyncIterator[Client]:
         """Get a client configured for subscriptions.
 
         This is a context manager that switches the client to WebSocket transport
@@ -244,14 +244,14 @@ class SubscriptionClientMixin:
         self,
         job_id: str,
         status: JobStatus = JobStatus.FINISHED,
-        timeout: float = 120,
+        timeout_seconds: float = 120,
     ) -> bool | None:
         """Wait for a job to complete with real-time updates.
 
         Args:
             job_id: Job ID to wait for
             status: Status to wait for
-            timeout: Maximum time to wait in seconds
+            timeout_seconds: Maximum time to wait in seconds
 
         Returns:
             True if job reached desired status
@@ -274,7 +274,7 @@ class SubscriptionClientMixin:
                 return job_status == status
 
             # Job not finished, wait for updates
-            async with asyncio.timeout(timeout):
+            async with asyncio.timeout(timeout_seconds):
                 async with self.subscribe_to_jobs() as subscription:
                     async for update in subscription:
                         if update.job.id == job_id:
@@ -291,11 +291,10 @@ class SubscriptionClientMixin:
                             ]:
                                 return False
 
-            return None
         except TimeoutError:
             self.log.exception(f"Timeout waiting for job {job_id}")
             return None
         except Exception:
             self.log.exception(f"Failed to wait for job {job_id}")
             # Fall back to polling if subscription fails
-            return await self.wait_for_job(job_id, status, timeout=timeout)
+            return await self.wait_for_job(job_id, status, timeout_seconds=timeout_seconds)

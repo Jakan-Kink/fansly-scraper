@@ -32,29 +32,29 @@ __all__ = [
     "batch_mixin",
     "content_mixin",
     "gallery_mixin",
-    "media_mixin",
-    "tag_mixin",
-    # Batch processing fixtures
-    "mock_items",
-    "mock_progress_bars",
-    "mock_semaphore",
-    "mock_process_batch",
-    "mock_queue",
-    # Client fixtures
-    "mock_client_mixin",
-    # Stash type mocks (external API objects)
-    "mock_image",
-    "mock_scene",
-    "mock_performer",
-    "mock_studio",
-    "mock_tag",
-    "mock_gallery",
-    "mock_image_file",
-    "mock_video_file",
     # Gallery test fixture aliases
     "gallery_mock_performer",
     "gallery_mock_studio",
+    "media_mixin",
+    # Client fixtures
+    "mock_client_mixin",
+    "mock_gallery",
+    # Stash type mocks (external API objects)
+    "mock_image",
+    "mock_image_file",
     "mock_item",
+    # Batch processing fixtures
+    "mock_items",
+    "mock_performer",
+    "mock_process_batch",
+    "mock_progress_bars",
+    "mock_queue",
+    "mock_scene",
+    "mock_semaphore",
+    "mock_studio",
+    "mock_tag",
+    "mock_video_file",
+    "tag_mixin",
 ]
 
 

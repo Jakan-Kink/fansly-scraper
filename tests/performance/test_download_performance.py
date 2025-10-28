@@ -20,7 +20,9 @@ async def download_media(
 
 
 def process_media(
-    input_path: Path, output_path: Path = None, config: FanslyConfig = None
+    input_path: Path,
+    output_path: Path | None = None,
+    config: FanslyConfig | None = None,
 ):
     """Mock function for testing."""
 

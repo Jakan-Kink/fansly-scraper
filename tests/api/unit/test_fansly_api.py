@@ -25,7 +25,7 @@ class TestFanslyApi:
         mock_callback = MagicMock()
 
         api = FanslyApi(
-            token="test_token",
+            token="test_token",  # noqa: S106 # Test fixture token
             user_agent="test_user_agent",
             check_key="test_check_key",
             device_id=test_device_id,

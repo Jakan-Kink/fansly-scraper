@@ -86,7 +86,7 @@ class BatchProcessingMixin:
         # Keep track of enqueued items
         enqueued_count = 0
 
-        async def producer():
+        async def producer() -> None:
             nonlocal enqueued_count
 
             # Add items to the queue
@@ -113,30 +113,27 @@ class BatchProcessingMixin:
             # Remove task from progress manager
             progress_mgr.remove_task(task_name)
 
-        async def consumer():
+        async def consumer() -> None:
             # Wait until producer signals to start
             await consumers_started.wait()
 
             while True:
+                # Allow task to be cancelled while waiting for queue
+                item = await queue.get()
+                if item is None:  # Sentinel value
+                    queue.task_done()
+                    break
                 try:
-                    item = await queue.get()
-                    if item is None:  # Sentinel value
-                        queue.task_done()
-                        break
-                    try:
-                        await process_item(item)
-                        progress_mgr.update_task(process_name, advance=1)
-                    except asyncio.CancelledError:
-                        # Handle cancellation gracefully
-                        raise
-                    except Exception as e:
-                        # Log error but continue processing
-                        logger.exception(f"Error in item processing: {e}")
-                    finally:
-                        queue.task_done()
+                    await process_item(item)
+                    progress_mgr.update_task(process_name, advance=1)
                 except asyncio.CancelledError:
-                    # Allow task to be cancelled while waiting for queue
+                    # Handle cancellation gracefully
                     raise
+                except Exception as e:
+                    # Log error but continue processing
+                    logger.exception(f"Error in item processing: {e}")
+                finally:
+                    queue.task_done()
 
         try:
             # Start consumers

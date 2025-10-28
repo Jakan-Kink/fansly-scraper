@@ -91,7 +91,7 @@ class TestFanslyApiAdditional:
         mock_response.reason_phrase = "OK"
         mock_http_session.get.return_value = mock_response
 
-        fansly_api.get_client_account_info(alternate_token="alt_token")
+        fansly_api.get_client_account_info(alternate_token="alt_token")  # noqa: S106 # Test fixture token
 
         args = mock_http_session.get.call_args
         assert "alt_token" in args[1]["headers"]["authorization"]
@@ -107,9 +107,11 @@ class TestFanslyApiAdditional:
         mock_ws_instance.recv.return_value = '{"t":0,"d":"Error message"}'
 
         # Mock the websocket connection
-        with patch("websockets.client.connect", return_value=mock_ws_instance):
-            with pytest.raises(RuntimeError, match="WebSocket error"):
-                await fansly_api.get_active_session_async()
+        with (
+            patch("websockets.client.connect", return_value=mock_ws_instance),
+            pytest.raises(RuntimeError, match="WebSocket error"),
+        ):
+            await fansly_api.get_active_session_async()
 
     def test_get_with_ngsw_additional_parameters(self, fansly_api, mock_http_session):
         """Test get_with_ngsw handles additional parameters"""
@@ -242,7 +244,7 @@ class TestFanslyApiAdditional:
         with patch.object(FanslyApi, "update_device_id") as mock_update_device_id:
             # Call the constructor without device_id and device_id_timestamp
             api = FanslyApi(
-                token="test_token",
+                token="test_token",  # noqa: S106 # Test fixture token
                 user_agent="test_user_agent",
                 check_key="test_check_key",
             )
@@ -262,7 +264,7 @@ class TestFanslyApiAdditional:
         with patch.object(FanslyApi, "update_device_id") as mock_update_device_id:
             # Call the constructor with device_id_timestamp but without device_id
             api = FanslyApi(
-                token="test_token",
+                token="test_token",  # noqa: S106 # Test fixture token
                 user_agent="test_user_agent",
                 check_key="test_check_key",
                 device_id_timestamp=custom_timestamp,
@@ -284,7 +286,7 @@ class TestFanslyApiAdditional:
         with patch.object(FanslyApi, "update_device_id") as mock_update_device_id:
             # Call the constructor with device_id but without device_id_timestamp
             api = FanslyApi(
-                token="test_token",
+                token="test_token",  # noqa: S106 # Test fixture token
                 user_agent="test_user_agent",
                 check_key="test_check_key",
                 device_id=custom_device_id,

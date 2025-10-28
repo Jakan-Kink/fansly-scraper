@@ -137,8 +137,8 @@ async def performance_data(test_database) -> list[Account]:
 
 async def test_bulk_insert_performance(test_database):
     """Test bulk insert performance."""
-    BATCH_SIZE = 1000
-    NUM_BATCHES = 10
+    batch_size = 1000
+    num_batches = 10
 
     async with test_database.async_session_scope() as session:
         account = Account(
@@ -149,15 +149,15 @@ async def test_bulk_insert_performance(test_database):
         session.add(account)
         await session.flush()
 
-        for batch in range(NUM_BATCHES):
+        for batch in range(num_batches):
             posts = [
                 Post(
-                    id=batch * BATCH_SIZE + i + 1,
+                    id=batch * batch_size + i + 1,
                     accountId=account.id,
                     content=f"Bulk test post {i}",
                     createdAt=datetime.now(UTC),
                 )
-                for i in range(BATCH_SIZE)
+                for i in range(batch_size)
             ]
             session.add_all(posts)  # Use add_all instead of bulk_save_objects for async
             await session.flush()
@@ -168,7 +168,7 @@ async def test_bulk_insert_performance(test_database):
             {"account_id": account.id},
         )
         post_count = result.scalar()
-        assert post_count == BATCH_SIZE * NUM_BATCHES
+        assert post_count == batch_size * num_batches
 
 
 async def test_query_optimization(test_database):
@@ -303,7 +303,7 @@ class TestPerformancePatterns:
     @pytest.mark.asyncio
     async def test_connection_pool_performance(self, test_database):
         """Test connection pool performance."""
-        NUM_OPERATIONS = 100  # Reduced from 1000 to avoid overloading
+        num_operations = 100  # Reduced from 1000 to avoid overloading
 
         async def perform_operation(session: AsyncSession) -> None:
             """Perform a simple database operation."""
@@ -312,7 +312,7 @@ class TestPerformancePatterns:
 
         # Test 1: Sequential operations
         start_time = time.time()
-        for _ in range(NUM_OPERATIONS):
+        for _ in range(num_operations):
             async with test_database.async_session_scope() as session:
                 await perform_operation(session)
         sequential_time = time.time() - start_time
@@ -329,7 +329,7 @@ class TestPerformancePatterns:
                     raise
 
         start_time = time.time()
-        tasks = [worker() for _ in range(NUM_OPERATIONS)]
+        tasks = [worker() for _ in range(num_operations)]
         await asyncio.gather(*tasks)
         parallel_time = time.time() - start_time
         print(f"Parallel operations time: {parallel_time:.2f}s")

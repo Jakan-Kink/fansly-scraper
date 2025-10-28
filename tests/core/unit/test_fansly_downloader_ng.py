@@ -826,7 +826,7 @@ async def test_main_cleanup_on_exit(
     # Create a mock main function that registers cleanup and raises error
     async def mock_main(config):
         atexit.register(cleanup_database_sync, config)
-        raise Exception("Test error")
+        raise Exception("Test error")  # noqa: TRY002 # Test error simulation
 
     # Create a mock cleanup_with_global_timeout that calls the database cleanup
     async def mock_cleanup_global(config):

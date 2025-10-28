@@ -149,7 +149,7 @@ def create_test_data_set(
 
         # Create media for each account
         for account in data["accounts"]:
-            for j in range(num_media_per_account):
+            for _ in range(num_media_per_account):
                 media = create_test_media(
                     session=session,
                     account_id=account.id,
@@ -165,7 +165,7 @@ def create_test_data_set(
             account_media_list = [
                 media for media in data["media"] if media.accountId == account.id
             ]
-            for j, media in enumerate(account_media_list):
+            for media in account_media_list:
                 account_media = create_test_account_media(
                     session=session,
                     account_id=account.id,

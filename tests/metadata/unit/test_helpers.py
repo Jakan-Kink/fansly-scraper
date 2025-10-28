@@ -54,7 +54,7 @@ def test_size_based_rotation(log_setup):
     logger.addHandler(handler)
 
     # Write enough data to trigger multiple rotations
-    for i in range(5):
+    for _i in range(5):
         logger.info("X" * 50)  # Each log should be > 50 bytes
 
     # Check that we have the expected number of files
@@ -82,7 +82,7 @@ def test_time_based_rotation(log_setup):
         # Mock the current time
         now = datetime.now(UTC)
         mock_datetime.now.return_value = now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(
+        mock_datetime.side_effect = lambda *args, **kw: datetime(  # noqa: DTZ001 # Mock allows flexible datetime construction
             *args, **{"tzinfo": UTC, **kw}
         )
 
@@ -109,7 +109,7 @@ def test_time_based_rotation(log_setup):
 
 def test_compression_gz(log_setup):
     """Test log compression with gzip."""
-    temp_dir, log_filename, logger = log_setup
+    _temp_dir, log_filename, logger = log_setup
 
     # Create handler with compression
     handler = SizeAndTimeRotatingFileHandler(
@@ -139,7 +139,7 @@ def test_compression_gz(log_setup):
 
 def test_utc_time_handling(log_setup):
     """Test UTC time handling in rotation."""
-    temp_dir, log_filename, logger = log_setup
+    _temp_dir, log_filename, logger = log_setup
 
     handler = SizeAndTimeRotatingFileHandler(
         log_filename, when="h", interval=1, utc=True, backupCount=1
@@ -150,7 +150,7 @@ def test_utc_time_handling(log_setup):
         # Mock the current UTC time
         now = datetime.now(UTC)
         mock_datetime.now.return_value = now
-        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)  # noqa: DTZ001 # Mock passthrough
 
         # Set initial rollover time to 1 minute from now
         handler.rolloverAt = (now + timedelta(minutes=1)).timestamp()
@@ -169,7 +169,7 @@ def test_utc_time_handling(log_setup):
 
 def test_invalid_compression(log_setup):
     """Test handling of invalid compression type."""
-    temp_dir, log_filename, logger = log_setup
+    _temp_dir, log_filename, _logger = log_setup
 
     with pytest.raises(ValueError, match="invalid"):
         SizeAndTimeRotatingFileHandler(log_filename, compression="invalid")
@@ -177,7 +177,7 @@ def test_invalid_compression(log_setup):
 
 def test_rollover_on_init(log_setup):
     """Test file rollover check on initialization."""
-    temp_dir, log_filename, logger = log_setup
+    _temp_dir, log_filename, logger = log_setup
 
     # Create an initial log file
     with Path(log_filename).open("w") as f:
@@ -216,7 +216,7 @@ def test_multiple_handlers(log_setup):
         # Mock the current time
         now = datetime.now(UTC)
         mock_datetime.now.return_value = now
-        mock_datetime.side_effect = lambda *args, **kw: datetime(
+        mock_datetime.side_effect = lambda *args, **kw: datetime(  # noqa: DTZ001 # Mock allows flexible datetime construction
             *args, **{"tzinfo": UTC, **kw}
         )
 

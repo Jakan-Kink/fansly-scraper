@@ -476,17 +476,19 @@ async def test_get_or_create_media(mock_config, mock_state, temp_dir):
     mock_result.scalars.return_value.all.return_value = [mock_media2]
     mock_session.execute.return_value = mock_result
 
-    with patch("fileio.dedupe.get_hash_for_image", return_value="calculated_hash"):
-        with patch("fileio.dedupe.get_account_id", return_value=12345):
-            media, hash_verified = await get_or_create_media(
-                file_path=file_path,
-                media_id=12345,  # Use integer not string
-                mimetype="image/jpeg",
-                state=mock_state,
-                trust_filename=False,
-                config=mock_config,
-                session=mock_session,
-            )
+    with (
+        patch("fileio.dedupe.get_hash_for_image", return_value="calculated_hash"),
+        patch("fileio.dedupe.get_account_id", return_value=12345),
+    ):
+        media, hash_verified = await get_or_create_media(
+            file_path=file_path,
+            media_id=12345,  # Use integer not string
+            mimetype="image/jpeg",
+            state=mock_state,
+            trust_filename=False,
+            config=mock_config,
+            session=mock_session,
+        )
 
     # Should have updated the existing media
     assert media.id == mock_media2.id

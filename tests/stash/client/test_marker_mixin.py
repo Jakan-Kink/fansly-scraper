@@ -269,18 +269,17 @@ async def test_create_marker_error(
     stash_client: StashClient, mock_marker: SceneMarker
 ) -> None:
     """Test handling errors when creating a scene marker."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
+    with (
+        patch.object(
+            stash_client,
+            "execute",
+            new_callable=AsyncMock,
+            side_effect=Exception("Test error"),
+        ),
+        patch.object(mock_marker, "to_input", new_callable=AsyncMock, return_value={}),
+        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
     ):
-        # Mock the to_input method
-        with patch.object(
-            mock_marker, "to_input", new_callable=AsyncMock, return_value={}
-        ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
-                await stash_client.create_marker(mock_marker)
+        await stash_client.create_marker(mock_marker)
 
 
 @pytest.mark.asyncio
@@ -426,15 +425,14 @@ async def test_update_marker_error(
     stash_client: StashClient, mock_marker: SceneMarker
 ) -> None:
     """Test handling errors when updating a scene marker."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
+    with (
+        patch.object(
+            stash_client,
+            "execute",
+            new_callable=AsyncMock,
+            side_effect=Exception("Test error"),
+        ),
+        patch.object(mock_marker, "to_input", new_callable=AsyncMock, return_value={}),
+        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
     ):
-        # Mock the to_input method
-        with patch.object(
-            mock_marker, "to_input", new_callable=AsyncMock, return_value={}
-        ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
-                await stash_client.update_marker(mock_marker)
+        await stash_client.update_marker(mock_marker)

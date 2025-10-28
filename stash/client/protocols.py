@@ -30,7 +30,7 @@ class StashClientProtocol(Protocol):
         """
         ...
 
-    def _parse_obj_for_ID(self, param: Any, str_key: str = "name") -> Any:
+    def _parse_obj_for_id(self, param: Any, str_key: str = "name") -> Any:
         """Parse an object into an ID.
 
         Args:
@@ -59,7 +59,7 @@ class StashClientProtocol(Protocol):
         job_id: str,
         status: Any = None,  # JobStatus.FINISHED
         period: float = 1.5,
-        timeout: float = 120,
+        timeout_seconds: float = 120,
     ) -> bool | None:
         """Wait for a job to reach a specific status.
 
@@ -67,7 +67,7 @@ class StashClientProtocol(Protocol):
             job_id: Job ID to wait for
             status: Status to wait for
             period: Time between checks in seconds
-            timeout: Maximum time to wait in seconds
+            timeout_seconds: Maximum time to wait in seconds
 
         Returns:
             True if job reached desired status

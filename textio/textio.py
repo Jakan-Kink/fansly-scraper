@@ -12,6 +12,7 @@ This module only provides the output functions.
 """
 
 import platform
+import shutil
 import subprocess
 import sys
 from time import sleep
@@ -141,10 +142,14 @@ def clear_terminal() -> None:
     system = platform.system()
 
     if system == "Windows":
-        subprocess.call(["cmd", "/c", "cls"])  # noqa: S607 - system command, trusted PATH
+        cmd_path = shutil.which("cmd")
+        if cmd_path:
+            subprocess.call([cmd_path, "/c", "cls"])
 
     else:  # Linux & macOS
-        subprocess.call(["clear"])  # noqa: S607 - system command, trusted PATH
+        clear_path = shutil.which("clear")
+        if clear_path:
+            subprocess.call([clear_path])
 
 
 # cross-platform compatible, re-name downloaders terminal output window title
@@ -152,7 +157,11 @@ def set_window_title(title: str) -> None:
     current_platform = platform.system()
 
     if current_platform == "Windows":
-        subprocess.call(["cmd", "/c", "title", title])  # noqa: S607 - system command, trusted PATH
+        cmd_path = shutil.which("cmd")
+        if cmd_path:
+            subprocess.call([cmd_path, "/c", "title", title])
 
     elif current_platform in {"Linux", "Darwin"}:
-        subprocess.call(["printf", rf"\33]0;{title}\a"])  # noqa: S607 - system command, trusted PATH
+        printf_path = shutil.which("printf")
+        if printf_path:
+            subprocess.call([printf_path, rf"\33]0;{title}\a"])

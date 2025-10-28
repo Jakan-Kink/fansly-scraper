@@ -134,8 +134,8 @@ def get_browser_config_paths() -> list[str]:
     browser_paths = []
 
     if platform.system() == "Windows":
-        appdata = os.getenv("appdata")
-        local_appdata = os.getenv("localappdata")
+        appdata = os.getenv("APPDATA")
+        local_appdata = os.getenv("LOCALAPPDATA")
 
         if appdata is None or local_appdata is None:
             raise RuntimeError(
