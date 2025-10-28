@@ -287,7 +287,7 @@ def test_filter_init_args_real_attribute_error() -> None:
                         for field in cls.__strawberry_definition__.nonexistent
                     }
                 else:
-                    raise AttributeError("No strawberry definition")  # noqa: TRY301
+                    raise AttributeError("No strawberry definition")
                 return {k: v for k, v in kwargs.items() if k in valid_fields}
             except AttributeError:
                 # This is the fallback path we want to test
@@ -329,7 +329,7 @@ def test_get_field_names_real_attribute_error() -> None:
                         field.name for field in fields if not field.is_subscription
                     }
                 else:
-                    raise AttributeError("No strawberry definition")  # noqa: TRY301
+                    raise AttributeError("No strawberry definition")
             except AttributeError:
                 # This is the fallback path we want to test
                 cls.__field_names__ = {"id"}  # At minimum, include id field
