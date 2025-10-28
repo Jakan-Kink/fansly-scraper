@@ -99,10 +99,10 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
             ts_str = utc_dt.strftime("%Y-%m-%d_at_%H-%M_UTC")
             return f"{ts_str}_{id_part}.{extension}"
 
-        # No database match, return original filename
-        return filename
-
     except ValueError:
+        return filename
+    else:
+        # No database match, return original filename
         return filename
 
 

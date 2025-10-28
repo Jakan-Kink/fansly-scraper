@@ -493,9 +493,10 @@ class FanslyConfig:
         """
         try:
             stash_context = self.get_stash_context()
-            return stash_context.client
         except RuntimeError as e:
             raise RuntimeError(f"Failed to initialize Stash API: {e}")
+        else:
+            return stash_context.client
 
     def get_background_tasks(self) -> list[asyncio.Task]:
         return self._background_tasks

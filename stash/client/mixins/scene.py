@@ -64,19 +64,20 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.FIND_SCENE_QUERY,
                 {"id": id},
             )
+        except Exception:
+            self.log.exception(f"Failed to find scene {id}")
+            return None
+        else:
             if result and result.get("findScene"):
                 # Sanitize model data before creating Scene
                 clean_data = sanitize_model_data(result["findScene"])
                 return Scene(**clean_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find scene {id}")
-            return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_scenes(
         self,
-        filter_: dict[str, Any] = {"per_page": -1},
+        filter_: dict[str, Any] | None = None,
         scene_filter: dict[str, Any] | None = None,
         q: str | None = None,
     ) -> FindScenesResultType:
@@ -161,6 +162,8 @@ class SceneClientMixin(StashClientProtocol):
             )
             ```
         """
+        if filter_ is None:
+            filter_ = {"per_page": -1}
         try:
             # Add q to filter if provided
             if q is not None:
@@ -337,6 +340,10 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.UPDATE_SCENE_MUTATION,
                 {"input": input_data},
             )
+        except Exception:
+            self.log.exception("Failed to update scene")
+            raise
+        else:
             # Clear caches since we've modified a scene
             self.find_scene.cache_clear()
             self.find_scenes.cache_clear()
@@ -357,9 +364,6 @@ class SceneClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_scene.mark_clean()
             return updated_scene
-        except Exception:
-            self.log.exception("Failed to update scene")
-            raise
 
     async def find_duplicate_scenes(
         self,
@@ -528,6 +532,10 @@ class SceneClientMixin(StashClientProtocol):
                 fragments.SCENE_GENERATE_SCREENSHOT_MUTATION,
                 {"id": id, "at": at},
             )
+        except Exception:
+            self.log.exception(f"Failed to generate screenshot for scene {id}")
+            raise
+        else:
             # Clear scene cache since screenshot generation modifies the scene
             if hasattr(self, "scene_cache") and id in self.scene_cache:
                 del self.scene_cache[id]
@@ -543,6 +551,3 @@ class SceneClientMixin(StashClientProtocol):
             if result and "sceneGenerateScreenshot" in result:
                 return result["sceneGenerateScreenshot"]
             return ""
-        except Exception:
-            self.log.exception(f"Failed to generate screenshot for scene {id}")
-            raise

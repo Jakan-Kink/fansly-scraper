@@ -27,19 +27,20 @@ class ImageClientMixin(StashClientProtocol):
                 fragments.FIND_IMAGE_QUERY,
                 {"id": id},
             )
+        except Exception:
+            self.log.exception(f"Failed to find image {id}")
+            return None
+        else:
             if result and result.get("findImage"):
                 # Sanitize model data before creating Image
                 clean_data = sanitize_model_data(result["findImage"])
                 return Image(**clean_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find image {id}")
-            return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_images(
         self,
-        filter_: dict[str, Any] = {"per_page": -1},
+        filter_: dict[str, Any] | None = None,
         image_filter: dict[str, Any] | None = None,
         q: str | None = None,
     ) -> FindImagesResultType:
@@ -60,6 +61,8 @@ class ImageClientMixin(StashClientProtocol):
                 - count: Total number of matching images
                 - images: List of Image objects
         """
+        if filter_ is None:
+            filter_ = {"per_page": -1}
         try:
             # Add q to filter if provided
             if q is not None:
@@ -133,6 +136,10 @@ class ImageClientMixin(StashClientProtocol):
                 fragments.UPDATE_IMAGE_MUTATION,
                 {"input": input_data},
             )
+        except Exception:
+            self.log.exception("Failed to update image")
+            raise
+        else:
             # Clear caches since we've modified an image
             self.find_image.cache_clear()
             self.find_images.cache_clear()
@@ -142,6 +149,3 @@ class ImageClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_image.mark_clean()
             return updated_image
-        except Exception:
-            self.log.exception("Failed to update image")
-            raise

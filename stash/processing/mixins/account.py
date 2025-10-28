@@ -97,8 +97,6 @@ class AccountProcessingMixin:
             )
             # Handle avatar if needed
             await self._update_performer_avatar(account, performer)
-
-            return account, performer
         except Exception as e:
             print_error(f"Failed to process creator: {e}")
             logger.exception("Failed to process creator", exc_info=e)
@@ -111,6 +109,8 @@ class AccountProcessingMixin:
                 }
             )
             raise
+        else:
+            return account, performer
 
     async def _update_performer_avatar(
         self, account: Account, performer: Performer

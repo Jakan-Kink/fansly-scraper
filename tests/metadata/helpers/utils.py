@@ -217,10 +217,11 @@ def create_test_data_set(
 
         # Commit all changes
         session.commit()
-        return data
     except Exception:
         session.rollback()
         raise
+    else:
+        return data
 
 
 async def verify_relationship_integrity(

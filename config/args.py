@@ -637,11 +637,12 @@ def _handle_metadata_settings(args: argparse.Namespace, config: FanslyConfig) ->
     handling = args.metadata_handling.strip().lower()
     try:
         config.metadata_handling = MetadataHandling(handling)
-        return True
     except ValueError:
         raise ConfigError(
             f"Argument error - '{handling}' is not a valid metadata handling strategy."
         )
+    else:
+        return True
 
 
 def _handle_path_settings(
