@@ -1013,7 +1013,7 @@ async def _check_file_exists(
 
 @require_database_config  # Uses config._database directly
 @with_database_session(async_session=True)
-async def dedupe_media_file(
+async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with many edge cases
     config: FanslyConfig,
     state: DownloadState,
     mimetype: str,

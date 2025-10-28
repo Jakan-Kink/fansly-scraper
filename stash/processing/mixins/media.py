@@ -204,7 +204,7 @@ class MediaProcessingMixin:
         logger.debug("No valid ImageFile found in visual_files")
         return None
 
-    def _get_video_file_from_stash_obj(self, stash_obj: Scene) -> VideoFile | None:
+    def _get_video_file_from_stash_obj(self, stash_obj: Scene) -> VideoFile | None:  # noqa: PLR0911 - Multiple validation checks for VideoFile extraction
         """Extract VideoFile from Stash Scene object.
 
         Args:
