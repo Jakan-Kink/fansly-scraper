@@ -112,7 +112,7 @@ def fansly_api(mock_http_session):
 
     # Initialize with test device ID to avoid real HTTP request
     api = FanslyApi(
-        token="test_token",
+        token="test_token",  # noqa: S106 # Test fixture token
         user_agent="test_user_agent",
         check_key="test_check_key",
         device_id="test_device_id",  # Provide device_id to skip device initialization
@@ -153,7 +153,7 @@ def fansly_api_factory(mock_http_session):
     """
 
     def _create_api(
-        token: str = "test_token",
+        token: str = "test_token",  # noqa: S107 # Test fixture default token
         user_agent: str = "test_user_agent",
         check_key: str = "test_check_key",
         device_id: str = "test_device_id",

@@ -24,14 +24,6 @@ def setup_loggers():
     config = FanslyConfig(program_version="test")
     init_logging_config(config)
 
-    # Reset loggers
-    global textio_logger, json_logger, stash_logger, db_logger, trace_logger
-    textio_logger = logger.bind(logger="textio")
-    json_logger = logger.bind(logger="json")
-    stash_logger = logger.bind(logger="stash")
-    db_logger = logger.bind(logger="db")
-    trace_logger = logger.bind(logger="trace").patch(_trace_level_only)
-
     yield
     # Clean up handlers
     logger.remove()
@@ -40,36 +32,28 @@ def setup_loggers():
 def test_loggers_have_correct_bindings():
     """Test that loggers have correct extra bindings."""
     # Textio binding tests
-    assert (lambda record: record["extra"].get("logger", None) == "textio")(
-        {"extra": {"logger": "textio"}}
-    ) is True
-    assert (lambda record: record["extra"].get("logger", None) == "textio")(
-        {"extra": {"logger": "json"}}
-    ) is False
+    record = {"extra": {"logger": "textio"}}
+    assert record["extra"].get("logger", None) == "textio"
+    record = {"extra": {"logger": "json"}}
+    assert record["extra"].get("logger", None) != "textio"
 
     # JSON binding tests
-    assert (lambda record: record["extra"].get("logger", None) == "json")(
-        {"extra": {"logger": "json"}}
-    ) is True
-    assert (lambda record: record["extra"].get("logger", None) == "json")(
-        {"extra": {"logger": "textio"}}
-    ) is False
+    record = {"extra": {"logger": "json"}}
+    assert record["extra"].get("logger", None) == "json"
+    record = {"extra": {"logger": "textio"}}
+    assert record["extra"].get("logger", None) != "json"
 
     # Stash binding tests
-    assert (lambda record: record["extra"].get("logger", None) == "stash")(
-        {"extra": {"logger": "stash"}}
-    ) is True
-    assert (lambda record: record["extra"].get("logger", None) == "stash")(
-        {"extra": {"textio": True}}
-    ) is False
+    record = {"extra": {"logger": "stash"}}
+    assert record["extra"].get("logger", None) == "stash"
+    record = {"extra": {"textio": True}}
+    assert record["extra"].get("logger", None) != "stash"
 
     # DB binding tests
-    assert (lambda record: record["extra"].get("logger", None) == "db")(
-        {"extra": {"logger": "db"}}
-    ) is True
-    assert (lambda record: record["extra"].get("logger", None) == "db")(
-        {"extra": {"textio": True}}
-    ) is False
+    record = {"extra": {"logger": "db"}}
+    assert record["extra"].get("logger", None) == "db"
+    record = {"extra": {"textio": True}}
+    assert record["extra"].get("logger", None) != "db"
 
 
 def test_trace_logger_only_accepts_trace_level():

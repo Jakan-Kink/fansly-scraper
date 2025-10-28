@@ -43,7 +43,7 @@ class TestM3U8Integration:
     ):
         """Test the full M3U8 download workflow with segment download fallback."""
         # Setup config and mock responses
-        config, mock_api, mock_response = mock_config
+        config, mock_api, _mock_response = mock_config
 
         # Mock direct download to fail (forces segment download)
         mock_direct_download.return_value = False
@@ -142,7 +142,7 @@ segment2.ts
     ):
         """Test M3U8 download with error handling for missing segments."""
         # Setup config and mock responses
-        config, mock_api, mock_response = mock_config
+        config, mock_api, _mock_response = mock_config
 
         # Mock direct download to fail (forces segment download)
         mock_direct_download.return_value = False
@@ -220,7 +220,7 @@ segment2.ts
     ):
         """Test M3U8 download with error handling for FFMPEG failure."""
         # Setup config and mock responses
-        config, mock_api, mock_response = mock_config
+        config, mock_api, _mock_response = mock_config
 
         # Mock direct download to fail (forces segment download)
         mock_direct_download.return_value = False
@@ -314,7 +314,7 @@ segment2.ts
     ):
         """Test M3U8 download with timestamp setting."""
         # Setup config and mock responses
-        config, mock_api, mock_response = mock_config
+        config, mock_api, _mock_response = mock_config
 
         # Mock direct download to fail (forces segment download)
         mock_direct_download.return_value = False
@@ -397,7 +397,7 @@ segment2.ts
     ):
         """Test M3U8 download when direct download succeeds (fast path)."""
         # Setup config
-        config, mock_api, mock_response = mock_config
+        config, _mock_api, _mock_response = mock_config
 
         # Mock direct download to succeed
         mock_direct_download.return_value = True

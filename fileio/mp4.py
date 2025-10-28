@@ -87,15 +87,15 @@ def hash_mp4box(algorithm: Any, reader: BufferedReader, box: MP4Box) -> None:
 
     `algorithm` must be a `hashlib` algorithm.
     """
-    CHUNK_SIZE = 1_048_576
+    chunk_size = 1_048_576
 
     reader.seek(box.position, os.SEEK_SET)
 
-    chunks = box.size // CHUNK_SIZE
-    remainder = box.size - chunks * CHUNK_SIZE
+    chunks = box.size // chunk_size
+    remainder = box.size - chunks * chunk_size
 
     for _ in range(chunks):
-        algorithm.update(reader.read(CHUNK_SIZE))
+        algorithm.update(reader.read(chunk_size))
 
     algorithm.update(reader.read(remainder))
 

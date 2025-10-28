@@ -42,7 +42,7 @@ class StudioProcessingMixin:
         self,
         account: Account,
         performer: Performer,
-        session: Session | None = None,
+        _session: Session | None = None,
     ) -> Studio | None:
         """Process creator studio metadata.
 

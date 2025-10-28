@@ -513,20 +513,22 @@ class TestPathIO:
 
         def mock_join_side_effect(*args):
             """Side effect for os.path.join to return predictable paths."""
-            if args[1] == "_MEI123":
-                return "/test/_MEI123"
-            if args[1] == "_MEI456":
-                return "/test/_MEI456"
-            if args[1] == "other_dir":
-                return "/test/other_dir"
-            if args[0] == "/test/_MEI123":
-                if len(args) > 1:
-                    return f"/test/_MEI123/{args[1]}"
-                return "/test/_MEI123"
-            if args[0] == "/test/_MEI456":
-                if len(args) > 1:
-                    return f"/test/_MEI456/{args[1]}"
-                return "/test/_MEI456"
+            # Map single-level joins
+            single_level_map = {
+                "_MEI123": "/test/_MEI123",
+                "_MEI456": "/test/_MEI456",
+                "other_dir": "/test/other_dir",
+            }
+
+            if len(args) == 2 and args[1] in single_level_map:
+                return single_level_map[args[1]]
+
+            # Handle multi-level MEI paths
+            if args[0] in ("/test/_MEI123", "/test/_MEI456") and len(args) > 1:
+                return f"{args[0]}/{args[1]}"
+            if args[0] in ("/test/_MEI123", "/test/_MEI456"):
+                return args[0]
+
             return "/".join(args)
 
         mock_join.side_effect = mock_join_side_effect

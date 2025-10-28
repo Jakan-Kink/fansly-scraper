@@ -16,6 +16,7 @@ This module demonstrates:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import tempfile
 from datetime import UTC, datetime
@@ -23,7 +24,6 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import exc, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from metadata import Account, AccountMedia, Media, Message, Post
 from metadata.database import Database
@@ -38,18 +38,20 @@ async def setup_database(test_database_sync: Database):
     """
     try:
         # First, ensure tables are dropped if they exist
-        async with test_database_sync.async_session_scope() as session:
-            async with session.begin():
-                # Get connection and run DDL operations
-                # conn = await session.connection()
-                # # Drop all tables first to ensure clean state
-                # await conn.run_sync(Base.metadata.drop_all)
-                # # Create all tables
-                # await conn.run_sync(Base.metadata.create_all)
+        async with (
+            test_database_sync.async_session_scope() as session,
+            session.begin(),
+        ):
+            # Get connection and run DDL operations
+            # conn = await session.connection()
+            # # Drop all tables first to ensure clean state
+            # await conn.run_sync(Base.metadata.drop_all)
+            # # Create all tables
+            # await conn.run_sync(Base.metadata.create_all)
 
-                # PostgreSQL: Reset sequences if needed
-                # Note: PostgreSQL uses SEQUENCE objects instead of sqlite_sequence
-                await session.commit()
+            # PostgreSQL: Reset sequences if needed
+            # Note: PostgreSQL uses SEQUENCE objects instead of sqlite_sequence
+            await session.commit()
 
         yield
     except Exception as e:
@@ -93,7 +95,7 @@ def shared_db_path(request):
 
 @pytest.mark.asyncio
 async def test_complex_relationships(
-    test_database_sync: Database, session: AsyncSession, test_account: Account
+    test_database_sync: Database, test_account: Account
 ):
     """Test complex relationships between multiple models."""
     async with test_database_sync.async_session_scope() as session:
@@ -297,12 +299,12 @@ async def test_cascade_operations(test_config, shared_db_path):
             # In real applications, we might want to implement a cleanup job for orphaned media
     finally:
         # Ensure database is properly closed
-        await test_database_sync.cleanup()
+        await database.cleanup()
 
 
 @pytest.mark.asyncio
 async def test_database_constraints(
-    test_database_sync: Database, session: AsyncSession, test_account: Account
+    test_database_sync: Database, test_account: Account
 ):
     """Test database constraints and integrity."""
     async with test_database_sync.async_session_scope() as session:
@@ -490,9 +492,7 @@ async def test_concurrent_access(test_database_sync: Database, test_account: Acc
 
 
 @pytest.mark.asyncio
-async def test_query_performance(
-    test_database_sync: Database, session: AsyncSession, test_account: Account
-):
+async def test_query_performance(test_database_sync: Database, test_account: Account):
     """Test query performance with indexes."""
     async with test_database_sync.async_session_scope() as session:
         # Create multiple media items

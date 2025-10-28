@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 logs_dir = Path("logs")
 logs_dir.mkdir(exist_ok=True)
 
+
 def get_db_logger() -> DatabaseLogger:
     """Get the global database logger, initializing it if needed."""
     if not hasattr(get_db_logger, "instance"):

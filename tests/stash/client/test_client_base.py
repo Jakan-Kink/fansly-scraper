@@ -97,7 +97,8 @@ async def test_client_create(mock_session, mock_client) -> None:
         assert client._initialized is True
 
         # Test with 0.0.0.0 host (should convert to 127.0.0.1)
-        client = await StashClientBase.create(conn={"Host": "0.0.0.0"})
+        bad_host = "0.0.0.0"  # noqa: S104 - testing host conversion
+        client = await StashClientBase.create(conn={"Host": bad_host})
         assert "127.0.0.1" in client.url
         assert client._initialized is True
 
@@ -335,7 +336,6 @@ async def test_get_configuration_defaults(mock_session, mock_client) -> None:
                             "transcodes": True,
                             "markerImagePreviews": True,
                             "markerScreenshots": True,
-                            "transcodes": True,
                             "interactiveHeatmapsSpeeds": True,
                             "imageThumbnails": True,
                             "clipPreviews": True,

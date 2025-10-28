@@ -78,7 +78,7 @@ def test_validate_creator_names_removed(mock_config):
     mock_config.user_names = {"invalid1", "valid", "invalid2"}
     with patch("config.validation.validate_adjust_creator_name") as mock_validate:
         # First mock returns None (invalid), second returns the valid name, third returns None
-        mock_validate.side_effect = lambda name, interactive: (
+        mock_validate.side_effect = lambda name, _interactive: (
             None if name in ["invalid1", "invalid2"] else name
         )
         with patch("config.validation.save_config_or_raise") as mock_save:
@@ -160,7 +160,9 @@ def test_validate_adjust_token_invalid_raises(mock_find_spec, mock_config):
     with (
         patch("config.validation.open_get_started_url"),
         patch("config.browser.find_leveldb_folders", return_value=[]),
-        pytest.raises(ConfigError, match="Reached.*authorization token.*still invalid"),
+        pytest.raises(
+            ConfigError, match=r"Reached.*authorization token.*still invalid"
+        ),
     ):
         validate_adjust_token(mock_config)
 

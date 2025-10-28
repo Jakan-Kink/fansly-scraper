@@ -482,10 +482,11 @@ async def test_create_tag_error(stash_client: StashClient, mock_tag: Tag) -> Non
     )
 
     # Mock the to_input method
-    with patch.object(tag, "to_input", AsyncMock(return_value={})):
-        # Test that the exception is properly propagated
-        with pytest.raises(Exception, match="Test error"):
-            await stash_client.create_tag(tag)
+    with (
+        patch.object(tag, "to_input", AsyncMock(return_value={})),
+        pytest.raises(Exception, match="Test error"),
+    ):
+        await stash_client.create_tag(tag)
 
 
 @pytest.mark.asyncio

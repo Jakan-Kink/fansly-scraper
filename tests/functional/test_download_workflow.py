@@ -34,9 +34,9 @@ def download_media(
 
 def process_media(
     input_path: Path,
-    output_path: Path = None,
-    media_type: str = None,
-    config: FanslyConfig = None,
+    output_path: Path | None = None,
+    media_type: str | None = None,
+    config: FanslyConfig | None = None,
 ):
     """Mock function for testing."""
 

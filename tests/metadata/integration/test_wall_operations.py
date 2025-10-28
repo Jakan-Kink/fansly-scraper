@@ -21,7 +21,9 @@ async def setup_account(test_database, request):
     test_name = request.node.name
     unique_id = (
         int(
-            hashlib.sha1(f"TestWallOperations_{test_name}".encode()).hexdigest()[:8],
+            hashlib.sha1(
+                f"TestWallOperations_{test_name}".encode(), usedforsecurity=False
+            ).hexdigest()[:8],
             16,
         )
         % 1000000

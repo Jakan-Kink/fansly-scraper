@@ -270,30 +270,32 @@ class TestFanslyConfig:
         """Test get_api method with valid credentials."""
         # Make sure _api is None to force a new instance creation
         config._api = None
-        with patch("config.fanslyconfig.FanslyApi") as mock_api_class:
-            with patch("api.rate_limiter.RateLimiter") as mock_rate_limiter_class:
-                mock_api = MagicMock(spec=FanslyApi)
-                mock_api_class.return_value = mock_api
-                mock_rate_limiter = MagicMock()
-                mock_rate_limiter_class.return_value = mock_rate_limiter
+        with (
+            patch("config.fanslyconfig.FanslyApi") as mock_api_class,
+            patch("api.rate_limiter.RateLimiter") as mock_rate_limiter_class,
+        ):
+            mock_api = MagicMock(spec=FanslyApi)
+            mock_api_class.return_value = mock_api
+            mock_rate_limiter = MagicMock()
+            mock_rate_limiter_class.return_value = mock_rate_limiter
 
-                result = config.get_api()
+            result = config.get_api()
 
-                # Verify RateLimiter was instantiated with config
-                mock_rate_limiter_class.assert_called_once_with(config)
+            # Verify RateLimiter was instantiated with config
+            mock_rate_limiter_class.assert_called_once_with(config)
 
-                # Verify FanslyApi was instantiated with proper parameters including rate_limiter
-                mock_api_class.assert_called_once_with(
-                    token=config.token,
-                    user_agent=config.user_agent,
-                    check_key=config.check_key,
-                    device_id=config.cached_device_id,
-                    device_id_timestamp=config.cached_device_id_timestamp,
-                    on_device_updated=config._save_config,
-                    rate_limiter=mock_rate_limiter,
-                )
-                assert result is mock_api
-                assert config._api is mock_api
+            # Verify FanslyApi was instantiated with proper parameters including rate_limiter
+            mock_api_class.assert_called_once_with(
+                token=config.token,
+                user_agent=config.user_agent,
+                check_key=config.check_key,
+                device_id=config.cached_device_id,
+                device_id_timestamp=config.cached_device_id_timestamp,
+                on_device_updated=config._save_config,
+                rate_limiter=mock_rate_limiter,
+            )
+            assert result is mock_api
+            assert config._api is mock_api
 
     def test_get_api_caching(self, config):
         """Test get_api caches the API instance."""
@@ -346,9 +348,11 @@ class TestFanslyConfig:
     async def test_setup_api_no_api(self, config):
         """Test setup_api method with no API instance."""
         # Mock get_api to return None
-        with patch.object(config, "get_api", return_value=None):
-            with pytest.raises(RuntimeError, match="Token or user agent error"):
-                await config.setup_api()
+        with (
+            patch.object(config, "get_api", return_value=None),
+            pytest.raises(RuntimeError, match="Token or user agent error"),
+        ):
+            await config.setup_api()
 
     def test_get_stash_context_no_data(self, config):
         """Test get_stash_context with no connection data."""

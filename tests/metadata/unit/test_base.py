@@ -21,8 +21,8 @@ def sync_engine():
 @pytest.fixture
 def sync_session(sync_engine):
     """Create a sync session for testing."""
-    Session = sessionmaker(bind=sync_engine)
-    session = Session()
+    session_maker = sessionmaker(bind=sync_engine)
+    session = session_maker()
     yield session
     session.close()
 

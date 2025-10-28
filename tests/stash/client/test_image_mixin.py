@@ -184,7 +184,7 @@ async def test_find_images_error_fixed() -> None:
 
         async def execute(self, *args, **kwargs):
             # Always raises an exception
-            raise Exception("Test error")
+            raise Exception("Test error")  # noqa: TRY002 # Test error simulation
 
         async def find_images(self, *args, **kwargs):
             try:
@@ -251,18 +251,17 @@ async def test_create_image(stash_client: StashClient, mock_image: Image) -> Non
 @pytest.mark.asyncio
 async def test_create_image_error(stash_client: StashClient, mock_image: Image) -> None:
     """Test handling errors when creating an image."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
+    with (
+        patch.object(
+            stash_client,
+            "execute",
+            new_callable=AsyncMock,
+            side_effect=Exception("Test error"),
+        ),
+        patch.object(mock_image, "to_input", new_callable=AsyncMock, return_value={}),
+        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
     ):
-        # Mock the to_input method
-        with patch.object(
-            mock_image, "to_input", new_callable=AsyncMock, return_value={}
-        ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
-                await stash_client.create_image(mock_image)
+        await stash_client.create_image(mock_image)
 
 
 @pytest.mark.asyncio
@@ -357,15 +356,14 @@ async def test_update_image(stash_client: StashClient, mock_image: Image) -> Non
 @pytest.mark.asyncio
 async def test_update_image_error(stash_client: StashClient, mock_image: Image) -> None:
     """Test handling errors when updating an image."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
+    with (
+        patch.object(
+            stash_client,
+            "execute",
+            new_callable=AsyncMock,
+            side_effect=Exception("Test error"),
+        ),
+        patch.object(mock_image, "to_input", new_callable=AsyncMock, return_value={}),
+        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
     ):
-        # Mock the to_input method
-        with patch.object(
-            mock_image, "to_input", new_callable=AsyncMock, return_value={}
-        ):
-            with pytest.raises(Exception):  # noqa: PT011 - testing error handling for API failure
-                await stash_client.update_image(mock_image)
+        await stash_client.update_image(mock_image)

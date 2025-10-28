@@ -281,28 +281,30 @@ class NotImplementedClientMixin:
         raise NotImplementedError("Tag deletion not implemented")
 
     # SQL Operations
-    async def querySQL(self, sql: str, args: list[Any] | None = None) -> SQLQueryResult:
+    async def query_sql(
+        self, sql: str, args: list[Any] | None = None
+    ) -> SQLQueryResult:
         """Execute SQL query."""
         raise NotImplementedError("SQL queries not implemented")
 
-    async def execSQL(self, sql: str, args: list[Any] | None = None) -> SQLExecResult:
+    async def exec_sql(self, sql: str, args: list[Any] | None = None) -> SQLExecResult:
         """Execute SQL statement."""
         raise NotImplementedError("SQL execution not implemented")
 
     # Stash-box Operations
-    async def validateStashBoxCredentials(
+    async def validate_stashbox_credentials(
         self, input_data: dict[str, Any]
     ) -> StashBoxValidationResult:
         """Validate stash-box credentials."""
         raise NotImplementedError("Stash-box validation not implemented")
 
     # DLNA Operations
-    async def dlnaStatus(self) -> DLNAStatus:
+    async def dlna_status(self) -> DLNAStatus:
         """Get DLNA status."""
         raise NotImplementedError("DLNA not implemented")
 
     # Job Operations
-    async def jobsSubscribe(self) -> JobStatusUpdate:
+    async def jobs_subscribe(self) -> JobStatusUpdate:
         """Subscribe to job updates."""
         raise NotImplementedError("Job subscription not implemented")
 
@@ -311,6 +313,6 @@ class NotImplementedClientMixin:
         """Get version information."""
         raise NotImplementedError("Version info not implemented")
 
-    async def latestversion(self) -> LatestVersion:
+    async def latest_version(self) -> LatestVersion:
         """Get latest version information."""
         raise NotImplementedError("Latest version info not implemented")

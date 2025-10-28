@@ -42,7 +42,8 @@ async def test_client_init() -> None:
     assert client.log.name == "test"
 
     # Test with 0.0.0.0 host (should convert to 127.0.0.1)
-    client = await StashClient.create(conn={"Host": "0.0.0.0"})
+    bad_host = "0.0.0.0"  # noqa: S104 - testing host conversion
+    client = await StashClient.create(conn={"Host": bad_host})
     assert "127.0.0.1" in client.url
 
     # Test with None conn (should use defaults)
@@ -64,7 +65,7 @@ async def test_client_validation_error(mock_session, mock_client) -> None:
         fields={
             "hello": GraphQLField(
                 type_=GraphQLString,
-                resolve=lambda obj, info: "Hello!",
+                resolve=lambda _obj, _info: "Hello!",
             )
         },
     )

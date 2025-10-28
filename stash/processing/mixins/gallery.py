@@ -262,11 +262,11 @@ class GalleryProcessingMixin:
             else:
                 mentions = item.accountMentions
             if mentions:
-                for mention in mentions:
-                    if mention_performer := await self._find_existing_performer(
-                        mention
-                    ):
-                        performers.append(mention_performer)
+                mention_tasks = [
+                    self._find_existing_performer(mention) for mention in mentions
+                ]
+                mention_results = await asyncio.gather(*mention_tasks)
+                performers.extend([p for p in mention_results if p is not None])
 
         # Set performers if we have any
         if performers:
@@ -317,21 +317,19 @@ class GalleryProcessingMixin:
                 if (
                     hasattr(attachment, "contentType")
                     and attachment.contentType == ContentType.AGGREGATED_POSTS
+                    and hasattr(attachment, "resolve_content")
+                    and (post := await attachment.resolve_content())
+                    and await self._check_aggregated_posts([post])
                 ):
-                    if (
-                        hasattr(attachment, "resolve_content")
-                        and (post := await attachment.resolve_content())
-                        and await self._check_aggregated_posts([post])
-                    ):
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _has_media_content",
-                                "status": "has_aggregated_media",
-                                "item_id": item.id,
-                                "post_id": post.id,
-                            }
-                        )
-                        return True
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _has_media_content",
+                            "status": "has_aggregated_media",
+                            "item_id": item.id,
+                            "post_id": post.id,
+                        }
+                    )
+                    return True
 
         debug_print(
             {
@@ -348,7 +346,7 @@ class GalleryProcessingMixin:
         account: Account,
         performer: Any,
         studio: Studio | None,
-        item_type: str,
+        _item_type: str,
         url_pattern: str,
     ) -> Gallery | None:
         """Get or create a gallery for an item.
@@ -358,7 +356,7 @@ class GalleryProcessingMixin:
             account: The Account object
             performer: The Performer object
             studio: The Studio object
-            item_type: Type of item ("post" or "message")
+            _item_type: Type of item ("post" or "message") - reserved for future use
             url_pattern: URL pattern for the item
 
         Returns:
@@ -412,29 +410,27 @@ class GalleryProcessingMixin:
                 if (
                     hasattr(attachment, "contentType")
                     and attachment.contentType == ContentType.AGGREGATED_POSTS
+                    and hasattr(attachment, "resolve_content")
+                    and (post := await attachment.resolve_content())
+                    and await self._has_media_content(post)
                 ):
-                    if (
-                        hasattr(attachment, "resolve_content")
-                        and (post := await attachment.resolve_content())
-                        and await self._has_media_content(post)
-                    ):
-                        # Only create chapter if post has media
-                        # Generate chapter title using same method as gallery title
-                        title = self._generate_title_from_content(
-                            content=post.content,
-                            username=username,  # Use same username as parent
-                            created_at=post.createdAt,
-                        )
+                    # Only create chapter if post has media
+                    # Generate chapter title using same method as gallery title
+                    title = self._generate_title_from_content(
+                        content=post.content,
+                        username=username,  # Use same username as parent
+                        created_at=post.createdAt,
+                    )
 
-                        # Create chapter
-                        chapter = GalleryChapter(
-                            id="new",
-                            gallery=gallery,
-                            title=title,
-                            image_index=image_index,
-                        )
-                        gallery.chapters.append(chapter)
-                        image_index += 1  # Increment for next chapter
+                    # Create chapter
+                    chapter = GalleryChapter(
+                        id="new",
+                        gallery=gallery,
+                        title=title,
+                        image_index=image_index,
+                    )
+                    gallery.chapters.append(chapter)
+                    image_index += 1  # Increment for next chapter
 
         # Save gallery with chapters
         await gallery.save(self.context.client)

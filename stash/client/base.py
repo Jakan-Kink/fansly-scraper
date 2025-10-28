@@ -1,7 +1,6 @@
 """Base Stash client class."""
 
 import asyncio
-import time
 from datetime import datetime
 from pprint import pformat
 from types import TracebackType
@@ -40,7 +39,7 @@ class StashClientBase:
 
     def __init__(
         self,
-        conn: dict[str, Any] = None,
+        conn: dict[str, Any] | None = None,
         verify_ssl: bool = True,
     ) -> None:
         """Initialize client.
@@ -62,7 +61,7 @@ class StashClientBase:
     @classmethod
     async def create(
         cls,
-        conn: dict[str, Any] = None,
+        conn: dict[str, Any] | None = None,
         verify_ssl: bool = True,
     ) -> "StashClientBase":
         """Create and initialize a new client.
@@ -98,7 +97,7 @@ class StashClientBase:
         scheme = conn.get("Scheme", "http")
         ws_scheme = "ws" if scheme == "http" else "wss"
         host = conn.get("Host", "localhost")
-        if host == "0.0.0.0":  # nosec B104 - Converting all-interfaces to localhost
+        if host == "0.0.0.0":  # nosec B104  # noqa: S104 - Converting all-interfaces to localhost
             host = "127.0.0.1"
         port = conn.get("Port", 9999)
 
@@ -299,7 +298,7 @@ class StashClientBase:
             return [self._convert_datetime(x) for x in obj]
         return obj
 
-    def _parse_obj_for_ID(self, param: Any, str_key: str = "name") -> Any:
+    def _parse_obj_for_id(self, param: Any, str_key: str = "name") -> Any:
         if isinstance(param, str):
             try:
                 return int(param)
@@ -458,8 +457,8 @@ class StashClientBase:
 
     async def metadata_scan(
         self,
-        paths: list[str] = [],
-        flags: dict[str, Any] = {},
+        paths: list[str] | None = None,
+        flags: dict[str, Any] | None = None,
     ) -> str:
         """Start a metadata scan job.
 
@@ -479,6 +478,12 @@ class StashClientBase:
         Returns:
             Job ID for the scan operation
         """
+        # Initialize mutable defaults
+        if paths is None:
+            paths = []
+        if flags is None:
+            flags = {}
+
         # Get scan input object with defaults from config
         try:
             defaults = await self.get_configuration_defaults()
@@ -585,7 +590,7 @@ class StashClientBase:
             job_id: Job ID to wait for
             status: Status to wait for (default: JobStatus.FINISHED)
             period: Time between checks in seconds (default: 1.5)
-            timeout: Maximum time to wait in seconds (default: 120)
+            timeout_seconds: Maximum time to wait in seconds (default: 120)
 
         Returns:
             True if job reached desired status
@@ -599,29 +604,32 @@ class StashClientBase:
         if not job_id:
             return None
 
-        timeout_value = time.time() + timeout
-        while time.time() < timeout_value:
-            job = await self.find_job(job_id)
-            self.log.info(f"Job: {pformat(job)}")
-            if not isinstance(job, Job):
-                raise ValueError(f"Job {job_id} not found")
-            if not job_id:
-                return None
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                while True:
+                    job = await self.find_job(job_id)
+                    self.log.info(f"Job: {pformat(job)}")
+                    if not isinstance(job, Job):
+                        raise TypeError(f"Job {job_id} not found")
+                    if not job_id:
+                        return None
 
-            # Only log through stash's logger
-            self.log.info(
-                f"Job {job_id} - Status: {job.status}, Progress: {job.progress}%"
+                    # Only log through stash's logger
+                    self.log.info(
+                        f"Job {job_id} - Status: {job.status}, Progress: {job.progress}%"
+                    )
+
+                    # Check for desired state
+                    if job.status == status:
+                        return True
+                    if job.status in [JobStatus.FINISHED, JobStatus.CANCELLED]:
+                        return False
+
+                    await asyncio.sleep(period)
+        except TimeoutError:
+            raise TimeoutError(
+                f"Timeout waiting for job {job_id} to reach status {status}"
             )
-
-            # Check for desired state
-            if job.status == status:
-                return True
-            if job.status in [JobStatus.FINISHED, JobStatus.CANCELLED]:
-                return False
-
-            await asyncio.sleep(period)
-
-        raise TimeoutError(f"Timeout waiting for job {job_id} to reach status {status}")
 
     async def close(self) -> None:
         """Close the HTTP client and clean up resources.

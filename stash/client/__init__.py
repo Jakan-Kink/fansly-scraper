@@ -60,7 +60,7 @@ class StashClient(
         conn = conn or {}
         scheme = conn.get("Scheme", "http")
         host = conn.get("Host", "localhost")
-        if host == "0.0.0.0":  # nosec B104 - Converting all-interfaces to localhost
+        if host == "0.0.0.0":  # nosec B104  # noqa: S104 - Converting all-interfaces to localhost
             host = "127.0.0.1"
         port = conn.get("Port", 9999)
         self.url = f"{scheme}://{host}:{port}/graphql"

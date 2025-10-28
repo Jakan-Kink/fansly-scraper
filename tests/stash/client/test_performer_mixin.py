@@ -214,20 +214,19 @@ async def test_update_performer(
 
 @pytest.mark.asyncio
 async def test_update_performer_avatar(
-    stash_client: StashClient, mock_performer: Performer
+    stash_client: StashClient, mock_performer: Performer, tmp_path: Path
 ) -> None:
     """Test updating a performer's avatar."""
-    mock_path = "/tmp/avatar.jpg"
+    mock_path = tmp_path / "avatar.jpg"
     # Create a temporary file for testing
-    with Path(mock_path).open("w") as f:
-        f.write("test")
+    mock_path.write_text("test")
 
     # Create a modified performer with image_path set
     updated_performer = Performer(
         id=mock_performer.id,
         name=mock_performer.name,
         gender=mock_performer.gender,
-        image_path=mock_path,
+        image_path=str(mock_path),
         groups=[],  # Required relationship
         tags=[],  # Required relationship
         scenes=[],  # Required relationship

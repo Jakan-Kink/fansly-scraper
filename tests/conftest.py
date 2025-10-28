@@ -105,9 +105,7 @@ def setup_test_logging():
     temp_path = Path(temp_dir)
 
     # Store original handlers to restore later
-    original_handlers = []
-    for handler in logging.root.handlers[:]:
-        original_handlers.append(handler)
+    original_handlers = logging.root.handlers.copy()
 
     handler_id = None
     try:
@@ -543,29 +541,23 @@ def performance_tracker(performance_log_dir, request):
 # ============================================================================
 
 __all__ = [
-    # Helper functions
     "clean_model_data",
-    # Auto-use fixtures
     "cleanup_tasks",
-    "setup_test_logging",
-    # Test data fixtures
-    "json_timeline_data",
-    "json_messages_group_data",
     "json_conversation_data",
-    "sample_account",
-    "sample_post",
-    "sample_message",
-    # Config fixtures
-    "test_config",
-    "temp_config_dir",
-    "temp_db_dir",
-    # Download fixtures
+    "json_messages_group_data",
+    "json_timeline_data",
     "mock_download_state",
-    "test_downloads_dir",
-    # Performance fixtures
     "performance_log_dir",
     "performance_threshold",
     "performance_tracker",
+    "sample_account",
+    "sample_message",
+    "sample_post",
+    "setup_test_logging",
+    "temp_config_dir",
+    "temp_db_dir",
+    "test_config",
+    "test_downloads_dir",
     # Note: All factories and fixtures from tests.fixtures are automatically imported
     # via wildcard import and are available in all tests
 ]
