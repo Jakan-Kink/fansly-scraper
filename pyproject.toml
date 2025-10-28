@@ -162,6 +162,7 @@ ignore = [
     "PLR0915", # too many statements
     "PLR2004", # magic value comparison
     "TRY003",  # avoid specifying long messages outside exception class
+    "TRY301",  # abstract raise to inner function (unnecessary for simple validation)
     "EM101",   # exception must not use string literal
     "EM102",   # exception must not use f-string literal
     "G004",    # logging statement uses f-string

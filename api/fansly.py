@@ -480,7 +480,7 @@ class FanslyApi:
                 await asyncio.sleep(0.1)
 
             if not self._websocket_client.session_id:
-                raise RuntimeError(  # noqa: TRY301 - simple error, no need for helper function
+                raise RuntimeError(
                     "WebSocket authentication failed - no session ID received"
                 )
         except Exception as e:
@@ -626,7 +626,7 @@ class FanslyApi:
                     break
 
             if not session_cookie:
-                raise RuntimeError("Login failed: No f-s-c session cookie in response")  # noqa: TRY301 - simple error, no need for helper function
+                raise RuntimeError("Login failed: No f-s-c session cookie in response")
 
             # Extract session ID from cookie
             # Cookie format (base64): sessionId:1:1:hash
