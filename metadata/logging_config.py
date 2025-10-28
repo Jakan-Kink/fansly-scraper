@@ -150,11 +150,11 @@ class DatabaseLogger:
         @event.listens_for(engine, "before_cursor_execute")
         def before_cursor_execute(
             conn: Any,
-            cursor: Any,
-            statement: str,
-            parameters: tuple[Any, ...],
-            context: Any,
-            executemany: bool,
+            _cursor: Any,
+            _statement: str,
+            _parameters: tuple[Any, ...],
+            _context: Any,
+            _executemany: bool,
         ) -> None:
             conn.info.setdefault("query_start_time", []).append(time.time())
             self._stats["queries"] += 1
@@ -162,11 +162,11 @@ class DatabaseLogger:
         @event.listens_for(engine, "after_cursor_execute")
         def after_cursor_execute(
             conn: Any,
-            cursor: Any,
+            _cursor: Any,
             statement: str,
-            parameters: tuple[Any, ...],
-            context: Any,
-            executemany: bool,
+            _parameters: tuple[Any, ...],
+            _context: Any,
+            _executemany: bool,
         ) -> None:
             total = time.time() - conn.info["query_start_time"].pop()
             self._stats["total_time"] += total
@@ -193,7 +193,7 @@ class DatabaseLogger:
             session = session.sync_session
 
         @event.listens_for(session, "after_transaction_create")
-        def after_transaction_create(session: Session, transaction: Any) -> None:
+        def after_transaction_create(_session: Session, transaction: Any) -> None:
             level = get_transaction_nesting_level(transaction)
             caller = get_caller_info()
             parent_chain = get_parent_chain(transaction)
@@ -203,7 +203,7 @@ class DatabaseLogger:
             )
 
         @event.listens_for(session, "after_transaction_end")
-        def after_transaction_end(session: Session, transaction: Any) -> None:
+        def after_transaction_end(_session: Session, transaction: Any) -> None:
             # Get transaction info
             is_active = transaction.is_active
             level = get_transaction_nesting_level(transaction)
@@ -232,7 +232,7 @@ class DatabaseLogger:
         # Add listener for savepoint operations
         @event.listens_for(session, "after_begin")
         def after_begin(
-            session: Session, transaction: SessionTransaction | Any, connection: Any
+            _session: Session, transaction: SessionTransaction | Any, _connection: Any
         ) -> None:
             if hasattr(transaction, "_current_fn") and transaction._current_fn:
                 caller = get_caller_info()

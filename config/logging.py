@@ -461,7 +461,7 @@ def setup_handlers() -> None:
 
 def init_logging_config(config: Any) -> None:
     """Initialize logging configuration."""
-    global _config, _debug_enabled  # noqa: PLW0603
+    global _config, _debug_enabled
     _config = config
 
     # Set debug mode based on config settings (important for IPython sessions)
@@ -479,7 +479,7 @@ def init_logging_config(config: Any) -> None:
 
 def set_debug_enabled(enabled: bool) -> None:
     """Set the global debug flag."""
-    global _debug_enabled  # noqa: PLW0603
+    global _debug_enabled
     _debug_enabled = enabled
     update_logging_config(_config, enabled)  # Update logging config
 
@@ -543,7 +543,7 @@ def update_logging_config(config: Any, enabled: bool) -> None:
 
     if not isinstance(config, FanslyConfig):
         raise TypeError("config must be an instance of FanslyConfig")
-    global _config, _debug_enabled  # noqa: PLW0603
+    global _config, _debug_enabled
     _config = config  # Update config reference
     _debug_enabled = enabled  # Update debug flag
 

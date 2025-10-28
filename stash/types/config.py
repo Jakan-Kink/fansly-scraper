@@ -309,16 +309,16 @@ class ConfigResult:
     ui: dict[str, Any]  # Map!
 
     @strawberry.field
-    def plugins(self, include: list[ID] | None = None) -> dict[str, dict[str, Any]]:
+    def plugins(self, _include: list[ID] | None = None) -> dict[str, dict[str, Any]]:
         """Get plugin configuration.
 
         Args:
-            include: Optional list of plugin IDs to include
+            _include: Optional list of plugin IDs to include (not yet implemented)
 
         Returns:
             Plugin configuration map
         """
-        # TODO: Implement plugin filtering
+        # TODO: Implement plugin filtering using _include parameter
         return {}
 
 

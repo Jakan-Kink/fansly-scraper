@@ -142,9 +142,9 @@ def extract_hashtags(content: str) -> list[str]:
     # Find all matches and extract the captured group (tag without #)
     # Convert to lowercase for case-insensitive uniqueness
     hashtags = []
-    for tag in re.findall(pattern, content):
+    for raw_tag in re.findall(pattern, content):
         # Skip if tag is empty or just whitespace
-        tag = tag.strip()
+        tag = raw_tag.strip()
         if not tag:
             continue
         # Convert to lowercase for case-insensitive uniqueness
@@ -159,7 +159,7 @@ def extract_hashtags(content: str) -> list[str]:
 @require_database_config
 @with_database_session(async_session=True)
 async def process_post_hashtags(
-    config: FanslyConfig,
+    _config: FanslyConfig,
     post_obj: Post,
     content: str,
     session: AsyncSession | None = None,

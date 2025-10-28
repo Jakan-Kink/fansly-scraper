@@ -470,7 +470,7 @@ class AccountMediaBundle(Base):
     )
 
     @property
-    def accountMediaIds(self) -> list[int]:
+    def account_media_ids(self) -> list[int]:
         """Get the list of media IDs in this bundle, ordered by position.
 
         Returns:
@@ -818,7 +818,7 @@ async def process_account_data(
     )
 
     # Get or create account
-    account, created = await Account.async_get_or_create(
+    account, _created = await Account.async_get_or_create(
         session,
         {"id": filtered_data["id"]},
         {"username": filtered_data["username"]},

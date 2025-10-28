@@ -87,7 +87,6 @@ class Image(StashObject):
     # Optional fields
     title: str | None = None  # String
     code: str | None = None  # String
-    urls: list[str] = strawberry.field(default_factory=list)  # [String!]
     date: str | None = None  # String
     details: str | None = None  # String
     photographer: str | None = None  # String

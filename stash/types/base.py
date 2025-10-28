@@ -269,7 +269,7 @@ class StashObject:
             input_data = await self.to_input()
             # Ensure input_data is a plain dict
             if not isinstance(input_data, dict):
-                raise ValueError(
+                raise TypeError(
                     f"to_input() must return a dict, got {type(input_data)}"
                 )
 
@@ -556,7 +556,7 @@ class StashObject:
                     continue
 
                 # Check each item in the lists
-                for i, (curr, orig) in enumerate(zip(current_value, original_value)):
+                for curr, orig in zip(current_value, original_value, strict=True):
                     # If items are dictionaries, compare their content
                     if hasattr(curr, "__dict__") and hasattr(orig, "__dict__"):
                         if curr.__dict__ != orig.__dict__:
