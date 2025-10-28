@@ -63,7 +63,7 @@ class SubscriptionClientMixin:
         """
         # Ensure client is initialized
         if not hasattr(self, "client"):
-            raise Exception("Failed to connect")
+            raise ConnectionError("Failed to connect - client not initialized")
 
         # Store original transport
         original_transport = self.client.transport
