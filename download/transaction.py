@@ -5,8 +5,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from errors import DuplicatePageError
-
 
 async def in_transaction_or_new[T](
     session: AsyncSession,
@@ -36,27 +34,21 @@ async def in_transaction_or_new[T](
     if "session" not in kwargs:
         kwargs["session"] = session
 
-    try:
-        if session.in_transaction():
-            # We're already in a transaction, create a savepoint
-            if debug and "print_debug" in globals():
-                globals()["print_debug"](f"Creating savepoint for {operation_name}")
-            async with session.begin_nested():
-                results = await func(*args, **kwargs)
-                await session.flush()
-                await session.commit()
-                return results
-        else:
-            # Start a new transaction
-            if debug and "print_debug" in globals():
-                globals()["print_debug"](
-                    f"Starting new transaction for {operation_name}"
-                )
-            async with session.begin():
-                results = await func(*args, **kwargs)
-                await session.flush()
-                await session.commit()
-                return results
-    except DuplicatePageError:
-        # Re-raise DuplicatePageError to be handled by the caller
-        raise
+    if session.in_transaction():
+        # We're already in a transaction, create a savepoint
+        if debug and "print_debug" in globals():
+            globals()["print_debug"](f"Creating savepoint for {operation_name}")
+        async with session.begin_nested():
+            results = await func(*args, **kwargs)
+            await session.flush()
+            await session.commit()
+            return results
+    else:
+        # Start a new transaction
+        if debug and "print_debug" in globals():
+            globals()["print_debug"](f"Starting new transaction for {operation_name}")
+        async with session.begin():
+            results = await func(*args, **kwargs)
+            await session.flush()
+            await session.commit()
+            return results

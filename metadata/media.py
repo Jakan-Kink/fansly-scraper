@@ -925,28 +925,6 @@ async def process_media_download(
         session.add(media_obj)
         await session.flush()
 
-    # Remove duplicate skip check since we already checked above
-    if False and _should_skip_media(existing_media):
-        json_output(
-            1,
-            "process_media_download",
-            {
-                "action": "skipping_media",
-                "media_id": media_id,
-                "has_existing": existing_media is not None,
-                "is_downloaded": (
-                    existing_media.is_downloaded if existing_media else None
-                ),
-                "has_hash": (
-                    bool(existing_media.content_hash) if existing_media else None
-                ),
-                "local_filename": (
-                    existing_media.local_filename if existing_media else None
-                ),
-            },
-        )
-        return None
-
     # Ensure creator_id is available
     if not state.creator_id:
         raise ValueError(
