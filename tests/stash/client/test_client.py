@@ -82,13 +82,15 @@ async def test_client_validation_error(mock_session, mock_client) -> None:
         result = await client.execute("query { test }")
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
-        raise AssertionError("Expected ValueError was not raised")
+        raise AssertionError(
+            "Expected ValueError was not raised"
+        )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
-            raise AssertionError(
+            raise TypeError(  # Validates exception type in test
                 f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
@@ -146,13 +148,15 @@ async def test_client_query_error(mock_session, mock_client) -> None:
         result = await client.execute("query { findScene }")
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
-        raise AssertionError("Expected ValueError was not raised")
+        raise AssertionError(
+            "Expected ValueError was not raised"
+        )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
-            raise AssertionError(
+            raise TypeError(  # Validates exception type in test
                 f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
@@ -269,13 +273,15 @@ async def test_client_network_error(mock_session, mock_client) -> None:
         result = await client.execute("query { test }")
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
-        raise AssertionError("Expected ValueError was not raised")
+        raise AssertionError(
+            "Expected ValueError was not raised"
+        )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
-            raise AssertionError(
+            raise TypeError(  # Validates exception type in test
                 f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
@@ -322,13 +328,15 @@ async def test_client_server_error(mock_session, mock_client) -> None:
         result = await client.execute("query { test }")
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
-        raise AssertionError("Expected ValueError was not raised")
+        raise AssertionError(
+            "Expected ValueError was not raised"
+        )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
         if not isinstance(e, ValueError):
-            raise AssertionError(
+            raise TypeError(  # Validates exception type in test
                 f"Expected ValueError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)

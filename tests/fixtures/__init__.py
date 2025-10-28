@@ -413,7 +413,7 @@ def load_json_fixture(filename: str) -> dict[str, Any]:
     with fixture_path.open(encoding="utf-8") as f:
         data = json.load(f)
         if not isinstance(data, dict):
-            raise ValueError(
+            raise TypeError(
                 f"Fixture file {fixture_path} does not contain a JSON object"
             )
         return data
@@ -476,7 +476,7 @@ def anonymize_response(
 
     result = _anonymize_value("", response_data)
     if not isinstance(result, dict):
-        raise ValueError("Response data must be a dictionary at the top level")
+        raise TypeError("Response data must be a dictionary at the top level")
     return result
 
 

@@ -228,16 +228,16 @@ class StashClientBase:
         """Handle gql errors with appropriate error messages."""
         if isinstance(e, TransportQueryError):
             # GraphQL query error (e.g. validation error)
-            raise ValueError(f"GraphQL query error: {e.errors}")
+            raise TypeError(f"GraphQL query error: {e.errors}")
         if isinstance(e, TransportServerError):
             # Server error (e.g. 500)
-            raise ValueError(f"GraphQL server error: {e}")
+            raise TypeError(f"GraphQL server error: {e}")
         if isinstance(e, TransportError):
             # Network/connection error
-            raise ValueError(f"Failed to connect to {self.url}: {e}")
+            raise TypeError(f"Failed to connect to {self.url}: {e}")
         if isinstance(e, asyncio.TimeoutError):
-            raise ValueError(f"Request to {self.url} timed out")
-        raise ValueError(f"Unexpected error during request ({type(e).__name__}): {e}")
+            raise TypeError(f"Request to {self.url} timed out")
+        raise TypeError(f"Unexpected error during request ({type(e).__name__}): {e}")
 
     async def execute(
         self,
@@ -444,7 +444,7 @@ class StashClientBase:
             result = await self.execute(fragments.METADATA_GENERATE_MUTATION, variables)
 
             if not isinstance(result, dict):
-                raise ValueError("Invalid response format from server")
+                raise TypeError("Invalid response format from server")
 
             job_id = result.get("metadataGenerate")
             if not job_id:
