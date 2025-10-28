@@ -27,19 +27,20 @@ class MarkerClientMixin(StashClientProtocol):
                 fragments.FIND_MARKER_QUERY,
                 {"id": id},
             )
+        except Exception:
+            self.log.exception(f"Failed to find marker {id}")
+            return None
+        else:
             if result and result.get("findSceneMarker"):
                 # Sanitize model data before creating SceneMarker
                 clean_data = sanitize_model_data(result["findSceneMarker"])
                 return SceneMarker(**clean_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find marker {id}")
-            return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_markers(
         self,
-        filter_: dict[str, Any] = {"per_page": -1},
+        filter_: dict[str, Any] | None = None,
         marker_filter: dict[str, Any] | None = None,
         q: str | None = None,
     ) -> FindSceneMarkersResultType:
@@ -60,6 +61,8 @@ class MarkerClientMixin(StashClientProtocol):
                 - count: Total number of matching markers
                 - scene_markers: List of SceneMarker objects
         """
+        if filter_ is None:
+            filter_ = {"per_page": -1}
         try:
             # Add q to filter if provided
             if q is not None:
@@ -156,6 +159,10 @@ class MarkerClientMixin(StashClientProtocol):
                 fragments.UPDATE_MARKER_MUTATION,
                 {"input": input_data},
             )
+        except Exception:
+            self.log.exception("Failed to update marker")
+            raise
+        else:
             # Clear caches since we've modified a marker
             self.find_marker.cache_clear()
             self.find_markers.cache_clear()
@@ -165,6 +172,3 @@ class MarkerClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_marker.mark_clean()
             return updated_marker
-        except Exception:
-            self.log.exception("Failed to update marker")
-            raise

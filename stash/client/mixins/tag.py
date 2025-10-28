@@ -27,19 +27,20 @@ class TagClientMixin(StashClientProtocol):
                 fragments.FIND_TAG_QUERY,
                 {"id": id},
             )
+        except Exception:
+            self.log.exception(f"Failed to find tag {id}")
+            return None
+        else:
             if result and result.get("findTag"):
                 # Sanitize model data before creating Tag
                 clean_data = sanitize_model_data(result["findTag"])
                 return Tag(**clean_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find tag {id}")
-            return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_tags(
         self,
-        filter_: dict[str, Any] = {"per_page": -1},
+        filter_: dict[str, Any] | None = None,
         tag_filter: dict[str, Any] | None = None,
         q: str | None = None,
     ) -> FindTagsResultType:
@@ -63,6 +64,8 @@ class TagClientMixin(StashClientProtocol):
         Note:
             Results are cached using async_lru_cache with the function arguments as key.
         """
+        if filter_ is None:
+            filter_ = {"per_page": -1}
         try:
             # Add q to filter if provided
             if q is not None:
@@ -228,6 +231,10 @@ class TagClientMixin(StashClientProtocol):
                 fragments.UPDATE_TAG_MUTATION,
                 {"input": input_data},
             )
+        except Exception:
+            self.log.exception("Failed to update tag")
+            raise
+        else:
             # Clear caches since we've modified a tag
             self.find_tag.cache_clear()
             self.find_tags.cache_clear()
@@ -235,6 +242,3 @@ class TagClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_tag.mark_clean()
             return updated_tag
-        except Exception:
-            self.log.exception("Failed to update tag")
-            raise

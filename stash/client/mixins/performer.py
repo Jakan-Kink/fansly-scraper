@@ -87,25 +87,25 @@ class PerformerClientMixin(StashClientProtocol):
                     if result.count > 0:
                         return result.performers[0]
                     return None
-            else:
-                # If it's an ID, use direct lookup
-                result = await self.execute(
-                    fragments.FIND_PERFORMER_QUERY,
-                    {"id": str(parsed_input)},
-                )
+            # If it's an ID, use direct lookup
+            result = await self.execute(
+                fragments.FIND_PERFORMER_QUERY,
+                {"id": str(parsed_input)},
+            )
+        except Exception:
+            self.log.exception(f"Failed to find performer {performer}")
+            return None
+        else:
             if result and result.get("findPerformer"):
                 # Sanitize model data before creating Performer
                 clean_data = sanitize_model_data(result["findPerformer"])
                 return Performer(**clean_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find performer {performer}")
-            return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_performers(
         self,
-        filter_: dict[str, Any] = {"per_page": -1},
+        filter_: dict[str, Any] | None = None,
         performer_filter: dict[str, Any] | None = None,
         q: str | None = None,
     ) -> FindPerformersResultType:
@@ -193,6 +193,8 @@ class PerformerClientMixin(StashClientProtocol):
             )
             ```
         """
+        if filter_ is None:
+            filter_ = {"per_page": -1}
         try:
             # Add q to filter if provided
             if q is not None:
@@ -373,15 +375,16 @@ class PerformerClientMixin(StashClientProtocol):
                 fragments.UPDATE_PERFORMER_MUTATION,
                 {"input": input_data},
             )
+        except Exception:
+            self.log.exception("Failed to update performer")
+            raise
+        else:
             updated_performer = Performer(
                 **sanitize_model_data(result["performerUpdate"])
             )
             # Mark as clean since we just saved
             updated_performer.mark_clean()
             return updated_performer
-        except Exception:
-            self.log.exception("Failed to update performer")
-            raise
 
     async def update_performer_image(
         self, performer: Performer, image_url: str

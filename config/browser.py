@@ -72,8 +72,6 @@ def get_token_from_firefox_db(
                         ]
                         break
 
-        return session_active_session
-
     except sqlite3.OperationalError:
         # Got
         # "sqlite3.OperationalError: Could not decode to UTF-8 column 'value' with text"
@@ -114,6 +112,9 @@ def get_token_from_firefox_db(
         print(
             f"Unexpected Error parsing Firefox SQLite databases:\n{traceback.format_exc()}"
         )
+
+    else:
+        return session_active_session
 
     return None
 
@@ -297,7 +298,6 @@ def get_auth_token_from_leveldb_folder(
             return auth_token
 
         db.close()
-        return None
 
     except plyvel._plyvel.IOError as e:
         error_message = str(e)
@@ -325,4 +325,7 @@ def get_auth_token_from_leveldb_folder(
         return get_auth_token_from_leveldb_folder(leveldb_folder, interactive)
 
     except Exception:
+        return None
+
+    else:
         return None

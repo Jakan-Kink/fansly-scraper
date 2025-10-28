@@ -104,8 +104,9 @@ def get_hash_for_other_content(filename: Path) -> str:
         file_hash = hash_mp4file(algorithm, filename)
         if not file_hash:
             raise RuntimeError("Failed to generate hash")
-        return file_hash
     except Exception as e:
         if isinstance(e, InvalidMP4Error):
             raise
         raise RuntimeError(f"Failed to hash file {filename}: {e}")
+    else:
+        return file_hash

@@ -83,8 +83,6 @@ async def _get_account_response(
             )
             raise ApiAccountInfoError(message)
 
-        return raw_response
-
     except httpx.HTTPError as e:
         message = (
             "Error getting account info from fansly API (22). "
@@ -92,6 +90,8 @@ async def _get_account_response(
             f"\n  {e!s}"
         )
         raise ApiError(message)
+    else:
+        return raw_response
 
 
 def _extract_account_data(
@@ -119,7 +119,6 @@ def _extract_account_data(
         # Creator account info is in a list
         if isinstance(response_data, list):
             return response_data[0]
-        return response_data
 
     except KeyError as e:
         if response.status_code == 401:
@@ -144,6 +143,8 @@ def _extract_account_data(
             f"\n  {e!s}\n  {response.text}"
         )
         raise ApiAccountInfoError(message)
+    else:
+        return response_data
 
 
 def _update_state_from_account(
@@ -262,13 +263,14 @@ async def _make_rate_limited_request(
         try:
             response = request_func(*args, **kwargs)
             response.raise_for_status()
-            return response
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:  # Rate limited
                 print_info(f"Rate limited, waiting {rate_limit_delay} seconds...")
                 await asyncio.sleep(rate_limit_delay)
                 continue
             raise
+        else:
+            return response
 
 
 async def _get_following_page(
@@ -433,8 +435,6 @@ async def get_following_accounts(
                         # Don't fail completely if one account fails
                         continue
 
-        return usernames
-
     except httpx.HTTPError as e:
         if (
             hasattr(e, "response")
@@ -450,3 +450,5 @@ async def get_following_accounts(
             raise ApiAuthenticationError(message)
         message = f"Error getting following list from Fansly API.\n  {e!s}"
         raise ApiError(message)
+    else:
+        return usernames

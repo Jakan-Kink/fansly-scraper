@@ -451,10 +451,11 @@ async def test_concurrent_access(test_database_sync: Database, test_account: Acc
                     session.add(msg)
                     message_ids.append(msg.id)
                 await session.commit()
-            return message_ids
         except Exception as e:
             print_error(f"Error in add_messages task: {e}")
             raise
+        else:
+            return message_ids
 
     # Create messages concurrently
     tasks = []

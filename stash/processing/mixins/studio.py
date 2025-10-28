@@ -94,7 +94,6 @@ class StudioProcessingMixin:
             try:
                 studio = await self.context.client.create_studio(studio)
                 print_info(f"Created studio: {studio.name}")
-                return studio
             except Exception as e:
                 print_error(f"Failed to create studio: {e}")
                 logger.exception("Failed to create studio", exc_info=e)
@@ -115,6 +114,8 @@ class StudioProcessingMixin:
                     # If still not found, return None
                     return None
                 # Fall through to return existing studio
+            else:
+                return studio
 
         # Return first matching studio
         return Studio(**studio_data.studios[0])

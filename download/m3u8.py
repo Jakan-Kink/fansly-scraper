@@ -218,16 +218,15 @@ def _try_direct_download(
             return True
 
         print_warning("Direct HLS download produced invalid file")
-        return False
 
     except ffmpeg.Error as e:
         stderr = e.stderr.decode() if e.stderr else str(e)
         print_debug(f"Direct HLS download failed: {stderr}")
         print_info("Fast path failed, falling back to segment download...")
-        return False
     except Exception as e:
         print_debug(f"Direct HLS download failed: {e!s}")
         print_info("Fast path failed, falling back to segment download...")
+    else:
         return False
 
 
@@ -391,11 +390,12 @@ def _try_segment_download(
                 f"✓ Segment download succeeded ({output_path.stat().st_size:,} bytes)"
             )
             print_debug(f"Saved to: {output_path}")
-            return output_path
 
         except ffmpeg.Error as ex:
             stderr = ex.stderr.decode() if ex.stderr else str(ex)
             raise M3U8Error(f"Error running ffmpeg concat: {stderr}")
+        else:
+            return output_path
 
     finally:
         # region Clean up

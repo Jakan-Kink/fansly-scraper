@@ -27,19 +27,20 @@ class StudioClientMixin(StashClientProtocol):
                 fragments.FIND_STUDIO_QUERY,
                 {"id": id},
             )
+        except Exception:
+            self.log.exception(f"Failed to find studio {id}")
+            return None
+        else:
             if result and result.get("findStudio"):
                 # Sanitize model data before creating Studio
                 clean_data = sanitize_model_data(result["findStudio"])
                 return Studio(**clean_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find studio {id}")
-            return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_studios(
         self,
-        filter_: dict[str, Any] = {"per_page": -1},
+        filter_: dict[str, Any] | None = None,
         studio_filter: dict[str, Any] | None = None,
         q: str | None = None,
     ) -> FindStudiosResultType:
@@ -60,6 +61,8 @@ class StudioClientMixin(StashClientProtocol):
                 - count: Total number of matching studios
                 - studios: List of Studio objects
         """
+        if filter_ is None:
+            filter_ = {"per_page": -1}
         try:
             # Add q to filter if provided
             if q is not None:
@@ -133,6 +136,10 @@ class StudioClientMixin(StashClientProtocol):
                 fragments.UPDATE_STUDIO_MUTATION,
                 {"input": input_data},
             )
+        except Exception:
+            self.log.exception("Failed to update studio")
+            raise
+        else:
             # Clear caches since we've modified a studio
             self.find_studio.cache_clear()
             self.find_studios.cache_clear()
@@ -142,6 +149,3 @@ class StudioClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_studio.mark_clean()
             return updated_studio
-        except Exception:
-            self.log.exception("Failed to update studio")
-            raise

@@ -298,7 +298,6 @@ async def test_create_tag_duplicate(stash_client: StashClient, mock_tag: Tag) ->
         try:
             # This will raise the ValueError we configured
             await client.execute({"tagCreate": None})
-            return tag  # This won't be reached
         except ValueError as e:
             if "already exists" in str(e):
                 # Clear caches
@@ -313,6 +312,8 @@ async def test_create_tag_duplicate(stash_client: StashClient, mock_tag: Tag) ->
                 }
                 return Tag(**clean_data)
             raise
+        else:
+            return tag
 
     # Replace the mocked create_tag with our custom function
     client.create_tag = mock_create_tag

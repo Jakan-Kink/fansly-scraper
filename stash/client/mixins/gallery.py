@@ -27,19 +27,20 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.FIND_GALLERY_QUERY,
                 {"id": id},
             )
+        except Exception:
+            self.log.exception(f"Failed to find gallery {id}")
+            return None
+        else:
             if result and result.get("findGallery"):
                 # Sanitize model data before creating Gallery
                 clean_data = sanitize_model_data(result["findGallery"])
                 return Gallery(**clean_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find gallery {id}")
-            return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
     async def find_galleries(
         self,
-        filter_: dict[str, Any] = {"per_page": -1},
+        filter_: dict[str, Any] | None = None,
         gallery_filter: dict[str, Any] | None = None,
         q: str | None = None,
     ) -> FindGalleriesResultType:
@@ -60,6 +61,8 @@ class GalleryClientMixin(StashClientProtocol):
                 - count: Total number of matching galleries
                 - galleries: List of Gallery objects
         """
+        if filter_ is None:
+            filter_ = {"per_page": -1}
         try:
             # Add q to filter if provided
             if q is not None:
@@ -133,6 +136,10 @@ class GalleryClientMixin(StashClientProtocol):
                 fragments.UPDATE_GALLERY_MUTATION,
                 {"input": input_data},
             )
+        except Exception:
+            self.log.exception("Failed to update gallery")
+            raise
+        else:
             # Clear caches since we've modified a gallery
             self.find_gallery.cache_clear()
             self.find_galleries.cache_clear()
@@ -142,9 +149,6 @@ class GalleryClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_gallery.mark_clean()
             return updated_gallery
-        except Exception:
-            self.log.exception("Failed to update gallery")
-            raise
 
     async def galleries_update(self, galleries: list[Gallery]) -> list[Gallery]:
         """Update multiple galleries with individual data.

@@ -529,10 +529,11 @@ class StashClientBase:
             job_id = result.get("metadataScan")
             if not job_id:
                 raise ValueError("Failed to start metadata scan - no job ID returned")
-            return job_id
         except Exception as e:
             self.log.exception("Failed to start metadata scan")
             raise ValueError(f"Failed to start metadata scan: {e}")
+        else:
+            return job_id
 
     async def find_job(self, job_id: str) -> Job | None:
         """Find a job by ID.
@@ -559,6 +560,10 @@ class StashClientBase:
                 fragments.FIND_JOB_QUERY,
                 {"input": FindJobInput(id=job_id).__dict__},
             )
+        except Exception:
+            self.log.exception(f"Failed to find job {job_id}")
+            return None
+        else:
             # First check if there are any GraphQL errors
             if "errors" in result:
                 return None
@@ -566,16 +571,13 @@ class StashClientBase:
             if job_data := result.get("findJob"):
                 return Job(**job_data)
             return None
-        except Exception:
-            self.log.exception(f"Failed to find job {job_id}")
-            return None
 
     async def wait_for_job(
         self,
         job_id: str | int,
         status: JobStatus = JobStatus.FINISHED,
         period: float = 1.5,
-        timeout: float = 120.0,
+        timeout_seconds: float = 120.0,
     ) -> bool | None:
         """Wait for a job to reach a specific status.
 
