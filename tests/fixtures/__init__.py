@@ -377,19 +377,19 @@ mod_api_fixtures = [
 ]
 
 # Combined __all__ from all modules
-__all__ = (
-    mod_metadata_factories
-    + mod_stash_type_factories
-    + mod_stash_fixtures
-    + mod_stash_mixin_fixtures
-    + mod_database_fixtures
-    + mod_stash_processing_fixtures
-    + mod_stash_api_fixtures
-    + mod_stash_integration_fixtures
-    + mod_cleanup_fixtures
-    + mod_api_fixtures
-    + mod_init
-)
+__all__ = [  # noqa: PLE0604 - all mod_ lists contain only strings
+    *mod_metadata_factories,
+    *mod_stash_type_factories,
+    *mod_stash_fixtures,
+    *mod_stash_mixin_fixtures,
+    *mod_database_fixtures,
+    *mod_stash_processing_fixtures,
+    *mod_stash_api_fixtures,
+    *mod_stash_integration_fixtures,
+    *mod_cleanup_fixtures,
+    *mod_api_fixtures,
+    *mod_init,
+]
 
 
 def load_json_fixture(filename: str) -> dict[str, Any]:

@@ -230,6 +230,10 @@ max-complexity = 14
 "api/websocket_example.py" = [
     "S105",    # example code with placeholder credentials
 ]
+"stash/client/protocols.py" = [
+    "ASYNC109",  # protocol definitions don't implement timeout logic
+    "ARG002",    # protocol method signatures don't use their parameters
+]
 "stash/**/*.py" = [
     "TID252",   # relative imports are standard in this package structure
     "PLC0415",  # imports inside functions to avoid circular dependencies

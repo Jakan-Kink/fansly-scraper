@@ -139,7 +139,7 @@ _CUSTOM_LEVELS = {
         "name": "INFO",
         "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
         "color": "<light-blue>",
-        "icon": "ℹ️",
+        "icon": "ℹ️",  # noqa: RUF001
     },
     "ERROR": {
         "name": "ERROR",
@@ -463,7 +463,7 @@ def setup_handlers() -> None:
 
 def init_logging_config(config: Any) -> None:
     """Initialize logging configuration."""
-    global _config, _debug_enabled
+    global _config, _debug_enabled  # noqa: PLW0603
     _config = config
 
     # Set debug mode based on config settings (important for IPython sessions)
@@ -481,7 +481,7 @@ def init_logging_config(config: Any) -> None:
 
 def set_debug_enabled(enabled: bool) -> None:
     """Set the global debug flag."""
-    global _debug_enabled
+    global _debug_enabled  # noqa: PLW0603
     _debug_enabled = enabled
     update_logging_config(_config, enabled)  # Update logging config
 
@@ -545,7 +545,7 @@ def update_logging_config(config: Any, enabled: bool) -> None:
 
     if not isinstance(config, FanslyConfig):
         raise TypeError("config must be an instance of FanslyConfig")
-    global _config, _debug_enabled
+    global _config, _debug_enabled  # noqa: PLW0603
     _config = config  # Update config reference
     _debug_enabled = enabled  # Update debug flag
 
