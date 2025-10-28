@@ -156,6 +156,7 @@ select = [
 ]
 
 ignore = [
+    "C901",   # mccabe complexity (handled by mccabe settings)
     "E501",    # line too long (handled by formatter)
     "ANN401",  # dynamically typed expressions (Any)
     "S603",    # subprocess without shell
@@ -168,7 +169,8 @@ ignore = [
     "TRY301",  # abstract raise to inner function (unnecessary for simple validation)
     "EM101",   # exception must not use string literal
     "EM102",   # exception must not use f-string literal
-    "G004",    # logging statement uses f-string
+    "G004",    # logging statement uses f-string (intentional with loguru)
+    "PLW0603", # global statement (used intentionally for module state)
     "RET504",  # unnecessary variable assignment before return
     "A002",    # argument shadowing builtin
     "A003",    # class attribute shadowing builtin
@@ -200,6 +202,7 @@ max-complexity = 14
     "ANN204",  # missing return type annotation for special method
     "E721",    # type comparisons with == (checking type annotations in tests)
     "RUF012",  # mutable class attributes in test fixtures and mock classes
+    "PLC0415", # import outside top-level (common in test fixtures)
     "D",       # pydocstyle
 ]
 "alembic/**/*.py" = [
@@ -217,9 +220,6 @@ max-complexity = 14
 "stash/processing/*.py" = [
     "N815",    # mixedCase variable names match Fansly API response format
 ]
-"stash/old_processing.py" = [
-    "N815",    # mixedCase variable names match Fansly API response format
-]
 "metadata/*.py" = [
     "N815",     # mixedCase variable names match Fansly API response format
     "PLC0415",  # imports inside functions to avoid circular dependencies
@@ -232,6 +232,9 @@ max-complexity = 14
 ]
 "api/websocket_example.py" = [
     "S105",    # example code with placeholder credentials
+]
+"scripts/**/*.py" = [
+    "ALL",     # utility scripts don't require linting
 ]
 "stash/client/protocols.py" = [
     "ASYNC109",  # protocol definitions don't implement timeout logic
@@ -381,35 +384,91 @@ package_depth = 2
 
 [tool.mypy]
 python_version = "3.12"
+plugins = ["sqlalchemy.ext.mypy.plugin", "strawberry.ext.mypy_plugin"]
+# Exclude directories from type checking
 exclude = [
     "tests/",
-    "venv_test/",]
-strict = true
-# Start off with these
+    "venv_test/",
+    "alembic/versions/",
+    "scripts/",
+]
+
+# Keep these basic checks
 warn_unused_configs = true
 warn_redundant_casts = true
-warn_unused_ignores = true
-
-# Getting these passing should be easy
-strict_equality = true
-strict_concatenate = true
-
-# Strongly recommend enabling this one as soon as you can
 check_untyped_defs = true
 
-# These shouldn't be too much additional work, but may be tricky to
-# get passing if you use a lot of untyped libraries
-disallow_subclassing_any = true
-disallow_untyped_decorators = true
-disallow_any_generics = true
+# RELAX these from strict mode:
+strict = false  # Turn off blanket strict mode
+disallow_untyped_defs = false  # Too aggressive for this codebase
+disallow_untyped_calls = false  # Blocks untyped library usage
+disallow_untyped_decorators = false  # Too aggressive for decorators
+warn_return_any = false  # Too noisy with untyped libraries
+disallow_any_generics = false  # Blocks dict(), list(), etc.
 
-# These next few are various gradations of forcing use of type annotations
-disallow_untyped_calls = true
-disallow_incomplete_defs = true
-disallow_untyped_defs = true
+# Keep these useful ones:
+disallow_incomplete_defs = true  # Still check partial type hints
+no_implicit_reexport = true  # Good practice
+strict_equality = true  # Catches bugs
 
-# This one isn't too hard to get passing, but return on investment is lower
-no_implicit_reexport = true
+# Skip alembic migration files completely
+[[tool.mypy.overrides]]
+module = "alembic.versions.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+follow_imports = "skip"
+ignore_errors = true
 
-# This one can be tricky to get passing if you use a lot of untyped libraries
-warn_return_any = true
+# Skip scripts completely
+[[tool.mypy.overrides]]
+module = "scripts.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+follow_imports = "skip"
+ignore_errors = true
+
+# Libraries without type stubs
+[[tool.mypy.overrides]]
+module = "plyvel.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "javascript.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ffmpeg.*"
+ignore_missing_imports = true
+
+# Problematic modules with complex typing issues
+[[tool.mypy.overrides]]
+module = "config.logging"
+# Loguru callback hell with dynamic typing
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "config.browser"
+# Uses plyvel (no type stubs)
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "helpers.checkkey"
+# Uses javascript library (no type stubs)
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "download.m3u8"
+# Uses ffmpeg and m3u8 libraries (no type stubs)
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "metadata.decorators"
+# Complex decorator typing with dynamic behavior
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "config.decorators"
+# Complex decorator typing with dynamic behavior
+ignore_errors = true

@@ -12,7 +12,7 @@ from metadata.media import Media
 
 
 @require_database_config
-def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str:
+def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str:  # noqa: PLR0911 - Multiple validation checks with early returns
     """Normalize filename to handle timezone differences.
 
     Converts filenames with different timezone formats to a standard format:
