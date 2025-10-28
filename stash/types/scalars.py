@@ -47,7 +47,7 @@ def _parse_timestamp(value: str) -> datetime:
         Parsed datetime
     """
     # Handle relative times
-    if value.startswith("<") or value.startswith(">"):
+    if value.startswith(("<", ">")):
         direction = -1 if value.startswith("<") else 1
         amount = value[1:-1]  # Remove direction and unit
         unit = value[-1]  # Get unit (h/m)

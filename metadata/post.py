@@ -131,7 +131,7 @@ post_mentions = Table(
 
 
 async def process_posts_metadata(
-    config: FanslyConfig,
+    _config: FanslyConfig,
     metadata: dict[str, any],
 ) -> None:
     """Process posts metadata.
@@ -147,7 +147,7 @@ async def process_posts_metadata(
 @require_database_config
 @with_database_session(async_session=True)
 async def process_pinned_posts(
-    config: FanslyConfig,
+    _config: FanslyConfig,
     account: Account,
     posts: list[dict[str, any]],
     session: AsyncSession | None = None,
@@ -191,10 +191,10 @@ async def process_pinned_posts(
         )
         update_stmt = insert_stmt.on_conflict_do_update(
             index_elements=["postId", "accountId"],
-            set_=dict(
-                pos=post["pos"],
-                createdAt=created_at,
-            ),
+            set_={
+                "pos": post["pos"],
+                "createdAt": created_at,
+            },
         )
         await session.execute(update_stmt)
         await session.flush()
@@ -286,11 +286,11 @@ async def process_timeline_posts(
 
     # Process media in batches
     media_start = time.time()
-    accountMedia = posts["accountMedia"]
+    account_media = posts["accountMedia"]
     batch_size = 15  # Process one timeline page worth of media at a time
 
-    for i in range(0, len(accountMedia), batch_size):
-        batch = accountMedia[i : i + batch_size]
+    for i in range(0, len(account_media), batch_size):
+        batch = account_media[i : i + batch_size]
         batch_start = time.time()
 
         # Process the entire batch at once
@@ -301,8 +301,8 @@ async def process_timeline_posts(
             "meta/post - timing - media_batch",
             {
                 "batch_start": i + 1,
-                "batch_end": min(i + batch_size, len(accountMedia)),
-                "total_media": len(accountMedia),
+                "batch_end": min(i + batch_size, len(account_media)),
+                "total_media": len(account_media),
                 "batch_size": len(batch),
                 "time_taken": time.time() - batch_start,
             },
@@ -335,7 +335,7 @@ async def process_timeline_posts(
             "counts": {
                 "posts": len(tl_posts),
                 "aggregated_posts": len(posts.get("aggregatedPosts", [])),
-                "media": len(accountMedia),
+                "media": len(account_media),
                 "accounts": len(accounts),
             },
         },
@@ -508,7 +508,7 @@ async def _process_post_attachments(
     session: AsyncSession,
     post_obj: Post,
     attachments: list[dict[str, any]],
-    config: FanslyConfig,
+    _config: FanslyConfig,
 ) -> None:
     """Process attachments for a post.
 
@@ -682,7 +682,7 @@ async def _process_timeline_post(
 
     # Get or create post
     db_start = time.time()
-    post_obj, created = await Post.async_get_or_create(
+    post_obj, _created = await Post.async_get_or_create(
         session,
         {"id": filtered_post["id"]},
         filtered_post,

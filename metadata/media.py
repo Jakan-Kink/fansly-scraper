@@ -153,7 +153,7 @@ class Media(Base):
 
 
 class MediaBatch:
-    def __init__(self):
+    def __init__(self) -> None:
         self.media_items = []  # Media records to insert/update
         self.locations = []  # Location records to insert
         self.variants = []  # Variant relationships to insert
@@ -502,7 +502,7 @@ async def _process_account_media_batch(
 @require_database_config
 @with_database_session(async_session=True)
 async def process_media_info(
-    config: FanslyConfig,
+    _config: FanslyConfig,
     media_infos: dict,
     session: AsyncSession | None = None,
 ) -> None:
@@ -640,8 +640,8 @@ async def process_media_item_dict(
     """
     json_output(1, "meta/media - p_m_i_h - media_item[dict]", media_item)
     if session is None:
-        async with config._database.async_session_scope() as session:
-            await _process_media_item_dict_inner(config, media_item, session=session)
+        async with config._database.async_session_scope() as db_session:
+            await _process_media_item_dict_inner(config, media_item, session=db_session)
     else:
         await _process_media_item_dict_inner(config, media_item, session=session)
 
@@ -749,7 +749,7 @@ async def process_media_item_dict(
 
 @with_database_session(async_session=True)
 async def _process_media_item_dict_inner(
-    config: FanslyConfig,
+    _config: FanslyConfig,
     media_item: dict[str, any],
     account_id: int | None = None,
     session: AsyncSession | None = None,
@@ -803,7 +803,7 @@ def _should_skip_media(media_obj: Media) -> bool:
 @require_database_config
 @with_database_session(async_session=True)
 async def process_media_download(
-    config: FanslyConfig,
+    _config: FanslyConfig,
     state: DownloadState,
     media: MediaItem | dict[str, any],
     session: AsyncSession | None = None,
@@ -865,7 +865,7 @@ async def process_media_download(
         )
         return None
 
-    media_obj: Media | None = None if not existing_media else existing_media
+    media_obj: Media | None = existing_media if existing_media else None
 
     if not isinstance(media, MediaItem):
         # Get or create media record
@@ -980,7 +980,7 @@ async def process_media_download_accessible(
 
 
 async def process_media_download_handler(
-    config: FanslyConfig, state: DownloadState, media: dict
+    _config: FanslyConfig, _state: DownloadState, media: dict
 ) -> None:
     """Handle media download processing.
 

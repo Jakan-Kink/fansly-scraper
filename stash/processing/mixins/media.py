@@ -304,18 +304,19 @@ class MediaProcessingMixin:
                     return None
                 else:
                     return file
-            logger.warning(
-                f"First file in scene is not a VideoFile or dict: {type(file_data)}"
-            )
-            debug_print(
-                {
-                    "method": "StashProcessing - _get_video_file_from_stash_obj",
-                    "status": "invalid_video_file_type",
-                    "file_type": str(type(file_data)),
-                    "scene_id": scene_id,
-                }
-            )
-            return None
+            else:
+                logger.warning(
+                    f"First file in scene is not a VideoFile or dict: {type(file_data)}"
+                )
+                debug_print(
+                    {
+                        "method": "StashProcessing - _get_video_file_from_stash_obj",
+                        "status": "invalid_video_file_type",
+                        "file_type": str(type(file_data)),
+                        "scene_id": scene_id,
+                    }
+                )
+                return None
         except Exception as e:
             logger.error(f"Error getting VideoFile from scene: {e}")
             debug_print(

@@ -182,7 +182,7 @@ async def _process_single_message(
         return None
 
     # Get or create message - use ID as primary filter
-    message, created = await Message.async_get_or_create(
+    message, _created = await Message.async_get_or_create(
         session,
         {
             "id": filtered_message["id"],
@@ -208,7 +208,7 @@ async def _process_single_message(
 @with_database_session(async_session=True)
 async def process_messages_metadata(
     config: FanslyConfig,
-    state: DownloadState,
+    _state: DownloadState,
     messages: list[dict[str, any]],
     session: AsyncSession | None = None,
 ) -> None:
@@ -360,7 +360,7 @@ async def _process_single_group(
             del filtered_group["lastMessageId"]
 
     # Get or create group
-    group, created = await Group.async_get_or_create(
+    group, _created = await Group.async_get_or_create(
         session,
         {"id": filtered_group["id"]},
         {"createdBy": filtered_group["createdBy"]},

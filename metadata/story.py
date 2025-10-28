@@ -53,7 +53,7 @@ class Story(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize a Story instance with timestamp conversion."""
         self.convert_timestamps(kwargs, ("createdAt", "updatedAt"))
         super().__init__(**kwargs)

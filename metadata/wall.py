@@ -110,7 +110,7 @@ wall_posts = Table(
 @require_database_config
 @with_database_session(async_session=True)
 async def process_account_walls(
-    config: FanslyConfig,
+    _config: FanslyConfig,
     account: Account,
     walls_data: list[dict[str, any]],
     session: AsyncSession | None = None,

@@ -267,12 +267,12 @@ class Database:
 
         @event.listens_for(sync_engine, "before_cursor_execute")
         def before_cursor_execute(
-            conn: Any,
-            cursor: Any,
+            _conn: Any,
+            _cursor: Any,
             statement: str,
             parameters: Any,
-            context: Any,
-            executemany: bool,
+            _context: Any,
+            _executemany: bool,
         ) -> None:
             # Log the SQL statement through db_logger
             db_logger.info(statement)

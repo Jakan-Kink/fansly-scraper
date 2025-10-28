@@ -1,5 +1,6 @@
 """Performer type for Stash."""
 
+import asyncio
 import base64
 import mimetypes
 from pathlib import Path
@@ -196,9 +197,8 @@ class Performer(StashObject):
             raise FileNotFoundError(f"Image file not found: {path}")
 
         try:
-            # Read and encode image
-            with path.open("rb") as f:
-                image_data = f.read()
+            # Read and encode image (use asyncio.to_thread for blocking I/O)
+            image_data = await asyncio.to_thread(path.read_bytes)
             image_b64 = base64.b64encode(image_data).decode("utf-8")
             mime = mimetypes.types_map.get(path.suffix, "image/jpeg")
             image_url = f"data:{mime};base64,{image_b64}"

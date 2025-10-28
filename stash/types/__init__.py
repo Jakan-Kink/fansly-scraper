@@ -219,17 +219,17 @@ from .tag import (
 )
 
 
-__all__: list[str] = [
+__all__: list[str] = [  # noqa: RUF022 - Organized by semantic sections, not alphabetically
     # Base types
     "BulkUpdateIds",
     "BulkUpdateStrings",
     "StashObject",
     # Core types
-    "Scene",
     "Gallery",
     "Group",
     "Image",
     "Performer",
+    "Scene",
     "Studio",
     "Tag",
     # Config types
@@ -421,8 +421,8 @@ __all__: list[str] = [
     "HashAlgorithm",
     "ImageLightboxDisplayMode",
     "ImageLightboxScrollMode",
-    "OrientationEnum",
     "OnMultipleMatch",
+    "OrientationEnum",
     "PackageType",
     "PreviewPreset",
     "ResolutionEnum",
