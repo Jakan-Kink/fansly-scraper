@@ -180,7 +180,7 @@ def _log_retry_attempt(
     )
 
 
-async def _handle_async_retry(
+async def _handle_async_retry[RT](
     func: Callable[..., RT],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -255,7 +255,7 @@ async def _handle_async_retry(
     return None  # type: ignore # Typing hint - never reached
 
 
-def _handle_sync_retry(
+def _handle_sync_retry[RT](
     func: Callable[..., RT],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],

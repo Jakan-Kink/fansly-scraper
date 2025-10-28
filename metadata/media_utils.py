@@ -44,20 +44,25 @@ def validate_media_id(
     Returns:
         Valid media ID or None if invalid
     """
-    # Handle integer IDs
-    if isinstance(media_item, int):
-        if not (-(2**63) <= media_item <= 2**63 - 1):
+
+    # Helper to validate range
+    def _validate_range(media_id: int) -> bool:
+        if not (-(2**63) <= media_id <= 2**63 - 1):
             json_output(
                 2,
                 "meta/media - media_id_out_of_range",
                 {
-                    "media_id": media_item,
+                    "media_id": media_id,
                     f"{context_type}_id": context_id,
                     "pos": pos,
                 },
             )
-            return None
-        return media_item
+            return False
+        return True
+
+    # Handle integer IDs
+    if isinstance(media_item, int):
+        return media_item if _validate_range(media_item) else None
 
     # Handle string IDs
     if isinstance(media_item, str):
@@ -75,18 +80,6 @@ def validate_media_id(
 
         try:
             media_id = int(media_item)
-            if not (-(2**63) <= media_id <= 2**63 - 1):
-                json_output(
-                    2,
-                    "meta/media - media_id_out_of_range",
-                    {
-                        "media_id": media_id,
-                        f"{context_type}_id": context_id,
-                        "pos": pos,
-                    },
-                )
-                return None
-            return media_id
         except ValueError:
             json_output(
                 2,
@@ -98,8 +91,10 @@ def validate_media_id(
                 },
             )
             return None
+        else:
+            return media_id if _validate_range(media_id) else None
 
-    # Handle non-dict objects
+    # Handle dict and other types (return None for both)
     if not isinstance(media_item, dict):
         json_output(
             2,
@@ -111,9 +106,9 @@ def validate_media_id(
                 "pos": pos,
             },
         )
-        return None
 
-    return None  # For dict case, handled separately
+    # For dict case and invalid types, both return None
+    return None
 
 
 async def process_preview(
