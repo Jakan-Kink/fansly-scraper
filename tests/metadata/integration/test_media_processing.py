@@ -123,15 +123,15 @@ async def test_process_media_bundle_from_timeline(test_database, config, timelin
         # Verify the results
         result = await session.execute(
             select(AccountMediaBundle)
-            .options(selectinload(AccountMediaBundle.accountMediaIds))
+            .options(selectinload(AccountMediaBundle.accountMedia))
             .where(AccountMediaBundle.id == bundle_data["id"])
         )
         bundle = result.fetchone()
         assert bundle is not None
-        assert len(bundle.accountMediaIds) == len(bundle_data["bundleContent"])
+        assert len(bundle.account_media_ids) == len(bundle_data["bundleContent"])
 
         # Verify order is preserved
-        media_ids = [m.id for m in bundle.accountMediaIds]
+        media_ids = [m.id for m in bundle.account_media_ids]
         expected_order = [
             c["accountMediaId"]
             for c in sorted(bundle_data["bundleContent"], key=lambda x: x["pos"])

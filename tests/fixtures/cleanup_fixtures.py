@@ -27,7 +27,7 @@ def cleanup_rich_progress_state():
 
     try:
         # Lazy import to avoid circular dependency
-        from helpers.rich_progress import _console, _progress_manager  # noqa: PLC0415
+        from helpers.rich_progress import _console, _progress_manager
 
         # Reset progress manager state
         with _progress_manager._lock:
@@ -80,7 +80,7 @@ def cleanup_loguru_handlers():
 
     try:
         # Lazy import to avoid circular dependency
-        from config.logging import _handler_ids  # noqa: PLC0415
+        from config.logging import _handler_ids
 
         # Remove loguru handlers but don't manually close file handlers
         # Let loguru handle the file closure to avoid double-close issues
@@ -159,7 +159,7 @@ def cleanup_global_config_state():
 
     try:
         # Lazy import to avoid circular dependency
-        import config.logging  # noqa: PLC0415
+        import config.logging
 
         # Reset global configuration variables
         config.logging._config = None

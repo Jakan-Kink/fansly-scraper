@@ -164,10 +164,10 @@ async def test_process_account_media_bundles(test_database, config, timeline_dat
             assert bundle is not None
 
             # Verify media count
-            assert len(bundle.accountMediaIds) == len(bundle_data["bundleContent"])
+            assert len(bundle.account_media_ids) == len(bundle_data["bundleContent"])
 
             # Verify order
-            media_ids = [m.id for m in bundle.accountMediaIds]
+            media_ids = [m.id for m in bundle.account_media_ids]
             expected_order = [
                 c["accountMediaId"]
                 for c in sorted(bundle_data["bundleContent"], key=lambda x: x["pos"])
