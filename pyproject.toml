@@ -294,6 +294,7 @@ addopts = [
     "--timeout=300",
     "-n=8",  # Use 8 parallel workers
     "-v",  # Add verbose output for better debugging
+    "--color=no",  # Disable colors to avoid ANSI codes in log files
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
