@@ -128,6 +128,9 @@ async def test_config_factory(tmp_path, mocker):
     mock_session.execute.return_value = mock_result
     mock_session.in_transaction.return_value = False
 
+    # session.add() is synchronous in SQLAlchemy, so use a regular Mock
+    mock_session.add = mocker.Mock()
+
     # Mock get to return our mock media object
     mock_session.get = mocker.AsyncMock(return_value=mock_media)
 
