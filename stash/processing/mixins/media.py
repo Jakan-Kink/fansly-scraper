@@ -378,8 +378,8 @@ class MediaProcessingMixin:
     async def process_account_media_by_mimetype(
         self,
         account: Account,
-        _performer: Performer,
-        _studio: Studio | None = None,
+        performer: Performer,  # noqa: ARG002
+        studio: Studio | None = None,  # noqa: ARG002
         session: AsyncSession | None = None,
     ) -> dict[str, list[Image | Scene]]:
         """Process all media for an account grouped by mimetype.
@@ -1023,69 +1023,64 @@ class MediaProcessingMixin:
             performers.append(main_performer)
 
         # Add mentioned performers if any
-        if hasattr(item, "accountMentions"):
-            # Check if awaitable_attrs exists and use it, otherwise access directly
-            if hasattr(item, "awaitable_attrs"):
-                mentions = await item.awaitable_attrs.accountMentions
-            else:
-                mentions = item.accountMentions
-            if mentions:
-                for mention in mentions:
-                    # Try to find existing performer
-                    mention_performer = await self._find_existing_performer(mention)
+        mentions = await item.awaitable_attrs.accountMentions
+        if mentions:
+            for mention in mentions:
+                # Try to find existing performer
+                mention_performer = await self._find_existing_performer(mention)
 
-                    # Create new performer if not found
-                    if not mention_performer:
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _update_stash_metadata",
-                                "status": "creating_mentioned_performer",
-                                "username": mention.username,
-                            }
-                        )
-                        try:
-                            mention_performer = Performer.from_account(mention)
+                # Create new performer if not found
+                if not mention_performer:
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _update_stash_metadata",
+                            "status": "creating_mentioned_performer",
+                            "username": mention.username,
+                        }
+                    )
+                    try:
+                        mention_performer = Performer.from_account(mention)
+                        if mention_performer:
+                            await mention_performer.save(self.context.client)
+                            await self._update_account_stash_id(
+                                mention, mention_performer
+                            )
+                            debug_print(
+                                {
+                                    "method": "StashProcessing - _update_stash_metadata",
+                                    "status": "performer_created",
+                                    "username": mention.username,
+                                    "stash_id": mention_performer.id,
+                                }
+                            )
+                    except Exception as e:
+                        error_message = str(e)
+                        if (
+                            "performer with name" in error_message
+                            and "already exists" in error_message
+                        ):
+                            # Try to find the performer again - it may have been created by another thread
+                            mention_performer = await self._find_existing_performer(
+                                mention
+                            )
                             if mention_performer:
-                                await mention_performer.save(self.context.client)
-                                await self._update_account_stash_id(
-                                    mention, mention_performer
-                                )
                                 debug_print(
                                     {
                                         "method": "StashProcessing - _update_stash_metadata",
-                                        "status": "performer_created",
+                                        "status": "performer_found_after_create_failed",
                                         "username": mention.username,
                                         "stash_id": mention_performer.id,
                                     }
                                 )
-                        except Exception as e:
-                            error_message = str(e)
-                            if (
-                                "performer with name" in error_message
-                                and "already exists" in error_message
-                            ):
-                                # Try to find the performer again - it may have been created by another thread
-                                mention_performer = await self._find_existing_performer(
-                                    mention
-                                )
-                                if mention_performer:
-                                    debug_print(
-                                        {
-                                            "method": "StashProcessing - _update_stash_metadata",
-                                            "status": "performer_found_after_create_failed",
-                                            "username": mention.username,
-                                            "stash_id": mention_performer.id,
-                                        }
-                                    )
-                                else:
-                                    # If we still can't find it, something is wrong
-                                    raise
                             else:
-                                # Re-raise if it's not a "performer already exists" error
+                                # If we still can't find it, something is wrong
                                 raise
+                        else:
+                            # Re-raise if it's not a "performer already exists" error
+                            raise
 
-                    if mention_performer:
-                        performers.append(mention_performer)
+                if mention_performer:
+                    performers.append(mention_performer)
 
         if performers:
             stash_obj.performers = performers
@@ -1095,10 +1090,10 @@ class MediaProcessingMixin:
             stash_obj.studio = studio
 
         # Add hashtags as tags
-        if hasattr(item, "hashtags"):
-            await item.awaitable_attrs.hashtags
-            if item.hashtags:
-                tags = await self._process_hashtags_to_tags(item.hashtags)
+        try:
+            hashtags = await item.awaitable_attrs.hashtags
+            if hashtags:
+                tags = await self._process_hashtags_to_tags(hashtags)
                 if tags:
                     # TODO: Re-enable this code after testing
                     # This code will update tags instead of overwriting them
@@ -1111,6 +1106,9 @@ class MediaProcessingMixin:
 
                     # Temporarily overwrite tags for testing
                     stash_obj.tags = tags
+        except AttributeError:
+            # Item doesn't have hashtags attribute (e.g., Messages)
+            pass
 
         # Mark as preview if needed
         if is_preview:

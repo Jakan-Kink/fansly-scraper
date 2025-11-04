@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from metadata import Account, Post, post_mentions
-from stash.types import Gallery, Performer
+from stash.types import Gallery
 from tests.fixtures import AccountFactory, PostFactory
 
 
@@ -34,14 +34,14 @@ class TestGalleryCreation:
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
-        # Query fresh from async session (use .unique() for joined eager loads)
+        # Query fresh from async session
         result = await session.execute(select(Post).where(Post.id == 12345))
         post_item = result.unique().scalar_one()
 
-        # Call method
+        # Call method - no external API calls in _create_new_gallery
         gallery = await gallery_mixin._create_new_gallery(post_item, "Test Title")
 
-        # Verify gallery properties
+        # Verify gallery properties (RESULTS, not mock calls)
         assert gallery.id == "new"
         assert gallery.title == "Test Title"
         assert gallery.details == post_item.content
@@ -73,23 +73,16 @@ class TestGalleryCreation:
         result = await session.execute(select(Post).where(Post.id == 67890))
         post_obj = result.unique().scalar_one()
 
-        # Call method
+        # Call method - let real _generate_title_from_content run
         url_pattern = "https://test.com/{username}/post/{id}"
         username, title, url = await gallery_mixin._get_gallery_metadata(
             post_obj, account_obj, url_pattern
         )
 
-        # Verify results
+        # Verify RESULTS
         assert username == "test_user"
-        assert title == "Test Title"  # From the mocked _generate_title_from_content
+        assert title == "Test content #test"  # Real title from content
         assert url == "https://test.com/test_user/post/67890"
-
-        # Verify calls
-        gallery_mixin._generate_title_from_content.assert_called_once_with(
-            content=post_obj.content,
-            username="test_user",
-            created_at=post_obj.createdAt,
-        )
 
     @pytest.mark.asyncio
     async def test_setup_gallery_performers(
@@ -107,10 +100,6 @@ class TestGalleryCreation:
         # Create real accounts for mentions
         mention_account1 = AccountFactory(id=20001, username="mention1")
         mention_account2 = AccountFactory(id=20002, username="mention2")
-
-        # Note: post_mentions has postId as PRIMARY KEY, so only one mention per post.
-        # To test multiple mentions, create a "virtual" post with mentions by testing the relationship.
-        # For this test, we'll focus on testing the method logic with the main post and mock find_existing_performer.
 
         # Create main post for testing
         post = PostFactory(id=77777, accountId=10000, content="Test post")
@@ -134,29 +123,30 @@ class TestGalleryCreation:
         # Verify mention was loaded
         assert len(post_obj.accountMentions) == 1
 
-        # Mock Stash performer for mention
-        mention_performer1 = MagicMock(spec=Performer)
-        mention_performer1.id = "stash_mention1"
+        # Mock ONLY external API call - find_performer
+        mention_performer_dict = {
+            "id": "stash_mention1",
+            "name": "mention1",
+            "urls": ["https://fansly.com/mention1"],
+        }
+        gallery_mixin.context.client.find_performer = AsyncMock(
+            return_value=mention_performer_dict
+        )
 
-        # Setup mixin method to return performer for mention
-        gallery_mixin._find_existing_performer.return_value = mention_performer1
-
-        # Call method
+        # Call method - let real _find_existing_performer run
         await gallery_mixin._setup_gallery_performers(
             mock_gallery, post_obj, gallery_mock_performer
         )
 
-        # Verify gallery performers (main + 1 mention)
+        # Verify RESULTS - gallery performers (main + 1 mention)
         assert len(mock_gallery.performers) == 2
         assert mock_gallery.performers[0] == gallery_mock_performer
-        assert mock_gallery.performers[1] == mention_performer1
-
-        # Verify _find_existing_performer was called for the mention
-        assert gallery_mixin._find_existing_performer.call_count == 1
+        # Second performer is the dict from find_performer
+        assert mock_gallery.performers[1] == mention_performer_dict
 
         # Test with no mentioned accounts - create separate post
         post2 = PostFactory(id=99999, accountId=10000, content="Test post no mentions")
-        await session.commit()  # Commit so post2 is visible
+        await session.commit()
 
         result = await session.execute(
             select(Post)
@@ -166,42 +156,42 @@ class TestGalleryCreation:
         post_obj2 = result.unique().scalar_one()
 
         mock_gallery.performers = []
-        gallery_mixin._find_existing_performer.reset_mock()
+        gallery_mixin.context.client.find_performer.reset_mock()
 
         await gallery_mixin._setup_gallery_performers(
             mock_gallery, post_obj2, gallery_mock_performer
         )
 
-        # Verify gallery performers (only main performer)
+        # Verify RESULTS - only main performer
         assert len(mock_gallery.performers) == 1
         assert mock_gallery.performers[0] == gallery_mock_performer
-        gallery_mixin._find_existing_performer.assert_not_called()
+        gallery_mixin.context.client.find_performer.assert_not_called()
 
-        # Test with mentioned accounts but no performers found
+        # Test with mentioned accounts but no performers found in Stash
         mock_gallery.performers = []
-        gallery_mixin._find_existing_performer.reset_mock()
-        gallery_mixin._find_existing_performer.return_value = (
-            None  # No performer found for mention
-        )
+        gallery_mixin.context.client.find_performer.reset_mock()
+        gallery_mixin.context.client.find_performer.return_value = None
 
         await gallery_mixin._setup_gallery_performers(
             mock_gallery, post_obj, gallery_mock_performer
         )
 
-        # Verify gallery performers (only main performer when mention not found in Stash)
+        # Verify RESULTS - only main performer when mention not found in Stash
         assert len(mock_gallery.performers) == 1
         assert mock_gallery.performers[0] == gallery_mock_performer
 
         # Test with no main performer
         mock_gallery.performers = []
-        gallery_mixin._find_existing_performer.reset_mock()
-        gallery_mixin._find_existing_performer.return_value = mention_performer1
+        gallery_mixin.context.client.find_performer.reset_mock()
+        gallery_mixin.context.client.find_performer.return_value = (
+            mention_performer_dict
+        )
 
         await gallery_mixin._setup_gallery_performers(mock_gallery, post_obj, None)
 
-        # Verify gallery performers (only mentioned performer found)
+        # Verify RESULTS - only mentioned performer found
         assert len(mock_gallery.performers) == 1
-        assert mock_gallery.performers[0] == mention_performer1
+        assert mock_gallery.performers[0] == mention_performer_dict
 
     @pytest.mark.asyncio
     async def test_get_or_create_gallery(
@@ -213,7 +203,12 @@ class TestGalleryCreation:
         gallery_mock_studio,
         mock_gallery,
     ):
-        """Test _get_or_create_gallery method."""
+        """Test _get_or_create_gallery orchestration method.
+
+        Note: This tests orchestration logic, so mocking internal methods to control
+        flow is acceptable. The individual methods (_get_gallery_by_stash_id, etc.)
+        have their own tests that use the factory-based approach.
+        """
         # Create real account and post with factory
         account = AccountFactory(id=12345, username="test_user")
         post = PostFactory(

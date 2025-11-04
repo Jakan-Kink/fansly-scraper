@@ -1,5 +1,6 @@
 """Tag-related client functionality."""
 
+import re
 from typing import Any
 
 from ... import fragments
@@ -7,6 +8,34 @@ from ...client_helpers import async_lru_cache
 from ...types import FindTagsResultType, Tag
 from ..protocols import StashClientProtocol
 from ..utils import sanitize_model_data
+
+
+def parse_tag_name_from_error(error_message: str, attempted_name: str) -> str | None:
+    """Parse the actual tag name from Stash error messages.
+
+    Handles two error scenarios:
+    1. "tag with name 'X' already exists" - returns X (the attempted name)
+    2. "name 'X' is used as alias for 'Y'" - returns Y (the actual tag name)
+
+    Args:
+        error_message: The error message from Stash
+        attempted_name: The tag name that was attempted to be created
+
+    Returns:
+        The actual tag name to search for, or None if error doesn't match patterns
+    """
+    # Scenario 1: Tag with this name already exists
+    if "tag with name" in error_message and "already exists" in error_message:
+        return attempted_name
+
+    # Scenario 2: Name is used as alias for another tag
+    # Error format: "name 'foo' is used as alias for 'bar'"
+    if "is used as alias for" in error_message:
+        match = re.search(r"is used as alias for '(.+?)'", error_message)
+        if match:
+            return match.group(1)
+
+    return None
 
 
 class TagClientMixin(StashClientProtocol):
@@ -104,20 +133,28 @@ class TagClientMixin(StashClientProtocol):
             return Tag(**sanitize_model_data(result["tagCreate"]))
         except Exception as e:
             error_message = str(e)
-            if "tag with name" in error_message and "already exists" in error_message:
+            tag_name_to_search = parse_tag_name_from_error(error_message, tag.name)
+
+            if tag_name_to_search:
                 self.log.info(
-                    f"Tag '{tag.name}' already exists. Fetching existing tag."
+                    f"Tag '{tag.name}' already exists or is an alias. "
+                    f"Fetching existing tag: '{tag_name_to_search}'"
                 )
                 # Clear both tag caches
                 self.find_tag.cache_clear()
                 self.find_tags.cache_clear()
-                # Try to find the existing tag with exact name match
+
+                # Search by exact name match
                 results = await self.find_tags(
-                    tag_filter={"name": {"value": tag.name, "modifier": "EQUALS"}},
+                    tag_filter={
+                        "name": {"value": tag_name_to_search, "modifier": "EQUALS"}
+                    },
                 )
                 if results.count > 0:
                     return Tag(**sanitize_model_data(results.tags[0]))
+
                 raise  # Re-raise if we couldn't find the tag
+
             self.log.exception("Failed to create tag")
             raise
 

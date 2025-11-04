@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     BigInteger,
@@ -42,6 +42,49 @@ if TYPE_CHECKING:
     from .wall import Wall
 
 
+# Table definitions must come before the Post class to allow direct references in relationships
+pinned_posts = Table(
+    "pinned_posts",
+    Base.metadata,
+    Column("postId", BigInteger, ForeignKey("posts.id"), primary_key=True),
+    Column("accountId", BigInteger, ForeignKey("accounts.id"), primary_key=True),
+    Column("pos", Integer, nullable=False),
+    Column("createdAt", DateTime(timezone=True), nullable=True),
+)
+
+post_mentions = Table(
+    "post_mentions",
+    Base.metadata,
+    Column(
+        "postId",
+        BigInteger,
+        ForeignKey("posts.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("accountId", BigInteger, nullable=True),  # NO FK - can be non-Fansly user
+    Column(
+        "handle", String, nullable=False
+    ),  # Make handle required since it's our fallback
+    # Composite unique constraint: either (postId, accountId) or (postId, handle) must be unique
+    UniqueConstraint("postId", "accountId", name="uix_post_mentions_account"),
+    UniqueConstraint("postId", "handle", name="uix_post_mentions_handle"),
+    # Indexes for efficient lookups
+    Index("ix_post_mentions_accountId", "accountId"),  # Simple index on accountId
+    Index(
+        "ix_post_mentions_account",
+        "postId",
+        "accountId",
+        postgresql_where=Column("accountId").isnot(None),
+    ),
+    Index(
+        "ix_post_mentions_handle",
+        "postId",
+        "handle",
+        postgresql_where=Column("handle").isnot(None),
+    ),
+)
+
+
 class Post(Base):
     __tablename__ = "posts"
 
@@ -76,8 +119,11 @@ class Post(Base):
     )
     accountMentions: Mapped[list[Account]] = relationship(
         "Account",
-        secondary="post_mentions",
+        secondary=post_mentions,
+        primaryjoin="Post.id == post_mentions.c.postId",
+        secondaryjoin="post_mentions.c.accountId == Account.id",
         lazy="select",  # Use select loading since mentions are accessed less frequently
+        viewonly=True,  # Mark as viewonly since accountId in post_mentions may not reference an existing Account
     )
     walls: Mapped[list[Wall]] = relationship(
         "Wall",
@@ -89,65 +135,14 @@ class Post(Base):
         "Hashtag",
         secondary="post_hashtags",
         back_populates="posts",
-        lazy="noload",  # Don't auto-load hashtags to reduce SQL queries
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
-
-pinned_posts = Table(
-    "pinned_posts",
-    Base.metadata,
-    Column("postId", BigInteger, ForeignKey("posts.id"), primary_key=True),
-    Column("accountId", BigInteger, ForeignKey("accounts.id"), primary_key=True),
-    Column("pos", Integer, nullable=False),
-    Column("createdAt", DateTime(timezone=True), nullable=True),
-)
-
-post_mentions = Table(
-    "post_mentions",
-    Base.metadata,
-    Column("postId", BigInteger, ForeignKey("posts.id"), primary_key=True),
-    Column("accountId", BigInteger, ForeignKey("accounts.id"), nullable=True),
-    Column(
-        "handle", String, nullable=False
-    ),  # Make handle required since it's our fallback
-    # Composite unique constraint: either (postId, accountId) or (postId, handle) must be unique
-    UniqueConstraint("postId", "accountId", name="uix_post_mentions_account"),
-    UniqueConstraint("postId", "handle", name="uix_post_mentions_handle"),
-    # Partial indexes for efficient lookups
-    Index(
-        "ix_post_mentions_account",
-        "postId",
-        "accountId",
-        postgresql_where=Column("accountId").isnot(None),
-    ),
-    Index(
-        "ix_post_mentions_handle",
-        "postId",
-        "handle",
-        postgresql_where=Column("handle").isnot(None),
-    ),
-)
-
-
-async def process_posts_metadata(
-    _config: FanslyConfig,
-    metadata: dict[str, any],
-) -> None:
-    """Process posts metadata.
-
-    Args:
-        config: FanslyConfig instance
-        metadata: Dictionary containing posts metadata
-    """
-    json_output(1, "meta/post - p_p_metadata - metadata", metadata)
-    # TODO: Implement posts metadata processing
 
 
 @require_database_config
 @with_database_session(async_session=True)
 async def process_pinned_posts(
-    _config: FanslyConfig,
+    config: FanslyConfig,  # noqa: ARG001
     account: Account,
     posts: list[dict[str, any]],
     session: AsyncSession | None = None,
@@ -205,7 +200,7 @@ async def process_pinned_posts(
 async def process_timeline_posts(
     config: FanslyConfig,
     state: DownloadState,
-    posts_data: dict[str, any],
+    posts_data: dict[str, Any],
     session: AsyncSession | None = None,
 ) -> None:
     """Process timeline posts and related data.

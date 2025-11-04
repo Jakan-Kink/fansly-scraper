@@ -88,6 +88,7 @@ coverage = {extras = ["toml"], version = ">=7.8"}
 psutil = ">=7.0.0"
 pytest-loguru = ">=0.4.0"
 factory-boy = "^3.3.3"
+pytest-rerunfailures = "^16.1"
 
 
 [tool.bandit]
@@ -337,7 +338,7 @@ omit = [
     "stash/example.py"  # Example code, not production code
 ]
 command_line = "-m pytest discover -s tests/"
-parallel = false
+parallel = true
 concurrency = ["multiprocessing"]
 disable_warnings = [
     "no-data-collected",

@@ -64,7 +64,6 @@ T = TypeVar("T")
 
 # Export all fixtures for wildcard import
 __all__ = [
-    "cleanup_database",
     "config",
     "conversation_data",
     "factory_async_session",
@@ -650,48 +649,8 @@ async def test_database(
             print(f"Warning: Error during database cleanup: {cleanup_error}")
 
 
-@pytest_asyncio.fixture(scope="function", autouse=True)
-async def cleanup_database(request):
-    """Clean up database after each test."""
-    yield
-    try:
-        # Get the test database fixture from the request
-        if "test_database" in request.fixturenames:
-            try:
-                db = request.getfixturevalue("test_database")
-                async with db.async_session_scope() as session:
-                    # PostgreSQL: No PRAGMA statements needed
-                    # Delete data in reverse dependency order
-                    for table in reversed(Base.metadata.sorted_tables):
-                        await session.execute(table.delete())
-                    await session.commit()
-                await db.close_async()
-            except (ValueError, RuntimeError) as e:
-                # Fixture may have been torn down already - silently ignore
-                if "not available" not in str(
-                    e
-                ) and "already been torn down" not in str(e):
-                    raise
-        elif "test_database_sync" in request.fixturenames:
-            try:
-                db = request.getfixturevalue("test_database_sync")
-                with db.session_scope() as session:
-                    # PostgreSQL: No PRAGMA statements needed
-                    # Delete data in reverse dependency order
-                    for table in reversed(Base.metadata.sorted_tables):
-                        session.execute(table.delete())
-                    session.commit()
-                db.close()
-            except (ValueError, RuntimeError) as e:
-                # Fixture may have been torn down already - silently ignore
-                if "not available" not in str(
-                    e
-                ) and "already been torn down" not in str(e):
-                    raise
-    except Exception as e:
-        # Only print warning for unexpected errors (not fixture teardown errors)
-        if "not available" not in str(e) and "already been torn down" not in str(e):
-            print(f"Warning: Error during database cleanup: {e}")
+# cleanup_database removed: UUID-based database isolation makes cleanup redundant.
+# Each test gets a unique database that's dropped after completion.
 
 
 @pytest_asyncio.fixture
@@ -974,19 +933,27 @@ def mock_account():
 
 
 @pytest.fixture
-def factory_session(session_sync: Session):
-    """Configure FactoryBoy factories to use the test database session.
+def factory_session(test_database_sync: Database):
+    """Configure FactoryBoy factories with a direct session from engine.
 
-    This fixture configures all factories to use the test database session.
-    Tests that use factories must explicitly request this fixture or request
-    fixtures that depend on it (like integration_mock_account).
+    Creates a session directly from the sync engine (like working project)
+    instead of going through TestDatabase.session_scope() to avoid
+    session wrapping issues that break FactoryBoy's SQLAlchemy detection.
 
     Args:
-        session_sync: The sync database session fixture
+        test_database_sync: The test database instance
 
     Yields:
-        The configured session for use by factories
+        Direct session configured for use by factories
     """
+    from sqlalchemy.orm import sessionmaker
+
+    # Create session directly from engine (like working project pattern)
+    session_factory = sessionmaker(
+        bind=test_database_sync._sync_engine, expire_on_commit=False
+    )
+    session = session_factory()
+
     # Get all factory classes (BaseFactory and all subclasses)
     factory_classes = [
         metadata_factories.AccountFactory,
@@ -998,15 +965,25 @@ def factory_session(session_sync: Session):
         metadata_factories.AttachmentFactory,
         metadata_factories.AccountMediaFactory,
         metadata_factories.AccountMediaBundleFactory,
+        metadata_factories.HashtagFactory,
+        metadata_factories.StoryFactory,
+        metadata_factories.WallFactory,
+        metadata_factories.MediaStoryStateFactory,
+        metadata_factories.TimelineStatsFactory,
+        metadata_factories.StubTrackerFactory,
     ]
 
-    # Configure all factory classes to use this session
+    # Configure all factory classes to use this direct session
     for factory_class in factory_classes:
-        factory_class._meta.sqlalchemy_session = session_sync
+        factory_class._meta.sqlalchemy_session = session
 
-    yield session_sync
+    yield session
 
-    # Reset after test
+    # Cleanup: rollback and close session (like working project)
+    session.rollback()
+    session.close()
+
+    # Reset factories
     for factory_class in factory_classes:
         factory_class._meta.sqlalchemy_session = None
 
@@ -1059,6 +1036,12 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
         metadata_factories.AttachmentFactory,
         metadata_factories.AccountMediaFactory,
         metadata_factories.AccountMediaBundleFactory,
+        metadata_factories.HashtagFactory,
+        metadata_factories.StoryFactory,
+        metadata_factories.WallFactory,
+        metadata_factories.MediaStoryStateFactory,
+        metadata_factories.TimelineStatsFactory,
+        metadata_factories.StubTrackerFactory,
     ]
 
     # Configure all factory classes to use the sync session

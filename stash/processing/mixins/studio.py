@@ -11,7 +11,6 @@ from metadata import Account
 from metadata.decorators import with_session
 from textio import print_error, print_info
 
-from ...client_helpers import async_lru_cache
 from ...logging import debug_print
 from ...logging import processing_logger as logger
 from ...types import Performer, Studio
@@ -24,7 +23,6 @@ if TYPE_CHECKING:
 class StudioProcessingMixin:
     """Studio processing functionality."""
 
-    @async_lru_cache(maxsize=128)
     async def _find_existing_studio(self, account: Account) -> Studio | None:
         """Find existing studio in Stash.
 
@@ -42,7 +40,7 @@ class StudioProcessingMixin:
         self,
         account: Account,
         performer: Performer,
-        _session: Session | None = None,
+        session: Session | None = None,  # noqa: ARG002
     ) -> Studio | None:
         """Process creator studio metadata.
 

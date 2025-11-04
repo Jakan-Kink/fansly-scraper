@@ -202,7 +202,8 @@ class TestHashMP4File:
 
     @patch("fileio.mp4.get_boxes")
     @patch("fileio.mp4.hash_mp4box")
-    def test_hash_mp4file(self, mock_hash_mp4box, mock_get_boxes):
+    @patch("pathlib.Path.open")
+    def test_hash_mp4file(self, mock_path_open, mock_hash_mp4box, mock_get_boxes):
         """Test hashing an MP4 file."""
         # Create mock boxes
         ftyp_box = MagicMock()
@@ -230,29 +231,32 @@ class TestHashMP4File:
         mock_open = MagicMock()
         mock_open.__enter__ = MagicMock(return_value=mock_file)
         mock_open.__exit__ = MagicMock(return_value=False)
+        mock_path_open.return_value = mock_open
 
         # Mock hashlib algorithm
         mock_algorithm = MagicMock()
         mock_algorithm.hexdigest.return_value = "test_hash"
 
-        with patch("builtins.open", return_value=mock_open):
-            # Call hash_mp4file without broken algorithm flag
-            result = hash_mp4file(mock_algorithm, mock_path)
+        # Call hash_mp4file without broken algorithm flag
+        result = hash_mp4file(mock_algorithm, mock_path)
 
-            # Verify result
-            assert result == "test_hash"
+        # Verify result
+        assert result == "test_hash"
 
-            # Verify get_boxes was called with the context manager's file
-            mock_get_boxes.assert_called_once_with(mock_file)
+        # Verify get_boxes was called with the context manager's file
+        mock_get_boxes.assert_called_once_with(mock_file)
 
-            # Verify hash_mp4box was called for ftyp and mdat but not moov or free
-            assert mock_hash_mp4box.call_count == 2
-            mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, ftyp_box)
-            mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, mdat_box)
+        # Verify hash_mp4box was called for ftyp and mdat but not moov or free
+        assert mock_hash_mp4box.call_count == 2
+        mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, ftyp_box)
+        mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, mdat_box)
 
     @patch("fileio.mp4.get_boxes")
     @patch("fileio.mp4.hash_mp4box")
-    def test_hash_mp4file_with_broken_algo(self, mock_hash_mp4box, mock_get_boxes):
+    @patch("pathlib.Path.open")
+    def test_hash_mp4file_with_broken_algo(
+        self, mock_path_open, mock_hash_mp4box, mock_get_boxes
+    ):
         """Test hashing an MP4 file with broken algorithm flag."""
         # Create mock boxes
         ftyp_box = MagicMock()
@@ -280,25 +284,25 @@ class TestHashMP4File:
         mock_open = MagicMock()
         mock_open.__enter__ = MagicMock(return_value=mock_file)
         mock_open.__exit__ = MagicMock(return_value=False)
+        mock_path_open.return_value = mock_open
 
         # Mock hashlib algorithm
         mock_algorithm = MagicMock()
         mock_algorithm.hexdigest.return_value = "test_hash"
 
-        with patch("builtins.open", return_value=mock_open):
-            # Call hash_mp4file with broken algorithm flag
-            result = hash_mp4file(mock_algorithm, mock_path, use_broken_algo=True)
+        # Call hash_mp4file with broken algorithm flag
+        result = hash_mp4file(mock_algorithm, mock_path, use_broken_algo=True)
 
-            # Verify result
-            assert result == "test_hash"
+        # Verify result
+        assert result == "test_hash"
 
-            # Verify get_boxes was called with the context manager's file
-            mock_get_boxes.assert_called_once_with(mock_file)
+        # Verify get_boxes was called with the context manager's file
+        mock_get_boxes.assert_called_once_with(mock_file)
 
-            # Verify hash_mp4box was called for ftyp and free but not moov or mdat
-            assert mock_hash_mp4box.call_count == 2
-            mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, ftyp_box)
-            mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, free_box)
+        # Verify hash_mp4box was called for ftyp and free but not moov or mdat
+        assert mock_hash_mp4box.call_count == 2
+        mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, ftyp_box)
+        mock_hash_mp4box.assert_any_call(mock_algorithm, mock_file, free_box)
 
     def test_hash_mp4file_missing_file(self):
         """Test hashing a non-existent file."""

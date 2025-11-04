@@ -6,27 +6,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from metadata import Attachment, Media, Message, Post
 from stash.processing import StashProcessing
-from stash.processing.mixins.batch import BatchProcessingMixin
 from stash.types import Image, Scene, SceneMarker, Studio, Tag
+from tests.fixtures.database_fixtures import AwaitableAttrsMock
+from tests.fixtures.metadata_factories import (
+    AttachmentFactory,
+    MediaFactory,
+    MessageFactory,
+    PostFactory,
+)
 
 # Import fixtures from stash_api_fixtures
 from tests.fixtures.stash_api_fixtures import (
-    mock_account,
-    mock_client,
-    mock_performer,
-    mock_scene,
-    mock_session,
-    mock_studio,
-    mock_transport,
     stash_cleanup_tracker,
     stash_client,
     stash_context,
     test_query,
-)
-from tests.stash.processing.unit.media_mixin.async_mock_helper import (
-    AccessibleAsyncMock,
 )
 
 
@@ -114,28 +109,14 @@ __all__ = [
     "AsyncResult",
     "AsyncSessionContext",
     "MockDatabase",
-    # Local fixtures (renamed with processing_ prefix to avoid conflicts with factory-based fixtures)
-    "mixin",
-    "mock_account",
-    # Stash fixtures imported from stash/conftest.py
-    "mock_client",
+    # Stash fixtures (defined in this file)
     "mock_config",
     "mock_context",
     "mock_database",
     "mock_gallery",
     "mock_image",
     "mock_item",
-    "mock_items",
-    "mock_performer",
-    "mock_process_item",
-    "mock_progress_bars",
-    "mock_queue",
-    "mock_scene",
-    "mock_semaphore",
-    "mock_session",
     "mock_state",
-    "mock_studio",
-    "mock_transport",
     "processing_mock_attachment",
     "processing_mock_media",
     "processing_mock_messages",
@@ -157,125 +138,174 @@ __all__ = [
 ]
 
 
-class TestMixinClass(BatchProcessingMixin):
-    """Test class that implements BatchProcessingMixin for testing."""
+# class TestMixinClass(BatchProcessingMixin):
+#     """Test class that implements BatchProcessingMixin for testing."""
 
-    def __init__(self):
-        """Initialize test class."""
-        self.log = MagicMock()
-        self.context = MagicMock()
-        self.context.client = MagicMock()
-        self._find_existing_performer = AsyncMock()
-        self._find_existing_studio = AsyncMock()
+#     # Rejected - don't add more Mocks, convert this to be factory based - we have a docker based Stash instance for testing
 
-
-@pytest.fixture
-def mixin():
-    """Fixture for batch mixin test class."""
-    return TestMixinClass()
+#     def __init__(self):
+#         """Initialize test class."""
+#         self.log = MagicMock()
+#         self.context = MagicMock()
+#         self.context.client = MagicMock()
+#         ###Don't add more Mocks, convert this to be factory based
+#         self._find_existing_performer = AsyncMock()
+#         self._find_existing_studio = AsyncMock()
 
 
-@pytest.fixture
-def mock_items():
-    """Fixture for mock items."""
-    return [MagicMock() for _ in range(10)]
+# @pytest.fixture
+# def mixin():
+#     """Fixture for batch mixin test class."""
+#     return TestMixinClass()
 
 
-@pytest.fixture
-def mock_progress_bars():
-    """Fixture for mock progress bars."""
-    task_pbar = MagicMock()
-    task_pbar.set_description = MagicMock()
-    task_pbar.set_postfix = MagicMock()
-    task_pbar.update = MagicMock()
-    task_pbar.close = MagicMock()
-
-    process_pbar = MagicMock()
-    process_pbar.set_description = MagicMock()
-    process_pbar.update = MagicMock()
-    process_pbar.close = MagicMock()
-
-    return task_pbar, process_pbar
+# @pytest.fixture
+# def mock_items():
+#     """Fixture for mock items."""
+#     return [MagicMock() for _ in range(10)]
 
 
-@pytest.fixture
-def mock_semaphore():
-    """Fixture for mock asyncio.Semaphore."""
-    semaphore = MagicMock()
-    semaphore._value = 4  # Max concurrency
-    semaphore.__aenter__ = AsyncMock()
-    semaphore.__aexit__ = AsyncMock()
-    return semaphore
+# @pytest.fixture
+# def mock_progress_bars():
+#     """Fixture for mock progress bars."""
+#     task_pbar = MagicMock()
+#     task_pbar.set_description = MagicMock()
+#     task_pbar.set_postfix = MagicMock()
+#     task_pbar.update = MagicMock()
+#     task_pbar.close = MagicMock()
+
+#     process_pbar = MagicMock()
+#     process_pbar.set_description = MagicMock()
+#     process_pbar.update = MagicMock()
+#     process_pbar.close = MagicMock()
+
+#     return task_pbar, process_pbar
 
 
-@pytest.fixture
-def mock_process_item():
-    """Fixture for mock process_item function."""
-    return AsyncMock()
+# @pytest.fixture
+# def mock_semaphore():
+#     """Fixture for mock asyncio.Semaphore."""
+#     semaphore = MagicMock()
+#     semaphore._value = 4  # Max concurrency
+#     semaphore.__aenter__ = AsyncMock()
+#     semaphore.__aexit__ = AsyncMock()
+#     return semaphore
 
 
-@pytest.fixture
-def mock_queue():
-    """Fixture for mock asyncio.Queue."""
-    queue = MagicMock()
-    queue.get = AsyncMock()
-    queue.put = AsyncMock()
-    queue.task_done = MagicMock()
-    return queue
+# @pytest.fixture
+# def mock_process_item():
+#     """Fixture for mock process_item function."""
+#     return AsyncMock()
+
+
+# @pytest.fixture
+# def mock_queue():
+#     """Fixture for mock asyncio.Queue."""
+#     queue = MagicMock()
+#     queue.get = AsyncMock()
+#     queue.put = AsyncMock()
+#     queue.task_done = MagicMock()
+#     return queue
 
 
 @pytest.fixture
 def processing_mock_posts():
-    """Fixture for mock posts (processing tests)."""
+    """Fixture for mock posts (processing tests).
+
+    Uses PostFactory.build() to create real Post SQLAlchemy objects with
+    AwaitableAttrsMock for async relationship access.
+    """
     posts = []
     for i in range(5):
-        post = AccessibleAsyncMock(spec=Post)
-        post.id = f"post_{i}"
-        post.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
-        post.content = f"Test post {i}"
+        post = PostFactory.build(
+            id=30000 + i,
+            accountId=10000,
+            content=f"Test post {i}",
+            createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
+        )
+        # Add awaitable_attrs for async relationship access
+        post.awaitable_attrs = AwaitableAttrsMock(post)
         posts.append(post)
     return posts
 
 
 @pytest.fixture
 def processing_mock_messages():
-    """Fixture for mock messages (processing tests)."""
+    """Fixture for mock messages (processing tests).
+
+    Uses MessageFactory.build() to create real Message SQLAlchemy objects with
+    AwaitableAttrsMock for async relationship access.
+    """
     messages = []
     for i in range(5):
-        message = AccessibleAsyncMock(spec=Message)
-        message.id = f"message_{i}"
-        message.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
-        message.text = f"Test message {i}"
+        message = MessageFactory.build(
+            id=50000 + i,
+            groupId=40000,
+            senderId=10000,
+            content=f"Test message {i}",
+            createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
+        )
+        # Add awaitable_attrs for async relationship access
+        message.awaitable_attrs = AwaitableAttrsMock(message)
         messages.append(message)
     return messages
 
 
 @pytest.fixture
 def mock_item():
-    """Fixture for mock item (post/message)."""
-    item = AccessibleAsyncMock()
-    item.id = "item_123"
-    item.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
+    """Fixture for mock item (post/message).
+
+    Uses PostFactory.build() to create a real Post SQLAlchemy object with
+    AwaitableAttrsMock for async relationship access.
+    """
+    item = PostFactory.build(
+        id=30123,
+        accountId=10000,
+        content="Test item content",
+        createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
+    )
+    # Add awaitable_attrs for async relationship access
+    item.awaitable_attrs = AwaitableAttrsMock(item)
     return item
 
 
 @pytest.fixture
 def processing_mock_media():
-    """Fixture for mock media (processing tests)."""
-    media = AccessibleAsyncMock(spec=Media)
-    media.id = "media_123"
-    media.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
+    """Fixture for mock media (processing tests).
+
+    Uses MediaFactory.build() to create a real Media SQLAlchemy object with
+    AwaitableAttrsMock for async relationship access.
+    """
+    media = MediaFactory.build(
+        id=20123,
+        accountId=10000,
+        mimetype="image/jpeg",
+        createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
+    )
+    # Add variants as empty list
     media.variants = []
+    # Add awaitable_attrs for async relationship access
+    media.awaitable_attrs = AwaitableAttrsMock(media)
     return media
 
 
 @pytest.fixture
 def processing_mock_attachment():
-    """Fixture for mock attachment (processing tests)."""
-    attachment = AccessibleAsyncMock(spec=Attachment)
-    attachment.id = "attachment_123"
+    """Fixture for mock attachment (processing tests).
+
+    Uses AttachmentFactory.build() to create a real Attachment SQLAlchemy object with
+    AwaitableAttrsMock for async relationship access.
+    """
+    attachment = AttachmentFactory.build(
+        id=60123,
+        contentId=70000,
+        createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
+    )
+    # Set media and bundle to None (not attached)
     attachment.media = None
     attachment.bundle = None
+    # Add awaitable_attrs for async relationship access
+    attachment.awaitable_attrs = AwaitableAttrsMock(attachment)
     return attachment
 
 

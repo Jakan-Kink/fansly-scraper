@@ -16,7 +16,7 @@ from metadata.messages import (
     process_groups_response,
     process_messages_metadata,
 )
-from tests.fixtures import AccountFactory, GroupFactory
+from tests.fixtures import AccountFactory, setup_accounts_and_groups
 
 
 @pytest.fixture(scope="session")
@@ -32,24 +32,14 @@ async def test_process_direct_messages(
 ):
     """Test processing direct messages from conversation data.
 
-    Uses AccountFactory and centralized fixtures.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    Uses direct account creation to avoid transaction isolation issues.
     """
     if not conversation_data.get("response", {}).get("messages"):
         pytest.skip("No messages found in conversation data")
 
-    # Extract unique account IDs from conversation data and create accounts
+    # Set up accounts and groups from conversation data
     messages_data = conversation_data["response"]["messages"]
-    account_data = conversation_data["response"].get("accounts", [])
-
-    # Create accounts from conversation data
-    for acc_data in account_data:
-        AccountFactory(
-            id=acc_data["id"],
-            username=acc_data.get("username", f"user_{acc_data['id']}"),
-        )
-
-    session.expire_all()
+    await setup_accounts_and_groups(session, conversation_data, messages_data)
 
     # Process messages
     await process_messages_metadata(config, None, messages_data, session=session)
@@ -67,8 +57,9 @@ async def test_process_direct_messages(
     await session.commit()
 
     # Create a test account for the simple message test
-    test_account = AccountFactory(id=999, username="test_user")
-    session.expire_all()
+    test_account = AccountFactory.build(id=999, username="test_user")
+    session.add(test_account)
+    await session.commit()
 
     # Create test message data with factory account
     test_message_data = {
@@ -106,8 +97,8 @@ async def test_process_group_messages(
     Uses centralized fixtures.
     Tests must explicitly request factory_session or fixtures that depend on it.
     """
-    if not group_data.get("response", {}).get("data"):
-        pytest.skip("No group data found in test data")
+    # if not group_data.get("response", {}).get("data"):
+    #     pytest.skip("No group data found in test data")
 
     # Process group data
     await process_groups_response(config, None, group_data["response"], session=session)
@@ -126,14 +117,11 @@ async def test_process_group_messages(
     if "users" in first_data:
         assert len(first_group.users) == len(first_data["users"])
 
-    # Verify last message if present
-    if first_group.lastMessageId:
-        result = await session.execute(
-            select(Message).where(Message.id == first_group.lastMessageId)
-        )
-        last_message = result.scalar_one_or_none()
-        assert last_message is not None
-        assert last_message.groupId == first_group.id
+    # Verify lastMessageId was stored (message itself may not exist yet from this endpoint)
+    if first_data.get("lastMessageId"):
+        assert first_group.lastMessageId == int(first_data["lastMessageId"])
+        # Note: The actual Message may not exist yet - this endpoint returns group metadata
+        # with FK references before the messages are fetched from the conversation endpoint
 
 
 @pytest.mark.asyncio
@@ -161,14 +149,10 @@ async def test_process_message_attachments(
     if not messages_with_attachments:
         pytest.skip("No messages with attachments found in test data")
 
-    # Create accounts from conversation data
-    account_data = conversation_data["response"].get("accounts", [])
-    for acc_data in account_data:
-        AccountFactory(
-            id=acc_data["id"],
-            username=acc_data.get("username", f"user_{acc_data['id']}"),
-        )
-    session.expire_all()
+    # Set up accounts and groups from conversation data
+    await setup_accounts_and_groups(
+        session, conversation_data, messages_with_attachments
+    )
 
     # Process messages
     await process_messages_metadata(
@@ -225,8 +209,8 @@ async def test_process_message_media_variants(
         )
     ]
 
-    if not messages_with_variants:
-        pytest.skip("No messages with media variants found in test data")
+    # if not messages_with_variants:
+    #     pytest.skip("No messages with media variants found in test data")
 
     # Create accounts from conversation data
     account_data = conversation_data["response"].get("accounts", [])
@@ -282,35 +266,51 @@ async def test_process_message_media_bundles(
     Uses centralized fixtures.
     factory_async_session configures factories with the database session for async tests.
     """
+    from metadata import process_media_info
+    from metadata.account import process_media_bundles_data
+
     messages = conversation_data["response"]["messages"]
     bundles = conversation_data["response"].get("accountMediaBundles", [])
 
     if not bundles:
         pytest.skip("No media bundles found in test data")
 
-    # Create accounts from conversation data
-    account_data = conversation_data["response"].get("accounts", [])
-    for acc_data in account_data:
-        AccountFactory(
-            id=acc_data["id"],
-            username=acc_data.get("username", f"user_{acc_data['id']}"),
-        )
-    session.expire_all()
+    # Set up accounts and groups from conversation data
+    await setup_accounts_and_groups(session, conversation_data, messages)
+
+    # Commit accounts to ensure they're visible for FK checks
+    await session.commit()
 
     # First process messages to create necessary relationships
     await process_messages_metadata(config, None, messages, session=session)
+
+    # Commit messages to ensure clean transaction state
+    await session.commit()
+
+    # Process accountMedia items FIRST to create AccountMedia records
+    account_media = conversation_data["response"].get("accountMedia", [])
+    if account_media:
+        await process_media_info(config, {"batch": account_media}, session=session)
+
+    # Commit media to ensure clean transaction state
+    await session.commit()
+
+    # Then process the accountMediaBundles (which references the AccountMedia records)
+    await process_media_bundles_data(
+        config, conversation_data["response"], session=session
+    )
 
     # Verify bundles were created and linked correctly
     session.expire_all()
     for bundle_data in bundles:
         # Check that all media in bundle exists and is properly ordered
         media_ids = [
-            content["accountMediaId"] for content in bundle_data["bundleContent"]
+            int(content["accountMediaId"]) for content in bundle_data["bundleContent"]
         ]
-        # Use ORM to query the association table
+        # Use ORM to query the association table (columns are snake_case in DB)
         stmt = (
-            select(account_media_bundle_media.c.accountMediaId)
-            .where(account_media_bundle_media.c.bundleId == bundle_data["id"])
+            select(account_media_bundle_media.c.media_id)
+            .where(account_media_bundle_media.c.bundle_id == int(bundle_data["id"]))
             .order_by(account_media_bundle_media.c.pos)
         )
         result = await session.execute(stmt)
@@ -330,44 +330,27 @@ async def test_process_message_permissions(
     Uses centralized fixtures.
     factory_async_session configures factories with the database session for async tests.
     """
+    from metadata import process_media_info
+
     messages = conversation_data["response"]["messages"]
     media_items = conversation_data["response"].get("accountMedia", [])
 
     if not media_items:
         pytest.skip("No media items found in test data")
 
-    # Create accounts from conversation data
-    account_data = conversation_data["response"].get("accounts", [])
-    for acc_data in account_data:
-        AccountFactory(
-            id=acc_data["id"],
-            username=acc_data.get("username", f"user_{acc_data['id']}"),
-        )
+    # Set up accounts and groups from conversation data
+    await setup_accounts_and_groups(session, conversation_data, messages)
 
-    # Create groups from conversation data to satisfy foreign key constraints
-    groups_data = conversation_data["response"].get("groups", [])
-    for group_data in groups_data:
-        GroupFactory(
-            id=group_data["id"],
-            createdBy=group_data.get("accountId") or group_data.get("createdBy"),
-        )
-
-    # Also extract groups from messages if they're referenced
-    for msg in messages:
-        if msg.get("groupId"):
-            group_id = int(msg["groupId"])  # Convert to int for bigint column
-            # Check if group already created
-            result = await session.execute(select(Group).where(Group.id == group_id))
-            if not result.scalar_one_or_none():
-                # Create a minimal group for testing
-                GroupFactory(
-                    id=group_id,
-                    createdBy=msg.get("senderId") or msg.get("recipientId"),
-                )
-
-    session.expire_all()
+    # Commit accounts to ensure they're visible for FK checks
+    await session.commit()
 
     await process_messages_metadata(config, None, messages, session=session)
+
+    # Commit messages to ensure clean transaction state
+    await session.commit()
+
+    # Process accountMedia items to create AccountMedia records
+    await process_media_info(config, {"batch": media_items}, session=session)
 
     # Verify permission flags were processed correctly
     session.expire_all()

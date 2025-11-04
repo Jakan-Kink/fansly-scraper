@@ -18,10 +18,14 @@ Usage:
     )
 """
 
+from datetime import UTC, datetime
+
+import pytest
 from factory.base import Factory
 from factory.declarations import LazyFunction, Sequence
 
 from stash.types import Gallery, Group, Image, Performer, Scene, Studio, Tag
+from stash.types.files import Fingerprint, ImageFile, VideoFile
 
 
 class PerformerFactory(Factory):
@@ -325,13 +329,263 @@ class GroupFactory(Factory):
     back_image_path = None
 
 
-# Export all factories
+class ImageFileFactory(Factory):
+    """Factory for ImageFile Stash API type.
+
+    Creates ImageFile instances representing image files in Stash, with realistic
+    defaults for testing file operations without needing a real Stash server.
+
+    Based on GraphQL schema: schema/types/file.graphql (ImageFile type)
+
+    Example:
+        # Create a basic image file
+        image_file = ImageFileFactory()
+
+        # Create an image file with specific values
+        image_file = ImageFileFactory(
+            id="8001",
+            path="/path/to/image.jpg",
+            basename="image.jpg",
+            width=1920,
+            height=1080
+        )
+    """
+
+    class Meta:
+        model = ImageFile
+
+    # Required fields from BaseFile (inherited via StashObject)
+    id = Sequence(lambda n: str(800 + n))
+    path = Sequence(lambda n: f"/test/images/image_{n}.jpg")
+    basename = Sequence(lambda n: f"image_{n}.jpg")
+    parent_folder_id = "folder_1"
+    mod_time = LazyFunction(lambda: datetime.now(UTC))
+    size = 1024000  # 1 MB default
+
+    # Required fields - fingerprints list
+    fingerprints = LazyFunction(list[Fingerprint])
+
+    # Optional BaseFile fields
+    zip_file_id = None
+
+    # ImageFile specific required fields
+    width = 1920
+    height = 1080
+
+
+class VideoFileFactory(Factory):
+    """Factory for VideoFile Stash API type.
+
+    Creates VideoFile instances representing video files in Stash, with realistic
+    defaults for testing file operations without needing a real Stash server.
+
+    Based on GraphQL schema: schema/types/file.graphql (VideoFile type)
+
+    Example:
+        # Create a basic video file
+        video_file = VideoFileFactory()
+
+        # Create a video file with specific values
+        video_file = VideoFileFactory(
+            id="9001",
+            path="/path/to/video.mp4",
+            basename="video.mp4",
+            duration=3600.0,
+            video_codec="h264"
+        )
+    """
+
+    class Meta:
+        model = VideoFile
+
+    # Required fields from BaseFile (inherited via StashObject)
+    id = Sequence(lambda n: str(900 + n))
+    path = Sequence(lambda n: f"/test/videos/video_{n}.mp4")
+    basename = Sequence(lambda n: f"video_{n}.mp4")
+    parent_folder_id = "folder_1"
+    mod_time = LazyFunction(lambda: datetime.now(UTC))
+    size = 10240000  # 10 MB default
+
+    # Required fields - fingerprints list
+    fingerprints = LazyFunction(list[Fingerprint])
+
+    # Optional BaseFile fields
+    zip_file_id = None
+
+    # VideoFile specific required fields
+    format = "mp4"
+    width = 1920
+    height = 1080
+    duration = 60.0  # 60 seconds
+    video_codec = "h264"
+    audio_codec = "aac"
+    frame_rate = 30.0
+    bit_rate = 5000000  # 5 Mbps
+
+
+# ============================================================================
+# Pytest Fixtures for Stash API Types
+# ============================================================================
+
+
+@pytest.fixture
+def mock_performer():
+    """Fixture for Performer test instance.
+
+    Returns a real Performer object (not a mock) using PerformerFactory.
+    All Performer methods work as expected.
+
+    Example:
+        def test_something(mock_performer):
+            assert mock_performer.name == "Performer_0"
+            assert mock_performer.id == "100"
+    """
+    return PerformerFactory(id="123", name="test_user")
+
+
+@pytest.fixture
+def mock_studio():
+    """Fixture for Studio test instance.
+
+    Returns a real Studio object (not a mock) using StudioFactory.
+
+    Example:
+        def test_something(mock_studio):
+            assert mock_studio.name == "Test Studio"
+            assert mock_studio.id == "123"
+    """
+    return StudioFactory(id="123", name="Test Studio")
+
+
+@pytest.fixture
+def mock_tag():
+    """Fixture for Tag test instance.
+
+    Returns a real Tag object (not a mock) using TagFactory.
+
+    Example:
+        def test_something(mock_tag):
+            assert mock_tag.name == "test_tag"
+            assert mock_tag.id == "123"
+    """
+    return TagFactory(id="123", name="test_tag")
+
+
+@pytest.fixture
+def mock_scene():
+    """Fixture for Scene test instance.
+
+    Returns a real Scene object (not a mock) using SceneFactory.
+
+    Example:
+        def test_something(mock_scene):
+            assert mock_scene.title == "Test Scene"
+            assert mock_scene.id == "123"
+    """
+    return SceneFactory(id="123", title="Test Scene")
+
+
+@pytest.fixture
+def mock_gallery():
+    """Fixture for Gallery test instance.
+
+    Returns a real Gallery object (not a mock) using GalleryFactory.
+
+    Example:
+        def test_something(mock_gallery):
+            assert mock_gallery.title == "Test Gallery"
+            assert mock_gallery.id == "123"
+    """
+    return GalleryFactory(
+        id="123",
+        title="Test Gallery",
+        code="12345",
+        organized=True,
+    )
+
+
+@pytest.fixture
+def mock_image():
+    """Fixture for Image test instance.
+
+    Returns a real Image object (not a mock) using ImageFactory.
+
+    Example:
+        def test_something(mock_image):
+            assert mock_image.title == "Test Image"
+            assert mock_image.id == "123"
+    """
+    return ImageFactory(
+        id="123",
+        title="Test Image",
+        organized=False,
+    )
+
+
+@pytest.fixture
+def mock_image_file():
+    """Fixture for ImageFile test instance.
+
+    Returns a real ImageFile object (not a mock) using ImageFileFactory.
+
+    Example:
+        def test_something(mock_image_file):
+            assert mock_image_file.path == "/path/to/image.jpg"
+            assert mock_image_file.width == 1920
+    """
+    return ImageFileFactory(
+        id="123",
+        path="/path/to/image.jpg",
+        basename="image.jpg",
+        size=12345,
+        width=1920,
+        height=1080,
+    )
+
+
+@pytest.fixture
+def mock_video_file():
+    """Fixture for VideoFile test instance.
+
+    Returns a real VideoFile object (not a mock) using VideoFileFactory.
+
+    Example:
+        def test_something(mock_video_file):
+            assert mock_video_file.path == "/path/to/video.mp4"
+            assert mock_video_file.duration == 60.0
+    """
+    return VideoFileFactory(
+        id="456",
+        path="/path/to/video.mp4",
+        basename="video.mp4",
+        size=123456,
+        duration=60.0,
+        video_codec="h264",
+        audio_codec="aac",
+        width=1920,
+        height=1080,
+    )
+
+
+# Export all factories and fixtures
 __all__ = [
+    # Factories
     "GalleryFactory",
     "GroupFactory",
     "ImageFactory",
+    "ImageFileFactory",
     "PerformerFactory",
     "SceneFactory",
     "StudioFactory",
     "TagFactory",
+    "VideoFileFactory",
+    "mock_gallery",
+    "mock_image",
+    "mock_image_file",
+    # Pytest fixtures
+    "mock_performer",
+    "mock_scene",
+    "mock_studio",
+    "mock_tag",
+    "mock_video_file",
 ]

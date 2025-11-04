@@ -12,8 +12,8 @@ from metadata.messages import Group, Message, group_users, process_messages_meta
 from tests.fixtures import (
     AccountFactory,
     AttachmentFactory,
-    GroupFactory,
     MessageFactory,
+    MetadataGroupFactory,
 )
 
 
@@ -56,7 +56,7 @@ def test_group_creation(session_sync: Session, factory_session):
     account2 = AccountFactory(id=2, username="recipient")
 
     # Create group using factory
-    group = GroupFactory(id=1, createdBy=account1.id)
+    group = MetadataGroupFactory(id=1, createdBy=account1.id)
     session_sync.flush()
 
     # Add users to group
@@ -89,7 +89,7 @@ def test_group_message(session_sync: Session, factory_session):
     account1_id = account1.id
 
     # Create group using factory
-    group = GroupFactory(id=1, createdBy=account1_id)
+    group = MetadataGroupFactory(id=1, createdBy=account1_id)
     group_id = group.id
     session_sync.flush()
 

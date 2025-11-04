@@ -10,6 +10,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -33,6 +34,18 @@ if TYPE_CHECKING:
     from .attachment import Attachment
 
 
+# Table definitions must come before the Group class to allow direct references in relationships
+group_users = Table(
+    "group_users",
+    Base.metadata,
+    Column("groupId", BigInteger, ForeignKey("groups.id"), primary_key=True),
+    Column(
+        "accountId", BigInteger, primary_key=True
+    ),  # NO FK - partner might not exist yet
+    Index("ix_group_users_accountId", "accountId"),  # Explicit index name
+)
+
+
 class Group(Base):
     """Represents a message group or conversation with multiple users.
 
@@ -53,7 +66,12 @@ class Group(Base):
         BigInteger, ForeignKey("accounts.id"), nullable=False
     )
     users: Mapped[set[Account]] = relationship(
-        "Account", secondary="group_users", collection_class=set
+        "Account",
+        secondary=group_users,
+        primaryjoin="Group.id == group_users.c.groupId",
+        secondaryjoin="group_users.c.accountId == Account.id",
+        collection_class=set,
+        viewonly=True,  # Mark as viewonly since accountId in group_users may not reference an existing Account
     )
     messages: Mapped[list[Message]] = relationship(
         "Message", cascade="all, delete-orphan", foreign_keys="[Message.groupId]"
@@ -69,14 +87,6 @@ class Group(Base):
         post_update=True,  # Prevents circular dependency issues
         uselist=False,
     )
-
-
-group_users = Table(
-    "group_users",
-    Base.metadata,
-    Column("groupId", BigInteger, ForeignKey("groups.id"), primary_key=True),
-    Column("accountId", BigInteger, ForeignKey("accounts.id"), primary_key=True),
-)
 
 
 class Message(Base):

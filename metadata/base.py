@@ -55,13 +55,25 @@ class Base(AsyncAttrs, DeclarativeBase):
         when they are loaded from the database.
     """
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__()
-        # Set attributes from kwargs
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-        # Register event listener for timezone handling
-        event.listen(Base, "load", Base._attach_timezone)
+    # Transient attribute for stub tracking (not stored in database)
+    _is_stub: bool | None = None
+
+    @property
+    def is_stub(self) -> bool | None:
+        """Check if this instance is tracked as a stub.
+
+        This is a transient property - it's set when checking stub status
+        but not persisted to the database.
+
+        Returns:
+            True if stub, False if enriched, None if unknown/not checked
+        """
+        return self._is_stub
+
+    @is_stub.setter
+    def is_stub(self, value: bool | None) -> None:
+        """Set stub status."""
+        self._is_stub = value
 
     @staticmethod
     def _attach_timezone(
@@ -402,3 +414,7 @@ class Base(AsyncAttrs, DeclarativeBase):
                 if value is not None and isinstance(value, str):
                     with contextlib.suppress(ValueError, TypeError):
                         data[key] = int(value)
+
+
+# Register timezone handling event listener once at module load
+event.listen(Base, "load", Base._attach_timezone)

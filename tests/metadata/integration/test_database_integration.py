@@ -89,12 +89,16 @@ class TestDatabaseThreading:
     async def test_concurrent_access(self, thread_test_database):
         """Test concurrent database access."""
 
+        # CREATE TABLE ONCE before workers start to avoid race condition
+        async with thread_test_database.async_session_scope() as session:
+            await session.execute(
+                text("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY)")
+            )
+            await session.commit()  # Ensure table is created
+
         async def worker(i: int) -> None:
             async with thread_test_database.async_session_scope() as session:
-                await session.execute(
-                    text("CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY)")
-                )
-                # Fix: Separate the SQL text and parameters
+                # Just INSERT, don't CREATE
                 await session.execute(text("INSERT INTO test VALUES (:id)"), {"id": i})
 
         # Run concurrent workers

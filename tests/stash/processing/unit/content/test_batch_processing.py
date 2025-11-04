@@ -4,7 +4,7 @@ This test module uses real database fixtures and factories instead of mocks
 to provide more reliable integration testing while maintaining test isolation.
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import insert, select
@@ -25,9 +25,9 @@ from tests.fixtures import (
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
-    GroupFactory,
     MediaFactory,
     MessageFactory,
+    MetadataGroupFactory,
     PostFactory,
 )
 
@@ -83,13 +83,27 @@ async def test_process_creator_messages_skip_batch_processing(
     factory_async_session, session, content_mixin, mock_performer, mock_studio
 ):
     """Test process_creator_messages skips batch processing when already done."""
+    from unittest.mock import AsyncMock
+
     # Enable batch processing but mark it as already done
     content_mixin.use_batch_processing = True
     content_mixin._batch_processing_done = True
 
+    # Mock worker pool methods
+    queue = MagicMock()
+    queue.join = AsyncMock()
+    queue.put = AsyncMock()
+    content_mixin._setup_worker_pool = AsyncMock(
+        return_value=("task", "process", MagicMock(), queue)
+    )
+    content_mixin._run_worker_pool = AsyncMock()
+
+    # Mock batch processing method to verify it's not called
+    content_mixin.process_account_media_by_mimetype = AsyncMock()
+
     # Create account and group with factory
     account = AccountFactory(id=12345, username="test_user", displayName="Test User")
-    group = GroupFactory(id=40001, createdBy=12345)
+    group = MetadataGroupFactory(id=40001, createdBy=12345)
 
     # Create message with attachment (required by INNER JOIN)
     message = MessageFactory(
@@ -119,10 +133,7 @@ async def test_process_creator_messages_skip_batch_processing(
     )
 
     # Verify batch processing was not called since it was already done
-    assert (
-        not hasattr(content_mixin, "process_account_media_by_mimetype")
-        or not content_mixin.process_account_media_by_mimetype.called
-    )
+    content_mixin.process_account_media_by_mimetype.assert_not_called()
 
 
 @pytest.mark.asyncio

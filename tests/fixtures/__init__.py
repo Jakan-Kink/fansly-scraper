@@ -26,7 +26,7 @@ from .cleanup_fixtures import (
     cleanup_unawaited_coroutines,
 )
 from .database_fixtures import (
-    cleanup_database,
+    AwaitableAttrsMock,
     config,
     conversation_data,
     factory_async_session,
@@ -58,10 +58,19 @@ from .metadata_factories import (
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
+    BaseFactory,
+    HashtagFactory,
     MediaFactory,
     MediaLocationFactory,
+    MediaStoryStateFactory,
     MessageFactory,
     PostFactory,
+    StoryFactory,
+    StubTrackerFactory,
+    TimelineStatsFactory,
+    WallFactory,
+    create_groups_from_messages,
+    setup_accounts_and_groups,
 )
 from .metadata_factories import (
     GroupFactory as MetadataGroupFactory,  # Alias to avoid collision with Stash GroupFactory
@@ -107,6 +116,7 @@ from .stash_integration_fixtures import (
     base_mock_performer,
     base_mock_scene,
     base_mock_studio,
+    fansly_network_studio,
     integration_mock_account,
     integration_mock_performer,
     integration_mock_scene,
@@ -124,39 +134,29 @@ from .stash_integration_fixtures import (
     mock_permissions,
     mock_post,
     mock_posts,
+    mock_stash_context,
     mock_state,
+    mock_studio_finder,
+    real_stash_processor,
     stash_mock_account,
     stash_processor,
 )
 from .stash_mixin_fixtures import (
+    account_mixin,
     batch_mixin,
     content_mixin,
     gallery_mixin,
     gallery_mock_performer,
     gallery_mock_studio,
     media_mixin,
-    mock_client_mixin,
-    mock_gallery,
-    mock_image,
-    mock_image_file,
     mock_item,
-    mock_items,
-    mock_performer,
-    mock_process_batch,
-    mock_progress_bars,
-    mock_queue,
-    mock_scene,
-    mock_semaphore,
-    mock_studio,
-    mock_tag,
-    mock_video_file,
+    studio_mixin,
     tag_mixin,
 )
 from .stash_processing_fixtures import (
     AsyncResult,
     AsyncSessionContext,
     MockDatabase,
-    mixin,
     mock_database,
     processing_mock_attachment,
     processing_mock_media,
@@ -171,14 +171,24 @@ from .stash_processing_fixtures import (
     safe_tag_create,
     sanitize_model_data,
 )
-from .stash_type_factories import (
+from .stash_type_factories import (  # Pytest fixtures for Stash types
     GalleryFactory,
     GroupFactory,
     ImageFactory,
+    ImageFileFactory,
     PerformerFactory,
     SceneFactory,
     StudioFactory,
     TagFactory,
+    VideoFileFactory,
+    mock_gallery,
+    mock_image,
+    mock_image_file,
+    mock_performer,
+    mock_scene,
+    mock_studio,
+    mock_tag,
+    mock_video_file,
 )
 
 
@@ -187,24 +197,44 @@ FIXTURES_DIR = Path(__file__).parent
 # Module-specific exports
 mod_metadata_factories = [
     "AccountFactory",
-    "MediaFactory",
-    "MediaLocationFactory",
-    "PostFactory",
-    "MetadataGroupFactory",  # Renamed to avoid collision with Stash GroupFactory
-    "MessageFactory",
-    "AttachmentFactory",
     "AccountMediaFactory",
     "AccountMediaBundleFactory",
+    "AttachmentFactory",
+    "HashtagFactory",
+    "MediaFactory",
+    "MediaLocationFactory",
+    "MediaStoryStateFactory",
+    "MessageFactory",
+    "MetadataGroupFactory",  # Renamed to avoid collision with Stash GroupFactory
+    "PostFactory",
+    "StoryFactory",
+    "StubTrackerFactory",
+    "TimelineStatsFactory",
+    "WallFactory",
+    "create_groups_from_messages",
+    "setup_accounts_and_groups",
 ]
 
 mod_stash_type_factories = [
+    # Factories
     "PerformerFactory",
     "StudioFactory",
     "TagFactory",
     "SceneFactory",
     "GalleryFactory",
     "ImageFactory",
+    "ImageFileFactory",
+    "VideoFileFactory",
     "GroupFactory",  # Stash API GroupFactory (for Strawberry GraphQL types)
+    # Pytest fixtures (real Strawberry type instances)
+    "mock_performer",
+    "mock_studio",
+    "mock_tag",
+    "mock_scene",
+    "mock_gallery",
+    "mock_image",
+    "mock_image_file",
+    "mock_video_file",
 ]
 
 mod_stash_fixtures = [
@@ -232,27 +262,18 @@ mod_stash_fixtures = [
 ]
 
 mod_stash_mixin_fixtures = [
+    # Mixin test classes
+    "account_mixin",
     "batch_mixin",
     "content_mixin",
     "gallery_mixin",
     "media_mixin",
+    "studio_mixin",
     "tag_mixin",
-    "mock_items",
-    "mock_progress_bars",
-    "mock_semaphore",
-    "mock_process_batch",
-    "mock_queue",
-    "mock_client_mixin",
-    "mock_image",
-    "mock_scene",
-    "mock_performer",
-    "mock_studio",
-    "mock_tag",
-    "mock_gallery",
-    "mock_image_file",
-    "mock_video_file",
+    # Gallery test fixture aliases (delegate to stash_type_factories fixtures)
     "gallery_mock_performer",
     "gallery_mock_studio",
+    # Mock item for Stash unit tests
     "mock_item",
 ]
 
@@ -267,6 +288,7 @@ mod_init = [
 
 # Fixture names from database_fixtures
 mod_database_fixtures = [
+    "AwaitableAttrsMock",
     "uuid_test_db_factory",
     "test_data_dir",
     "timeline_data",
@@ -281,7 +303,7 @@ mod_database_fixtures = [
     "session_factory",
     "test_database_sync",
     "test_database",
-    "cleanup_database",
+    # "cleanup_database" - REMOVED: UUID-based isolation makes cleanup redundant
     "session",
     "session_sync",
     "test_account",
@@ -307,7 +329,7 @@ mod_stash_processing_fixtures = [
     "AsyncResult",
     "AsyncSessionContext",
     "MockDatabase",
-    "mixin",
+    # "mixin",
     "mock_database",
     "processing_mock_posts",
     "processing_mock_messages",
@@ -339,8 +361,11 @@ mod_stash_integration_fixtures = [
     "base_mock_performer",
     "base_mock_studio",
     "base_mock_scene",
+    "fansly_network_studio",
     "mock_context",
+    "mock_stash_context",
     "mock_state",
+    "mock_studio_finder",
     "integration_mock_account",
     "integration_mock_performer",
     "integration_mock_studio",
@@ -355,7 +380,10 @@ mod_stash_integration_fixtures = [
     "mock_permissions",
     "mock_account_media",
     "mock_media_bundle",
+    "mock_gallery",
+    "mock_image",
     "stash_processor",
+    "real_stash_processor",
 ]
 
 # Fixture names from cleanup_fixtures

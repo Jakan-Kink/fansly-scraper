@@ -232,7 +232,9 @@ class DatabaseLogger:
         # Add listener for savepoint operations
         @event.listens_for(session, "after_begin")
         def after_begin(
-            _session: Session, transaction: SessionTransaction | Any, _connection: Any
+            session: Session,  # noqa: ARG001
+            transaction: SessionTransaction | Any,
+            connection: Any,  # noqa: ARG001
         ) -> None:
             if hasattr(transaction, "_current_fn") and transaction._current_fn:
                 caller = get_caller_info()

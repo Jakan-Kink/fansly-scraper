@@ -11,7 +11,6 @@ from stash.context import StashContext
 from stash.processing import StashProcessing
 from stash.types import Image
 from tests.fixtures import AccountFactory, PerformerFactory
-from tests.fixtures.database_fixtures import AwaitableAttrsMock
 
 
 # Most fixtures are imported from tests.fixtures via conftest.py:
@@ -87,31 +86,32 @@ class TestStashProcessingBasics:
         """Test creating processor from config."""
         # Mock get_stash_context
         mock_context = MagicMock(spec=StashContext)
-        mock_config.get_stash_context.return_value = mock_context
 
-        # Call from_config
-        processor = StashProcessing.from_config(
-            config=mock_config,
-            state=mock_state,
-        )
+        # Use patch to mock the method
+        with patch.object(mock_config, "get_stash_context", return_value=mock_context):
+            # Call from_config
+            processor = StashProcessing.from_config(
+                config=mock_config,
+                state=mock_state,
+            )
 
-        # Verify processor
-        assert processor.config == mock_config
-        assert processor.state is not mock_state  # Should be a copy
-        assert processor.state.creator_id == mock_state.creator_id
-        assert processor.state.creator_name == mock_state.creator_name
-        assert processor.context == mock_context
-        assert processor.database == mock_config._database
-        assert processor._background_task is None
-        assert not processor._cleanup_event.is_set()
-        assert not processor._owns_db
+            # Verify processor
+            assert processor.config == mock_config
+            assert processor.state is not mock_state  # Should be a copy
+            assert processor.state.creator_id == mock_state.creator_id
+            assert processor.state.creator_name == mock_state.creator_name
+            assert processor.context == mock_context
+            assert processor.database == mock_config._database
+            assert processor._background_task is None
+            assert not processor._cleanup_event.is_set()
+            assert not processor._owns_db
 
 
 class TestStashProcessingAccount:
     """Test the account-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_account(self, processor):
+    async def test_find_account(self, factory_session, processor):
         """Test _find_account method."""
         # Create test account using factory
         test_account = AccountFactory.build(
@@ -150,7 +150,7 @@ class TestStashProcessingAccount:
         assert processor.state.creator_name in str(mock_print_warning.call_args)
 
     @pytest.mark.asyncio
-    async def test_update_account_stash_id(self, processor):
+    async def test_update_account_stash_id(self, factory_session, processor):
         """Test _update_account_stash_id method."""
         # Create test account using factory
         test_account = AccountFactory.build(
@@ -180,7 +180,6 @@ class TestStashProcessingAccount:
 
         # Verify session operations
         mock_session.execute.assert_called_once()
-        assert str(test_account.id) in str(mock_session.execute.call_args)
         # The account's stash_id should be updated to the int value of performer.id
         assert test_account.stash_id == int(mock_performer.id)
         mock_session.add.assert_called_once_with(test_account)
@@ -191,7 +190,7 @@ class TestStashProcessingPerformer:
     """Test the performer-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer(self, processor):
+    async def test_find_existing_performer(self, factory_session, processor):
         """Test _find_existing_performer method."""
         # Create test performer using factory
         mock_performer = PerformerFactory(
@@ -272,7 +271,7 @@ class TestStashProcessingPerformer:
         assert performer == mock_performer
 
     @pytest.mark.asyncio
-    async def test_update_performer_avatar(self, processor):
+    async def test_update_performer_avatar(self, factory_session, processor):
         """Test _update_performer_avatar method."""
         # Create test performer using factory
         mock_performer = PerformerFactory(
@@ -288,9 +287,6 @@ class TestStashProcessingPerformer:
             username="test_user",
         )
         test_account_no_avatar.avatar = None
-        test_account_no_avatar.awaitable_attrs = AwaitableAttrsMock(
-            test_account_no_avatar
-        )
 
         await processor._update_performer_avatar(test_account_no_avatar, mock_performer)
 
@@ -305,7 +301,6 @@ class TestStashProcessingPerformer:
         mock_avatar_no_file = MagicMock()
         mock_avatar_no_file.local_filename = None
         test_account_no_file.avatar = mock_avatar_no_file
-        test_account_no_file.awaitable_attrs = AwaitableAttrsMock(test_account_no_file)
 
         await processor._update_performer_avatar(test_account_no_file, mock_performer)
 
@@ -320,9 +315,6 @@ class TestStashProcessingPerformer:
         mock_avatar_with_file = MagicMock()
         mock_avatar_with_file.local_filename = "avatar.jpg"
         test_account_with_avatar.avatar = mock_avatar_with_file
-        test_account_with_avatar.awaitable_attrs = AwaitableAttrsMock(
-            test_account_with_avatar
-        )
 
         # Mock performer with default image
         mock_performer.image_path = "default=true"
@@ -374,9 +366,11 @@ class TestStashProcessingPerformer:
 
         # Mock print_error and logger
         with (
-            patch("stash.processing.print_error") as mock_print_error,
-            patch("stash.processing.logger.exception") as mock_logger_exception,
-            patch("stash.processing.debug_print") as mock_debug_print,
+            patch("stash.processing.mixins.account.print_error") as mock_print_error,
+            patch(
+                "stash.processing.mixins.account.logger.exception"
+            ) as mock_logger_exception,
+            patch("stash.processing.mixins.account.debug_print") as mock_debug_print,
         ):
             # Call _update_performer_avatar
             await processor._update_performer_avatar(

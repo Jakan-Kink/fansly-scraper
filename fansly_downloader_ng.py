@@ -191,7 +191,7 @@ def print_logo() -> None:
     print(f"{(100 - len(__version__) - 1) // 2 * ' '}v{__version__}\n")
 
 
-def _handle_interrupt(_signum: int, _frame: FrameType | None) -> None:
+def _handle_interrupt(signum: int, frame: FrameType | None) -> None:  # noqa: ARG001
     """Handle interrupt signal (Ctrl+C)."""
     print_error("\nInterrupted by user")
     # Set a flag instead of calling sys.exit directly
@@ -335,6 +335,8 @@ async def main(config: FanslyConfig) -> int:
     print_info(f"Session ID: {api.session_id}")
     client_user_name = api.get_client_user_name()
     print_info(f"User ID: {client_user_name}")
+    if client_user_name is None or client_user_name == "":
+        raise ConfigError("Could not retrieve client account user name from API")
 
     # Load client account into global database if not using separate metadata
     if not config.separate_metadata:

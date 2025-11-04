@@ -1,18 +1,18 @@
-"""Common fixtures for StashProcessing integration tests - REFACTORED.
+"""Common fixtures for StashProcessing integration tests - REAL OBJECTS.
 
-These fixtures use real database objects created with FactoryBoy factories
-instead of mocks. This eliminates AsyncMock await errors and makes tests
-more reliable and maintainable.
+These fixtures use REAL database objects and REAL Stash API connections:
+- ✅ Real PostgreSQL database with UUID isolation per test
+- ✅ Real FanslyConfig (not mocked)
+- ✅ Real Database instances
+- ✅ Real Account, Media, Post, Message objects from FactoryBoy
+- ✅ Real StashContext connecting to Docker Stash (localhost:9999)
+- ✅ No MockConfig, no MockDatabase, no fake attributes
+- ✅ Stash API calls hit real Docker instance (or can be mocked per test)
 
-Key changes from original:
-- ✅ Real PostgreSQL database with UUID isolation
-- ✅ Real Account, Media, Post, Message objects from factories
-- ✅ No more AwaitableAttrs complexity
-- ✅ No more AsyncMock await errors
-- ❌ Removed MockDatabase class
-- ❌ Removed AwaitableAttrs class
-- ❌ Removed AccessibleAsyncMock usage for database objects
-- ✅ Keep mocking Stash API client (external HTTP requests)
+Philosophy:
+- Mock ONLY external services when necessary (Stash API can be mocked OR real)
+- Use REAL database objects everywhere
+- Use factories for test data creation
 """
 
 import asyncio
@@ -20,27 +20,35 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 
-from metadata.account import AccountMedia, AccountMediaBundle
+from metadata.account import AccountMedia
 from metadata.attachment import ContentType
 from metadata.media import Media
 from stash.processing import StashProcessing
-from stash.types import Gallery, Image, Scene
+from stash.types import FindStudiosResultType, Gallery, Image, Scene, StashID, Studio
 from tests.fixtures import (
     AccountFactory,
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
     AttachmentFactory,
     MediaFactory,
     MessageFactory,
-    MetadataGroupFactory,  # Import SQLAlchemy Group factory
+    MetadataGroupFactory,
     PostFactory,
 )
+
+# Import REAL database fixtures (UUID-isolated PostgreSQL)
 from tests.fixtures.database_fixtures import (
-    config,  # Real PostgreSQL config
+    config,  # Real FanslyConfig with UUID database
     session,  # Real async session
     session_sync,  # Real sync session (used by factories)
+    test_database_sync,  # Real Database instance
 )
+
+# Import REAL Stash fixtures (connects to Docker)
 from tests.fixtures.stash_api_fixtures import (
-    mock_account as stash_mock_account,  # Rename to avoid conflict
+    mock_account as stash_mock_account,
 )
 from tests.fixtures.stash_api_fixtures import (
     mock_client,
@@ -49,17 +57,27 @@ from tests.fixtures.stash_api_fixtures import (
     stash_context,
     test_query,
 )
-from tests.fixtures.stash_api_fixtures import mock_performer as base_mock_performer
-from tests.fixtures.stash_api_fixtures import mock_scene as base_mock_scene
-from tests.fixtures.stash_api_fixtures import mock_studio as base_mock_studio
+from tests.fixtures.stash_api_fixtures import (
+    mock_performer as base_mock_performer,
+)
+from tests.fixtures.stash_api_fixtures import (
+    mock_scene as base_mock_scene,
+)
+from tests.fixtures.stash_api_fixtures import (
+    mock_studio as base_mock_studio,
+)
 
 
 __all__ = [
+    # Stash API mocks (for unit tests)
     "base_mock_performer",
     "base_mock_scene",
     "base_mock_studio",
-    # Database fixtures (imported from metadata conftest)
-    "config",
+    # Real database fixtures (UUID-isolated PostgreSQL)
+    "config",  # Real FanslyConfig
+    # Production data fixtures
+    "fansly_network_studio",  # Production Fansly network studio fixture
+    # Database object fixtures (using FactoryBoy)
     "integration_mock_account",
     "integration_mock_performer",
     "integration_mock_scene",
@@ -67,9 +85,7 @@ __all__ = [
     "mock_account_media",
     "mock_attachment",
     "mock_client",
-    "mock_config",
-    # Integration fixtures (refactored with factories)
-    "mock_context",
+    "mock_context",  # Backwards compat alias for mock_stash_context
     "mock_gallery",
     "mock_group",
     "mock_image",
@@ -80,123 +96,108 @@ __all__ = [
     "mock_permissions",
     "mock_post",
     "mock_posts",
+    "mock_stash_context",  # Mocked StashContext
+    # Test state
     "mock_state",
+    "mock_studio_finder",  # Mock find_studios function and creator studio factory
     "mock_transport",
-    "session",
-    "session_sync",
-    "stash_client",
-    "stash_context",
-    # Re-exported fixtures
+    "real_stash_processor",  # With real Docker Stash
+    "session",  # Real async session
+    "session_sync",  # Real sync session
+    # Real Stash fixtures (for integration tests)
+    "stash_client",  # Real StashClient connected to Docker
+    "stash_context",  # Real StashContext connected to Docker
     "stash_mock_account",
-    "stash_processor",
+    # StashProcessing fixtures
+    "stash_processor",  # With mocked Stash API
+    "test_database_sync",  # Real Database instance
     "test_query",
 ]
 
 
 # ============================================================================
-# Stash API Mocks (Keep these - they mock external HTTP requests)
+# Test State and Context Fixtures
 # ============================================================================
 
 
-class MockContext:
-    """Mock StashContext for testing StashProcessing integration.
-
-    This mocks the Stash API client to avoid real HTTP requests.
-    We still use mocks for external services!
-    """
+class TestState:
+    """Real download state for testing."""
 
     def __init__(self):
-        """Initialize mock context with a pre-configured mock client."""
-        self.client = MagicMock()
-
-        # Mock common client methods for finding objects
-        self.client.find_performer = AsyncMock()
-        self.client.find_studio = AsyncMock()
-        self.client.find_gallery = AsyncMock()
-        self.client.find_galleries = AsyncMock()
-        self.client.find_scene = AsyncMock()
-        self.client.find_scenes = AsyncMock()
-        self.client.find_image = AsyncMock()
-        self.client.find_images = AsyncMock()
-        self.client.find_tags = AsyncMock()
-
-        # Mock common client methods for creating/modifying objects
-        self.client.create_tag = AsyncMock()
-        self.client.add_gallery_images = AsyncMock(return_value=True)
-
-
-class MockConfig:
-    """Mock configuration for testing StashProcessing integration.
-
-    This provides a config that uses our real database but mocked Stash API.
-    """
-
-    def __init__(self, database=None):
-        """Initialize mock config with default test values."""
-        # Stash configuration section
-        self.stash = MagicMock()
-        self.stash.enabled = True
-        self.stash.url = "http://localhost:9999"
-        self.stash.api_key = "test_api_key"
-
-        # Stash connection configuration
-        self.stash_context_conn = {
-            "scheme": "http",
-            "host": "localhost",
-            "port": 9999,
-            "apikey": "test_api_key",
-        }
-
-        # Metadata database configuration
-        self.metadata = MagicMock()
-        self.metadata.db_path = "test.db"
-
-        # Internal attributes
-        self._database = database  # Will be set to real database
-        self._stash = None
-        self._background_tasks = []
-
-    def get_stash_context(self):
-        """Get Stash context."""
-        if self._stash is None:
-            self._stash = MockContext()
-        return self._stash
-
-    def get_background_tasks(self):
-        """Get background tasks list."""
-        return self._background_tasks
-
-
-class MockState:
-    """Mock application state for testing StashProcessing integration."""
-
-    def __init__(self):
-        """Initialize mock state with default test values."""
+        """Initialize test state with default values."""
         self.creator_id = "12345"
         self.creator_name = "test_user"
         self.messages_enabled = True
-        self.verbose_logs = True
-
-
-@pytest.fixture
-def mock_context():
-    """Fixture for mock StashClient context for integration testing."""
-    return MockContext()
-
-
-@pytest.fixture
-def mock_config(test_database_sync):
-    """Fixture for mock configuration with REAL database.
-
-    This is a key change: We now use a real database instead of MockDatabase!
-    """
-    return MockConfig(database=test_database_sync)
+        self.verbose_logs = False  # Keep logs quiet in tests
 
 
 @pytest.fixture
 def mock_state():
-    """Fixture for mock application state."""
-    return MockState()
+    """Fixture for test download state."""
+    return TestState()
+
+
+@pytest.fixture
+def mock_stash_context():
+    """Fixture for MOCKED StashContext (for tests that don't need real Stash).
+
+    This creates a mock StashContext with all API methods mocked.
+    Use `stash_context` fixture for real Docker Stash connection.
+    """
+    context = MagicMock()
+    context.client = MagicMock()
+
+    # Mock common client methods for finding objects
+    context.client.find_performer = AsyncMock()
+    context.client.find_studio = AsyncMock()
+    context.client.find_gallery = AsyncMock()
+    context.client.find_galleries = AsyncMock()
+    context.client.find_scene = AsyncMock()
+    context.client.find_scenes = AsyncMock()
+    context.client.find_image = AsyncMock()
+    context.client.find_images = AsyncMock()
+    context.client.find_tags = AsyncMock()
+
+    # Mock common client methods for creating/modifying objects
+    context.client.create_tag = AsyncMock()
+    context.client.create_performer = AsyncMock()
+    context.client.create_studio = AsyncMock()
+    context.client.create_gallery = AsyncMock()
+    context.client.create_scene = AsyncMock()
+    context.client.add_gallery_images = AsyncMock(return_value=True)
+
+    return context
+
+
+@pytest.fixture
+def mock_context():
+    """Backwards compatibility alias for mock_stash_context.
+
+    Provides a mocked StashContext for tests that don't need real Stash.
+    """
+    context = MagicMock()
+    context.client = MagicMock()
+
+    # Mock common client methods for finding objects
+    context.client.find_performer = AsyncMock()
+    context.client.find_studio = AsyncMock()
+    context.client.find_gallery = AsyncMock()
+    context.client.find_galleries = AsyncMock()
+    context.client.find_scene = AsyncMock()
+    context.client.find_scenes = AsyncMock()
+    context.client.find_image = AsyncMock()
+    context.client.find_images = AsyncMock()
+    context.client.find_tags = AsyncMock()
+
+    # Mock common client methods for creating/modifying objects
+    context.client.create_tag = AsyncMock()
+    context.client.create_performer = AsyncMock()
+    context.client.create_studio = AsyncMock()
+    context.client.create_gallery = AsyncMock()
+    context.client.create_scene = AsyncMock()
+    context.client.add_gallery_images = AsyncMock(return_value=True)
+
+    return context
 
 
 # ============================================================================
@@ -276,11 +277,21 @@ def mock_group(session_sync, integration_mock_account):
 @pytest.fixture
 def mock_attachment(session_sync, integration_mock_account, mock_media):
     """Create REAL Attachment using factory instead of mock."""
+    # First create an AccountMedia that links the Media to an Account
+    account_media = AccountMediaFactory.build(
+        id=70123,
+        accountId=integration_mock_account.id,
+        mediaId=mock_media.id,
+    )
+    session_sync.add(account_media)
+    session_sync.commit()
+
+    # Create attachment that references the AccountMedia
     attachment = AttachmentFactory.build(
         id=60123,
-        contentId=30123,  # Will be updated by tests
-        contentType=ContentType.ACCOUNT_MEDIA,  # Use enum, not string
-        accountMediaId=mock_media.id,
+        contentId=account_media.id,  # References AccountMedia.id
+        contentType=ContentType.ACCOUNT_MEDIA,
+        postId=None,  # Will be updated by tests if needed
     )
     session_sync.add(attachment)
     session_sync.commit()
@@ -295,16 +306,12 @@ def mock_post(session_sync, integration_mock_account, mock_attachment):
         id=12345,
         accountId=integration_mock_account.id,
         content="Test post content #test",
-        likeCount=5,
-        replyCount=1,
-        mediaLikeCount=3,
     )
     session_sync.add(post)
     session_sync.commit()
 
     # Update attachment to link to this post
-    mock_attachment.contentId = post.id
-    mock_attachment.contentType = ContentType.ACCOUNT_MEDIA
+    mock_attachment.postId = post.id
     session_sync.add(mock_attachment)
     session_sync.commit()
 
@@ -327,6 +334,13 @@ def mock_posts(session_sync, integration_mock_account):
         )
         session_sync.add(media)
 
+        # Create AccountMedia to link Media to Account
+        account_media = AccountMediaFactory.build(
+            accountId=integration_mock_account.id,
+            mediaId=media.id,
+        )
+        session_sync.add(account_media)
+
         # Create post
         post = PostFactory.build(
             accountId=integration_mock_account.id,
@@ -334,11 +348,11 @@ def mock_posts(session_sync, integration_mock_account):
         )
         session_sync.add(post)
 
-        # Create attachment
+        # Create attachment that references the AccountMedia
         attachment = AttachmentFactory.build(
-            contentId=post.id,
+            contentId=account_media.id,  # References AccountMedia.id
             contentType=ContentType.ACCOUNT_MEDIA,
-            accountMediaId=media.id,
+            postId=post.id,
         )
         session_sync.add(attachment)
 
@@ -398,10 +412,17 @@ def mock_messages(session_sync, mock_group, integration_mock_account):
 
         # Create attachment (some messages don't have attachments)
         if i % 2 == 0:
+            # Create AccountMedia to link Media to Account
+            account_media = AccountMediaFactory.build(
+                accountId=integration_mock_account.id,
+                mediaId=media.id,
+            )
+            session_sync.add(account_media)
+
             attachment = AttachmentFactory.build(
-                contentId=message.id,
+                contentId=account_media.id,  # References AccountMedia.id
                 contentType=ContentType.ACCOUNT_MEDIA,
-                accountMediaId=media.id,
+                messageId=message.id,
             )
             session_sync.add(attachment)
 
@@ -556,29 +577,41 @@ def mock_account_media():
 
 
 @pytest.fixture
-def mock_media_bundle():
-    """Fixture for mock AccountMediaBundle."""
-    bundle = MagicMock(spec=AccountMediaBundle)
-    bundle.id = 111222
-    bundle.accountId = 12345
-    bundle.accountMedia = []  # Will be populated by tests if needed
+def mock_media_bundle(session_sync, integration_mock_account):
+    """Create REAL AccountMediaBundle using factory instead of mock."""
+    bundle = AccountMediaBundleFactory.build(
+        id=111222,
+        accountId=integration_mock_account.id,
+    )
+    session_sync.add(bundle)
+    session_sync.commit()
+    session_sync.refresh(bundle)
     return bundle
 
 
 # ============================================================================
-# StashProcessor Fixture (Updated to use real database)
+# StashProcessing Fixtures
 # ============================================================================
 
 
 @pytest.fixture
-def stash_processor(mock_config, mock_state, mock_context):
-    """Fixture for StashProcessing instance with REAL database.
+def stash_processor(config, test_database_sync, mock_state, mock_stash_context):
+    """Fixture for StashProcessing with REAL database and MOCKED Stash API.
 
-    Key change: mock_config now contains a REAL database instance,
-    not a MockDatabase!
+    This is for tests that need real database operations but can mock Stash API.
+
+    Args:
+        config: Real FanslyConfig with UUID-isolated database
+        test_database_sync: Real Database instance
+        mock_state: Test download state
+        mock_stash_context: Mocked StashContext (no real HTTP calls)
+
+    Yields:
+        StashProcessing: Processor with real DB, mocked Stash
     """
-    # mock_config already has real database set
-    mock_config._stash = mock_context
+    # Set up config with real database and mocked stash
+    config._database = test_database_sync
+    config._stash = mock_stash_context
 
     # Disable prints for testing
     with (
@@ -586,16 +619,109 @@ def stash_processor(mock_config, mock_state, mock_context):
         patch("textio.textio.print_warning"),
         patch("textio.textio.print_error"),
     ):
-        processor = StashProcessing.from_config(mock_config, mock_state)
+        processor = StashProcessing.from_config(config, mock_state)
 
         # Disable progress bars
         processor._setup_worker_pool = AsyncMock(
             return_value=(
-                "task_name",  # task_name
-                "process_name",  # process_name
-                asyncio.Semaphore(2),  # semaphore
-                asyncio.Queue(),  # queue
+                "task_name",
+                "process_name",
+                asyncio.Semaphore(2),
+                asyncio.Queue(),
             )
         )
 
         yield processor
+
+
+@pytest_asyncio.fixture
+async def real_stash_processor(config, test_database_sync, mock_state, stash_context):
+    """Fixture for StashProcessing with REAL database and REAL Docker Stash.
+
+    This is for true integration tests that hit the real Stash instance.
+
+    Args:
+        config: Real FanslyConfig with UUID-isolated database
+        test_database_sync: Real Database instance
+        mock_state: Test download state
+        stash_context: Real StashContext connected to Docker (localhost:9999)
+
+    Yields:
+        StashProcessing: Fully functional processor hitting real services
+    """
+    # Set up config with real database and real stash
+    config._database = test_database_sync
+    config._stash = stash_context
+
+    # Disable prints for testing
+    with (
+        patch("textio.textio.print_info"),
+        patch("textio.textio.print_warning"),
+        patch("textio.textio.print_error"),
+    ):
+        processor = StashProcessing.from_config(config, mock_state)
+        yield processor
+        # Cleanup happens via fixtures
+
+
+@pytest.fixture
+def fansly_network_studio():
+    """Fixture providing the 'Fansly (network)' studio from production.
+
+    This matches the real studio data from production Stash instance.
+    Used to mock find_studios("Fansly (network)") calls.
+    """
+    return Studio(
+        id="246",
+        name="Fansly (network)",
+        url="",
+        parent_studio=None,
+        aliases=[],
+        tags=[],
+        stash_ids=[
+            StashID(
+                stash_id="f03173b3-1c0e-43bc-ac30-0cc445316c80",
+                endpoint="https://fansdb.cc/graphql",
+            )
+        ],
+        details="",
+    )
+
+
+@pytest.fixture
+def mock_studio_finder(fansly_network_studio):
+    """Fixture providing a mock find_studios function and creator studio factory.
+
+    Returns a tuple of (mock_find_studios_fn, creator_studio_factory) where:
+    - mock_find_studios_fn: async function that returns Fansly network studio or empty result
+    - creator_studio_factory: function that creates a mock creator studio for an account
+
+    Usage:
+        mock_find_studios_fn, create_creator_studio = mock_studio_finder
+        mock_creator_studio = create_creator_studio(account)
+
+        with patch.object(client, 'find_studios', new=AsyncMock(side_effect=mock_find_studios_fn)):
+            ...
+    """
+    from tests.fixtures.stash_type_factories import StudioFactory
+
+    async def mock_find_studios_fn(q=None, **kwargs):
+        """Mock find_studios that returns Fansly network studio or empty result."""
+        if q == "Fansly (network)":
+            import strawberry
+
+            fansly_studio_dict = strawberry.asdict(fansly_network_studio)
+            return FindStudiosResultType(count=1, studios=[fansly_studio_dict])
+        # For creator-specific studio search, return empty (will create new)
+        return FindStudiosResultType(count=0, studios=[])
+
+    def create_creator_studio(account, studio_id="999"):
+        """Create a mock creator studio for the given account."""
+        return StudioFactory(
+            id=studio_id,
+            name=f"{account.username} (Fansly)",
+            url=f"https://fansly.com/{account.username}",
+            parent_studio=fansly_network_studio,
+        )
+
+    return mock_find_studios_fn, create_creator_studio

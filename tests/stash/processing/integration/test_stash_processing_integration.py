@@ -7,9 +7,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
 from stash.processing.mixins.account import AccountProcessingMixin
 from stash.processing.mixins.batch import BatchProcessingMixin
@@ -17,7 +15,7 @@ from stash.processing.mixins.content import ContentProcessingMixin
 from stash.processing.mixins.gallery import GalleryProcessingMixin
 from stash.processing.mixins.media import MediaProcessingMixin
 from stash.processing.mixins.studio import StudioProcessingMixin
-from stash.types import Gallery, Image, Performer, Scene, Studio
+from stash.types import Image, Scene
 
 
 class StashProcessingTest(
@@ -37,75 +35,13 @@ class StashProcessingTest(
         await self.process_creator_messages(account, performer, session=session)
 
 
-@pytest.fixture
-def mock_session():
-    """Fixture for mock session."""
-    session = MagicMock(spec=AsyncSession)
-    session.execute = AsyncMock()
-    session.add = MagicMock()
-    session.refresh = AsyncMock()
-    session.flush = AsyncMock()
-    return session
-
-
-@pytest.fixture
-def mock_performer():
-    """Fixture for mock performer."""
-    performer = MagicMock(spec=Performer)
-    performer.id = "performer_123"
-    performer.name = "test_user"
-    return performer
-
-
-@pytest.fixture
-def mock_studio():
-    """Fixture for mock studio."""
-    studio = MagicMock(spec=Studio)
-    studio.id = "studio_123"
-    studio.name = "Test Studio"
-    return studio
-
-
-@pytest.fixture
-def mock_gallery():
-    """Fixture for mock gallery."""
-    gallery = MagicMock(spec=Gallery)
-    gallery.id = "gallery_123"
-    gallery.title = "Test Gallery"
-    gallery.performers = []
-    gallery.urls = []
-    gallery.save = AsyncMock()
-    gallery.is_dirty = MagicMock(return_value=True)
-    return gallery
-
-
-@pytest.fixture
-def processing_instance(mock_session):
-    """Fixture for StashProcessing instance."""
-    config = MagicMock()
-    state = MagicMock()
-    context = MagicMock(spec=StashContext)
-    context.client = MagicMock()
-
-    instance = StashProcessingTest(
-        config=config,
-        state=state,
-        context=context,
-        database=MagicMock(),
-        _background_task=None,
-        _cleanup_event=asyncio.Event(),
-        _owns_db=False,
-    )
-    return instance
-
-
 class TestStashProcessingIntegration:
     """Integration tests for StashProcessing."""
 
     @pytest.mark.asyncio
     async def test_end_to_end_workflow(
         self,
-        processing_instance,
+        stash_processor,
         mock_session,
         sample_account,
         mock_performer,
@@ -125,9 +61,7 @@ class TestStashProcessingIntegration:
         ]
 
         # Mock gallery creation
-        processing_instance._get_or_create_gallery = AsyncMock(
-            return_value=mock_gallery
-        )
+        stash_processor._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
 
         # Mock media processing
         mock_image = MagicMock(spec=Image)
@@ -135,12 +69,12 @@ class TestStashProcessingIntegration:
         mock_scene = MagicMock(spec=Scene)
         mock_scene.id = "scene_123"
 
-        processing_instance._process_creator_attachment = AsyncMock(
+        stash_processor._process_creator_attachment = AsyncMock(
             return_value={"images": [mock_image], "scenes": [mock_scene]}
         )
 
         # Mock batch processing methods
-        processing_instance._setup_batch_processing = AsyncMock(
+        stash_processor._setup_batch_processing = AsyncMock(
             return_value=(
                 MagicMock(),  # task_pbar
                 MagicMock(),  # process_pbar
@@ -150,12 +84,12 @@ class TestStashProcessingIntegration:
         )
 
         # Mock creator processing
-        processing_instance.process_creator = AsyncMock(
+        stash_processor.process_creator = AsyncMock(
             return_value=(sample_account, mock_performer)
         )
 
         # Test process_creator_posts with real data
-        await processing_instance.process_creator_posts(
+        await stash_processor.process_creator_posts(
             account=sample_account,
             performer=mock_performer,
             studio=mock_studio,
@@ -163,9 +97,9 @@ class TestStashProcessingIntegration:
         )
 
         # Verify post processing
-        processing_instance._process_items_with_gallery.assert_called_once()
+        stash_processor._process_items_with_gallery.assert_called_once()
         # Ensure the first argument (sample_post) is what we expect
-        args = processing_instance._process_items_with_gallery.call_args[1]
+        args = stash_processor._process_items_with_gallery.call_args[1]
         assert args["account"] == sample_account
         assert args["performer"] == mock_performer
         assert args["studio"] == mock_studio
@@ -174,14 +108,14 @@ class TestStashProcessingIntegration:
 
         # Reset mocks for message processing
         mock_session.reset_mock()
-        processing_instance._process_items_with_gallery.reset_mock()
+        stash_processor._process_items_with_gallery.reset_mock()
         mock_session.execute.return_value.scalar_one.return_value = sample_account
         mock_session.execute.return_value.unique.return_value.scalars.return_value.all.return_value = [
             sample_message
         ]
 
         # Test process_creator_messages with real data
-        await processing_instance.process_creator_messages(
+        await stash_processor.process_creator_messages(
             account=sample_account,
             performer=mock_performer,
             studio=mock_studio,
@@ -189,9 +123,9 @@ class TestStashProcessingIntegration:
         )
 
         # Verify message processing
-        processing_instance._process_items_with_gallery.assert_called_once()
+        stash_processor._process_items_with_gallery.assert_called_once()
         # Ensure the first argument (sample_message) is what we expect
-        args = processing_instance._process_items_with_gallery.call_args[1]
+        args = stash_processor._process_items_with_gallery.call_args[1]
         assert args["account"] == sample_account
         assert args["performer"] == mock_performer
         assert args["studio"] == mock_studio
@@ -201,7 +135,7 @@ class TestStashProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_real_attachments(
         self,
-        processing_instance,
+        stash_processor,
         mock_session,
         sample_account,
         sample_post,
@@ -232,15 +166,13 @@ class TestStashProcessingIntegration:
         mock_image_result.count = 1
         mock_image_result.images = [mock_image]
 
-        processing_instance.context.client.find_images = AsyncMock(
+        stash_processor.context.client.find_images = AsyncMock(
             return_value=mock_image_result
         )
 
         # Mock gallery creation and lookup
-        processing_instance._get_or_create_gallery = AsyncMock(
-            return_value=mock_gallery
-        )
-        processing_instance._get_gallery_metadata = AsyncMock(
+        stash_processor._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
+        stash_processor._get_gallery_metadata = AsyncMock(
             return_value=(
                 sample_account.username,
                 "Test Gallery Title",
@@ -249,7 +181,7 @@ class TestStashProcessingIntegration:
         )
 
         # Call process_item_gallery with real data
-        await processing_instance._process_item_gallery(
+        await stash_processor._process_item_gallery(
             item=sample_post,
             account=sample_account,
             performer=mock_performer,
@@ -260,8 +192,8 @@ class TestStashProcessingIntegration:
         )
 
         # Verify gallery creation
-        processing_instance._get_or_create_gallery.assert_called_once()
-        gallery_args = processing_instance._get_or_create_gallery.call_args[1]
+        stash_processor._get_or_create_gallery.assert_called_once()
+        gallery_args = stash_processor._get_or_create_gallery.call_args[1]
         assert gallery_args["item"] == sample_post
         assert gallery_args["account"] == sample_account
         assert gallery_args["performer"] == mock_performer
@@ -272,8 +204,8 @@ class TestStashProcessingIntegration:
         )
 
         # Verify attachment processing
-        processing_instance._process_creator_attachment.assert_called_once()
-        attachment_args = processing_instance._process_creator_attachment.call_args[1]
+        stash_processor._process_creator_attachment.assert_called_once()
+        attachment_args = stash_processor._process_creator_attachment.call_args[1]
         assert attachment_args["attachment"] == attachment
         assert attachment_args["item"] == sample_post
         assert attachment_args["account"] == sample_account
@@ -281,7 +213,7 @@ class TestStashProcessingIntegration:
     @pytest.mark.asyncio
     async def test_end_to_end_with_real_media(
         self,
-        processing_instance,
+        stash_processor,
         mock_session,
         sample_account,
         sample_post,
@@ -308,7 +240,7 @@ class TestStashProcessingIntegration:
                 return stash_obj.files[0]
             return None
 
-        processing_instance._get_file_from_stash_obj = mock_get_file
+        stash_processor._get_file_from_stash_obj = mock_get_file
 
         # Mock image lookup
         mock_image = MagicMock(spec=Image)
@@ -323,15 +255,13 @@ class TestStashProcessingIntegration:
         mock_image_result = MagicMock()
         mock_image_result.count = 1
         mock_image_result.images = [mock_image]
-        processing_instance.context.client.find_images = AsyncMock(
+        stash_processor.context.client.find_images = AsyncMock(
             return_value=mock_image_result
         )
 
         # Call _process_media with real data
         result = {"images": [], "scenes": []}
-        await processing_instance._process_media(
-            media, sample_post, sample_account, result
-        )
+        await stash_processor._process_media(media, sample_post, sample_account, result)
 
         # Verify media was found and processed
         assert len(result["images"]) == 1
@@ -345,7 +275,7 @@ class TestIntegrationWithError:
     @pytest.mark.asyncio
     async def test_error_recovery_with_real_data(
         self,
-        processing_instance,
+        stash_processor,
         mock_session,
         sample_account,
         sample_post,
@@ -366,7 +296,7 @@ class TestIntegrationWithError:
         ]
 
         # Mock batch processing methods
-        processing_instance._setup_batch_processing = AsyncMock(
+        stash_processor._setup_batch_processing = AsyncMock(
             return_value=(
                 MagicMock(),  # task_pbar
                 MagicMock(),  # process_pbar
@@ -376,15 +306,15 @@ class TestIntegrationWithError:
         )
 
         # Force an error in item processing
-        processing_instance._process_items_with_gallery = AsyncMock(
+        stash_processor._process_items_with_gallery = AsyncMock(
             side_effect=Exception("Test error")
         )
 
         # Initialize error handling mocks
         with patch("stash.processing.mixins.content.print_error") as mock_print_error:
             # Ensure correct structure exists to avoid KeyError
-            if hasattr(processing_instance, "_process_media"):
-                original_process_media = processing_instance._process_media
+            if hasattr(stash_processor, "_process_media"):
+                original_process_media = stash_processor._process_media
 
                 async def safe_process_media(media_obj, item, account, result):
                     try:
@@ -396,13 +326,13 @@ class TestIntegrationWithError:
                         print(f"Handled KeyError: {e} during media processing")
                         return result
 
-                processing_instance._process_media = safe_process_media
+                stash_processor._process_media = safe_process_media
             # Set up batch process callback
-            processing_instance._run_batch_processor = AsyncMock()
+            stash_processor._run_batch_processor = AsyncMock()
             batch_args = {}
 
             # Call process_creator_posts
-            await processing_instance.process_creator_posts(
+            await stash_processor.process_creator_posts(
                 account=sample_account,
                 performer=mock_performer,
                 studio=None,
@@ -410,7 +340,7 @@ class TestIntegrationWithError:
             )
 
             # Extract process_batch function from batch_args
-            batch_args = processing_instance._run_batch_processor.call_args[1]
+            batch_args = stash_processor._run_batch_processor.call_args[1]
             process_batch = batch_args["process_batch"]
 
             # Execute process_batch directly to test error handling

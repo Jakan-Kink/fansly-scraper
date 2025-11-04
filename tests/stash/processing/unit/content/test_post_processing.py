@@ -68,6 +68,8 @@ class TestPostProcessing:
         process_name = "process_name"
         semaphore = MagicMock()
         queue = MagicMock()
+        queue.join = AsyncMock()  # Make queue.join() awaitable
+        queue.put = AsyncMock()  # Make queue.put() awaitable
 
         content_mixin._setup_worker_pool = AsyncMock(
             return_value=(
@@ -82,6 +84,9 @@ class TestPostProcessing:
         # (fixture may not have set it up correctly)
         if not isinstance(content_mixin._process_items_with_gallery, AsyncMock):
             content_mixin._process_items_with_gallery = AsyncMock()
+
+        # Mock _run_worker_pool
+        content_mixin._run_worker_pool = AsyncMock()
 
         # Call method
         await content_mixin.process_creator_posts(
@@ -175,6 +180,8 @@ class TestPostProcessing:
         process_name = "process_name"
         semaphore = MagicMock()
         queue = MagicMock()
+        queue.join = AsyncMock()  # Make queue.join() awaitable
+        queue.put = AsyncMock()  # Make queue.put() awaitable
 
         content_mixin._setup_worker_pool = AsyncMock(
             return_value=(
@@ -193,6 +200,9 @@ class TestPostProcessing:
             ]
         )
         content_mixin._process_items_with_gallery = mock_process_items
+
+        # Mock _run_worker_pool
+        content_mixin._run_worker_pool = AsyncMock()
 
         # Call method
         await content_mixin.process_creator_posts(
@@ -374,12 +384,14 @@ class TestPostProcessing:
         session.execute = tracked_execute
 
         # Mock worker pool
+        queue = MagicMock()
+        queue.join = AsyncMock()  # Make queue.join() awaitable
         content_mixin._setup_worker_pool = AsyncMock(
             return_value=(
                 "task_name",
                 "process_name",
                 MagicMock(),
-                MagicMock(),
+                queue,
             )
         )
         content_mixin._run_worker_pool = AsyncMock()
