@@ -65,13 +65,17 @@ async def test_find_studio_not_found(stash_client: StashClient) -> None:
 @pytest.mark.asyncio
 async def test_find_studio_error(stash_client: StashClient) -> None:
     """Test handling errors when finding a studio."""
+    # Clear the cache to ensure we test the error handling path
+    stash_client.find_studio.cache_clear()
+
     with patch.object(
         stash_client,
         "execute",
         new_callable=AsyncMock,
         side_effect=Exception("Test error"),
     ):
-        studio = await stash_client.find_studio("123")
+        # Use a unique ID that won't be cached
+        studio = await stash_client.find_studio("test_error_studio_999")
         assert studio is None
 
 

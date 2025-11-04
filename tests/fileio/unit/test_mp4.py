@@ -225,6 +225,7 @@ class TestHashMP4File:
         mock_path = MagicMock(spec=Path)
         mock_path.exists.return_value = True
         mock_path.stat.return_value = MagicMock(st_size=1000)
+        mock_path.__str__ = MagicMock(return_value="test_file.mp4")
 
         # Mock open to return a file-like object
         mock_file = MagicMock(spec=BufferedReader)
@@ -278,6 +279,7 @@ class TestHashMP4File:
         mock_path = MagicMock(spec=Path)
         mock_path.exists.return_value = True
         mock_path.stat.return_value = MagicMock(st_size=1000)
+        mock_path.__str__ = MagicMock(return_value="test_file.mp4")
 
         # Mock open to return a file-like object
         mock_file = MagicMock(spec=BufferedReader)
@@ -339,6 +341,7 @@ class TestHashMP4File:
         mock_path = MagicMock(spec=Path)
         mock_path.exists.return_value = True
         mock_path.stat.return_value = MagicMock(st_size=1000)
+        mock_path.__str__ = MagicMock(return_value="test_file.mp4")
 
         # Mock open to return a file-like object
         mock_file = MagicMock(spec=BufferedReader)
@@ -373,6 +376,7 @@ class TestHashMP4File:
         mock_path = MagicMock(spec=Path)
         mock_path.exists.return_value = True
         mock_path.stat.return_value = MagicMock(st_size=1000)
+        mock_path.__str__ = MagicMock(return_value="test_file.mp4")
 
         # Mock file object
         mock_file = MagicMock(spec=BufferedReader)
