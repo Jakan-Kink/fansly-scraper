@@ -143,9 +143,9 @@ async def test_process_account_media_bundles(test_database, config, timeline_dat
             # Create necessary AccountMedia records
             for content in bundle.get("bundleContent", []):
                 media = AccountMedia(
-                    id=content["accountMediaId"],
-                    accountId=account_data["id"],
-                    mediaId=content["accountMediaId"],
+                    id=int(content["accountMediaId"]),
+                    accountId=int(account_data["id"]),
+                    mediaId=int(content["accountMediaId"]),
                 )
                 session.add(media)
         await session.commit()
@@ -158,7 +158,7 @@ async def test_process_account_media_bundles(test_database, config, timeline_dat
         # Verify bundles were created with correct ordering
         for bundle_data in bundles_data:
             result = await session.execute(
-                select(AccountMediaBundle).filter_by(id=bundle_data["id"])
+                select(AccountMediaBundle).filter_by(id=int(bundle_data["id"]))
             )
             bundle = result.scalar_one_or_none()
             assert bundle is not None
@@ -169,7 +169,7 @@ async def test_process_account_media_bundles(test_database, config, timeline_dat
             # Verify order
             media_ids = [m.id for m in bundle.account_media_ids]
             expected_order = [
-                c["accountMediaId"]
+                int(c["accountMediaId"])
                 for c in sorted(bundle_data["bundleContent"], key=lambda x: x["pos"])
             ]
             assert media_ids == expected_order
