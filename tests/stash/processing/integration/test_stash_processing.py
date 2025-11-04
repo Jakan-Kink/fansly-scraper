@@ -143,25 +143,39 @@ class TestStashProcessingIntegration:
     @pytest.mark.asyncio
     async def test_find_existing_studio(self, factory_session, stash_processor):
         """Test _find_existing_studio method with real account."""
-        # Create a real account
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Create a real account using factory
         account = AccountFactory(username="studio_creator")
         factory_session.commit()
 
-        # Mock the Stash client's find_studio to return existing studio
+        # Create a mock studio
         mock_studio = Studio(
             id="studio_123",
             name="studio_creator",
             url="https://fansly.com/studio_creator",
         )
-        stash_processor.context.client.find_studio.return_value = mock_studio
+
+        # Create a mock result for find_studios (plural) - matches actual implementation
+        mock_studios_result = MagicMock()
+        mock_studios_result.count = 1
+        mock_studios_result.studios = [mock_studio]
+
+        # Mock context.client.find_studios to return the result (async)
+        stash_processor.context.client.find_studios = AsyncMock(return_value=mock_studios_result)
+
+        # Mock find_performer to return None (for the stash ID lookup)
+        stash_processor.context.client.find_performer = AsyncMock(return_value=None)
 
         # Test finding studio
         studio = await stash_processor._find_existing_studio(account)
 
         # Verify result
         assert studio == mock_studio
-        stash_processor.context.client.find_studio.assert_called_once_with(
-            "studio_creator"
+
+        # Verify find_studios was called with "Fansly (network)"
+        stash_processor.context.client.find_studios.assert_called_once_with(
+            q="Fansly (network)"
         )
 
     @pytest.mark.asyncio
@@ -169,12 +183,20 @@ class TestStashProcessingIntegration:
         self, factory_session, stash_processor, mocker
     ):
         """Test _find_existing_studio creates new studio when not found."""
+        from unittest.mock import AsyncMock, MagicMock
+
         # Create a real account
         account = AccountFactory(username="new_studio")
         factory_session.commit()
 
-        # Mock the Stash client's find_studio to return None
-        stash_processor.context.client.find_studio.return_value = None
+        # Mock find_studios to return empty result
+        mock_studios_result = MagicMock()
+        mock_studios_result.count = 0
+        mock_studios_result.studios = []
+        stash_processor.context.client.find_studios = AsyncMock(return_value=mock_studios_result)
+
+        # Mock find_performer to return None
+        stash_processor.context.client.find_performer = AsyncMock(return_value=None)
 
         # Create a mock studio that will be returned by Studio.create
         mock_studio = Studio(
