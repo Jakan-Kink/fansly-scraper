@@ -383,7 +383,7 @@ async def test_incremental_update_workflow(
                 try:
                     result = await stash_client.wait_for_job_with_updates(
                         job_id,
-                        timeout=30.0,
+                        timeout_seconds=30.0,
                     )
                     assert result is True
                 except TimeoutError:
