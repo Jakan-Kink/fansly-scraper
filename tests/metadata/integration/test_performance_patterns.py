@@ -207,7 +207,9 @@ async def test_query_optimization(test_database):
         result = await session.execute(text("SELECT * FROM posts LIMIT 1000"))
         all_column_posts = result.fetchall()
         basic_time = time.time() - start_time
-        print(f"Full column query time for {len(all_column_posts)} posts: {basic_time:.2f}s")
+        print(
+            f"Full column query time for {len(all_column_posts)} posts: {basic_time:.2f}s"
+        )
 
         # Test 2: Optimized query with specific columns (same row count for fair comparison)
         start_time = time.time()

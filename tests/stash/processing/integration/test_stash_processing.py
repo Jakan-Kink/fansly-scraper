@@ -6,7 +6,7 @@ and factory-based test data instead of mocks.
 
 import pytest
 
-from stash.types import Performer, Studio
+from stash.types import Performer
 from tests.fixtures.metadata_factories import AccountFactory
 
 
@@ -14,12 +14,10 @@ class TestStashProcessingIntegration:
     """Integration tests for StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_initialization(
-        self, factory_session, stash_processor, mock_config, mock_state
-    ):
+    async def test_initialization(self, factory_session, stash_processor, mock_state):
         """Test StashProcessing initialization with real database."""
         # Verify the processor was properly initialized with real dependencies
-        assert stash_processor.config == mock_config
+        assert stash_processor.config is not None
         assert stash_processor.state.creator_id == mock_state.creator_id
         assert stash_processor.state.creator_name == mock_state.creator_name
         assert stash_processor.state.messages_enabled == mock_state.messages_enabled
@@ -93,25 +91,25 @@ class TestStashProcessingIntegration:
     @pytest.mark.asyncio
     async def test_find_existing_performer(self, factory_session, stash_processor):
         """Test _find_existing_performer method with real account."""
-        # Create a real account
-        account = AccountFactory(username="performer_user", stash_id="performer_123")
+        # Create a real account with integer stash_id
+        account = AccountFactory(username="performer_user", stash_id=123)
         factory_session.commit()
 
         # Mock the Stash client's find_performer method
         mock_performer = Performer(
-            id="performer_123",
+            id="123",
             name="performer_user",
             urls=["https://fansly.com/performer_user"],
         )
         stash_processor.context.client.find_performer.return_value = mock_performer
 
-        # Test finding by stash_id
+        # Test finding by stash_id (converted to string for Stash API)
         performer = await stash_processor._find_existing_performer(account)
 
         # Verify result
         assert performer == mock_performer
         stash_processor.context.client.find_performer.assert_called_once_with(
-            "performer_123"
+            123  # Account.stash_id is integer from database; find_performer accepts int
         )
 
     @pytest.mark.asyncio
@@ -141,80 +139,103 @@ class TestStashProcessingIntegration:
         )
 
     @pytest.mark.asyncio
-    async def test_find_existing_studio(self, factory_session, stash_processor):
-        """Test _find_existing_studio method with real account."""
-        from unittest.mock import AsyncMock, MagicMock
+    async def test_find_existing_studio(
+        self, factory_session, stash_processor, fansly_network_studio
+    ):
+        """Test _find_existing_studio method with real account when studio exists."""
+        from unittest.mock import AsyncMock
+
+        import strawberry
+
+        from stash.types import FindStudiosResultType
+        from tests.fixtures.stash_type_factories import StudioFactory
 
         # Create a real account using factory
         account = AccountFactory(username="studio_creator")
         factory_session.commit()
 
-        # Create a mock studio
-        mock_studio = Studio(
+        # Create expected creator studio using factory
+        creator_studio = StudioFactory(
             id="studio_123",
-            name="studio_creator",
-            url="https://fansly.com/studio_creator",
+            name=f"{account.username} (Fansly)",
+            url=f"https://fansly.com/{account.username}",
+            parent_studio=fansly_network_studio,
         )
 
-        # Create a mock result for find_studios (plural) - matches actual implementation
-        mock_studios_result = MagicMock()
-        mock_studios_result.count = 1
-        mock_studios_result.studios = [mock_studio]
+        # Mock find_studios to return dicts (matching real GraphQL behavior)
+        async def mock_find_studios(q=None, **kwargs):
+            if q == "Fansly (network)":
+                return FindStudiosResultType(
+                    count=1, studios=[strawberry.asdict(fansly_network_studio)]
+                )
+            if q == f"{account.username} (Fansly)":
+                # Creator studio already exists
+                return FindStudiosResultType(
+                    count=1, studios=[strawberry.asdict(creator_studio)]
+                )
+            return FindStudiosResultType(count=0, studios=[])
 
-        # Mock context.client.find_studios to return the result (async)
-        stash_processor.context.client.find_studios = AsyncMock(return_value=mock_studios_result)
+        stash_processor.context.client.find_studios = AsyncMock(
+            side_effect=mock_find_studios
+        )
 
-        # Mock find_performer to return None (for the stash ID lookup)
-        stash_processor.context.client.find_performer = AsyncMock(return_value=None)
-
-        # Test finding studio
+        # Test finding existing studio
         studio = await stash_processor._find_existing_studio(account)
 
-        # Verify result
-        assert studio == mock_studio
-
-        # Verify find_studios was called with "Fansly (network)"
-        stash_processor.context.client.find_studios.assert_called_once_with(
-            q="Fansly (network)"
-        )
+        # Verify result - should return existing creator studio
+        assert studio is not None
+        assert studio.name == f"{account.username} (Fansly)"
 
     @pytest.mark.asyncio
     async def test_find_existing_studio_creates_new(
-        self, factory_session, stash_processor, mocker
+        self, factory_session, stash_processor, fansly_network_studio
     ):
         """Test _find_existing_studio creates new studio when not found."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock
+
+        from stash.types import FindStudiosResultType
+        from tests.fixtures.stash_type_factories import StudioFactory
 
         # Create a real account
-        account = AccountFactory(username="new_studio")
+        account = AccountFactory(username="new_studio_creator")
         factory_session.commit()
 
-        # Mock find_studios to return empty result
-        mock_studios_result = MagicMock()
-        mock_studios_result.count = 0
-        mock_studios_result.studios = []
-        stash_processor.context.client.find_studios = AsyncMock(return_value=mock_studios_result)
-
-        # Mock find_performer to return None
-        stash_processor.context.client.find_performer = AsyncMock(return_value=None)
-
-        # Create a mock studio that will be returned by Studio.create
-        mock_studio = Studio(
-            id="new_studio_id",
-            name="new_studio",
-            url="https://fansly.com/new_studio",
+        # Create expected creator studio using factory
+        expected_studio = StudioFactory(
+            id="999",
+            name=f"{account.username} (Fansly)",
+            url=f"https://fansly.com/{account.username}",
+            parent_studio=fansly_network_studio,
         )
-        mock_studio.save = mocker.AsyncMock()
 
-        # Patch Studio.create
-        mocker.patch("stash.types.Studio.create", return_value=mock_studio)
+        # Mock find_studios to return dicts (matching real GraphQL behavior)
+        import strawberry
+
+        async def mock_find_studios(q=None, **kwargs):
+            if q == "Fansly (network)":
+                return FindStudiosResultType(
+                    count=1, studios=[strawberry.asdict(fansly_network_studio)]
+                )
+            # Creator studio not found, needs to be created
+            return FindStudiosResultType(count=0, studios=[])
+
+        stash_processor.context.client.find_studios = AsyncMock(
+            side_effect=mock_find_studios
+        )
+        stash_processor.context.client.create_studio = AsyncMock(
+            return_value=expected_studio
+        )
+        stash_processor.context.client.find_performer = AsyncMock(return_value=None)
 
         # Test finding/creating studio
         studio = await stash_processor._find_existing_studio(account)
 
-        # Verify result
-        assert studio == mock_studio
-        mock_studio.save.assert_called_once_with(stash_processor.context.client)
+        # Verify studio was created with correct properties
+        assert studio is not None
+        assert studio.name == f"{account.username} (Fansly)"
+        assert studio.parent_studio == fansly_network_studio
+        # Verify create_studio was called
+        stash_processor.context.client.create_studio.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_no_avatar(

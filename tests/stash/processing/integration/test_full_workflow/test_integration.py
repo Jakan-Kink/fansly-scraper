@@ -58,8 +58,12 @@ class TestFullWorkflowIntegration:
 
         # Mock internal methods to verify they're called
         stash_processor._find_account = AsyncMock(return_value=integration_mock_account)
-        stash_processor._find_existing_performer = AsyncMock(return_value=integration_mock_performer)
-        stash_processor._find_existing_studio = AsyncMock(return_value=integration_mock_studio)
+        stash_processor._find_existing_performer = AsyncMock(
+            return_value=integration_mock_performer
+        )
+        stash_processor._find_existing_studio = AsyncMock(
+            return_value=integration_mock_studio
+        )
         stash_processor._process_items_with_gallery = AsyncMock()
         stash_processor.process_creator_posts = AsyncMock()
         stash_processor.process_creator_messages = AsyncMock()
