@@ -1,6 +1,6 @@
 """Integration tests for the full StashProcessing workflow."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,6 +18,8 @@ class TestFullWorkflowIntegration:
         integration_mock_account,
         integration_mock_performer,
         integration_mock_studio,
+        mock_gallery,
+        mock_image,
     ):
         """Test the full workflow using continue_stash_processing."""
         # Update account to have a stash_id that matches the performer
@@ -25,10 +27,33 @@ class TestFullWorkflowIntegration:
 
         # Mock the Stash API methods that will be called during processing
         stash_processor.context.client.find_studio.return_value = None
-        stash_processor.context.client.create_studio.return_value = integration_mock_studio
+        stash_processor.context.client.create_studio.return_value = (
+            integration_mock_studio
+        )
 
         # Mock process_creator_studio to return the studio
-        stash_processor.process_creator_studio = AsyncMock(return_value=integration_mock_studio)
+        stash_processor.process_creator_studio = AsyncMock(
+            return_value=integration_mock_studio
+        )
+
+        # Set up find_gallery to return gallery
+        stash_processor.context.client.find_gallery.return_value = mock_gallery
+
+        # Set up find_images to return image
+        mock_image_result = MagicMock()
+        mock_image_result.count = 1
+        mock_image_result.images = [mock_image]
+        stash_processor.context.client.find_images.return_value = mock_image_result
+
+        # Mock internal methods to verify they're called
+        stash_processor._find_account = AsyncMock(return_value=integration_mock_account)
+        stash_processor._find_existing_performer = AsyncMock(
+            return_value=integration_mock_performer
+        )
+        stash_processor._find_existing_studio = AsyncMock(
+            return_value=integration_mock_studio
+        )
+        stash_processor._process_items_with_gallery = AsyncMock()
 
         # Mock process_creator_posts and process_creator_messages
         stash_processor.process_creator_posts = AsyncMock()
@@ -61,20 +86,14 @@ class TestFullWorkflowIntegration:
     ):
         """Test the full post processing flow with gallery creation and media processing."""
         # Setup gallery creation
-        stash_processor._get_or_create_gallery = AsyncMock(
-            return_value=mock_gallery
-        )
+        stash_processor._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
 
         # Setup process_creator_attachment to return some images and scenes
         mock_result = {"images": [mock_image], "scenes": []}
-        stash_processor.process_creator_attachment = AsyncMock(
-            return_value=mock_result
-        )
+        stash_processor.process_creator_attachment = AsyncMock(return_value=mock_result)
 
         # Setup gallery image addition
-        stash_processor.context.client.add_gallery_images = AsyncMock(
-            return_value=True
-        )
+        stash_processor.context.client.add_gallery_images = AsyncMock(return_value=True)
 
         # Directly call the item processing function to test the flow
         await stash_processor._process_item_gallery(
