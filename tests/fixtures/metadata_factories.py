@@ -65,6 +65,7 @@ class AccountFactory(BaseFactory):
 
     Example:
         account = AccountFactory(username="mycreator", displayName="My Creator")
+        account_with_stash = AccountFactory(username="creator", stash_id=12345)
     """
 
     class Meta:
@@ -81,6 +82,7 @@ class AccountFactory(BaseFactory):
     location = None
     following = False
     profileAccess = True
+    stash_id = None  # Optional: integer ID in Stash for this account
 
 
 class MediaFactory(BaseFactory):

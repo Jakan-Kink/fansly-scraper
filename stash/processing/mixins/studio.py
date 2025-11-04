@@ -65,7 +65,7 @@ class StudioProcessingMixin:
         if fansly_studio_result.count == 0:
             raise ValueError("Fansly Studio not found in Stash")
 
-        # Convert dict to Studio object
+        # Get Studio object from results (convert dict to Studio)
         fansly_studio = Studio(**fansly_studio_result.studios[0])
         debug_print(
             {
@@ -115,5 +115,5 @@ class StudioProcessingMixin:
             else:
                 return studio
 
-        # Return first matching studio
+        # Return first matching studio (convert dict to Studio)
         return Studio(**studio_data.studios[0])
