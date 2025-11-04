@@ -347,7 +347,7 @@ async def test_find_scenes_error(stash_client: StashClient) -> None:
 
     # Set up the execute method to raise an exception
     test_mixin.execute = AsyncMock(side_effect=Exception("Test error"))
-    test_mixin.log = AsyncMock()
+    test_mixin.log = MagicMock()  # Use MagicMock instead of AsyncMock for log
 
     # Call the method that should handle the exception
     result = await test_mixin.find_scenes()
@@ -547,7 +547,7 @@ async def test_find_duplicate_scenes_error(stash_client: StashClient) -> None:
     """Test handling errors when finding duplicate scenes."""
     # Create a new client with proper mocking and behavior
     client = create_autospec(StashClient, instance=True)
-    client.log = AsyncMock()
+    client.log = MagicMock()  # Use MagicMock instead of AsyncMock for log
 
     # Set execute to throw an exception
     client.execute = AsyncMock(side_effect=Exception("Test error"))

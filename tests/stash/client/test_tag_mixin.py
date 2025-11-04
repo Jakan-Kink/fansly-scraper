@@ -337,7 +337,7 @@ async def test_find_tags_error(stash_client: StashClient) -> None:
     """Test handling errors when finding tags."""
     # Create a completely new client that we have full control of
     client = create_autospec(StashClient, instance=True)
-    client.log = AsyncMock()
+    client.log = MagicMock()  # Use MagicMock instead of AsyncMock for log
 
     # Set up execute to raise an exception
     client.execute = AsyncMock(side_effect=Exception("Test error"))

@@ -14,18 +14,18 @@ from sqlalchemy.orm import Session
 from metadata import Account, AccountMedia, Media, Message, Post, Wall
 
 
-def create_test_account(
-    session: Session, id: int = 1, username: str = "test_user", **kwargs
+async def create_test_account(
+    session: AsyncSession, id: int = 1, username: str = "test_user", **kwargs
 ) -> Account:
     """Create a test account with optional attributes."""
     account = Account(id=id, username=username, **kwargs)
     session.add(account)
-    session.commit()
+    await session.commit()
     return account
 
 
-def create_test_account_media(
-    session: Session, account_id: int, media_id: int, id: int = 1, **kwargs
+async def create_test_account_media(
+    session: AsyncSession, account_id: int, media_id: int, id: int = 1, **kwargs
 ) -> AccountMedia:
     """Create a test account media association with optional attributes."""
     account_media = AccountMedia(
@@ -36,12 +36,12 @@ def create_test_account_media(
         **kwargs,
     )
     session.add(account_media)
-    session.commit()
+    await session.commit()
     return account_media
 
 
-def create_test_media(
-    session: Session,
+async def create_test_media(
+    session: AsyncSession,
     account_id: int,
     id: int = 1,
     mimetype: str = "video/mp4",
@@ -50,7 +50,7 @@ def create_test_media(
     """Create a test media item with optional attributes."""
     media = Media(id=id, accountId=account_id, mimetype=mimetype, **kwargs)
     session.add(media)
-    session.commit()
+    await session.commit()
     return media
 
 
@@ -118,8 +118,8 @@ def verify_index_usage(session: Session, table: str, column: str) -> bool:
     return any("USING INDEX" in str(row) for row in plan)
 
 
-def create_test_data_set(
-    session: Session,
+async def create_test_data_set(
+    session: AsyncSession,
     num_accounts: int = 2,
     num_media_per_account: int = 3,
     num_posts_per_account: int = 2,
@@ -145,12 +145,12 @@ def create_test_data_set(
             account = Account(id=i + 1, username=f"test_user_{i + 1}")
             session.add(account)
             data["accounts"].append(account)
-        session.flush()
+        await session.flush()
 
         # Create media for each account
         for account in data["accounts"]:
             for _ in range(num_media_per_account):
-                media = create_test_media(
+                media = await create_test_media(
                     session=session,
                     account_id=account.id,
                     id=len(data["media"]) + 1,
@@ -158,7 +158,7 @@ def create_test_data_set(
                 )
                 session.add(media)
                 data["media"].append(media)
-        session.flush()
+        await session.flush()
 
         # Create account_media associations
         for account in data["accounts"]:
@@ -166,7 +166,7 @@ def create_test_data_set(
                 media for media in data["media"] if media.accountId == account.id
             ]
             for media in account_media_list:
-                account_media = create_test_account_media(
+                account_media = await create_test_account_media(
                     session=session,
                     account_id=account.id,
                     media_id=media.id,
@@ -177,10 +177,10 @@ def create_test_data_set(
                     f"Created AccountMedia: {account_media.id} for Account: {account.id} with Media: {media.id}"
                 )
                 # Ensure the media object is correctly associated with the account
-                session.refresh(account_media)
-                session.refresh(media)
-                session.refresh(account)
-        session.flush()
+                await session.refresh(account_media)
+                await session.refresh(media)
+                await session.refresh(account)
+        await session.flush()
 
         # Create walls for each account
         for account in data["accounts"]:
@@ -195,7 +195,7 @@ def create_test_data_set(
                 session.add(wall)
                 data["walls"].append(wall)
                 print(f"Created wall {wall.id} for account {account.id}")
-        session.flush()
+        await session.flush()
 
         # Create posts for each account
         for account in data["accounts"]:
@@ -209,16 +209,16 @@ def create_test_data_set(
                 session.add(post)
                 data["posts"].append(post)
                 print(f"Created post {post.id} for account {account.id}")
-        session.flush()
+        await session.flush()
 
         # Refresh accounts to update their relationships
         for account in data["accounts"]:
-            session.refresh(account)
+            await session.refresh(account)
 
         # Commit all changes
-        session.commit()
+        await session.commit()
     except Exception:
-        session.rollback()
+        await session.rollback()
         raise
     else:
         return data

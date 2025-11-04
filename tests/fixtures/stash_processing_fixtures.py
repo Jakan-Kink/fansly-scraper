@@ -530,18 +530,18 @@ class MockDatabase:
 
         self.session.scalar = AsyncMock(side_effect=mock_scalar)
 
-        # Mock add to set createdAt
-        async def mock_add(obj):
+        # Mock add to set createdAt (synchronous in SQLAlchemy)
+        def mock_add(obj):
             if not getattr(obj, "createdAt", None):
                 obj.createdAt = datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
 
-        self.session.add = AsyncMock(side_effect=mock_add)
+        self.session.add = MagicMock(side_effect=mock_add)
 
-        async def mock_add_all(objects):
+        def mock_add_all(objects):
             for obj in objects:
-                await mock_add(obj)
+                mock_add(obj)
 
-        self.session.add_all = AsyncMock(side_effect=mock_add_all)
+        self.session.add_all = MagicMock(side_effect=mock_add_all)
 
         self.session.commit = AsyncMock()
         self.session.refresh = AsyncMock()
