@@ -136,7 +136,7 @@ def test_cleanup_database_no_database():
     config = MagicMock()
     config._database = None
 
-    cleanup_database(config)  # Should not raise any exception
+    cleanup_database_sync(config)  # Should not raise any exception
 
 
 @pytest.fixture
