@@ -202,8 +202,7 @@ class TestHashMP4File:
 
     @patch("fileio.mp4.get_boxes")
     @patch("fileio.mp4.hash_mp4box")
-    @patch("pathlib.Path.open")
-    def test_hash_mp4file(self, mock_path_open, mock_hash_mp4box, mock_get_boxes):
+    def test_hash_mp4file(self, mock_hash_mp4box, mock_get_boxes):
         """Test hashing an MP4 file."""
         # Create mock boxes
         ftyp_box = MagicMock()
@@ -232,14 +231,14 @@ class TestHashMP4File:
         mock_open = MagicMock()
         mock_open.__enter__ = MagicMock(return_value=mock_file)
         mock_open.__exit__ = MagicMock(return_value=False)
-        mock_path_open.return_value = mock_open
 
         # Mock hashlib algorithm
         mock_algorithm = MagicMock()
         mock_algorithm.hexdigest.return_value = "test_hash"
 
-        # Call hash_mp4file without broken algorithm flag
-        result = hash_mp4file(mock_algorithm, mock_path)
+        with patch("builtins.open", return_value=mock_open):
+            # Call hash_mp4file without broken algorithm flag
+            result = hash_mp4file(mock_algorithm, mock_path)
 
         # Verify result
         assert result == "test_hash"
@@ -254,9 +253,8 @@ class TestHashMP4File:
 
     @patch("fileio.mp4.get_boxes")
     @patch("fileio.mp4.hash_mp4box")
-    @patch("pathlib.Path.open")
     def test_hash_mp4file_with_broken_algo(
-        self, mock_path_open, mock_hash_mp4box, mock_get_boxes
+        self, mock_hash_mp4box, mock_get_boxes
     ):
         """Test hashing an MP4 file with broken algorithm flag."""
         # Create mock boxes
@@ -286,14 +284,14 @@ class TestHashMP4File:
         mock_open = MagicMock()
         mock_open.__enter__ = MagicMock(return_value=mock_file)
         mock_open.__exit__ = MagicMock(return_value=False)
-        mock_path_open.return_value = mock_open
 
         # Mock hashlib algorithm
         mock_algorithm = MagicMock()
         mock_algorithm.hexdigest.return_value = "test_hash"
 
-        # Call hash_mp4file with broken algorithm flag
-        result = hash_mp4file(mock_algorithm, mock_path, use_broken_algo=True)
+        with patch("builtins.open", return_value=mock_open):
+            # Call hash_mp4file with broken algorithm flag
+            result = hash_mp4file(mock_algorithm, mock_path, use_broken_algo=True)
 
         # Verify result
         assert result == "test_hash"

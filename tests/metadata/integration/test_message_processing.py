@@ -352,6 +352,9 @@ async def test_process_message_permissions(
     # Process accountMedia items to create AccountMedia records
     await process_media_info(config, {"batch": media_items}, session=session)
 
+    # Commit media to ensure clean transaction state
+    await session.commit()
+
     # Verify permission flags were processed correctly
     session.expire_all()
     for media_data in media_items:
