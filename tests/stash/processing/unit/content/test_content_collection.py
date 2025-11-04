@@ -130,6 +130,8 @@ async def test_process_items_with_gallery_empty(
     factory_async_session, session, content_mixin, mock_performer, mock_studio
 ):
     """Test _process_items_with_gallery with empty items list."""
+    from unittest.mock import AsyncMock, patch
+
     # Create a real account using factory
     account = AccountFactory(
         id=12345,
@@ -141,18 +143,22 @@ async def test_process_items_with_gallery_empty(
     result = await session.execute(select(Account).where(Account.id == 12345))
     account = result.scalar_one()
 
-    await content_mixin._process_items_with_gallery(
-        account=account,
-        performer=mock_performer,
-        studio=mock_studio,
-        item_type="post",
-        items=[],
-        url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
-        session=session,
-    )
+    # Patch the delegate method to test orchestration
+    with patch.object(
+        content_mixin, "_process_item_gallery", AsyncMock()
+    ) as mock_process_gallery:
+        await content_mixin._process_items_with_gallery(
+            account=account,
+            performer=mock_performer,
+            studio=mock_studio,
+            item_type="post",
+            items=[],
+            url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
+            session=session,
+        )
 
-    # Verify _process_item_gallery was not called (mocked method)
-    assert content_mixin._process_item_gallery.call_count == 0
+        # Verify _process_item_gallery was not called (no items to process)
+        assert mock_process_gallery.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -160,6 +166,8 @@ async def test_process_items_with_gallery_no_attachments(
     factory_async_session, session, content_mixin, mock_performer, mock_studio
 ):
     """Test _process_items_with_gallery with items that have no attachments."""
+    from unittest.mock import AsyncMock, patch
+
     # Create a real account with factory
     account = AccountFactory(
         id=12345,
@@ -182,26 +190,30 @@ async def test_process_items_with_gallery_no_attachments(
     result = await session.execute(select(Post).where(Post.id == 123))
     post = result.unique().scalar_one()
 
-    await content_mixin._process_items_with_gallery(
-        account=account,
-        performer=mock_performer,
-        studio=mock_studio,
-        item_type="post",
-        items=[post],
-        url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
-        session=session,
-    )
+    # Patch the delegate method to test orchestration
+    with patch.object(
+        content_mixin, "_process_item_gallery", AsyncMock()
+    ) as mock_process_gallery:
+        await content_mixin._process_items_with_gallery(
+            account=account,
+            performer=mock_performer,
+            studio=mock_studio,
+            item_type="post",
+            items=[post],
+            url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
+            session=session,
+        )
 
-    # Verify _process_item_gallery was called with the item (mocked method)
-    content_mixin._process_item_gallery.assert_called_once()
-    call_args = content_mixin._process_item_gallery.call_args
-    assert call_args[1]["item"].id == post.id
-    assert call_args[1]["account"].id == account.id
-    assert call_args[1]["performer"] == mock_performer
-    assert call_args[1]["studio"] == mock_studio
-    assert call_args[1]["item_type"] == "post"
-    assert call_args[1]["url_pattern"] == f"https://example.com/post/{post.id}"
-    assert call_args[1]["session"] == session
+        # Verify _process_item_gallery was called with the item
+        mock_process_gallery.assert_called_once()
+        call_args = mock_process_gallery.call_args
+        assert call_args[1]["item"].id == post.id
+        assert call_args[1]["account"].id == account.id
+        assert call_args[1]["performer"] == mock_performer
+        assert call_args[1]["studio"] == mock_studio
+        assert call_args[1]["item_type"] == "post"
+        assert call_args[1]["url_pattern"] == f"https://example.com/post/{post.id}"
+        assert call_args[1]["session"] == session
 
 
 @pytest.mark.asyncio
@@ -209,6 +221,8 @@ async def test_process_items_with_gallery_with_multiple_items(
     factory_async_session, session, content_mixin, mock_performer, mock_studio
 ):
     """Test _process_items_with_gallery with multiple items."""
+    from unittest.mock import AsyncMock, patch
+
     # Create a real account with factory
     account = AccountFactory(
         id=12345,
@@ -240,21 +254,25 @@ async def test_process_items_with_gallery_with_multiple_items(
     posts = list(result.unique().scalars().all())
     post1, post2 = posts[0], posts[1]
 
-    await content_mixin._process_items_with_gallery(
-        account=account,
-        performer=mock_performer,
-        studio=mock_studio,
-        item_type="post",
-        items=[post1, post2],
-        url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
-        session=session,
-    )
+    # Patch the delegate method to test orchestration
+    with patch.object(
+        content_mixin, "_process_item_gallery", AsyncMock()
+    ) as mock_process_gallery:
+        await content_mixin._process_items_with_gallery(
+            account=account,
+            performer=mock_performer,
+            studio=mock_studio,
+            item_type="post",
+            items=[post1, post2],
+            url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
+            session=session,
+        )
 
-    # Verify _process_item_gallery was called twice, once for each item
-    assert content_mixin._process_item_gallery.call_count == 2
-    calls = content_mixin._process_item_gallery.call_args_list
-    assert calls[0][1]["item"].id == post1.id
-    assert calls[1][1]["item"].id == post2.id
+        # Verify _process_item_gallery was called twice, once for each item
+        assert mock_process_gallery.call_count == 2
+        calls = mock_process_gallery.call_args_list
+        assert calls[0][1]["item"].id == post1.id
+        assert calls[1][1]["item"].id == post2.id
 
 
 @pytest.mark.asyncio
@@ -262,6 +280,8 @@ async def test_process_creator_posts_no_posts(
     factory_async_session, session, content_mixin, mock_performer, mock_studio
 ):
     """Test process_creator_posts with no posts."""
+    from unittest.mock import AsyncMock, MagicMock
+
     # Create a real account with factory
     account = AccountFactory(
         id=12345,
@@ -273,7 +293,15 @@ async def test_process_creator_posts_no_posts(
     result = await session.execute(select(Account).where(Account.id == 12345))
     account = result.scalar_one()
 
-    # Mock the worker pool methods that are already mocked in content_mixin
+    # Mock worker pool methods
+    queue = MagicMock()
+    queue.join = AsyncMock()
+    queue.put = AsyncMock()
+    content_mixin._setup_worker_pool = AsyncMock(
+        return_value=("task", "process", MagicMock(), queue)
+    )
+    content_mixin._run_worker_pool = AsyncMock()
+
     await content_mixin.process_creator_posts(
         account=account,
         performer=mock_performer,
@@ -306,6 +334,8 @@ async def test_process_creator_messages_no_messages(
     factory_async_session, session, content_mixin, mock_performer, mock_studio
 ):
     """Test process_creator_messages with no messages."""
+    from unittest.mock import AsyncMock, MagicMock
+
     # Create a real account with factory
     account = AccountFactory(
         id=12345,
@@ -317,7 +347,15 @@ async def test_process_creator_messages_no_messages(
     result = await session.execute(select(Account).where(Account.id == 12345))
     account = result.scalar_one()
 
-    # Mock the worker pool methods that are already mocked in content_mixin
+    # Mock worker pool methods
+    queue = MagicMock()
+    queue.join = AsyncMock()
+    queue.put = AsyncMock()
+    content_mixin._setup_worker_pool = AsyncMock(
+        return_value=("task", "process", MagicMock(), queue)
+    )
+    content_mixin._run_worker_pool = AsyncMock()
+
     await content_mixin.process_creator_messages(
         account=account,
         performer=mock_performer,

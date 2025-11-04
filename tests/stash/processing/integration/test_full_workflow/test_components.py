@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from metadata.attachment import ContentType
+
 
 class TestAccountSetupIntegration:
     """Tests specifically for account and performer setup."""
@@ -301,14 +303,11 @@ class TestMediaProcessingComponents:
         # Setup mock item
         mock_item = mock_posts[0]
 
-        # Setup mocks
-        mock_attachment.awaitable_attrs = MagicMock()
-        mock_attachment.awaitable_attrs.bundle = AsyncMock(return_value=None)
-        mock_attachment.awaitable_attrs.is_aggregated_post = AsyncMock(
-            return_value=False
-        )
-        mock_attachment.awaitable_attrs.aggregated_post = AsyncMock(return_value=None)
-        mock_attachment.awaitable_attrs.media = AsyncMock(return_value=mock_media)
+        # Setup attachment properties directly (not via awaitable_attrs)
+        mock_attachment.bundle = None
+        mock_attachment.aggregated_post = None
+        mock_attachment.media = mock_media
+        mock_attachment.contentType = ContentType.ACCOUNT_MEDIA
 
         # Mock process_media to add an image to the result
         async def mock_process_media(media, item, account, result):

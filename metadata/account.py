@@ -764,8 +764,8 @@ async def process_banner(
 @with_database_session(async_session=True)
 async def process_account_data(
     config: FanslyConfig,
-    data: dict[str, any],
-    _state: DownloadState | None = None,
+    data: dict[str, Any],
+    state: DownloadState | None = None,  # noqa: ARG001
     session: AsyncSession | None = None,
 ) -> None:
     """Process account data.
@@ -816,6 +816,9 @@ async def process_account_data(
         "meta/account - p_a_d",
         ("createdAt",),
     )
+
+    # Guaranteed by @with_database_session decorator
+    assert session is not None  # noqa: S101  # nosec B101
 
     # Get or create account
     account, _created = await Account.async_get_or_create(
@@ -895,3 +898,10 @@ async def process_account_data(
             walls_data=data["walls"],
             session=session,
         )
+
+    # Remove stub tracking if this account was previously a stub
+    # Now that we have full data, it's no longer a stub
+    from .stub_tracker import remove_stub
+
+    await remove_stub(session, "accounts", account.id)
+    await session.flush()

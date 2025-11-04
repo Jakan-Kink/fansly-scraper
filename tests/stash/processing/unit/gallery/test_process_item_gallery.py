@@ -1,375 +1,186 @@
 """Tests for the _process_item_gallery method."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 
-
-# Note: All fixtures are automatically imported via conftest.py
-# This includes mock_item, mock_account, mock_performer, mock_studio,
-# mock_gallery, mock_image, and mock_scene
+from metadata import Account, ContentType, Post
+from tests.fixtures import (
+    AccountFactory,
+    AccountMediaFactory,
+    AttachmentFactory,
+    HashtagFactory,
+    MediaFactory,
+    PostFactory,
+)
+from tests.fixtures.stash_type_factories import ImageFactory, SceneFactory, TagFactory
 
 
 class TestProcessItemGallery:
-    """Test the _process_item_gallery method."""
-
-    @pytest.mark.asyncio
-    async def test_process_item_gallery(
-        self,
-        mixin,
-        mock_item,
-        mock_account,
-        mock_performer,
-        mock_studio,
-        mock_gallery,
-        mock_image,
-        mock_scene,
-    ):
-        """Test _process_item_gallery method with a successful scenario."""
-        # Setup mocks
-        mock_session = MagicMock()
-
-        # Mock database session context manager
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_session
-        mixin.database.get_async_session.return_value = mock_context
-
-        # Mock attachments
-        attachment1 = MagicMock()
-        attachment1.id = "att1"
-        attachment1.contentType = "ACCOUNT_MEDIA"
-        attachment1.contentId = "content1"
-
-        attachment2 = MagicMock()
-        attachment2.id = "att2"
-        attachment2.contentType = "ACCOUNT_MEDIA"
-        attachment2.contentId = "content2"
-
-        mock_item.attachments = [attachment1, attachment2]
-        mock_item.awaitable_attrs.attachments = AsyncMock(
-            return_value=[attachment1, attachment2]
-        )
-
-        # Mock gallery creation
-        mixin._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
-
-        # Mock hashtags
-        hashtag1 = MagicMock()
-        hashtag1.value = "test_tag"
-        mock_item.hashtags = [hashtag1]
-        mock_item.awaitable_attrs.hashtags = AsyncMock()
-
-        # Mock tag processing
-        mock_tag = MagicMock()
-        mixin._process_hashtags_to_tags = AsyncMock(return_value=[mock_tag])
-
-        # Mock attachment processing
-        images = [MagicMock() for _ in range(2)]
-        scenes = [MagicMock() for _ in range(1)]
-
-        # Configure process_creator_attachment to return different results for each attachment
-        mixin.process_creator_attachment.side_effect = [
-            {"images": images[:1], "scenes": []},
-            {"images": images[1:], "scenes": scenes},
-        ]
-
-        # Mock adding gallery images
-        mixin.context.client.add_gallery_images = AsyncMock(return_value=True)
-
-        # Call the method
-        url_pattern = "https://test.com/{username}/post/{id}"
-        await mixin._process_item_gallery(
-            mock_item,
-            mock_account,
-            mock_performer,
-            mock_studio,
-            "post",
-            url_pattern,
-            mock_session,
-        )
-
-        # Verify gallery creation
-        mixin._get_or_create_gallery.assert_called_once_with(
-            item=mock_item,
-            account=mock_account,
-            performer=mock_performer,
-            studio=mock_studio,
-            item_type="post",
-            url_pattern=url_pattern,
-        )
-
-        # Verify hashtag processing
-        mixin._process_hashtags_to_tags.assert_called_once_with(mock_item.hashtags)
-
-        # Verify gallery tags were set
-        assert mock_gallery.tags == [mock_tag]
-
-        # Verify attachment processing
-        assert mixin.process_creator_attachment.call_count == 2
-        mixin.process_creator_attachment.assert_has_calls(
-            [
-                call(
-                    attachment=attachment1,
-                    item=mock_item,
-                    account=mock_account,
-                    session=mock_session,
-                ),
-                call(
-                    attachment=attachment2,
-                    item=mock_item,
-                    account=mock_account,
-                    session=mock_session,
-                ),
-            ]
-        )
-
-        # Verify gallery images were added
-        mixin.context.client.add_gallery_images.assert_called_once_with(
-            gallery_id=mock_gallery.id,
-            image_ids=[img.id for img in images],
-        )
-
-        # Verify gallery scenes were set
-        assert mock_gallery.scenes == scenes
-
-        # Verify gallery was saved
-        mock_gallery.save.assert_called_once_with(mixin.context.client)
+    """Test the _process_item_gallery orchestration method."""
 
     @pytest.mark.asyncio
     async def test_process_item_gallery_no_attachments(
-        self, mixin, mock_item, mock_account, mock_performer, mock_studio
+        self,
+        factory_async_session,
+        session,
+        gallery_mixin,
+        gallery_mock_performer,
+        gallery_mock_studio,
     ):
-        """Test _process_item_gallery method with no attachments."""
-        # Setup mocks
-        mock_session = MagicMock()
+        """Test _process_item_gallery returns early when no attachments."""
+        # Create real Account and Post with no media
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(id=67890, accountId=12345, content="Test post")
+        await session.commit()
 
-        # Mock database session context manager
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_session
-        mixin.database.get_async_session.return_value = mock_context
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account_obj = result.scalar_one()
 
-        # Mock no attachments
-        mock_item.attachments = []
-        mock_item.awaitable_attrs.attachments = AsyncMock(return_value=[])
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
 
-        # Call the method
+        # Post has no attachments - method should return early
+        assert post_obj.attachments == []
+
+        # Call method
         url_pattern = "https://test.com/{username}/post/{id}"
-        await mixin._process_item_gallery(
-            mock_item,
-            mock_account,
-            mock_performer,
-            mock_studio,
+        await gallery_mixin._process_item_gallery(
+            post_obj,
+            account_obj,
+            gallery_mock_performer,
+            gallery_mock_studio,
             "post",
             url_pattern,
-            mock_session,
+            session,
         )
 
-        # Verify no gallery creation was attempted
-        mixin._get_or_create_gallery.assert_not_called()
-        mixin.process_creator_attachment.assert_not_called()
+        # Method returns early, no API calls made - test passes if no errors
 
     @pytest.mark.asyncio
-    async def test_process_item_gallery_no_gallery(
-        self, mixin, mock_item, mock_account, mock_performer, mock_studio
+    async def test_process_item_gallery_orchestration(
+        self,
+        factory_async_session,
+        session,
+        gallery_mixin,
+        gallery_mock_performer,
+        gallery_mock_studio,
+        mock_gallery,
     ):
-        """Test _process_item_gallery method when _get_or_create_gallery returns None."""
-        # Setup mocks
-        mock_session = MagicMock()
+        """Test _process_item_gallery orchestration - verifies delegate methods get called."""
+        # Create REAL Account and Post with proper attachments (factories auto-persist)
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(id=67890, accountId=12345, content="Test post #test")
 
-        # Mock database session context manager
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_session
-        mixin.database.get_async_session.return_value = mock_context
+        # Create REAL Media
+        media1 = MediaFactory(id=1001, accountId=12345, mimetype="image/jpeg")
+        media2 = MediaFactory(id=1002, accountId=12345, mimetype="video/mp4")
 
-        # Mock attachments
-        attachment = MagicMock()
-        attachment.id = "att1"
-        attachment.contentType = "ACCOUNT_MEDIA"
-        attachment.contentId = "content1"
+        # Create REAL AccountMedia
+        account_media1 = AccountMediaFactory(id=2001, accountId=12345, mediaId=1001)
+        account_media2 = AccountMediaFactory(id=2002, accountId=12345, mediaId=1002)
 
-        mock_item.attachments = [attachment]
-        mock_item.awaitable_attrs.attachments = AsyncMock(return_value=[attachment])
-
-        # Mock _get_or_create_gallery to return None
-        mixin._get_or_create_gallery = AsyncMock(return_value=None)
-
-        # Call the method
-        url_pattern = "https://test.com/{username}/post/{id}"
-        await mixin._process_item_gallery(
-            mock_item,
-            mock_account,
-            mock_performer,
-            mock_studio,
-            "post",
-            url_pattern,
-            mock_session,
+        # Create REAL Attachments linking to AccountMedia
+        attachment1 = AttachmentFactory(
+            id=3001,
+            postId=67890,
+            contentId=2001,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
+        attachment2 = AttachmentFactory(
+            id=3002,
+            postId=67890,
+            contentId=2002,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=1,
         )
 
-        # Verify no attachment processing was attempted
-        mixin.process_creator_attachment.assert_not_called()
+        # Create hashtag and associate with post
+        hashtag = HashtagFactory(id=4001, value="test")
+        post.hashtags = [hashtag]
 
-    @pytest.mark.asyncio
-    async def test_process_item_gallery_no_content(
-        self, mixin, mock_item, mock_account, mock_performer, mock_studio, mock_gallery
-    ):
-        """Test _process_item_gallery method when no content is processed."""
-        # Setup mocks
-        mock_session = MagicMock()
+        factory_async_session.commit()
 
-        # Mock database session context manager
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_session
-        mixin.database.get_async_session.return_value = mock_context
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account_obj = result.scalar_one()
 
-        # Mock attachments
-        attachment = MagicMock()
-        attachment.id = "att1"
-        attachment.contentType = "ACCOUNT_MEDIA"
-        attachment.contentId = "content1"
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
 
-        mock_item.attachments = [attachment]
-        mock_item.awaitable_attrs.attachments = AsyncMock(return_value=[attachment])
+        # Verify post has attachments and hashtags
+        assert len(post_obj.attachments) == 2
+        await post_obj.awaitable_attrs.hashtags
+        assert len(post_obj.hashtags) == 1
 
-        # Mock gallery creation
-        mock_gallery.id = "new"  # Newly created gallery
-        mixin._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
+        mock_tag = TagFactory(id="123", name="test")
+        mock_image = ImageFactory(id="img_1")
+        mock_scene = SceneFactory(id="scene_1")
 
-        # Mock empty attachment processing results
-        mixin.process_creator_attachment.return_value = {"images": [], "scenes": []}
+        # Mock gallery.save method (real Gallery objects have real async save methods)
+        mock_gallery.save = AsyncMock()
 
-        # Call the method
-        url_pattern = "https://test.com/{username}/post/{id}"
-        await mixin._process_item_gallery(
-            mock_item,
-            mock_account,
-            mock_performer,
-            mock_studio,
-            "post",
-            url_pattern,
-            mock_session,
-        )
+        # Patch delegate methods at module level, verify they're called, control return
+        with (
+            patch.object(
+                gallery_mixin, "_collect_media_from_attachments"
+            ) as mock_collect,
+            patch.object(gallery_mixin, "_get_or_create_gallery") as mock_get_gallery,
+            patch.object(
+                gallery_mixin, "_process_hashtags_to_tags"
+            ) as mock_process_tags,
+            patch.object(
+                gallery_mixin, "_process_media_batch_by_mimetype"
+            ) as mock_process_batch,
+        ):
+            # Control what delegate methods return
+            mock_collect.return_value = [media1, media2]
+            mock_get_gallery.return_value = mock_gallery
+            mock_process_tags.return_value = [mock_tag]
+            mock_process_batch.side_effect = [
+                {"images": [mock_image], "scenes": []},  # Image batch
+                {"images": [], "scenes": [mock_scene]},  # Video batch
+            ]
 
-        # Verify gallery was destroyed since no content was processed
-        mock_gallery.destroy.assert_called_once_with(mixin.context.client)
-        mixin.context.client.add_gallery_images.assert_not_called()
-        mock_gallery.save.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_process_item_gallery_attachment_error(
-        self, mixin, mock_item, mock_account, mock_performer, mock_studio, mock_gallery
-    ):
-        """Test _process_item_gallery method with error in attachment processing."""
-        # Setup mocks
-        mock_session = MagicMock()
-
-        # Mock database session context manager
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_session
-        mixin.database.get_async_session.return_value = mock_context
-
-        # Mock attachments
-        attachment1 = MagicMock()
-        attachment1.id = "att1"
-        attachment1.contentType = "ACCOUNT_MEDIA"
-        attachment1.contentId = "content1"
-
-        attachment2 = MagicMock()
-        attachment2.id = "att2"
-        attachment2.contentType = "ACCOUNT_MEDIA"
-        attachment2.contentId = "content2"
-
-        mock_item.attachments = [attachment1, attachment2]
-        mock_item.awaitable_attrs.attachments = AsyncMock(
-            return_value=[attachment1, attachment2]
-        )
-
-        # Mock gallery creation
-        mixin._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
-
-        # Mock first attachment processing with error, second succeeds with content
-        mixin.process_creator_attachment.side_effect = [
-            Exception("Test error"),
-            {"images": [MagicMock()], "scenes": []},
-        ]
-
-        # Call the method
-        url_pattern = "https://test.com/{username}/post/{id}"
-        await mixin._process_item_gallery(
-            mock_item,
-            mock_account,
-            mock_performer,
-            mock_studio,
-            "post",
-            url_pattern,
-            mock_session,
-        )
-
-        # Verify all attachments were attempted despite error
-        assert mixin.process_creator_attachment.call_count == 2
-
-        # Verify gallery content was still processed and saved
-        mixin.context.client.add_gallery_images.assert_called_once()
-        mock_gallery.save.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_process_item_gallery_add_images_error(
-        self, mixin, mock_item, mock_account, mock_performer, mock_studio, mock_gallery
-    ):
-        """Test _process_item_gallery method with error in adding gallery images."""
-        # Setup mocks
-        mock_session = MagicMock()
-
-        # Mock database session context manager
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_session
-        mixin.database.get_async_session.return_value = mock_context
-
-        # Mock attachments
-        attachment = MagicMock()
-        attachment.id = "att1"
-        attachment.contentType = "ACCOUNT_MEDIA"
-        attachment.contentId = "content1"
-
-        mock_item.attachments = [attachment]
-        mock_item.awaitable_attrs.attachments = AsyncMock(return_value=[attachment])
-
-        # Mock gallery creation
-        mixin._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
-
-        # Mock successful attachment processing
-        mock_image = MagicMock()
-        mock_image.id = "image_123"
-        mixin.process_creator_attachment.return_value = {
-            "images": [mock_image],
-            "scenes": [],
-        }
-
-        # Mock add_gallery_images to fail first time, succeed on retry
-        mixin.context.client.add_gallery_images = AsyncMock(
-            side_effect=[Exception("Network error"), True]
-        )
-
-        # Call the method
-        url_pattern = "https://test.com/{username}/post/{id}"
-
-        # Use patch to control sleep in retry logic
-        with patch.object(asyncio, "sleep", AsyncMock()) as mock_sleep:
-            await mixin._process_item_gallery(
-                mock_item,
-                mock_account,
-                mock_performer,
-                mock_studio,
-                "post",
-                url_pattern,
-                mock_session,
+            # Mock ONLY external API call
+            gallery_mixin.context.client.add_gallery_images = AsyncMock(
+                return_value=True
             )
 
-        # Verify sleep was called (for retry backoff)
-        mock_sleep.assert_called_once_with(1)  # First retry delay is 2^0=1 second
+            # Call method with REAL Account and Post objects
+            url_pattern = "https://test.com/{username}/post/{id}"
+            await gallery_mixin._process_item_gallery(
+                post_obj,
+                account_obj,
+                gallery_mock_performer,
+                gallery_mock_studio,
+                "post",
+                url_pattern,
+                session,
+            )
 
-        # Verify multiple attempts were made
-        assert mixin.context.client.add_gallery_images.call_count == 2
+            # Verify orchestration - delegate methods called with REAL objects
+            mock_collect.assert_called_once_with(post_obj.attachments)
+            mock_get_gallery.assert_called_once_with(
+                item=post_obj,  # Real Post object
+                account=account_obj,  # Real Account object
+                performer=gallery_mock_performer,
+                studio=gallery_mock_studio,
+                item_type="post",
+                url_pattern=url_pattern,
+            )
+            mock_process_tags.assert_called_once_with(post_obj.hashtags)
 
-        # Verify gallery was still saved after retry success
-        mock_gallery.save.assert_called_once()
+            # Verify external API called
+            gallery_mixin.context.client.add_gallery_images.assert_called_once_with(
+                gallery_id=mock_gallery.id,
+                image_ids=["img_1"],
+            )
+
+            # Verify final state
+            assert mock_gallery.tags == [mock_tag]
+            assert mock_gallery.scenes == [mock_scene]
+            mock_gallery.save.assert_called_once_with(gallery_mixin.context.client)

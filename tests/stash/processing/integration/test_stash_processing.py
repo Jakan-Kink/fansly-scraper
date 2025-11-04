@@ -14,7 +14,9 @@ class TestStashProcessingIntegration:
     """Integration tests for StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_initialization(self, stash_processor, mock_config, mock_state):
+    async def test_initialization(
+        self, factory_session, stash_processor, mock_config, mock_state
+    ):
         """Test StashProcessing initialization with real database."""
         # Verify the processor was properly initialized with real dependencies
         assert stash_processor.config == mock_config
@@ -30,23 +32,21 @@ class TestStashProcessingIntegration:
         assert hasattr(stash_processor, "process_creator_messages")
 
     @pytest.mark.asyncio
-    async def test_find_account_by_id(self, stash_processor, session_sync):
+    async def test_find_account_by_id(
+        self, factory_session, stash_processor, test_database_sync
+    ):
         """Test _find_account method using creator_id with real database."""
         # Create a real account in the database
         account = AccountFactory(id=12345, username="test_user")
-        session_sync.commit()
+        factory_session.commit()
 
         # Setup state to search by ID
         stash_processor.state.creator_id = "12345"
         stash_processor.state.creator_name = None
 
-        # Setup mock database to return the real account
-        stash_processor.database.set_result(account)
-
-        # Query using mock session (which will return our real account)
-        result = await stash_processor._find_account(
-            session=stash_processor.database.session
-        )
+        # Use real async session from database
+        async with test_database_sync.async_session_scope() as async_session:
+            result = await stash_processor._find_account(session=async_session)
 
         # Verify result
         assert result is not None
@@ -54,52 +54,48 @@ class TestStashProcessingIntegration:
         assert result.username == "test_user"
 
     @pytest.mark.asyncio
-    async def test_find_account_by_name(self, stash_processor, session_sync):
+    async def test_find_account_by_name(
+        self, factory_session, stash_processor, test_database_sync
+    ):
         """Test _find_account method using creator_name with real database."""
         # Create a real account in the database
         account = AccountFactory(username="test_creator")
-        session_sync.commit()
+        factory_session.commit()
 
         # Setup state to search by name
         stash_processor.state.creator_id = None
         stash_processor.state.creator_name = "test_creator"
 
-        # Setup mock database to return the real account
-        stash_processor.database.set_result(account)
-
-        # Query using mock session
-        result = await stash_processor._find_account(
-            session=stash_processor.database.session
-        )
+        # Use real async session from database
+        async with test_database_sync.async_session_scope() as async_session:
+            result = await stash_processor._find_account(session=async_session)
 
         # Verify result
         assert result is not None
         assert result.username == "test_creator"
 
     @pytest.mark.asyncio
-    async def test_find_account_not_found(self, stash_processor):
+    async def test_find_account_not_found(
+        self, factory_session, stash_processor, test_database_sync
+    ):
         """Test _find_account method when account not found."""
         # Setup state for non-existent account
         stash_processor.state.creator_id = "99999"
         stash_processor.state.creator_name = None
 
-        # Setup mock database to return None
-        stash_processor.database.set_result(None)
-
-        # Query using mock session
-        result = await stash_processor._find_account(
-            session=stash_processor.database.session
-        )
+        # Use real async session - no account exists so will return None
+        async with test_database_sync.async_session_scope() as async_session:
+            result = await stash_processor._find_account(session=async_session)
 
         # Verify result is None
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer(self, stash_processor, session_sync):
+    async def test_find_existing_performer(self, factory_session, stash_processor):
         """Test _find_existing_performer method with real account."""
         # Create a real account
         account = AccountFactory(username="performer_user", stash_id="performer_123")
-        session_sync.commit()
+        factory_session.commit()
 
         # Mock the Stash client's find_performer method
         mock_performer = Performer(
@@ -120,12 +116,12 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_find_existing_performer_by_username(
-        self, stash_processor, session_sync
+        self, factory_session, stash_processor
     ):
         """Test _find_existing_performer finds by username when no stash_id."""
         # Create a real account without stash_id
         account = AccountFactory(username="new_performer")
-        session_sync.commit()
+        factory_session.commit()
 
         # Mock the Stash client's find_performer method
         mock_performer = Performer(
@@ -145,17 +141,17 @@ class TestStashProcessingIntegration:
         )
 
     @pytest.mark.asyncio
-    async def test_find_existing_studio(self, stash_processor, session_sync):
+    async def test_find_existing_studio(self, factory_session, stash_processor):
         """Test _find_existing_studio method with real account."""
         # Create a real account
         account = AccountFactory(username="studio_creator")
-        session_sync.commit()
+        factory_session.commit()
 
         # Mock the Stash client's find_studio to return existing studio
         mock_studio = Studio(
             id="studio_123",
             name="studio_creator",
-            urls=["https://fansly.com/studio_creator"],
+            url="https://fansly.com/studio_creator",
         )
         stash_processor.context.client.find_studio.return_value = mock_studio
 
@@ -170,12 +166,12 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_find_existing_studio_creates_new(
-        self, stash_processor, session_sync, mocker
+        self, factory_session, stash_processor, mocker
     ):
         """Test _find_existing_studio creates new studio when not found."""
         # Create a real account
         account = AccountFactory(username="new_studio")
-        session_sync.commit()
+        factory_session.commit()
 
         # Mock the Stash client's find_studio to return None
         stash_processor.context.client.find_studio.return_value = None
@@ -184,7 +180,7 @@ class TestStashProcessingIntegration:
         mock_studio = Studio(
             id="new_studio_id",
             name="new_studio",
-            urls=["https://fansly.com/new_studio"],
+            url="https://fansly.com/new_studio",
         )
         mock_studio.save = mocker.AsyncMock()
 
@@ -200,12 +196,12 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_no_avatar(
-        self, stash_processor, session_sync, mocker
+        self, factory_session, stash_processor, mocker
     ):
         """Test _update_performer_avatar when account has no avatar."""
         # Create a real account without avatar
         account = AccountFactory(username="no_avatar_user")
-        session_sync.commit()
+        factory_session.commit()
 
         # Mock performer
         mock_performer = Performer(id="perf_123", name="no_avatar_user", urls=[])

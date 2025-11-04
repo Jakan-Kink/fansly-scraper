@@ -33,11 +33,6 @@ if TYPE_CHECKING:
 
 class Hashtag(Base):
     __tablename__ = "hashtags"
-    __table_args__ = (
-        # Case-insensitive unique index using LOWER()
-        # This is defined in migration 0c4cb91b36d5
-        Index("ix_hashtags_value_lower", func.lower("value"), unique=True),
-    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -53,7 +48,11 @@ class Hashtag(Base):
         "Post",
         secondary="post_hashtags",
         back_populates="hashtags",
-        lazy="noload",  # Don't auto-load posts to reduce SQL queries
+    )
+    __table_args__ = (
+        # Case-insensitive unique index using LOWER()
+        # This is defined in migration 0c4cb91b36d5
+        Index("ix_hashtags_value_lower", func.lower(value), unique=True),
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import traceback
+from collections.abc import Callable
 from pprint import pformat
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -32,6 +33,8 @@ class HasMetadata(Protocol):
     attachments: list[Any]
     # Messages don't have accountMentions, only Posts do
     accountMentions: list[Account] | None = None
+    stash_id: int | None = None
+    awaitable_attrs: Callable | None = None
 
 
 class GalleryProcessingMixin:
@@ -45,7 +48,7 @@ class GalleryProcessingMixin:
         if not hasattr(item, "stash_id") or not item.stash_id:
             return None
 
-        gallery = await self.context.client.find_gallery(item.stash_id)
+        gallery = await self.context.client.find_gallery(str(item.stash_id))
         if gallery:
             debug_print(
                 {
@@ -255,18 +258,17 @@ class GalleryProcessingMixin:
             performers.append(performer)
 
         # Add mentioned accounts as performers
-        if hasattr(item, "accountMentions"):
-            # Check if awaitable_attrs exists and use it, otherwise access directly
-            if hasattr(item, "awaitable_attrs"):
-                mentions = await item.awaitable_attrs.accountMentions
-            else:
-                mentions = item.accountMentions
+        try:
+            mentions = await item.awaitable_attrs.accountMentions
             if mentions:
                 mention_tasks = [
                     self._find_existing_performer(mention) for mention in mentions
                 ]
                 mention_results = await asyncio.gather(*mention_tasks)
                 performers.extend([p for p in mention_results if p is not None])
+        except AttributeError:
+            # Item doesn't have accountMentions attribute (e.g., Messages)
+            pass
 
         # Set performers if we have any
         if performers:
@@ -346,7 +348,7 @@ class GalleryProcessingMixin:
         account: Account,
         performer: Any,
         studio: Studio | None,
-        _item_type: str,
+        item_type: str,  # noqa: ARG002
         url_pattern: str,
     ) -> Gallery | None:
         """Get or create a gallery for an item.
@@ -554,10 +556,10 @@ class GalleryProcessingMixin:
             )
 
             # Add hashtags as tags
-            if hasattr(item, "hashtags"):
-                await item.awaitable_attrs.hashtags
-                if item.hashtags:
-                    tags = await self._process_hashtags_to_tags(item.hashtags)
+            try:
+                hashtags = await item.awaitable_attrs.hashtags
+                if hashtags:
+                    tags = await self._process_hashtags_to_tags(hashtags)
                     if tags:
                         # TODO: Re-enable this code after testing
                         # This code will update tags instead of overwriting them
@@ -570,6 +572,9 @@ class GalleryProcessingMixin:
 
                         # Temporarily overwrite tags for testing
                         gallery.tags = tags
+            except AttributeError:
+                # Item doesn't have hashtags attribute (e.g., Messages)
+                pass
 
             # Process media batch
             all_images = []

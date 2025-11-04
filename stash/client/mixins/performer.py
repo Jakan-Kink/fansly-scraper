@@ -6,7 +6,7 @@ from ... import fragments
 from ...client_helpers import async_lru_cache
 from ...types import FindPerformersResultType, Performer
 from ..protocols import StashClientProtocol
-from ..utils import sanitize_model_data
+from ..utils import find_best_performer_match, sanitize_model_data
 
 
 class PerformerClientMixin(StashClientProtocol):
@@ -209,6 +209,59 @@ class PerformerClientMixin(StashClientProtocol):
         except Exception:
             self.log.exception("Failed to find performers")
             return FindPerformersResultType(count=0, performers=[])
+
+    async def get_or_create_performer(self, performer: Performer) -> Performer:
+        """Get existing performer or create if not found.
+
+        Uses fuzzy search with weighted matching to find existing performers before
+        attempting to create. This avoids errors from duplicate names.
+
+        Args:
+            performer: Performer object with the data to get or create
+
+        Returns:
+            Existing or newly created Performer object
+
+        Examples:
+            Get or create performer:
+            ```python
+            performer = Performer(
+                name="Performer Name",
+                urls=["https://fansly.com/username"],
+            )
+            result = await client.get_or_create_performer(performer)
+            print(f"Performer ID: {result.id}")
+            ```
+        """
+        # Query first with fuzzy search (like Stash web UI)
+        result = await self.find_performers(
+            filter_={"q": performer.name, "per_page": 40}
+        )
+
+        if result.count > 0:
+            # Use weighted matching to find best candidate
+            best_match = find_best_performer_match(
+                candidates=result.performers,
+                attempted_name=performer.name,
+                attempted_urls=performer.urls if performer.urls else None,
+                attempted_aliases=performer.alias_list
+                if performer.alias_list
+                else None,
+                attempted_disambiguation=performer.disambiguation
+                if performer.disambiguation
+                else None,
+            )
+
+            if best_match:
+                self.log.info(
+                    f"Found existing performer: '{best_match.name}' "
+                    f"(ID: {best_match.id}, disambiguation: '{best_match.disambiguation or 'none'}')"
+                )
+                return best_match
+
+        # No match found, create new performer
+        self.log.info(f"No match found for '{performer.name}', creating new performer")
+        return await self.create_performer(performer)
 
     async def create_performer(self, performer: Performer) -> Performer:
         """Create a new performer in Stash.

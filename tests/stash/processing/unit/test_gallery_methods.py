@@ -1,401 +1,393 @@
 """Unit tests for gallery-related methods."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from stash.context import StashContext
-from stash.processing import StashProcessing
-from stash.types import Gallery, Studio, Tag
-
-
-class MockHasMetadata:
-    """Mock class implementing HasMetadata protocol."""
-
-    def __init__(self):
-        self.id = 12345
-        self.content = "Test content"
-        self.createdAt = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
-        self.attachments = []
-        self.accountMentions = []
-        self.hashtags = []
-        self.stash_id = None
-
-        # For awaitable_attrs support
-        self.awaitable_attrs = MagicMock()
-        self.awaitable_attrs.attachments = self.attachments
-        self.awaitable_attrs.hashtags = self.hashtags
-        self.awaitable_attrs.accountMentions = self.accountMentions
-
-
-@pytest.fixture
-def mock_item():
-    """Fixture for mock item with HasMetadata protocol."""
-    return MockHasMetadata()
-
-
-@pytest.fixture
-def mock_config():
-    """Fixture for mock configuration."""
-    config = MagicMock()
-    config.stash_context_conn = {"url": "http://test.com", "api_key": "test_key"}
-    return config
-
-
-@pytest.fixture
-def mock_context():
-    """Fixture for mock stash context."""
-    context = MagicMock(spec=StashContext)
-    context.client = MagicMock()
-    return context
-
-
-@pytest.fixture
-def processor(mock_config, mock_context):
-    """Fixture for minimal stash processor instance."""
-    processor = MagicMock(spec=StashProcessing)
-    processor.config = mock_config
-    processor.context = mock_context
-    processor._generate_title_from_content = MagicMock(return_value="Test Title")
-    return processor
+from stash.types import FindGalleriesResultType
+from tests.fixtures.metadata_factories import HashtagFactory
+from tests.fixtures.stash_type_factories import (
+    GalleryFactory,
+    StudioFactory,
+    TagFactory,
+)
 
 
 class TestGalleryMethods:
     """Test gallery-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_stash_id(self, processor, mock_item):
-        """Test _get_gallery_by_stash_id method."""
-        # Setup processor method
-        processor._get_gallery_by_stash_id = AsyncMock()
+    async def test_get_gallery_by_stash_id_no_id(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_stash_id with no stash_id."""
+        # mock_item has stash_id = None by default
+        assert mock_item.stash_id is None
 
-        # Case 1: No stash_id
-        mock_item.stash_id = None
-        processor._get_gallery_by_stash_id.return_value = None
-
-        # Call _get_gallery_by_stash_id
-        await processor._get_gallery_by_stash_id(mock_item)
-
-        # Verify no call to find_gallery
-        assert not processor.context.client.find_gallery.called
-
-        # Case 2: With stash_id
-        mock_item.stash_id = "gallery_123"
-        mock_gallery = MagicMock(spec=Gallery)
-        processor.context.client.find_gallery = AsyncMock(return_value=mock_gallery)
-        processor._get_gallery_by_stash_id = AsyncMock(return_value=mock_gallery)
-
-        # Call _get_gallery_by_stash_id
-        result = await processor._get_gallery_by_stash_id(mock_item)
-
-        # Verify result
-        assert result == mock_gallery
-
-        # Case 3: With stash_id but no gallery found
-        processor.context.client.find_gallery = AsyncMock(return_value=None)
-        processor._get_gallery_by_stash_id = AsyncMock(return_value=None)
-
-        # Call _get_gallery_by_stash_id
-        result = await processor._get_gallery_by_stash_id(mock_item)
+        # Call method - should return None early without calling API
+        result = await gallery_mixin._get_gallery_by_stash_id(mock_item)
 
         # Verify result
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_title(self, processor, mock_item):
-        """Test _get_gallery_by_title method."""
-        # Setup processor method
-        processor._get_gallery_by_title = AsyncMock()
+    async def test_get_gallery_by_stash_id_found(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_stash_id when gallery is found."""
+        # Set stash_id on item
+        mock_item.stash_id = 123
 
+        # Mock external API call - find_gallery returns Gallery object
+        mock_gallery = GalleryFactory(
+            id="123",
+            title="Test Gallery",
+            code="12345",
+            date="2024-04-01",
+        )
+        gallery_mixin.context.client.find_gallery = AsyncMock(return_value=mock_gallery)
+
+        # Call method - real implementation runs
+        result = await gallery_mixin._get_gallery_by_stash_id(mock_item)
+
+        # Verify RESULTS
+        assert result is not None
+        assert result.id == "123"
+        assert result.title == "Test Gallery"
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_stash_id_not_found(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_stash_id when gallery not found."""
+        # Set stash_id on item
+        mock_item.stash_id = 999
+
+        # Mock external API call - gallery not found
+        gallery_mixin.context.client.find_gallery = AsyncMock(return_value=None)
+
+        # Call method
+        result = await gallery_mixin._get_gallery_by_stash_id(mock_item)
+
+        # Verify result
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_title_not_found(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_title when no galleries match."""
         # Mock studio
-        mock_studio = MagicMock(spec=Studio)
-        mock_studio.id = "studio_123"
+        mock_studio = StudioFactory(id="studio_123", name="Test Studio")
 
-        # Mock client.find_galleries
-        mock_galleries_result = MagicMock()
-        processor.context.client.find_galleries = AsyncMock(
-            return_value=mock_galleries_result
+        # Mock external API call - no galleries found
+        empty_result = FindGalleriesResultType(count=0, galleries=[])
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=empty_result
         )
 
-        # Case 1: No galleries found
-        mock_galleries_result.count = 0
-        processor._get_gallery_by_title = AsyncMock(return_value=None)
-
-        # Call _get_gallery_by_title
-        result = await processor._get_gallery_by_title(
+        # Call method
+        result = await gallery_mixin._get_gallery_by_title(
             mock_item, "Test Title", mock_studio
         )
 
         # Verify result
         assert result is None
 
-        # Case 2: Galleries found with matching title and date
-        mock_galleries_result.count = 1
-        mock_gallery = MagicMock(spec=Gallery)
-        mock_gallery.title = "Test Title"
-        mock_gallery.date = "2023-01-01"
-        mock_gallery.id = "gallery_123"  # Add id attribute explicitly
-        mock_gallery.studio = {"id": "studio_123"}
-        mock_galleries_result.galleries = [mock_gallery]
-        processor._get_gallery_by_title = AsyncMock(return_value=mock_gallery)
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_title_found(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_title when gallery matches."""
+        # Mock studio
+        mock_studio = StudioFactory(id="studio_123", name="Test Studio")
 
-        # Call _get_gallery_by_title
-        result = await processor._get_gallery_by_title(
+        # Mock external API call - gallery found (GraphQL returns dict with numeric ID)
+        found_gallery_dict = {
+            "id": "123",  # Numeric string that can be converted to int
+            "title": "Test Title",
+            "code": "12345",
+            "date": "2024-04-01",
+            "studio": {"id": "studio_123", "name": "Test Studio"},
+        }
+        galleries_result = FindGalleriesResultType(
+            count=1, galleries=[found_gallery_dict]
+        )
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=galleries_result
+        )
+
+        # Call method - real implementation runs
+        result = await gallery_mixin._get_gallery_by_title(
             mock_item, "Test Title", mock_studio
         )
 
-        # Verify result
-        assert result == mock_gallery
-        # Set the stash_id on the mock_item before assertion
-        mock_item.stash_id = mock_gallery.id
-        # Stash ID should be updated
-        assert mock_item.stash_id == mock_gallery.id
+        # Verify RESULTS
+        assert result is not None
+        assert result.id == "123"
+        assert result.title == "Test Title"
+        # Stash ID should be updated on item
+        assert mock_item.stash_id == 123
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_code(self, processor, mock_item):
-        """Test _get_gallery_by_code method."""
-        # Setup processor method
-        processor._get_gallery_by_code = AsyncMock()
-
-        # Mock client.find_galleries
-        mock_galleries_result = MagicMock()
-        processor.context.client.find_galleries = AsyncMock(
-            return_value=mock_galleries_result
+    async def test_get_gallery_by_code_not_found(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_code when no galleries match."""
+        # Mock external API call - no galleries found
+        empty_result = FindGalleriesResultType(count=0, galleries=[])
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=empty_result
         )
 
-        # Case 1: No galleries found
-        mock_galleries_result.count = 0
-        processor._get_gallery_by_code = AsyncMock(return_value=None)
-
-        # Call _get_gallery_by_code
-        result = await processor._get_gallery_by_code(mock_item)
+        # Call method
+        result = await gallery_mixin._get_gallery_by_code(mock_item)
 
         # Verify result
         assert result is None
 
-        # Case 2: Galleries found with matching code
-        mock_galleries_result.count = 1
-        mock_gallery = MagicMock(spec=Gallery)
-        mock_gallery.code = "12345"
-        mock_gallery.id = "gallery_123"  # Add id attribute explicitly
-        mock_galleries_result.galleries = [mock_gallery]
-        processor._get_gallery_by_code = AsyncMock(return_value=mock_gallery)
-
-        # Call _get_gallery_by_code
-        result = await processor._get_gallery_by_code(mock_item)
-
-        # Verify result
-        assert result == mock_gallery
-        # Set the stash_id on the mock_item before assertion
-        mock_item.stash_id = mock_gallery.id
-        # Stash ID should be updated
-        assert mock_item.stash_id == mock_gallery.id
-
     @pytest.mark.asyncio
-    async def test_get_gallery_by_url(self, processor, mock_item):
-        """Test finding gallery by URL."""
-        # Setup mock gallery
-        mock_gallery = MagicMock(spec=Gallery)
-        mock_gallery.id = "gallery_123"
-
-        # Setup processor methods
-        processor.context.client.find_galleries = AsyncMock(
-            return_value=MagicMock(galleries=[mock_gallery], count=1)
+    async def test_get_gallery_by_code_found(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_code when gallery matches."""
+        # Mock external API call - gallery found (GraphQL returns dict with numeric ID)
+        found_gallery_dict = {
+            "id": "456",  # Numeric string that can be converted to int
+            "title": "Code Gallery",
+            "code": "12345",  # Matches mock_item.id
+            "date": "2024-04-01",
+        }
+        galleries_result = FindGalleriesResultType(
+            count=1, galleries=[found_gallery_dict]
+        )
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=galleries_result
         )
 
-        # Set up the mock item with stash_id
-        mock_item.stash_id = "gallery_123"
+        # Call method
+        result = await gallery_mixin._get_gallery_by_code(mock_item)
 
-        # Test finding a gallery by URL
+        # Verify RESULTS
+        assert result is not None
+        assert result.id == "456"
+        assert result.code == "12345"
+        # Stash ID should be updated on item
+        assert mock_item.stash_id == 456
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_url_found(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_url when gallery is found with correct code."""
+        # Mock external API call - gallery found with code already matching (no save needed)
+        found_gallery_dict = {
+            "id": "789",
+            "title": "URL Gallery",
+            "code": "12345",  # Already matches mock_item.id, so save() won't call execute
+            "urls": ["https://example.com/gallery/123"],
+        }
+        galleries_result = FindGalleriesResultType(
+            count=1, galleries=[found_gallery_dict]
+        )
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=galleries_result
+        )
+
+        # No need to mock execute - save() won't call it because gallery not dirty
+
+        # Call method - signature is (item, url)
         url = "https://example.com/gallery/123"
-        result = await processor._get_gallery_by_url(url)
+        result = await gallery_mixin._get_gallery_by_url(mock_item, url)
 
-        # Verify result
-        assert result == mock_gallery
-        processor.context.client.find_galleries.assert_called_once()
-
-        # Test with success - update item stash_id
-        mock_item.stash_id = None
-        result = await processor._get_gallery_by_url(url, item=mock_item)
-
-        # Verify result and item update
-        assert result == mock_gallery
-        assert mock_item.stash_id == mock_gallery.id
+        # Verify RESULTS
+        assert result is not None
+        assert result.id == "789"
+        assert result.code == "12345"
 
     @pytest.mark.asyncio
-    async def test_create_new_gallery(self, processor, mock_item):
-        """Test _create_new_gallery method."""
-        # Setup processor method
-        processor._create_new_gallery = AsyncMock()
-        title = "Test Gallery"
-
-        # Mock gallery creation
-        mock_gallery = MagicMock(spec=Gallery)
-        processor._create_new_gallery = AsyncMock(return_value=mock_gallery)
-
-        # Call _create_new_gallery
-        result = await processor._create_new_gallery(mock_item, title)
-
-        # Verify result
-        assert result == mock_gallery
-
-        # Check expected calls if using the real method
-        StashProcessing._create_new_gallery = MagicMock(
-            return_value=Gallery(
-                id="new",
-                title=title,
-                details=mock_item.content,
-                code=str(mock_item.id),
-                date=mock_item.createdAt.strftime("%Y-%m-%d"),
-                organized=True,
-            )
+    async def test_get_gallery_by_url_with_item_update(self, gallery_mixin, mock_item):
+        """Test _get_gallery_by_url updates item stash_id and gallery code."""
+        # Mock external API call with numeric ID and DIFFERENT code
+        found_gallery_dict = {
+            "id": "999",
+            "title": "URL Gallery",
+            "code": "old_code",  # Different from mock_item.id, so save() will be called
+            "urls": ["https://example.com/gallery/456"],
+        }
+        galleries_result = FindGalleriesResultType(
+            count=1, galleries=[found_gallery_dict]
+        )
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=galleries_result
         )
 
-        # Call using the real method
-        result = StashProcessing._create_new_gallery(StashProcessing, mock_item, title)
+        # Mock execute for gallery.save() - will be called since code is dirty
+        gallery_mixin.context.client.execute = AsyncMock(
+            return_value={
+                "galleryUpdate": {
+                    "id": "999",
+                    "title": "URL Gallery",
+                    "code": "12345",  # Updated to mock_item.id
+                    "urls": ["https://example.com/gallery/456"],
+                }
+            }
+        )
 
-        # Verify the gallery attributes
-        assert result.id == "new"
+        # Ensure item has no stash_id
+        mock_item.stash_id = None
+
+        # Call method - signature is (item, url)
+        url = "https://example.com/gallery/456"
+        result = await gallery_mixin._get_gallery_by_url(mock_item, url)
+
+        # Verify RESULTS
+        assert result is not None
+        assert result.id == "999"
+        # Item stash_id should be updated
+        assert mock_item.stash_id == 999
+        # Gallery code should be updated
+        assert result.code == "12345"
+
+    @pytest.mark.asyncio
+    async def test_create_new_gallery(self, gallery_mixin, mock_item):
+        """Test _create_new_gallery creates gallery with correct attributes."""
+        title = "New Test Gallery"
+
+        # Mock external API call for save()
+        gallery_mixin.context.client.execute = AsyncMock(
+            return_value={
+                "galleryCreate": {
+                    "id": "new_gallery_123",
+                    "title": title,
+                    "code": str(mock_item.id),
+                    "date": mock_item.createdAt.strftime("%Y-%m-%d"),
+                    "details": mock_item.content,
+                    "organized": True,
+                }
+            }
+        )
+
+        # Call method - real implementation runs
+        result = await gallery_mixin._create_new_gallery(mock_item, title)
+
+        # Verify RESULTS
+        assert result is not None
         assert result.title == title
-        assert result.details == mock_item.content
         assert result.code == str(mock_item.id)
-        assert result.date == "2023-01-01"
+        assert result.date == "2024-04-01"
+        assert result.details == mock_item.content
         assert result.organized is True
 
     @pytest.mark.asyncio
-    async def test_process_hashtags_to_tags(self, processor):
-        """Test _process_hashtags_to_tags method."""
-        # Setup processor method
-        processor._process_hashtags_to_tags = AsyncMock()
+    async def test_process_hashtags_to_tags_existing_tags(self, gallery_mixin):
+        """Test _process_hashtags_to_tags with existing tags."""
+        # Create real hashtag objects
+        hashtag1 = HashtagFactory.build(value="test1")
+        hashtag2 = HashtagFactory.build(value="test2")
+        hashtags = [hashtag1, hashtag2]
 
-        # Mock hashtags
-        mock_hashtag1 = MagicMock()
-        mock_hashtag1.value = "test1"
-        mock_hashtag2 = MagicMock()
-        mock_hashtag2.value = "test2"
-        hashtags = [mock_hashtag1, mock_hashtag2]
+        # Mock external API calls - both tags exist (GraphQL returns dicts)
+        from stash.types import FindTagsResultType
 
-        # Mock client.find_tags - first tag exists, second doesn't
-        processor.context.client.find_tags = AsyncMock()
-        processor.context.client.find_tags.side_effect = [
-            MagicMock(
-                count=1, tags=[{"id": "tag1", "name": "test1"}]
-            ),  # First tag found
-            MagicMock(count=0),  # First tag not found as alias
-            MagicMock(count=0),  # Second tag not found
-            MagicMock(count=0),  # Second tag not found as alias
-        ]
-
-        # Mock client.create_tag
-        mock_new_tag = MagicMock(spec=Tag)
-        mock_new_tag.name = "test2"
-        processor.context.client.create_tag = AsyncMock(return_value=mock_new_tag)
-
-        # Mock return value
-        mock_tags = [MagicMock(spec=Tag), MagicMock(spec=Tag)]
-        processor._process_hashtags_to_tags = AsyncMock(return_value=mock_tags)
-
-        # Call _process_hashtags_to_tags
-        result = await processor._process_hashtags_to_tags(hashtags)
-
-        # Verify result
-        assert result == mock_tags
-
-    @pytest.mark.asyncio
-    async def test_update_stash_metadata(self, processor, mock_item):
-        """Test _update_stash_metadata method."""
-        # Setup processor method
-        processor._update_stash_metadata = AsyncMock()
-
-        # Mock stash object
-        mock_stash_obj = MagicMock()
-        mock_stash_obj.__type_name__ = "Scene"
-        mock_stash_obj.id = "scene_123"
-        mock_stash_obj.is_dirty.return_value = True
-
-        # Mock account
-        mock_account = MagicMock()
-        mock_account.username = "test_user"
-
-        # Call _update_stash_metadata
-        await processor._update_stash_metadata(
-            stash_obj=mock_stash_obj,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-            is_preview=False,
+        tag1_result = FindTagsResultType(
+            count=1, tags=[{"id": "tag_1", "name": "test1"}]
+        )
+        tag2_result = FindTagsResultType(
+            count=1, tags=[{"id": "tag_2", "name": "test2"}]
         )
 
-        # Verify stash_obj was saved
-        mock_stash_obj.save.assert_called_once_with(processor.context.client)
-
-        # Case 2: Object not dirty
-        mock_stash_obj.is_dirty.return_value = False
-        mock_stash_obj.save.reset_mock()
-
-        # Call _update_stash_metadata
-        await processor._update_stash_metadata(
-            stash_obj=mock_stash_obj,
-            item=mock_item,
-            account=mock_account,
-            media_id="media_123",
-            is_preview=False,
+        gallery_mixin.context.client.find_tags = AsyncMock(
+            side_effect=[tag1_result, tag2_result]
         )
 
-        # Verify stash_obj was not saved
-        assert not mock_stash_obj.save.called
+        # Call method - real implementation runs
+        result = await gallery_mixin._process_hashtags_to_tags(hashtags)
+
+        # Verify RESULTS
+        assert len(result) == 2
+        assert result[0].name == "test1"
+        assert result[1].name == "test2"
 
     @pytest.mark.asyncio
-    async def test_generate_title_from_content(self, processor):
-        """Test _generate_title_from_content method."""
-        # Setup test cases
-        content_short = "Short content"
-        content_long = "A" * 200
-        content_with_newlines = "First line\nSecond line\nThird line"
+    async def test_process_hashtags_to_tags_create_new(self, gallery_mixin):
+        """Test _process_hashtags_to_tags creates new tag when not found."""
+        # Create real hashtag object
+        hashtag = HashtagFactory.build(value="newtag")
+        hashtags = [hashtag]
+
+        # Mock external API calls - tag doesn't exist
+        from stash.types import FindTagsResultType
+
+        empty_result = FindTagsResultType(count=0, tags=[])
+        gallery_mixin.context.client.find_tags = AsyncMock(return_value=empty_result)
+
+        # Mock create_tag - returns Tag object (created from dict in production)
+        new_tag = TagFactory(id="123", name="newtag")
+        gallery_mixin.context.client.create_tag = AsyncMock(return_value=new_tag)
+
+        # Call method
+        result = await gallery_mixin._process_hashtags_to_tags(hashtags)
+
+        # Verify RESULTS
+        assert len(result) == 1
+        assert result[0].name == "newtag"
+        assert result[0].id == "123"
+
+    @pytest.mark.asyncio
+    async def test_generate_title_from_content_short(self, gallery_mixin):
+        """Test _generate_title_from_content with short content."""
+        content = "Short content"
         username = "test_user"
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
 
-        # Use the real method for this test
-        StashProcessing._generate_title_from_content = MagicMock(
-            side_effect=lambda *args,
-            **kwargs: StashProcessing._generate_title_from_content.__wrapped__(
-                StashProcessing, *args, **kwargs
-            )
+        # Call method directly (not async, doesn't need external calls)
+        result = gallery_mixin._generate_title_from_content(
+            content, username, created_at
         )
 
-        # Case 1: Short content
-        result = StashProcessing._generate_title_from_content(
-            StashProcessing, content_short, username, created_at
-        )
-        # Should use first line as title
-        assert result == content_short
+        # Verify result uses content as title
+        assert result == content
 
-        # Case 2: Long content
-        result = StashProcessing._generate_title_from_content(
-            StashProcessing, content_long, username, created_at
+    @pytest.mark.asyncio
+    async def test_generate_title_from_content_long(self, gallery_mixin):
+        """Test _generate_title_from_content truncates long content."""
+        content = "A" * 200  # Very long content
+        username = "test_user"
+        created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+
+        # Call method
+        result = gallery_mixin._generate_title_from_content(
+            content, username, created_at
         )
-        # Should truncate content
+
+        # Verify result is truncated
         assert len(result) <= 128
         assert result.endswith("...")
 
-        # Case 3: Content with newlines
-        result = StashProcessing._generate_title_from_content(
-            StashProcessing, content_with_newlines, username, created_at
+    @pytest.mark.asyncio
+    async def test_generate_title_from_content_with_newlines(self, gallery_mixin):
+        """Test _generate_title_from_content uses first line."""
+        content = "First line\nSecond line\nThird line"
+        username = "test_user"
+        created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+
+        # Call method
+        result = gallery_mixin._generate_title_from_content(
+            content, username, created_at
         )
-        # Should use first line
+
+        # Verify result uses first line only
         assert result == "First line"
 
-        # Case 4: No content
-        result = StashProcessing._generate_title_from_content(
-            StashProcessing, None, username, created_at
-        )
-        # Should use date format
+    @pytest.mark.asyncio
+    async def test_generate_title_from_content_no_content(self, gallery_mixin):
+        """Test _generate_title_from_content with no content."""
+        username = "test_user"
+        created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+
+        # Call method with None content
+        result = gallery_mixin._generate_title_from_content(None, username, created_at)
+
+        # Verify result uses date format
         assert result == "test_user - 2023/01/01"
 
-        # Case 5: With position and total
-        result = StashProcessing._generate_title_from_content(
-            StashProcessing, content_short, username, created_at, 2, 5
+    @pytest.mark.asyncio
+    async def test_generate_title_from_content_with_position(self, gallery_mixin):
+        """Test _generate_title_from_content with position info."""
+        content = "Short content"
+        username = "test_user"
+        created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+
+        # Call method with position (uses current_pos and total_media params)
+        result = gallery_mixin._generate_title_from_content(
+            content, username, created_at, current_pos=2, total_media=5
         )
-        # Should append position
+
+        # Verify result includes position
         assert result == "Short content - 2/5"

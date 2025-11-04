@@ -5,74 +5,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.orm import Session
 
-from metadata import Account
-from stash.processing.mixins.studio import StudioProcessingMixin
-from stash.types import Performer, Studio
-
-
-class TestMixinClass(StudioProcessingMixin):
-    """Test class that implements StudioProcessingMixin for testing."""
-
-    def __init__(self):
-        """Initialize test class."""
-        self.context = MagicMock()
-        self.context.client = MagicMock()
-        self.log = MagicMock()
-
-
-@pytest.fixture
-def mixin():
-    """Fixture for StudioProcessingMixin instance."""
-    return TestMixinClass()
-
-
-@pytest.fixture
-def mock_account():
-    """Fixture for mock account."""
-    account = MagicMock(spec=Account)
-    account.id = 12345
-    account.username = "test_user"
-    return account
-
-
-@pytest.fixture
-def mock_performer():
-    """Fixture for mock performer."""
-    performer = MagicMock(spec=Performer)
-    performer.id = "performer_123"
-    performer.name = "test_user"
-    return performer
-
-
-@pytest.fixture
-def mock_studio():
-    """Fixture for mock studio."""
-    studio = MagicMock(spec=Studio)
-    studio.id = "studio_123"
-    studio.name = "test_user (Fansly)"
-    return studio
-
 
 class TestStudioProcessingMixin:
     """Test the studio processing mixin functionality."""
 
     @pytest.mark.asyncio
-    async def test_find_existing_studio(self, mixin, mock_account):
+    async def test_find_existing_studio(self, studio_mixin, mock_account):
         """Test _find_existing_studio method."""
         # Mock process_creator_studio
-        mixin.process_creator_studio = AsyncMock()
+        studio_mixin.process_creator_studio = AsyncMock()
 
         # Call _find_existing_studio
-        await mixin._find_existing_studio(mock_account)
+        await studio_mixin._find_existing_studio(mock_account)
 
         # Verify process_creator_studio was called with account and None performer
-        mixin.process_creator_studio.assert_called_once_with(
+        studio_mixin.process_creator_studio.assert_called_once_with(
             account=mock_account, performer=None
         )
 
     @pytest.mark.asyncio
     async def test_process_creator_studio(
-        self, mixin, mock_account, mock_performer, mock_studio
+        self, studio_mixin, mock_account, mock_performer, mock_studio
     ):
         """Test process_creator_studio method."""
         # Mock session
@@ -92,12 +45,12 @@ class TestStudioProcessingMixin:
         creator_studio_result.studios = [creator_studio_dict]
 
         # Set up returns
-        mixin.context.client.find_studios = AsyncMock(
+        studio_mixin.context.client.find_studios = AsyncMock(
             side_effect=[fansly_studio_result, creator_studio_result]
         )
 
         # Call process_creator_studio
-        result = await mixin.process_creator_studio(
+        result = await studio_mixin.process_creator_studio(
             account=mock_account, performer=mock_performer, session=mock_session
         )
 
@@ -107,12 +60,12 @@ class TestStudioProcessingMixin:
         assert result.name == "test_user (Fansly)"
 
         # Verify find_studios calls
-        assert mixin.context.client.find_studios.call_count == 2
-        mixin.context.client.find_studios.assert_any_call(q="Fansly (network)")
-        mixin.context.client.find_studios.assert_any_call(q="test_user (Fansly)")
+        assert studio_mixin.context.client.find_studios.call_count == 2
+        studio_mixin.context.client.find_studios.assert_any_call(q="Fansly (network)")
+        studio_mixin.context.client.find_studios.assert_any_call(q="test_user (Fansly)")
 
         # Test Case 2: Fansly Studio exists but Creator Studio doesn't
-        mixin.context.client.find_studios.reset_mock()
+        studio_mixin.context.client.find_studios.reset_mock()
 
         # Mock find_studios for Fansly (same as before)
         fansly_studio_result.count = 1
@@ -121,16 +74,16 @@ class TestStudioProcessingMixin:
         creator_studio_result.count = 0
 
         # Mock create_studio
-        mixin.context.client.create_studio = AsyncMock(return_value=mock_studio)
+        studio_mixin.context.client.create_studio = AsyncMock(return_value=mock_studio)
 
         # Set up returns
-        mixin.context.client.find_studios = AsyncMock(
+        studio_mixin.context.client.find_studios = AsyncMock(
             side_effect=[fansly_studio_result, creator_studio_result]
         )
 
         # Call process_creator_studio
         with patch("stash.processing.mixins.studio.print_info") as mock_print_info:
-            result = await mixin.process_creator_studio(
+            result = await studio_mixin.process_creator_studio(
                 account=mock_account, performer=mock_performer, session=mock_session
             )
 
@@ -138,14 +91,18 @@ class TestStudioProcessingMixin:
             assert result == mock_studio
 
             # Verify find_studios calls
-            assert mixin.context.client.find_studios.call_count == 2
-            mixin.context.client.find_studios.assert_any_call(q="Fansly (network)")
-            mixin.context.client.find_studios.assert_any_call(q="test_user (Fansly)")
+            assert studio_mixin.context.client.find_studios.call_count == 2
+            studio_mixin.context.client.find_studios.assert_any_call(
+                q="Fansly (network)"
+            )
+            studio_mixin.context.client.find_studios.assert_any_call(
+                q="test_user (Fansly)"
+            )
 
             # Verify create_studio was called
-            mixin.context.client.create_studio.assert_called_once()
+            studio_mixin.context.client.create_studio.assert_called_once()
             # Check if studio has correct properties
-            call_arg = mixin.context.client.create_studio.call_args[0][0]
+            call_arg = studio_mixin.context.client.create_studio.call_args[0][0]
             assert call_arg.id == "new"
             assert call_arg.name == "test_user (Fansly)"
             assert call_arg.url == "https://fansly.com/test_user"
@@ -156,18 +113,20 @@ class TestStudioProcessingMixin:
             assert "Created studio" in str(mock_print_info.call_args)
 
         # Test Case 3: Fansly Studio not found
-        mixin.context.client.find_studios.reset_mock()
-        mixin.context.client.create_studio.reset_mock()
+        studio_mixin.context.client.find_studios.reset_mock()
+        studio_mixin.context.client.create_studio.reset_mock()
 
         # Mock find_studios for Fansly (not found)
         fansly_studio_result.count = 0
 
         # Set up returns
-        mixin.context.client.find_studios = AsyncMock(return_value=fansly_studio_result)
+        studio_mixin.context.client.find_studios = AsyncMock(
+            return_value=fansly_studio_result
+        )
 
         # Call process_creator_studio and expect error
         with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
-            await mixin.process_creator_studio(
+            await studio_mixin.process_creator_studio(
                 account=mock_account, performer=mock_performer, session=mock_session
             )
 
@@ -175,10 +134,12 @@ class TestStudioProcessingMixin:
         assert "Fansly Studio not found in Stash" in str(excinfo.value)
 
         # Verify find_studios called once
-        mixin.context.client.find_studios.assert_called_once_with(q="Fansly (network)")
+        studio_mixin.context.client.find_studios.assert_called_once_with(
+            q="Fansly (network)"
+        )
 
         # Test Case 4: Creation fails with exception then succeeds on retry
-        mixin.context.client.find_studios.reset_mock()
+        studio_mixin.context.client.find_studios.reset_mock()
 
         # Mock find_studios for Fansly (exists)
         fansly_studio_result.count = 1
@@ -192,7 +153,7 @@ class TestStudioProcessingMixin:
         creator_studio_result_found.studios = [creator_studio_dict]
 
         # Set up returns
-        mixin.context.client.find_studios = AsyncMock(
+        studio_mixin.context.client.find_studios = AsyncMock(
             side_effect=[
                 fansly_studio_result,
                 creator_studio_result_empty,
@@ -201,8 +162,8 @@ class TestStudioProcessingMixin:
         )
 
         # Mock create_studio to raise exception
-        mixin.context.client.create_studio.reset_mock()
-        mixin.context.client.create_studio.side_effect = Exception("Test error")
+        studio_mixin.context.client.create_studio.reset_mock()
+        studio_mixin.context.client.create_studio.side_effect = Exception("Test error")
 
         # Call process_creator_studio with error mocks
         with (
@@ -212,7 +173,7 @@ class TestStudioProcessingMixin:
             ) as mock_logger_exception,
             patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
         ):
-            result = await mixin.process_creator_studio(
+            result = await studio_mixin.process_creator_studio(
                 account=mock_account, performer=mock_performer, session=mock_session
             )
 
@@ -224,8 +185,9 @@ class TestStudioProcessingMixin:
             mock_print_error.assert_called_once()
             assert "Failed to create studio" in str(mock_print_error.call_args)
             mock_logger_exception.assert_called_once()
-            mock_debug_print.assert_called_once()
+            # debug_print is called 3 times (fansly_studio_dict, fansly_studio, studio_creation_failed)
+            assert mock_debug_print.call_count == 3
             assert "studio_creation_failed" in str(mock_debug_print.call_args)
 
             # Verify find_studios was called for retry
-            assert mixin.context.client.find_studios.call_count == 3
+            assert studio_mixin.context.client.find_studios.call_count == 3

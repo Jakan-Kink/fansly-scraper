@@ -69,37 +69,17 @@ class TagProcessingMixin:
                 tags.append(found_tag)
             else:
                 # Create new tag if not found
+                # Client handles "already exists" and "is alias" errors automatically
                 new_tag = Tag(name=tag_name, id="new")
-                try:
-                    if created_tag := await self.context.client.create_tag(new_tag):
-                        tags.append(created_tag)
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _process_hashtags_to_tags",
-                                "status": "tag_created",
-                                "tag_name": hashtag.value,
-                            }
-                        )
-                except Exception as e:
-                    error_message = str(e)
-                    # If tag already exists, it will be handled by create_tag
-                    if (
-                        "tag with name" in error_message
-                        and "already exists" in error_message
-                    ):
-                        if found_tag := await self.context.client.create_tag(new_tag):
-                            tags.append(found_tag)
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _process_hashtags_to_tags",
-                                    "status": "tag_found_after_create_failed",
-                                    "tag_name": tag_name,
-                                    "found_tag": found_tag.name,
-                                }
-                            )
-                    else:
-                        # Re-raise if it's not a "tag already exists" error
-                        raise
+                if created_tag := await self.context.client.create_tag(new_tag):
+                    tags.append(created_tag)
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_hashtags_to_tags",
+                            "status": "tag_created_or_found",
+                            "tag_name": hashtag.value,
+                        }
+                    )
 
         return tags
 

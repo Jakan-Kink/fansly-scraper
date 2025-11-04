@@ -13,7 +13,6 @@ from metadata import Account
 from metadata.decorators import with_session
 from textio import print_error, print_warning
 
-from ...client_helpers import async_lru_cache
 from ...logging import debug_print
 from ...logging import processing_logger as logger
 from ...types import Performer
@@ -82,12 +81,9 @@ class AccountProcessingMixin:
                     f"(ID: {self.state.creator_id})"
                 )
 
-            # Try to find existing performer
-            performer = await self._find_existing_performer(account)
-            if performer is None:
-                # Create new performer
-                performer = Performer.from_account(account)
-                await performer.save(self.context.client)
+            # Get or create performer using intelligent fuzzy search
+            performer = Performer.from_account(account)
+            performer = await self.context.client.get_or_create_performer(performer)
 
             debug_print(
                 {
@@ -188,7 +184,6 @@ class AccountProcessingMixin:
                     }
                 )
 
-    @async_lru_cache(maxsize=128)
     async def _find_existing_performer(self, account: Account) -> Performer | None:
         """Find existing performer in Stash.
 

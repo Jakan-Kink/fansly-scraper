@@ -410,11 +410,15 @@ async def _process_media_batch(
     session: AsyncSession,
     batch: MediaBatch,
 ) -> None:
-    """Process all collected media operations in a single transaction."""
-    async with session.begin_nested():
-        if not batch.media_items:
-            return
+    """Process all collected media operations.
 
+    Note: This function does NOT create its own savepoint. The caller is responsible
+    for transaction management.
+    """
+    if not batch.media_items:
+        return
+
+    try:
         # Split into parents and variants
         parent_media = []
         variant_media = []
@@ -439,6 +443,23 @@ async def _process_media_batch(
 
         # Process relationships
         await _sync_relationships(session, batch)
+
+        # Force flush to catch any constraint violations immediately
+        await session.flush()
+    except Exception as e:
+        json_output(
+            0,
+            "meta/media - batch - ERROR",
+            {
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "parent_count": len(parent_media) if "parent_media" in locals() else 0,
+                "variant_count": len(variant_media)
+                if "variant_media" in locals()
+                else 0,
+            },
+        )
+        raise
 
 
 def _chunk_items(items: list[dict], chunk_size: int) -> Iterator[list[dict]]:
@@ -560,13 +581,18 @@ async def process_media_info(
     # Check if we're already in a transaction
     if session.in_transaction():
         # We're already in a transaction, so just process the data without creating a new savepoint
-        await _process_account_media_batch(session, account_media_batch)
-        await _process_media_batch(session, batch)
+        # IMPORTANT: Process Media BEFORE AccountMedia since AccountMedia.mediaId is a FK to Media.id
+        # Use no_autoflush to prevent premature flushes during queries
+        with session.no_autoflush:
+            await _process_media_batch(session, batch)
+            await _process_account_media_batch(session, account_media_batch)
     else:
         # Not in a transaction, create a nested savepoint
+        # IMPORTANT: Process Media BEFORE AccountMedia since AccountMedia.mediaId is a FK to Media.id
         async with await session.begin_nested():
-            await _process_account_media_batch(session, account_media_batch)
-            await _process_media_batch(session, batch)
+            with session.no_autoflush:
+                await _process_media_batch(session, batch)
+                await _process_account_media_batch(session, account_media_batch)
 
 
 # async def _process_single_media_info(
@@ -936,7 +962,7 @@ async def process_media_download(
 
 async def process_media_download_accessible(
     config: FanslyConfig, state: DownloadState, media_infos: list[dict]
-) -> None:
+) -> bool:
     """Process a list of media items to check accessibility.
 
     Args:
@@ -955,17 +981,5 @@ async def process_media_download_accessible(
         json_output(1, "meta/media - p_m_d_a - error", str(e))
         json_output(1, "meta/media - p_m_d_a - error", traceback.format_exc())
         return False
-
-
-async def process_media_download_handler(
-    _config: FanslyConfig, _state: DownloadState, media: dict
-) -> None:
-    """Handle media download processing.
-
-    Args:
-        config: FanslyConfig instance
-        state: Current download state
-        media: Dictionary containing media data
-    """
-    json_output(1, "meta/media - p_m_d_h", media)
-    # TODO: Implement media download handling
+    else:
+        return True

@@ -1,54 +1,103 @@
 {
   "success": true,
   "response": {
-    "messages": [
+    "data": [
       {
-        "id": "737344486891335695",
-        "senderId": "737318930569244672",
-        "content": "This is a test group message!",
-        "createdAt": 1737290991,
-        "updatedAt": 1737290991,
-        "attachments": [
-          {
-            "id": "737344486891335696",
-            "accountId": "737318930569244672",
-            "mediaId": "737344486891335697",
-            "createdAt": 1737290992,
-            "updatedAt": 1737290992,
-            "media": {
-              "id": "737344486891335697",
-              "type": 1,
-              "status": 1,
-              "accountId": "737318930569244672",
-              "mimetype": "image/jpeg",
-              "flags": 298,
-              "location": "/737318930569244672/737344486891335697.jpeg",
-              "width": 1280,
-              "height": 720,
-              "metadata": "{\"resolutionMode\":1}",
-              "updatedAt": 1737290992,
-              "createdAt": 1737290992,
-              "variants": [],
-              "locations": [
-                {
-                  "locationId": "1",
-                  "location": "https://cdn3.fansly.com/737318930569244672/737344486891335697.jpeg"
-                }
-              ]
-            }
-          }
-        ]
+        "account_id": "737318930569244672",
+        "groupId": "737344486891335698",
+        "partnerAccountId": "737344486891335699",
+        "partnerUsername": "test_user_1",
+        "flags": 24,
+        "unreadCount": 0,
+        "subscriptionTierId": null,
+        "lastMessageId": "737344486891335695",
+        "lastUnreadMessageId": null
+      },
+      {
+        "account_id": "737318930569244672",
+        "groupId": "737344486891335700",
+        "partnerAccountId": "737344486891335701",
+        "partnerUsername": "test_user_2",
+        "flags": 8,
+        "unreadCount": 0,
+        "subscriptionTierId": null,
+        "lastMessageId": null,
+        "lastUnreadMessageId": null
       }
     ],
-    "groups": [
-      {
-        "id": "737344486891335698",
-        "name": "Test Group",
-        "description": "Group for testing message functionality",
-        "userIds": ["737318930569244672", "737344486891335699"],
-        "createdAt": 1737290993,
-        "updatedAt": 1737290993
-      }
-    ]
+    "aggregationData": {
+      "accounts": [
+        {
+          "id": "737318930569244672",
+          "username": "test_account",
+          "displayName": "Test Account",
+          "flags": 50,
+          "version": 1,
+          "createdAt": 1737290990000,
+          "followCount": 0,
+          "subscriberCount": 0,
+          "permissions": {
+            "accountPermissionFlags": {
+              "flags": 2
+            }
+          },
+          "timelineStats": {
+            "accountId": "737318930569244672",
+            "imageCount": 0,
+            "videoCount": 0,
+            "bundleCount": 0,
+            "bundleImageCount": 0,
+            "bundleVideoCount": 0,
+            "fetchedAt": 1737290990000
+          },
+          "accountMediaLikes": 0,
+          "profileAccessFlags": 0,
+          "profileFlags": 0,
+          "about": "Test account bio",
+          "location": "",
+          "profileSocials": []
+        },
+        {
+          "id": "737344486891335699",
+          "username": "test_user_1",
+          "displayName": "Test User 1",
+          "flags": 50,
+          "version": 1,
+          "createdAt": 1737290991000,
+          "followCount": 0,
+          "subscriberCount": 0,
+          "permissions": {
+            "accountPermissionFlags": {
+              "flags": 2
+            }
+          },
+          "accountMediaLikes": 0,
+          "profileAccessFlags": 0,
+          "profileFlags": 0,
+          "about": "Test user 1 bio",
+          "location": ""
+        },
+        {
+          "id": "737344486891335701",
+          "username": "test_user_2",
+          "displayName": "Test User 2",
+          "flags": 50,
+          "version": 1,
+          "createdAt": 1737290992000,
+          "followCount": 0,
+          "subscriberCount": 0,
+          "permissions": {
+            "accountPermissionFlags": {
+              "flags": 2
+            }
+          },
+          "accountMediaLikes": 0,
+          "profileAccessFlags": 0,
+          "profileFlags": 0,
+          "about": "Test user 2 bio",
+          "location": ""
+        }
+      ]
+    }
   }
 }

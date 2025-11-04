@@ -1,8 +1,14 @@
 """Tests for gallery lookup functionality."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import select
+
+from metadata import Post
+from tests.fixtures import AccountFactory, PostFactory
+from tests.fixtures.stash_type_factories import GalleryFactory
 
 
 @pytest.fixture
@@ -17,289 +23,376 @@ class TestGalleryLookup:
     """Test gallery lookup methods in GalleryProcessingMixin."""
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_stash_id(self, mixin, mock_item, mock_gallery):
+    async def test_get_gallery_by_stash_id(
+        self, factory_async_session, session, gallery_mixin
+    ):
         """Test _get_gallery_by_stash_id method."""
-        # Setup
-        mock_item.stash_id = "gallery_123"
-        mixin.context.client.find_gallery = AsyncMock(return_value=mock_gallery)
+        # Create real Post object
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(id=67890, accountId=12345)
+        factory_async_session.commit()
 
-        # Test with valid stash_id
-        gallery = await mixin._get_gallery_by_stash_id(mock_item)
+        # Query fresh from async session
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
+
+        # Test with valid stash_id (numeric)
+        post_obj.stash_id = 123
+
+        mock_gallery = GalleryFactory(id="123", title="Test Gallery")
+        gallery_mixin.context.client.find_gallery = AsyncMock(return_value=mock_gallery)
+
+        gallery = await gallery_mixin._get_gallery_by_stash_id(post_obj)
 
         # Verify
         assert gallery == mock_gallery
-        mixin.context.client.find_gallery.assert_called_once_with("gallery_123")
+        gallery_mixin.context.client.find_gallery.assert_called_once_with("123")
 
         # Test with no stash_id
-        mixin.context.client.find_gallery.reset_mock()
-        mock_item.stash_id = None
+        gallery_mixin.context.client.find_gallery.reset_mock()
+        post_obj.stash_id = None
 
-        gallery = await mixin._get_gallery_by_stash_id(mock_item)
+        gallery = await gallery_mixin._get_gallery_by_stash_id(post_obj)
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_gallery.assert_not_called()
+        gallery_mixin.context.client.find_gallery.assert_not_called()
 
         # Test with gallery not found
-        mixin.context.client.find_gallery.reset_mock()
-        mock_item.stash_id = "gallery_123"
-        mixin.context.client.find_gallery.return_value = None
+        gallery_mixin.context.client.find_gallery.reset_mock()
+        post_obj.stash_id = 123
+        gallery_mixin.context.client.find_gallery.return_value = None
 
-        gallery = await mixin._get_gallery_by_stash_id(mock_item)
+        gallery = await gallery_mixin._get_gallery_by_stash_id(post_obj)
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_gallery.assert_called_once()
+        gallery_mixin.context.client.find_gallery.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_title(
-        self, mixin, mock_item, mock_gallery, gallery_mock_studio
+        self, factory_async_session, session, gallery_mixin, gallery_mock_studio
     ):
         """Test _get_gallery_by_title method."""
-        # Setup for matching gallery
+        # Create real Post object with specific date
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(
+            id=67890,
+            accountId=12345,
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        factory_async_session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
+
+        # Setup for matching gallery (numeric ID)
         mock_results = MagicMock()
         mock_results.count = 1
         mock_results.galleries = [
             {
-                "id": "gallery_123",
+                "id": "123",
                 "title": "Test Title",
                 "date": "2024-04-01",
-                "studio": {"id": "studio_123"},
+                "studio": {"id": "123"},  # Must match gallery_mock_studio.id
             }
         ]
-        mixin.context.client.find_galleries = AsyncMock(return_value=mock_results)
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=mock_results
+        )
 
         # Test with matching gallery (with studio)
-        gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery = await gallery_mixin._get_gallery_by_title(
+            post_obj, "Test Title", gallery_mock_studio
         )
 
         # Verify
         assert gallery is not None
-        assert gallery.id == "gallery_123"
+        assert gallery.id == "123"
         assert gallery.title == "Test Title"
-        assert mock_item.stash_id == "gallery_123"  # Should update item's stash_id
-        mixin.context.client.find_galleries.assert_called_once()
+        assert post_obj.stash_id == 123  # Should update item's stash_id as int
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with no matching galleries
         mock_results.count = 0
         mock_results.galleries = []
 
-        gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery = await gallery_mixin._get_gallery_by_title(
+            post_obj, "Test Title", gallery_mock_studio
         )
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with galleries but no match (different title)
         mock_results.count = 1
         mock_results.galleries = [
             {
-                "id": "gallery_123",
+                "id": "124",
                 "title": "Different Title",
                 "date": "2024-04-01",
                 "studio": {"id": "studio_123"},
             }
         ]
 
-        gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery = await gallery_mixin._get_gallery_by_title(
+            post_obj, "Test Title", gallery_mock_studio
         )
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with galleries but no match (different date)
         mock_results.count = 1
         mock_results.galleries = [
             {
-                "id": "gallery_123",
+                "id": "125",
                 "title": "Test Title",
                 "date": "2024-04-02",
                 "studio": {"id": "studio_123"},
             }
         ]
 
-        gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery = await gallery_mixin._get_gallery_by_title(
+            post_obj, "Test Title", gallery_mock_studio
         )
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with galleries but no match (different studio)
         mock_results.count = 1
         mock_results.galleries = [
             {
-                "id": "gallery_123",
+                "id": "126",
                 "title": "Test Title",
                 "date": "2024-04-01",
                 "studio": {"id": "different_studio"},
             }
         ]
 
-        gallery = await mixin._get_gallery_by_title(
-            mock_item, "Test Title", gallery_mock_studio
+        gallery = await gallery_mixin._get_gallery_by_title(
+            post_obj, "Test Title", gallery_mock_studio
         )
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with no studio parameter
         mock_results.count = 1
         mock_results.galleries = [
             {
-                "id": "gallery_123",
+                "id": "127",
                 "title": "Test Title",
                 "date": "2024-04-01",
                 "studio": {"id": "studio_123"},
             }
         ]
 
-        gallery = await mixin._get_gallery_by_title(mock_item, "Test Title", None)
+        gallery = await gallery_mixin._get_gallery_by_title(
+            post_obj, "Test Title", None
+        )
 
         # Verify
         assert gallery is not None
-        assert gallery.id == "gallery_123"
-        mixin.context.client.find_galleries.assert_called_once()
+        assert gallery.id == "127"
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_code(self, mixin, mock_item, mock_gallery):
+    async def test_get_gallery_by_code(
+        self, factory_async_session, session, gallery_mixin
+    ):
         """Test _get_gallery_by_code method."""
-        # Setup for matching gallery
+        # Create real Post object
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(id=67890, accountId=12345)
+        factory_async_session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
+
+        # Setup for matching gallery (numeric ID)
         mock_results = MagicMock()
         mock_results.count = 1
-        mock_results.galleries = [{"id": "gallery_123", "code": "12345"}]
-        mixin.context.client.find_galleries = AsyncMock(return_value=mock_results)
+        mock_results.galleries = [{"id": "200", "code": "67890"}]
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=mock_results
+        )
 
         # Test with matching gallery
-        gallery = await mixin._get_gallery_by_code(mock_item)
+        gallery = await gallery_mixin._get_gallery_by_code(post_obj)
 
         # Verify
         assert gallery is not None
-        assert gallery.id == "gallery_123"
-        assert gallery.code == "12345"
-        assert mock_item.stash_id == "gallery_123"  # Should update item's stash_id
-        mixin.context.client.find_galleries.assert_called_once()
+        assert gallery.id == "200"
+        assert gallery.code == "67890"
+        assert post_obj.stash_id == 200  # Should update item's stash_id as int
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with no matching galleries
         mock_results.count = 0
         mock_results.galleries = []
 
-        gallery = await mixin._get_gallery_by_code(mock_item)
+        gallery = await gallery_mixin._get_gallery_by_code(post_obj)
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with galleries but no match (different code)
         mock_results.count = 1
-        mock_results.galleries = [{"id": "gallery_123", "code": "54321"}]
+        mock_results.galleries = [{"id": "201", "code": "54321"}]
 
-        gallery = await mixin._get_gallery_by_code(mock_item)
+        gallery = await gallery_mixin._get_gallery_by_code(post_obj)
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_url(self, mixin, mock_item, mock_gallery):
+    async def test_get_gallery_by_url(
+        self, factory_async_session, session, gallery_mixin
+    ):
         """Test _get_gallery_by_url method."""
-        # Setup for matching gallery
+        # Create real Post object
+        account = AccountFactory(id=12345, username="test_user")
+        post = PostFactory(id=67890, accountId=12345)
+        factory_async_session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
+
+        # Setup for matching gallery (numeric ID, needs execute mock for save)
         mock_results = MagicMock()
         mock_results.count = 1
         mock_results.galleries = [
-            {"id": "gallery_123", "urls": ["https://test.com/post/12345"]}
+            {"id": "300", "urls": ["https://test.com/post/67890"]}
         ]
-        mixin.context.client.find_galleries = AsyncMock(return_value=mock_results)
+        gallery_mixin.context.client.find_galleries = AsyncMock(
+            return_value=mock_results
+        )
+
+        # Mock execute for gallery.save (which updates code)
+        gallery_mixin.context.client.execute = AsyncMock(
+            return_value={
+                "galleryUpdate": {
+                    "id": "300",
+                    "code": "67890",
+                    "urls": ["https://test.com/post/67890"],
+                }
+            }
+        )
 
         # Test URL
-        test_url = "https://test.com/post/12345"
+        test_url = "https://test.com/post/67890"
 
         # Test with matching gallery
-        gallery = await mixin._get_gallery_by_url(mock_item, test_url)
+        gallery = await gallery_mixin._get_gallery_by_url(post_obj, test_url)
 
         # Verify
         assert gallery is not None
-        assert gallery.id == "gallery_123"
+        assert gallery.id == "300"
         assert test_url in gallery.urls
-        assert mock_item.stash_id == "gallery_123"  # Should update item's stash_id
-        mixin.context.client.find_galleries.assert_called_once()
-        gallery.save.assert_called_once()  # Should update gallery with code
+        assert post_obj.stash_id == 300  # Should update item's stash_id as int
+        gallery_mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.execute.assert_called_once()  # gallery.save called
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.execute.reset_mock()
 
         # Test with no matching galleries
         mock_results.count = 0
         mock_results.galleries = []
 
-        gallery = await mixin._get_gallery_by_url(mock_item, test_url)
+        gallery = await gallery_mixin._get_gallery_by_url(post_obj, test_url)
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
         # Reset
-        mixin.context.client.find_galleries.reset_mock()
+        gallery_mixin.context.client.find_galleries.reset_mock()
 
         # Test with galleries but no match (different URL)
         mock_results.count = 1
         mock_results.galleries = [
-            {"id": "gallery_123", "urls": ["https://test.com/post/54321"]}
+            {"id": "301", "urls": ["https://test.com/post/54321"]}
         ]
 
-        gallery = await mixin._get_gallery_by_url(mock_item, test_url)
+        gallery = await gallery_mixin._get_gallery_by_url(post_obj, test_url)
 
         # Verify
         assert gallery is None
-        mixin.context.client.find_galleries.assert_called_once()
+        gallery_mixin.context.client.find_galleries.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_get_gallery_by_title_matching_studio(
-    mixin, mock_item, mock_account, test_studio, gallery_mock_studio
+    factory_async_session, session, gallery_mixin, gallery_mock_studio
 ):
     """Test _get_gallery_by_title with matching studio."""
+    # Create real Post object with specific date
+    account = AccountFactory(id=12345, username="test_user")
+    post = PostFactory(
+        id=67890,
+        accountId=12345,
+        createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
+    )
+    factory_async_session.commit()
+
+    # Query fresh from async session
+    result = await session.execute(select(Post).where(Post.id == 67890))
+    post_obj = result.unique().scalar_one()
+
     title = "Test Gallery"
 
-    # Mock client find_galleries response
+    # Mock client find_galleries response (must be dict, not MagicMock)
     mock_galleries_result = MagicMock()
     mock_galleries_result.count = 1
-    mock_gallery = MagicMock()
-    mock_gallery.id = "gallery_123"
-    mock_gallery.title = title
-    mock_gallery.studio = {"id": test_studio.id}
-    mock_galleries_result.galleries = [mock_gallery]
+    mock_galleries_result.galleries = [
+        {
+            "id": "400",
+            "title": title,
+            "date": "2024-04-01",
+            "studio": {"id": "123"},  # Must match gallery_mock_studio.id
+        }
+    ]
 
-    mixin.context.client.find_galleries = AsyncMock(return_value=mock_galleries_result)
+    gallery_mixin.context.client.find_galleries = AsyncMock(
+        return_value=mock_galleries_result
+    )
 
-    result = await mixin._get_gallery_by_title(mock_item, title, gallery_mock_studio)
+    result = await gallery_mixin._get_gallery_by_title(
+        post_obj, title, gallery_mock_studio
+    )
     assert result is not None
-    assert result.id == "gallery_123"
+    assert result.id == "400"

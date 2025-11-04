@@ -113,8 +113,9 @@ class StashProcessingBase:
             _background_task=None,
             _cleanup_event=asyncio.Event(),
             _owns_db=False,  # We don't own the database
-            use_batch_processing=use_batch_processing,
         )
+        # Set use_batch_processing attribute after initialization
+        instance.use_batch_processing = use_batch_processing
         return instance
 
     async def scan_creator_folder(self) -> None:
