@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 
+from errors import StashGraphQLError
 from stash import StashClient
 from stash.client.mixins.tag import TagClientMixin
 from stash.types import FindTagsResultType, Tag
@@ -67,7 +68,7 @@ class MockStashClient:
 
     async def execute(self, *args, **kwargs):
         """Mock execute to always raise a duplicate tag error."""
-        raise ValueError(f"tag with name '{self.mock_tag.name}' already exists")
+        raise StashGraphQLError(f"tag with name '{self.mock_tag.name}' already exists")
 
     async def _find_tags(self, *args, **kwargs):
         """Return a FindTagsResultType with the mock tag."""
@@ -75,8 +76,10 @@ class MockStashClient:
 
 
 @pytest.mark.asyncio
-async def test_create_tag_duplicate_alternative(stash_client: StashClient) -> None:
-    """Test alternate approach to handling duplicate tag creation."""
+async def test_create_tag_duplicate_alternative(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test creating a tag that already exists."""
     # Create a tag that will trigger duplicate error
     tag = Tag(
         id="new",
@@ -120,7 +123,9 @@ async def test_create_tag_duplicate_alternative(stash_client: StashClient) -> No
 
 
 @pytest.mark.asyncio
-async def test_find_tags_error_alternative(stash_client: StashClient) -> None:
+async def test_find_tags_error_alternative(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding tags."""
     # Mock execute to raise a test error
     stash_client.execute = AsyncMock(side_effect=Exception("Test error"))
@@ -187,7 +192,9 @@ async def test_bulk_tag_update_error_alternative(
 
 
 @pytest.mark.asyncio
-async def test_create_tag_error_alternative(stash_client: StashClient) -> None:
+async def test_create_tag_error_alternative(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when creating a tag."""
     # Mock execute to raise a test error
     stash_client.execute = AsyncMock(side_effect=Exception("Test error"))

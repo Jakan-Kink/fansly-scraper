@@ -25,7 +25,9 @@ def mock_studio() -> Studio:
 
 
 @pytest.mark.asyncio
-async def test_find_studio(stash_client: StashClient, mock_studio: Studio) -> None:
+async def test_find_studio(
+    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
+) -> None:
     """Test finding a studio by ID."""
     # Clean the data to prevent _dirty_attrs errors
     clean_data = {
@@ -50,7 +52,9 @@ async def test_find_studio(stash_client: StashClient, mock_studio: Studio) -> No
 
 
 @pytest.mark.asyncio
-async def test_find_studio_not_found(stash_client: StashClient) -> None:
+async def test_find_studio_not_found(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test finding a studio that doesn't exist."""
     with patch.object(
         stash_client,
@@ -63,7 +67,9 @@ async def test_find_studio_not_found(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_studio_error(stash_client: StashClient) -> None:
+async def test_find_studio_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding a studio."""
     # Clear the cache to ensure we test the error handling path
     stash_client.find_studio.cache_clear()
@@ -80,7 +86,9 @@ async def test_find_studio_error(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_studios(stash_client: StashClient, mock_studio: Studio) -> None:
+async def test_find_studios(
+    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
+) -> None:
     """Test finding studios with filters."""
 
     # Create a custom test class that we can control completely
@@ -104,7 +112,9 @@ async def test_find_studios(stash_client: StashClient, mock_studio: Studio) -> N
 
 
 @pytest.mark.asyncio
-async def test_find_studios_error(stash_client: StashClient) -> None:
+async def test_find_studios_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding studios."""
     with patch.object(
         stash_client,
@@ -118,7 +128,9 @@ async def test_find_studios_error(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_studio(stash_client: StashClient, mock_studio: Studio) -> None:
+async def test_create_studio(
+    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
+) -> None:
     """Test creating a studio."""
     # Clean the data to prevent _dirty_attrs errors
     clean_data = {
@@ -189,7 +201,9 @@ async def test_create_studio_error(
 
 
 @pytest.mark.asyncio
-async def test_update_studio(stash_client: StashClient, mock_studio: Studio) -> None:
+async def test_update_studio(
+    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
+) -> None:
     """Test updating a studio."""
     # Create updated versions of the mock studio for each test case
     updated_name_studio = Studio(

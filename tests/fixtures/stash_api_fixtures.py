@@ -137,9 +137,15 @@ def enable_scene_creation():
 async def stash_cleanup_tracker():
     """Fixture that provides a cleanup context manager for Stash objects.
 
+    IMPORTANT: Any test using stash_client MUST also use stash_cleanup_tracker.
+    This requirement is enforced automatically via pytest hook. Tests that use
+    stash_client without stash_cleanup_tracker will fail with strict xfail.
+
     This fixture helps ensure test isolation by providing a context manager that
     automatically cleans up any Stash objects created during tests. It tracks objects
     by their IDs and deletes them in the correct order to handle dependencies.
+
+    See tests/stash/CLEANUP_ENFORCEMENT_SUMMARY.md for detailed documentation.
 
     Returns:
         async_context_manager: A context manager for tracking and cleaning up Stash objects
@@ -173,9 +179,20 @@ async def stash_cleanup_tracker():
             "tags": [],
             "galleries": [],
         }
+        print(f"\n{'=' * 60}")
+        print("CLEANUP TRACKER: Context entered")
+        print(f"{'=' * 60}")
         try:
             yield created_objects
         finally:
+            print(f"\n{'=' * 60}")
+            print("CLEANUP TRACKER: Finally block entered")
+            print("CLEANUP TRACKER: Objects to clean up:")
+            for obj_type, ids in created_objects.items():
+                if ids:
+                    print(f"  - {obj_type}: {ids}")
+            print(f"{'=' * 60}\n")
+
             # Clean up created objects in correct dependency order
             # Galleries reference scenes/performers/studios/tags - delete first
             # Scenes reference performers/studios/tags - delete second
@@ -259,8 +276,14 @@ async def stash_cleanup_tracker():
                     print(f"Warning: Cleanup had {len(errors)} error(s):")
                     for error in errors:
                         print(f"  - {error}")
+                else:
+                    print("CLEANUP TRACKER: All objects deleted successfully")
             except Exception as e:
                 print(f"Warning: Cleanup failed catastrophically: {e}")
+
+            print(f"\n{'=' * 60}")
+            print("CLEANUP TRACKER: Finally block completed")
+            print(f"{'=' * 60}\n")
 
     return cleanup_context
 

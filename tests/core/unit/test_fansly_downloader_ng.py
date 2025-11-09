@@ -25,7 +25,6 @@ from errors import (
 )
 from fansly_downloader_ng import (
     _async_main,
-    cleanup_database,
     cleanup_database_sync,
     print_logo,
 )

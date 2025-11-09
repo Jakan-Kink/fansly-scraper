@@ -42,6 +42,42 @@ from tests.fixtures import *  # noqa: F403
 
 
 # ============================================================================
+# Pytest Hooks
+# ============================================================================
+
+
+def pytest_collection_modifyitems(config, items):
+    """Hook to validate fixture usage and add markers.
+
+    Ensures that any test using stash_client also uses stash_cleanup_tracker
+    for proper test isolation and cleanup.
+
+    This enforcement applies to ALL tests using stash_client, not just integration tests.
+    Even if a test mocks the client, if the mock is incorrectly configured, it could
+    make real connections to the Stash server and leave behind objects.
+
+    Tests that violate this requirement are marked with xfail(strict=True),
+    which means:
+    - If the test would pass, it fails (enforcement)
+    - If the test would fail naturally, it fails (expected)
+    - If Stash is unavailable and test skips, it skips (expected)
+    """
+    for item in items:
+        if (
+            hasattr(item, "fixturenames")
+            and "stash_client" in item.fixturenames
+            and "stash_cleanup_tracker" not in item.fixturenames
+        ):
+            item.add_marker(
+                pytest.mark.xfail(
+                    reason="Tests using stash_client MUST also use stash_cleanup_tracker "
+                    "for test isolation and cleanup. See tests/stash/CLEANUP_ENFORCEMENT_SUMMARY.md",
+                    strict=True,
+                )
+            )
+
+
+# ============================================================================
 # Helper Functions
 # ============================================================================
 

@@ -18,6 +18,7 @@ from graphql import (
     GraphQLString,
 )
 
+from errors import StashConnectionError
 from stash.client.base import StashClientBase
 from stash.types import (
     AutoTagMetadataOptions,
@@ -223,7 +224,7 @@ async def test_client_execute(mock_session, mock_client) -> None:
         )
 
         with pytest.raises(
-            ValueError,
+            StashConnectionError,
             match=r"Unexpected error during request \(NetworkError\): Connection failed",
         ):
             await client.execute("query { hello }")
@@ -671,7 +672,9 @@ async def test_metadata_generate(mock_session, mock_client) -> None:
         mock_session.execute = AsyncMock(
             side_effect=httpx.NetworkError("Connection failed")
         )
-        with pytest.raises(ValueError, match="Unexpected error during request"):
+        with pytest.raises(
+            StashConnectionError, match="Unexpected error during request"
+        ):
             await client.metadata_generate()
 
         # Test invalid options

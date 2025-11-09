@@ -677,18 +677,18 @@ async def test_write_through_cache_integration(
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)  # Add timeout to prevent hanging
 async def test_database_cleanup_integration(
-    test_config, test_account: Account, shared_db_path
+    config, test_account: Account, shared_db_path
 ):
     """Test database cleanup in integration scenario."""
     print_info("Starting database cleanup integration test")
 
     # Create a custom config with the shared DB path
-    config_dict = test_config.__dict__.copy()
+    config_dict = config.__dict__.copy()
     config_dict["metadata_db_file"] = Path(shared_db_path)  # Convert to Path object
     # Set short sync intervals to ensure data is written soon
     config_dict["db_sync_seconds"] = 1  # Sync every 1 second
     config_dict["db_sync_commits"] = 1  # Sync after every commit
-    custom_config = type(test_config)(**config_dict)
+    custom_config = type(config)(**config_dict)
 
     print_info(f"Using shared database path: {shared_db_path}")
 

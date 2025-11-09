@@ -9,13 +9,9 @@ from gql.transport.exceptions import (
     TransportQueryError,
     TransportServerError,
 )
-from graphql import (
-    GraphQLField,
-    GraphQLObjectType,
-    GraphQLSchema,
-    GraphQLString,
-)
+from graphql import GraphQLField, GraphQLObjectType, GraphQLSchema, GraphQLString
 
+from errors import StashConnectionError, StashGraphQLError, StashServerError
 from stash import StashClient
 
 
@@ -53,13 +49,13 @@ async def test_client_init() -> None:
 
 @pytest.mark.asyncio
 async def test_client_validation_error(mock_session, mock_client) -> None:
-    """Test client-side GraphQL validation errors."""
+    """Test GraphQL schema validation errors (querying non-existent field)."""
     client = await StashClient.create(conn={})
     client._ensure_initialized = MagicMock()
     client.log = MagicMock()
 
     # Create a real schema with a valid 'hello' field but no 'test' field
-    print("\nSetting up validation error test...")
+    print("\nSetting up schema validation error test...")
     query_type = GraphQLObjectType(
         name="Query",
         fields={
@@ -84,18 +80,18 @@ async def test_client_validation_error(mock_session, mock_client) -> None:
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
         raise AssertionError(
-            "Expected ValueError was not raised"
+            "Expected StashGraphQLError was not raised"
         )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
-        if not isinstance(e, ValueError):
+        if not isinstance(e, StashGraphQLError):
             raise TypeError(  # Validates exception type in test
-                f"Expected ValueError but got {type(e).__name__}: {e!s}"
+                f"Expected StashGraphQLError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
-        assert "Invalid GraphQL query" in error_msg
+        assert "GraphQL query error" in error_msg
         assert "Cannot query field 'test' on type 'Query'" in error_msg
 
 
@@ -150,15 +146,15 @@ async def test_client_query_error(mock_session, mock_client) -> None:
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
         raise AssertionError(
-            "Expected ValueError was not raised"
+            "Expected StashGraphQLError was not raised"
         )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
-        if not isinstance(e, ValueError):
+        if not isinstance(e, StashGraphQLError):
             raise TypeError(  # Validates exception type in test
-                f"Expected ValueError but got {type(e).__name__}: {e!s}"
+                f"Expected StashGraphQLError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
         assert "GraphQL query error" in error_msg
@@ -275,15 +271,15 @@ async def test_client_network_error(mock_session, mock_client) -> None:
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
         raise AssertionError(
-            "Expected ValueError was not raised"
+            "Expected StashConnectionError was not raised"
         )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
-        if not isinstance(e, ValueError):
+        if not isinstance(e, StashConnectionError):
             raise TypeError(  # Validates exception type in test
-                f"Expected ValueError but got {type(e).__name__}: {e!s}"
+                f"Expected StashConnectionError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
         assert "Failed to connect" in error_msg
@@ -330,15 +326,15 @@ async def test_client_server_error(mock_session, mock_client) -> None:
         print(f"\nUnexpected success - result type: {type(result)}")
         print(f"Unexpected success - result value: {result}")
         raise AssertionError(
-            "Expected ValueError was not raised"
+            "Expected StashServerError was not raised"
         )  # Test assertion pattern
     except Exception as e:
         print(f"\nCaught exception type: {type(e).__name__}")
         print(f"Caught exception value: {e!s}")
         print(f"Caught exception repr: {e!r}")
-        if not isinstance(e, ValueError):
+        if not isinstance(e, StashServerError):
             raise TypeError(  # Validates exception type in test
-                f"Expected ValueError but got {type(e).__name__}: {e!s}"
+                f"Expected StashServerError but got {type(e).__name__}: {e!s}"
             )
         error_msg = str(e)
         assert "GraphQL server error" in error_msg
@@ -383,5 +379,5 @@ async def test_query_errors(mock_session, mock_client) -> None:
         await client.execute("query {", {})  # Intentionally malformed query
 
     error_msg = str(exc_info.value)
-    assert "Invalid GraphQL query" in error_msg
+    assert "Invalid GraphQL query syntax" in error_msg
     assert "Syntax Error" in error_msg

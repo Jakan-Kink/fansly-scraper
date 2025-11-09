@@ -157,6 +157,58 @@ class InvalidTraceLogError(RuntimeError):
         super().__init__(self.message)
 
 
+class StashError(RuntimeError):
+    """Base exception for Stash-related errors.
+
+    This error is raised when communication with a Stash server fails
+    or when Stash API operations encounter errors.
+    """
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+
+
+class StashGraphQLError(StashError):
+    """Raised when a GraphQL query fails validation or execution.
+
+    This may be caused by:
+    - Invalid GraphQL query syntax
+    - Querying non-existent fields
+    - GraphQL validation errors
+    - Query execution errors
+    """
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+
+
+class StashConnectionError(StashError):
+    """Raised when connection to Stash server fails.
+
+    This may be caused by:
+    - Network connectivity issues
+    - Invalid Stash URL
+    - Stash server not running
+    - Authentication failures
+    """
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+
+
+class StashServerError(StashError):
+    """Raised when Stash server returns an error response.
+
+    This may be caused by:
+    - Internal server errors (500)
+    - Service unavailable (503)
+    - Other server-side issues
+    """
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+
+
 # endregion
 
 
@@ -183,4 +235,8 @@ __all__ = [
     "M3U8Error",
     "MediaError",
     "MediaHashMismatchError",
+    "StashConnectionError",
+    "StashError",
+    "StashGraphQLError",
+    "StashServerError",
 ]
