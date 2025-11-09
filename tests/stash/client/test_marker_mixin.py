@@ -40,8 +40,10 @@ def mock_marker(mock_scene) -> SceneMarker:
 
 
 @pytest.mark.asyncio
-async def test_find_marker(stash_client: StashClient, mock_marker: SceneMarker) -> None:
-    """Test finding a scene marker by ID."""
+async def test_find_marker(
+    stash_client: StashClient, stash_cleanup_tracker, mock_marker: SceneMarker
+) -> None:
+    """Test finding a marker by ID."""
     # Create a proper scene dict that matches the Scene class requirements
     scene_dict = {
         "id": mock_marker.scene.id,
@@ -92,8 +94,10 @@ async def test_find_marker(stash_client: StashClient, mock_marker: SceneMarker) 
 
 
 @pytest.mark.asyncio
-async def test_find_marker_not_found(stash_client: StashClient) -> None:
-    """Test finding a scene marker that doesn't exist."""
+async def test_find_marker_not_found(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test finding a marker that doesn't exist."""
     with patch.object(
         stash_client,
         "execute",
@@ -105,8 +109,10 @@ async def test_find_marker_not_found(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_marker_error(stash_client: StashClient) -> None:
-    """Test handling errors when finding a scene marker."""
+async def test_find_marker_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test handling errors when finding a marker."""
     with patch.object(
         stash_client,
         "execute",
@@ -213,8 +219,10 @@ async def test_find_markers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_markers_error(stash_client: StashClient) -> None:
-    """Test handling errors when finding scene markers."""
+async def test_find_markers_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test handling errors when finding markers."""
     with patch.object(
         stash_client,
         "execute",
@@ -283,7 +291,9 @@ async def test_create_marker_error(
 
 
 @pytest.mark.asyncio
-async def test_scene_marker_tags(stash_client: StashClient) -> None:
+async def test_scene_marker_tags(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test getting scene marker tags for a scene."""
     mock_tag_result = [
         {
@@ -316,7 +326,9 @@ async def test_scene_marker_tags(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_scene_marker_tags_empty(stash_client: StashClient) -> None:
+async def test_scene_marker_tags_empty(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test getting scene marker tags for a scene with no tags."""
     with patch.object(
         stash_client,
@@ -329,7 +341,9 @@ async def test_scene_marker_tags_empty(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_scene_marker_tags_error(stash_client: StashClient) -> None:
+async def test_scene_marker_tags_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when getting scene marker tags."""
     with patch.object(
         stash_client,

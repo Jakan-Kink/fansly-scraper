@@ -28,33 +28,33 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.dependencies]
 python = ">=3.12,<3.14"
-imagehash = "4.3.1"
+imagehash = ">=4.3.1,<5.0.0"
 loguru = ">=0.7.2"
-m3u8 = ">=4.0.0"
-pillow = ">=10.2"
+m3u8 = ">=6.0.0"
+pillow = ">=12.0.0"
 plyvel-ci = ">=1.5"
 psutil = ">=5.9.8"
 python-dateutil = ">=2.8.2,<3.0.0"
-rich = ">=13.7.0,<14.0.0"
+rich = ">=13.7.0,<15.0.0"
 strenum = ">=0.4.15,<0.5.0"
-websockets = ">=12.0,<13.0"
-alembic = ">=1.14.0"
+websockets = ">=15.0.0"
+alembic = ">=1.17.0"
 aiosqlite = ">=0.20.0"
-greenlet = ">=3.1.1"
+greenlet = ">=3.2.1"
 aiomultiprocess = ">=0.9.1"
 toml = ">=0.10.2"
-sqlalchemy = {extras = ["asyncio"], version = ">=2.0.37"}
-httpx = {extras = ["http2"], version = "^0.28.1"}
-strawberry-graphql = ">=0.258.0"
-gql = {extras = ["httpx", "websockets"], version = ">=3.5.0"}
+sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
+httpx = {extras = ["http2"], version = ">=0.28.1"}
+strawberry-graphql = ">=0.279.0"
+gql = {extras = ["httpx", "websockets"], version = ">=4.0.0"}
 websocket-client = ">=1.8.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
-asyncpg = ">=0.30.0,<0.31.0"
+asyncpg = ">=0.30.0,<1.0.0"
 psycopg = {version = ">=3.2.10,<4.0.0", extras = ["binary", "pool"]}
-httpx-retries = "^0.4.3"
-ffmpeg-python = "^0.2.0"
-jsbeautifier = "^1.15.4"
-javascript = "^1!1.2.6"
+httpx-retries = ">=0.4.3"
+ffmpeg-python = ">=0.2.0"
+jsbeautifier = ">=1.15.4"
+javascript = ">=1!1.2.6"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -71,8 +71,8 @@ types-python-dateutil = ">=2.9.0.20241206"
 types-requests = ">=2.32.0.20241016"
 types-setuptools = ">=75.6.0.20241126"
 types-pillow = ">=10.2.0"
-types-toml = "^0.10.8.20240310"
-types-m3u8 = "^6.0.0.20250708"
+types-toml = ">=0.10.8.20240310"
+types-m3u8 = ">=6.0.0.20250708"
 types-psutil = ">=7.0.0.20250401"
 types-tqdm = ">=4.67.0.20241221"
 
@@ -87,8 +87,8 @@ pytest-xdist = ">=3.6.1"
 coverage = {extras = ["toml"], version = ">=7.8"}
 psutil = ">=7.0.0"
 pytest-loguru = ">=0.4.0"
-factory-boy = "^3.3.3"
-pytest-rerunfailures = "^16.1"
+factory-boy = ">=3.3.3"
+pytest-rerunfailures = ">=16.1"
 
 
 [tool.bandit]

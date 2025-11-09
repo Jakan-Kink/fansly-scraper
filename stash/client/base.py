@@ -17,6 +17,7 @@ from gql.transport.httpx import HTTPXAsyncTransport
 from gql.transport.websockets import WebsocketsTransport
 from httpx_retries import Retry, RetryTransport
 
+from errors import StashConnectionError, StashGraphQLError, StashServerError
 from stash import fragments
 from stash.types import (
     AutoTagMetadataOptions,
@@ -224,19 +225,31 @@ class StashClientBase:
             raise RuntimeError("URL not initialized")
 
     def _handle_gql_error(self, e: Exception) -> None:
-        """Handle gql errors with appropriate error messages."""
+        """Handle gql errors with appropriate error messages.
+
+        Raises:
+            ValueError: Re-raised for syntax errors (from gql() parsing)
+            StashGraphQLError: For GraphQL query/validation errors
+            StashServerError: For server errors (500, 503, etc.)
+            StashConnectionError: For network/connection errors and timeouts
+        """
+        # Re-raise ValueError from syntax validation without modification
+        if isinstance(e, ValueError):
+            raise e
         if isinstance(e, TransportQueryError):
-            # GraphQL query error (e.g. validation error)
-            raise TypeError(f"GraphQL query error: {e.errors}")
+            # GraphQL query error (e.g. schema validation error)
+            raise StashGraphQLError(f"GraphQL query error: {e.errors}") from e
         if isinstance(e, TransportServerError):
             # Server error (e.g. 500)
-            raise TypeError(f"GraphQL server error: {e}")
+            raise StashServerError(f"GraphQL server error: {e}") from e
         if isinstance(e, TransportError):
             # Network/connection error
-            raise TypeError(f"Failed to connect to {self.url}: {e}")
+            raise StashConnectionError(f"Failed to connect to {self.url}: {e}") from e
         if isinstance(e, asyncio.TimeoutError):
-            raise TypeError(f"Request to {self.url} timed out")
-        raise TypeError(f"Unexpected error during request ({type(e).__name__}): {e}")
+            raise StashConnectionError(f"Request to {self.url} timed out") from e
+        raise StashConnectionError(
+            f"Unexpected error during request ({type(e).__name__}): {e}"
+        ) from e
 
     async def execute(
         self,
@@ -285,7 +298,9 @@ class StashClientBase:
             return dict(result)
 
         except Exception as e:
-            self._handle_gql_error(e)  # This will raise ValueError
+            self._handle_gql_error(
+                e
+            )  # Raises ValueError (syntax), StashGraphQLError, StashServerError, or StashConnectionError
             raise RuntimeError("Unexpected execution path")  # pragma: no cover
 
     def _convert_datetime(self, obj: Any) -> Any:

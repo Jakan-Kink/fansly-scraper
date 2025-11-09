@@ -253,9 +253,7 @@ class TestHashMP4File:
 
     @patch("fileio.mp4.get_boxes")
     @patch("fileio.mp4.hash_mp4box")
-    def test_hash_mp4file_with_broken_algo(
-        self, mock_hash_mp4box, mock_get_boxes
-    ):
+    def test_hash_mp4file_with_broken_algo(self, mock_hash_mp4box, mock_get_boxes):
         """Test hashing an MP4 file with broken algorithm flag."""
         # Create mock boxes
         ftyp_box = MagicMock()

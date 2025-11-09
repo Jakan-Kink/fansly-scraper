@@ -39,7 +39,9 @@ def mock_image() -> Image:
 
 
 @pytest.mark.asyncio
-async def test_find_image(stash_client: StashClient, mock_image: Image) -> None:
+async def test_find_image(
+    stash_client: StashClient, stash_cleanup_tracker, mock_image: Image
+) -> None:
     """Test finding an image by ID."""
     # Clean the data to prevent _dirty_attrs errors
     clean_data = {
@@ -66,7 +68,9 @@ async def test_find_image(stash_client: StashClient, mock_image: Image) -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_image_not_found(stash_client: StashClient) -> None:
+async def test_find_image_not_found(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test finding an image that doesn't exist."""
     with patch.object(
         stash_client,
@@ -79,7 +83,9 @@ async def test_find_image_not_found(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_image_error(stash_client: StashClient) -> None:
+async def test_find_image_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding an image."""
     with patch.object(
         stash_client,
@@ -92,7 +98,9 @@ async def test_find_image_error(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_images(stash_client: StashClient, mock_image: Image) -> None:
+async def test_find_images(
+    stash_client: StashClient, stash_cleanup_tracker, mock_image: Image
+) -> None:
     """Test finding images with filters."""
     # Clean the data to prevent _dirty_attrs errors
     clean_data = {
@@ -154,7 +162,9 @@ async def test_find_images(stash_client: StashClient, mock_image: Image) -> None
 
 
 @pytest.mark.asyncio
-async def test_find_images_error(stash_client: StashClient) -> None:
+async def test_find_images_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding images."""
     with (
         patch.object(
@@ -213,7 +223,9 @@ async def test_find_images_error_fixed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_image(stash_client: StashClient, mock_image: Image) -> None:
+async def test_create_image(
+    stash_client: StashClient, stash_cleanup_tracker, mock_image: Image
+) -> None:
     """Test creating an image."""
     # Clean the data to prevent _dirty_attrs errors
     clean_data = {
@@ -249,7 +261,9 @@ async def test_create_image(stash_client: StashClient, mock_image: Image) -> Non
 
 
 @pytest.mark.asyncio
-async def test_create_image_error(stash_client: StashClient, mock_image: Image) -> None:
+async def test_create_image_error(
+    stash_client: StashClient, stash_cleanup_tracker, mock_image: Image
+) -> None:
     """Test handling errors when creating an image."""
     with (
         patch.object(
@@ -265,7 +279,9 @@ async def test_create_image_error(stash_client: StashClient, mock_image: Image) 
 
 
 @pytest.mark.asyncio
-async def test_update_image(stash_client: StashClient, mock_image: Image) -> None:
+async def test_update_image(
+    stash_client: StashClient, stash_cleanup_tracker, mock_image: Image
+) -> None:
     """Test updating an image."""
     # Create updated versions of the mock image for each test case
     updated_title_image = Image(
@@ -354,7 +370,9 @@ async def test_update_image(stash_client: StashClient, mock_image: Image) -> Non
 
 
 @pytest.mark.asyncio
-async def test_update_image_error(stash_client: StashClient, mock_image: Image) -> None:
+async def test_update_image_error(
+    stash_client: StashClient, stash_cleanup_tracker, mock_image: Image
+) -> None:
     """Test handling errors when updating an image."""
     with (
         patch.object(

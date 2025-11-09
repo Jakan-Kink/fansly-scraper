@@ -79,7 +79,9 @@ def mock_chapter() -> GalleryChapter:
 
 
 @pytest.mark.asyncio
-async def test_find_gallery(stash_client: StashClient, mock_gallery: Gallery) -> None:
+async def test_find_gallery(
+    stash_client: StashClient, stash_cleanup_tracker, mock_gallery: Gallery
+) -> None:
     """Test finding a gallery by ID."""
     # Test successful find
     with patch.object(
@@ -127,7 +129,9 @@ async def test_find_gallery(stash_client: StashClient, mock_gallery: Gallery) ->
 
 
 @pytest.mark.asyncio
-async def test_find_galleries(stash_client: StashClient, mock_gallery: Gallery) -> None:
+async def test_find_galleries(
+    stash_client: StashClient, stash_cleanup_tracker, mock_gallery: Gallery
+) -> None:
     """Test finding galleries with filters."""
     mock_result = FindGalleriesResultType(
         count=1,
@@ -195,7 +199,9 @@ async def test_find_galleries(stash_client: StashClient, mock_gallery: Gallery) 
 
 
 @pytest.mark.asyncio
-async def test_create_gallery(stash_client: StashClient, mock_gallery: Gallery) -> None:
+async def test_create_gallery(
+    stash_client: StashClient, stash_cleanup_tracker, mock_gallery: Gallery
+) -> None:
     """Test creating a gallery."""
     # Test create with minimum fields
     with patch.object(
@@ -249,7 +255,9 @@ async def test_create_gallery(stash_client: StashClient, mock_gallery: Gallery) 
 
 
 @pytest.mark.asyncio
-async def test_update_gallery(stash_client: StashClient, mock_gallery: Gallery) -> None:
+async def test_update_gallery(
+    stash_client: StashClient, stash_cleanup_tracker, mock_gallery: Gallery
+) -> None:
     """Test updating a gallery."""
     # Test update single field
     with patch.object(
@@ -310,8 +318,10 @@ async def test_update_gallery(stash_client: StashClient, mock_gallery: Gallery) 
 
 
 @pytest.mark.asyncio
-async def test_gallery_images(stash_client: StashClient, mock_gallery: Gallery) -> None:
-    """Test gallery image operations."""
+async def test_gallery_images(
+    stash_client: StashClient, stash_cleanup_tracker, mock_gallery: Gallery
+) -> None:
+    """Test getting images for a gallery."""
     mock_images = [
         Image(
             id=str(i),
@@ -378,8 +388,10 @@ async def test_gallery_images(stash_client: StashClient, mock_gallery: Gallery) 
 
 
 @pytest.mark.asyncio
-async def test_gallery_cover(stash_client: StashClient, mock_gallery: Gallery) -> None:
-    """Test gallery cover operations."""
+async def test_gallery_cover(
+    stash_client: StashClient, stash_cleanup_tracker, mock_gallery: Gallery
+) -> None:
+    """Test getting gallery cover image."""
     mock_image = Image(
         id="001",
         title="Cover Image",

@@ -65,7 +65,9 @@ async def test_scene_workflow(
 
 
 @pytest.mark.asyncio
-async def test_subscription_integration(stash_client: StashClient) -> None:
+async def test_subscription_integration(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test subscription integration.
 
     This test:
@@ -73,6 +75,9 @@ async def test_subscription_integration(stash_client: StashClient) -> None:
     2. Triggers metadata generation
     3. Waits for job updates
     4. Verifies job completion
+
+    Note: This test doesn't create persistent objects, but includes stash_cleanup_tracker
+    to comply with the cleanup enforcement pattern.
     """
     try:
         updates = []

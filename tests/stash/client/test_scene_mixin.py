@@ -2,7 +2,7 @@
 
 import re
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, create_autospec, patch
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 
@@ -259,7 +259,9 @@ def mock_graphql():
 
 
 @pytest.mark.asyncio
-async def test_find_scene(stash_client: StashClient, mock_scene: Scene) -> None:
+async def test_find_scene(
+    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+) -> None:
     """Test finding a scene by ID."""
     # Clean the data to prevent _dirty_attrs errors
     clean_data = clean_scene_dict(mock_scene.__dict__)
@@ -325,7 +327,9 @@ async def test_find_scenes(
 
 
 @pytest.mark.asyncio
-async def test_find_scenes_error(stash_client: StashClient) -> None:
+async def test_find_scenes_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding scenes."""
 
     # Create a test class to better control error handling
@@ -363,7 +367,9 @@ async def test_find_scenes_error(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_scene(stash_client: StashClient, mock_scene: Scene) -> None:
+async def test_create_scene(
+    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+) -> None:
     """Test creating a scene."""
     with patch.object(
         stash_client,
@@ -405,7 +411,9 @@ async def test_create_scene(stash_client: StashClient, mock_scene: Scene) -> Non
 
 
 @pytest.mark.asyncio
-async def test_update_scene(stash_client: StashClient, mock_scene: Scene) -> None:
+async def test_update_scene(
+    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+) -> None:
     """Test updating a scene."""
     # Update mock_scene with new title - create from dict without _dirty_attrs
     scene_dict = clean_scene_dict(mock_scene.__dict__)
@@ -543,7 +551,9 @@ async def test_find_duplicate_scenes(
 
 
 @pytest.mark.asyncio
-async def test_find_duplicate_scenes_error(stash_client: StashClient) -> None:
+async def test_find_duplicate_scenes_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding duplicate scenes."""
     # Create a new client with proper mocking and behavior
     client = create_autospec(StashClient, instance=True)

@@ -20,7 +20,9 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_jobs(stash_client: StashClient) -> None:
+async def test_subscribe_to_jobs(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test job subscription by triggering a metadata scan job."""
     # Start subscription before triggering the job
     async with stash_client.subscribe_to_jobs() as subscription:
@@ -47,8 +49,10 @@ async def test_subscribe_to_jobs(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_logs(stash_client: StashClient) -> None:
-    """Test log subscription by triggering an operation that generates logs."""
+async def test_subscribe_to_logs(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test log subscription."""
     # Start subscription before triggering the job
     async with stash_client.subscribe_to_logs() as subscription:
         # Start scan job with proper array of paths
@@ -81,8 +85,10 @@ async def test_subscribe_to_logs(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_subscribe_to_scan_complete(stash_client: StashClient) -> None:
-    """Test scan completion subscription by triggering a scan."""
+async def test_subscribe_to_scan_complete(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test scan complete subscription."""
     # Start subscription before starting scan
     async with stash_client.subscribe_to_scan_complete() as subscription:
         # Start scan job with proper array of paths
@@ -104,8 +110,10 @@ async def test_subscribe_to_scan_complete(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_wait_for_job_with_updates(stash_client: StashClient) -> None:
-    """Test waiting for job with updates using a real job."""
+async def test_wait_for_job_with_updates(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test waiting for job with subscription updates."""
     # Use a more robust approach with mocking instead of depending on real jobs
     # Setup mock behavior
     mock_job_id = "1544"

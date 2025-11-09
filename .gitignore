@@ -174,3 +174,7 @@ config.ini
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
+
+# GitHub Actions local testing (act)
+.actrc
+.secrets

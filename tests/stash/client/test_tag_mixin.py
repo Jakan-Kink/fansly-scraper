@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 
+from errors import StashGraphQLError
 from stash import StashClient
 from stash.client.mixins.tag import TagClientMixin
 from stash.client_helpers import async_lru_cache
@@ -184,7 +185,9 @@ def mock_result(mock_tag: Tag) -> FindTagsResultType:
 
 
 @pytest.mark.asyncio
-async def test_find_tag(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_find_tag(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test finding a tag by ID."""
     # Set up the execute mock to return the proper data structure
     stash_client.execute.return_value = {"findTag": mock_tag.__dict__}
@@ -235,7 +238,9 @@ async def test_find_tags(
 
 
 @pytest.mark.asyncio
-async def test_create_tag(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_create_tag(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test creating a tag."""
     # Set up the execute mock to return a proper Tag
     stash_client.execute.return_value = {"tagCreate": mock_tag.__dict__}
@@ -260,7 +265,9 @@ async def test_create_tag(stash_client: StashClient, mock_tag: Tag) -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_tag_duplicate(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_create_tag_duplicate(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test handling duplicate tag creation."""
 
     # Create a test tag with the same name as mock_tag
@@ -279,7 +286,7 @@ async def test_create_tag_duplicate(stash_client: StashClient, mock_tag: Tag) ->
 
     # Set up execute to raise the duplicate error
     error_text = f"tag with name '{mock_tag.name}' already exists"
-    client.execute = AsyncMock(side_effect=ValueError(error_text))
+    client.execute = AsyncMock(side_effect=StashGraphQLError(error_text))
 
     # Set up find_tags to return the existing tag
     client.find_tags = AsyncMock(
@@ -296,9 +303,9 @@ async def test_create_tag_duplicate(stash_client: StashClient, mock_tag: Tag) ->
     # This is the key to fixing the test
     async def mock_create_tag(tag):
         try:
-            # This will raise the ValueError we configured
+            # This will raise the StashGraphQLError we configured
             await client.execute({"tagCreate": None})
-        except ValueError as e:
+        except StashGraphQLError as e:
             if "already exists" in str(e):
                 # Clear caches
                 client._find_tag_cache.cache_clear()
@@ -333,7 +340,9 @@ async def test_create_tag_duplicate(stash_client: StashClient, mock_tag: Tag) ->
 
 
 @pytest.mark.asyncio
-async def test_find_tags_error(stash_client: StashClient) -> None:
+async def test_find_tags_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
     """Test handling errors when finding tags."""
     # Create a completely new client that we have full control of
     client = create_autospec(StashClient, instance=True)
@@ -352,7 +361,9 @@ async def test_find_tags_error(stash_client: StashClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_tag(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_update_tag(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test updating a tag."""
     # Create updated version of mock tag
     updated_tag = Tag(
@@ -388,7 +399,9 @@ async def test_update_tag(stash_client: StashClient, mock_tag: Tag) -> None:
 
 
 @pytest.mark.asyncio
-async def test_merge_tags(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_merge_tags(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test merging tags."""
     source_tags = [
         Tag(
@@ -420,7 +433,9 @@ async def test_merge_tags(stash_client: StashClient, mock_tag: Tag) -> None:
 
 
 @pytest.mark.asyncio
-async def test_merge_tags_error(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_merge_tags_error(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test handling errors when merging tags."""
     source_tags = ["456", "789"]
 
@@ -436,7 +451,9 @@ async def test_merge_tags_error(stash_client: StashClient, mock_tag: Tag) -> Non
 
 
 @pytest.mark.asyncio
-async def test_bulk_tag_update(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_bulk_tag_update(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test bulk updating tags."""
     mock_result = [mock_tag.__dict__, mock_tag.__dict__]  # Two tags with same data
     stash_client.execute.return_value = {"bulkTagUpdate": mock_result}
@@ -453,7 +470,9 @@ async def test_bulk_tag_update(stash_client: StashClient, mock_tag: Tag) -> None
 
 
 @pytest.mark.asyncio
-async def test_bulk_tag_update_error(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_bulk_tag_update_error(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test handling errors when bulk updating tags."""
     stash_client.execute.side_effect = Exception("Test error")
 
@@ -466,7 +485,9 @@ async def test_bulk_tag_update_error(stash_client: StashClient, mock_tag: Tag) -
 
 
 @pytest.mark.asyncio
-async def test_create_tag_error(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_create_tag_error(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test handling errors when creating a tag."""
     # Set up execute to raise an exception
     stash_client.execute.side_effect = Exception("Test error")
@@ -490,7 +511,9 @@ async def test_create_tag_error(stash_client: StashClient, mock_tag: Tag) -> Non
 
 
 @pytest.mark.asyncio
-async def test_tag_hierarchy(stash_client: StashClient, mock_tag: Tag) -> None:
+async def test_tag_hierarchy(
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
+) -> None:
     """Test tag hierarchy operations."""
     # Create test tags
     parent_tag = Tag(
