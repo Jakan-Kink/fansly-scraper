@@ -155,10 +155,14 @@ def validate_adjust_token(config: FanslyConfig) -> None:
                 plyvel_installed = True
 
         except ImportError:
-            textio_logger.warning(
-                f"Fansly Downloader NG's automatic configuration for the authorization_token in the config.ini file will be skipped."
-                f"\n{20 * ' '}Your system is missing required plyvel (python module) builds by Siyao Chen (@liviaerxin)."
-                f"\n{20 * ' '}Installable with 'pip3 install plyvel-ci' or from github.com/liviaerxin/plyvel/releases/latest"
+            textio_logger.info(
+                f"Browser token extraction is not available (plyvel-ci not installed)."
+                f"\n{20 * ' '}You have two authentication options:"
+                f"\n{20 * ' '}  1. Install browser-auth support: poetry install --with browser-auth"
+                f"\n{20 * ' '}  2. Use login credentials in config.ini:"
+                f"\n{20 * ' '}     [Targeted Creator]"
+                f"\n{20 * ' '}     username = your_fansly_username"
+                f"\n{20 * ' '}     password = your_fansly_password"
             )
 
     # semi-automatically set up value for config_token (authorization_token) based on the users input

@@ -11,13 +11,13 @@ authors = [
     {name ="1gintonic"},
     {name ="Jakan", email ="github@jakan.co"},
 ]
-credits = [
-    "Avnsx",
-    "KasumiDev",
-    "FletcherD",
-    "XelaRellum",
-    "sunbart",
-]
+# credits = [
+#     "Avnsx",
+#     "KasumiDev",
+#     "FletcherD",
+#     "XelaRellum",
+#     "sunbart",
+# ]
 license = "GPL-3.0-only"
 readme = "README.md"
 
@@ -32,7 +32,6 @@ imagehash = ">=4.3.1,<5.0.0"
 loguru = ">=0.7.2"
 m3u8 = ">=6.0.0"
 pillow = ">=12.0.0"
-plyvel-ci = ">=1.5"
 psutil = ">=5.9.8"
 python-dateutil = ">=2.8.2,<3.0.0"
 rich = ">=13.7.0,<15.0.0"
@@ -57,6 +56,16 @@ jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
 
 
+[tool.poetry.group.browser-auth]
+optional = true
+
+[tool.poetry.group.browser-auth.dependencies]
+plyvel-ci = ">=1.5"
+
+
+[tool.poetry.group.dev]
+optional = true
+
 [tool.poetry.group.dev.dependencies]
 pyinstaller = ">=6.11.1"
 memory-profiler = ">=0.61.0"
@@ -64,6 +73,9 @@ pylint = ">=3.3.3"
 pre-commit = ">=4.0.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 ruff = ">=0.14.2"
+
+[tool.poetry.group.typing]
+optional = true
 
 [tool.poetry.group.typing.dependencies]
 mypy = ">=1.11.0"
