@@ -14,6 +14,25 @@ if TYPE_CHECKING:
     from ..types import Performer
 
 
+def _get_attr(obj: Any, attr: str, default: Any = None) -> Any:
+    """Get attribute from dict or object (duck typing helper).
+
+    Handles both dict-like and object-like access patterns.
+    This is a temporary workaround for Strawberry not deserializing nested objects.
+
+    Args:
+        obj: Dictionary or object to get attribute from
+        attr: Attribute name to retrieve
+        default: Default value if attribute doesn't exist
+
+    Returns:
+        Attribute value or default
+    """
+    if isinstance(obj, dict):
+        return obj.get(attr, default)
+    return getattr(obj, attr, default)
+
+
 def sanitize_model_data(data_dict: dict[str, Any]) -> dict[str, Any]:
     """Remove problematic fields from dict before creating model instances.
 
@@ -177,17 +196,23 @@ def find_best_performer_match(
     for candidate in candidates:
         score = 0
 
+        # Get attributes safely (handles both dict and object)
+        candidate_name = _get_attr(candidate, "name", "")
+        candidate_alias_list = _get_attr(candidate, "alias_list", [])
+        candidate_urls = _get_attr(candidate, "urls", [])
+        candidate_disambiguation = _get_attr(candidate, "disambiguation", None)
+
         # 1. Exact name match (case-insensitive)
-        if candidate.name.lower() == attempted_name_lower:
+        if candidate_name.lower() == attempted_name_lower:
             score += 100
 
         # 2. Name in attempted aliases
-        if candidate.name.lower() in attempted_aliases_lower:
+        if candidate_name.lower() in attempted_aliases_lower:
             score += 80
 
         # 3. Exact alias match
-        if candidate.alias_list:
-            candidate_aliases_lower = [a.lower() for a in candidate.alias_list]
+        if candidate_alias_list:
+            candidate_aliases_lower = [a.lower() for a in candidate_alias_list]
             # Check if attempted name is in candidate's aliases
             if attempted_name_lower in candidate_aliases_lower:
                 score += 80
@@ -197,9 +222,9 @@ def find_best_performer_match(
                     score += 70
 
         # 4. URL match
-        if attempted_urls and candidate.urls:
+        if attempted_urls and candidate_urls:
             for attempted_url in attempted_urls:
-                for candidate_url in candidate.urls:
+                for candidate_url in candidate_urls:
                     if urls_match(attempted_url, candidate_url):
                         score += 60
                         break  # Only count once per attempted URL
@@ -207,10 +232,10 @@ def find_best_performer_match(
         # 5. Disambiguation handling
         if attempted_disambiguation:
             # If we have a disambiguation, prefer exact match
-            if candidate.disambiguation == attempted_disambiguation:
+            if candidate_disambiguation == attempted_disambiguation:
                 score += 40
         # If we don't have a disambiguation, prefer candidates without one
-        elif not candidate.disambiguation:
+        elif not candidate_disambiguation:
             score += 20
 
         scored_candidates.append((score, candidate))
