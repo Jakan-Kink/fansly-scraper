@@ -88,14 +88,12 @@ class StashProcessingBase:
         cls,
         config: FanslyConfig,
         state: DownloadState,
-        use_batch_processing: bool = True,
     ) -> Any:  # Return type will be the derived class
         """Create processor from config.
 
         Args:
             config: FanslyConfig instance
             state: Current download state
-            use_batch_processing: Whether to use batch processing by mimetype
 
         Returns:
             New processor instance
@@ -114,8 +112,6 @@ class StashProcessingBase:
             _cleanup_event=asyncio.Event(),
             _owns_db=False,  # We don't own the database
         )
-        # Set use_batch_processing attribute after initialization
-        instance.use_batch_processing = use_batch_processing
         return instance
 
     async def scan_creator_folder(self) -> None:

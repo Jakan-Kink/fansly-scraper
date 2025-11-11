@@ -12,20 +12,18 @@ This mixin handles processing of media objects into Stash. It includes:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import select
 
+from errors import ConfigError
 from metadata import Account, AccountMediaBundle, Attachment, Media
 from metadata.decorators import with_session
-from textio import print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Image, ImageFile, Performer, Scene, Studio, VideoFile
+from ...types import Image, ImageFile, Performer, Scene, VideoFile
 
 
 if TYPE_CHECKING:
@@ -34,60 +32,6 @@ if TYPE_CHECKING:
 
 class MediaProcessingMixin:
     """Media processing functionality."""
-
-    @with_session()
-    async def fetch_media_by_account_mimetype(
-        self,
-        account: Account,
-        mimetype_filter: str = "",
-        session: AsyncSession | None = None,
-    ) -> Sequence[Media]:
-        """Fetch all media for an account filtered by mimetype.
-
-        This method efficiently retrieves media in batches by account ID and optionally
-        filtered by mimetype pattern. It's designed to enable batch processing of media
-        across multiple posts/messages.
-
-        Args:
-            account: Account to fetch media for
-            mimetype_filter: Optional filter for mimetype (e.g., 'image%' for all images)
-            session: Optional database session to use
-
-        Returns:
-            List of Media objects that match the criteria
-        """
-        # Ensure we have a fresh account instance
-        if not session:
-            raise ValueError("Session is required for fetching media")
-        stmt = select(Account).where(Account.id == account.id)
-        result = await session.execute(stmt)
-        account = result.scalar_one()
-
-        # Build query to get all media by accountId
-        media_query = select(Media).where(Media.accountId == account.id)
-
-        # Add mimetype filter if provided
-        if mimetype_filter and mimetype_filter.strip():
-            media_query = media_query.where(Media.mimetype.like(mimetype_filter))
-
-        # Only get downloaded media
-        media_query = media_query.where(Media.is_downloaded)
-
-        # Execute query and get results
-        result = await session.execute(media_query)
-        media_list = result.scalars().all()
-
-        debug_print(
-            {
-                "method": "StashProcessing - fetch_media_by_account_mimetype",
-                "status": "fetched_media",
-                "account_id": account.id,
-                "mimetype_filter": mimetype_filter,
-                "media_count": len(media_list),
-            }
-        )
-
-        return media_list
 
     def _get_file_from_stash_obj(
         self,
@@ -375,165 +319,24 @@ class MediaProcessingMixin:
         return result
 
     @with_session()
-    async def process_account_media_by_mimetype(
-        self,
-        account: Account,
-        performer: Performer,  # noqa: ARG002
-        studio: Studio | None = None,  # noqa: ARG002
-        session: AsyncSession | None = None,
-    ) -> dict[str, list[Image | Scene]]:
-        """Process all media for an account grouped by mimetype.
-
-        This method retrieves and processes all media for an account in efficient batches,
-        grouped by mimetype. It processes images and scenes separately to allow for more
-        efficient API usage with StashDB.
-
-        Args:
-            account: Account to process media for
-            _performer: Performer object associated with the account - reserved for future use
-            _studio: Optional Studio object associated with the account - reserved for future use
-            session: Optional database session to use
-
-        Returns:
-            Dictionary containing lists of processed Image and Scene objects
-        """
-        result = {"images": [], "scenes": []}
-
-        # Process image media first
-        print_info("Processing image media for account...")
-        image_media = await self.fetch_media_by_account_mimetype(
-            account=account,
-            mimetype_filter="image%",
-            session=session,
-        )
-
-        if image_media:
-            print_info(f"Processing batch of {len(image_media)} images...")
-            # Use dummy item with account info for metadata
-            dummy_item = type(
-                "DummyItem",
-                (),
-                {
-                    "id": f"batch-{account.id}",
-                    "content": f"Media from {account.username}",
-                    "createdAt": datetime.now(UTC),
-                },
-            )
-
-            # Process the batch
-            image_result = await self._process_media_batch_by_mimetype(
-                media_list=image_media,
-                item=dummy_item,
-                account=account,
-            )
-
-            result["images"].extend(image_result["images"])
-            debug_print(
-                {
-                    "method": "StashProcessing - process_account_media_by_mimetype",
-                    "status": "processed_images",
-                    "account_id": account.id,
-                    "image_count": len(image_result["images"]),
-                }
-            )
-
-        # Process video media next
-        print_info("Processing video media for account...")
-        video_media = await self.fetch_media_by_account_mimetype(
-            account=account,
-            mimetype_filter="video%",
-            session=session,
-        )
-
-        if video_media:
-            print_info(f"Processing batch of {len(video_media)} videos...")
-            # Use dummy item with account info for metadata
-            dummy_item = type(
-                "DummyItem",
-                (),
-                {
-                    "id": f"batch-{account.id}",
-                    "content": f"Media from {account.username}",
-                    "createdAt": datetime.now(UTC),
-                },
-            )
-
-            # Process the batch
-            video_result = await self._process_media_batch_by_mimetype(
-                media_list=video_media,
-                item=dummy_item,
-                account=account,
-            )
-
-            result["scenes"].extend(video_result["scenes"])
-            debug_print(
-                {
-                    "method": "StashProcessing - process_account_media_by_mimetype",
-                    "status": "processed_videos",
-                    "account_id": account.id,
-                    "scene_count": len(video_result["scenes"]),
-                }
-            )
-
-        # Process other media types (application/*, etc.)
-        print_info("Processing other media types for account...")
-        other_media = await self.fetch_media_by_account_mimetype(
-            account=account,
-            mimetype_filter="application%",
-            session=session,
-        )
-
-        if other_media:
-            print_info(f"Processing batch of {len(other_media)} application files...")
-            # Use dummy item with account info for metadata
-            dummy_item = type(
-                "DummyItem",
-                (),
-                {
-                    "id": f"batch-{account.id}",
-                    "content": f"Media from {account.username}",
-                    "createdAt": datetime.now(UTC),
-                },
-            )
-
-            # Process the batch
-            other_result = await self._process_media_batch_by_mimetype(
-                media_list=other_media,
-                item=dummy_item,
-                account=account,
-            )
-
-            # These usually become scenes in Stash
-            result["scenes"].extend(other_result["scenes"])
-            debug_print(
-                {
-                    "method": "StashProcessing - process_account_media_by_mimetype",
-                    "status": "processed_application_files",
-                    "account_id": account.id,
-                    "scene_count": len(other_result["scenes"]),
-                }
-            )
-
-        # Return the complete results
-        print_info(
-            f"Finished processing account media: {len(result['images'])} images, {len(result['scenes'])} scenes"
-        )
-        return result
-
     async def _find_stash_files_by_id(
         self,
         stash_files: list[
             tuple[str | int, str]
         ],  # List of (stash_id, mime_type) tuples
+        session: Session | None = None,
     ) -> list[tuple[dict, Scene | Image]]:
         """Find files in Stash by stash ID.
 
         Args:
             stash_files: List of (stash_id, mime_type) tuples to search for
+            session: Optional database session (provided by decorator)
 
         Returns:
             List of (raw stash object, processed file object) tuples
         """
+        if session is None:
+            raise ConfigError("Database session is required")
         found = []
 
         # Group by mime type
@@ -921,13 +724,14 @@ class MediaProcessingMixin:
         item_date = item.createdAt.date()  # Get date part of datetime
         current_date_str = getattr(stash_obj, "date", None)
         is_organized = getattr(stash_obj, "organized", False)
+        current_title = getattr(stash_obj, "title", None) or ""
 
         # Log full object details for debugging
         logger.debug(
             "\nFull stash object details:\n"
             f"Object Type: {stash_obj.__class__.__name__}\n"
             f"ID: {stash_obj.id}\n"
-            f"Title: {getattr(stash_obj, 'title', None)}\n"
+            f"Title: {current_title}\n"
             f"Date: {current_date_str}\n"
             f"Code: {getattr(stash_obj, 'code', None)}\n"
             f"Organized: {is_organized}\n"
@@ -936,7 +740,22 @@ class MediaProcessingMixin:
             f"Media ID: {media_id}\n"
         )
 
-        if is_organized:
+        # Check if title needs fixing (from old batch processing bug)
+        has_bad_title = "Media from" in current_title
+
+        if has_bad_title:
+            logger.debug(
+                {
+                    "method": "StashProcessing - _update_stash_metadata",
+                    "status": "forcing_update",
+                    "reason": "bad_title_detected",
+                    "current_title": current_title,
+                    "media_id": media_id,
+                }
+            )
+            # Force update by skipping all date/organized checks below
+
+        elif is_organized:
             logger.debug(
                 {
                     "method": "StashProcessing - _update_stash_metadata",
@@ -945,16 +764,16 @@ class MediaProcessingMixin:
                     "media_id": media_id,
                     "item_id": item.id,
                     "stash_id": stash_obj.id,
-                    "object_title": getattr(stash_obj, "title", None),
+                    "object_title": current_title,
                     "object_date": current_date_str,
                     "object_code": getattr(stash_obj, "code", None),
                 }
             )
             return
 
-        # Parse current date if we have one
-        current_date = None
-        if current_date_str:
+        elif current_date_str:
+            # Parse current date if we have one
+            current_date = None
             try:
                 current_date = datetime.strptime(current_date_str, "%Y-%m-%d").date()  # noqa: DTZ007
             except ValueError:
@@ -962,19 +781,19 @@ class MediaProcessingMixin:
                     f"Invalid date format in stash object: {current_date_str}"
                 )
 
-        # If we have a valid current date and this item is from later, skip the update
-        if current_date and item_date > current_date:
-            debug_print(
-                {
-                    "method": "StashProcessing - _update_stash_metadata",
-                    "status": "skipping_metadata",
-                    "reason": "later_date",
-                    "current_date": current_date.isoformat(),
-                    "new_date": item_date.isoformat(),
-                    "media_id": media_id,
-                }
-            )
-            return
+            # If we have a valid current date and this item is from later, skip the update
+            if current_date and item_date > current_date:
+                debug_print(
+                    {
+                        "method": "StashProcessing - _update_stash_metadata",
+                        "status": "skipping_metadata",
+                        "reason": "later_date",
+                        "current_date": current_date.isoformat(),
+                        "new_date": item_date.isoformat(),
+                        "media_id": media_id,
+                    }
+                )
+                return
 
         # This is either the first instance or an earlier one - update the metadata
         # Get username using awaitable attrs to avoid sync IO in async context
