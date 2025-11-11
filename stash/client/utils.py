@@ -245,6 +245,15 @@ def find_best_performer_match(
 
     # Return highest scoring candidate if score is meaningful (>= 60 points)
     if scored_candidates and scored_candidates[0][0] >= 60:
-        return scored_candidates[0][1]
+        best_match = scored_candidates[0][1]
+
+        # Deserialize dict to Performer object if needed
+        # (Strawberry doesn't auto-deserialize nested objects from GraphQL responses)
+        if isinstance(best_match, dict):
+            from ..types import Performer
+
+            best_match = Performer.from_dict(best_match)
+
+        return best_match
 
     return None
