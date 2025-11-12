@@ -16,14 +16,13 @@ Philosophy:
 """
 
 import asyncio
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 
 from stash.processing import StashProcessing
-from stash.types import FindStudiosResultType, Gallery, Image, Scene, StashID, Studio
+from stash.types import FindStudiosResultType, StashID, Studio
 
 
 # Import REAL database fixtures (UUID-isolated PostgreSQL)
@@ -51,72 +50,30 @@ class TestState:
 
 
 @pytest.fixture
-def mock_state():
-    """Fixture for test download state."""
+def test_state():
+    """Fixture for test download state (renamed from mock_state for clarity).
+
+    This is a REAL TestState object, not a mock.
+    """
     return TestState()
 
 
-@pytest.fixture
-def mock_stash_context():
-    """Fixture for MOCKED StashContext (for tests that don't need real Stash).
-
-    This creates a mock StashContext with all API methods mocked.
-    Use `stash_context` fixture for real Docker Stash connection.
-    """
-    context = MagicMock()
-    context.client = MagicMock()
-
-    # Mock common client methods for finding objects
-    context.client.find_performer = AsyncMock()
-    context.client.find_studio = AsyncMock()
-    context.client.find_gallery = AsyncMock()
-    context.client.find_galleries = AsyncMock()
-    context.client.find_scene = AsyncMock()
-    context.client.find_scenes = AsyncMock()
-    context.client.find_image = AsyncMock()
-    context.client.find_images = AsyncMock()
-    context.client.find_tags = AsyncMock()
-
-    # Mock common client methods for creating/modifying objects
-    context.client.create_tag = AsyncMock()
-    context.client.create_performer = AsyncMock()
-    context.client.create_studio = AsyncMock()
-    context.client.create_gallery = AsyncMock()
-    context.client.create_scene = AsyncMock()
-    context.client.add_gallery_images = AsyncMock(return_value=True)
-
-    return context
-
-
-@pytest.fixture
-def mock_context():
-    """Backwards compatibility alias for mock_stash_context.
-
-    Provides a mocked StashContext for tests that don't need real Stash.
-    """
-    context = MagicMock()
-    context.client = MagicMock()
-
-    # Mock common client methods for finding objects
-    context.client.find_performer = AsyncMock()
-    context.client.find_studio = AsyncMock()
-    context.client.find_gallery = AsyncMock()
-    context.client.find_galleries = AsyncMock()
-    context.client.find_scene = AsyncMock()
-    context.client.find_scenes = AsyncMock()
-    context.client.find_image = AsyncMock()
-    context.client.find_images = AsyncMock()
-    context.client.find_tags = AsyncMock()
-
-    # Mock common client methods for creating/modifying objects
-    context.client.create_tag = AsyncMock()
-    context.client.create_performer = AsyncMock()
-    context.client.create_studio = AsyncMock()
-    context.client.create_gallery = AsyncMock()
-    context.client.create_scene = AsyncMock()
-    context.client.add_gallery_images = AsyncMock(return_value=True)
-
-    return context
+# REMOVED: mock_stash_context, mock_context
+# These mocked INTERNAL StashContext.client API methods (find_performer, create_studio, etc.)
+# This violates edge-mocking principles - we should NOT mock internal boundaries.
+#
+# ✅ Replacement options:
+#    1. Use `stash_context` fixture for REAL Docker Stash connection (best for integration tests)
+#    2. Use @respx.mock to mock HTTP responses (best for unit tests):
+#       @respx.mock
+#       def test_something():
+#           respx.post("http://localhost:9999/graphql").mock(
+#               return_value=httpx.Response(200, json={"data": {...}})
+#           )
+#           client = await StashClient.create(conn={})
+#           result = await client.find_performer(...)
+#
+# See /tmp/mock_to_respx_migration_guide.md for detailed migration examples.
 
 
 # ============================================================================
@@ -153,90 +110,15 @@ def mock_permissions():
     }
 
 
-@pytest.fixture
-def integration_mock_performer():
-    """Fixture for mock Stash performer.
-
-    This is a Stash API object, not a database object, so we keep mocking it.
-    """
-    performer = MagicMock()
-    performer.id = "performer_123"
-    performer.name = "test_user"
-    performer.url = None
-    performer.gender = None
-    performer.birthdate = None
-    performer.ethnicity = None
-    performer.country = None
-    performer.eye_color = None
-    performer.height = None
-    performer.measurements = None
-    performer.fake_tits = None
-    performer.career_length = None
-    performer.tattoos = None
-    performer.piercings = None
-    performer.aliases = []
-    performer.tags = []
-    performer.rating = None
-    performer.favorite = False
-    performer.created_at = datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC)
-    return performer
-
-
-@pytest.fixture
-def integration_mock_studio():
-    """Fixture for mock Stash studio."""
-    studio = MagicMock()
-    studio.id = "studio_123"
-    studio.name = "test_user Studio"
-    studio.url = None
-    studio.parent_studio = None
-    studio.child_studios = []
-    studio.aliases = []
-    studio.tags = []
-    studio.rating = None
-    studio.favorite = False
-    studio.created_at = datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC)
-    return studio
-
-
-@pytest.fixture
-def mock_gallery():
-    """Fixture for mock Stash gallery."""
-    gallery = MagicMock(spec=Gallery)
-    gallery.id = "gallery_123"
-    gallery.title = "Test Gallery"
-    gallery.save = AsyncMock()
-    gallery.destroy = AsyncMock()
-    gallery.performers = []
-    gallery.tags = []
-    gallery.chapters = []
-    gallery.scenes = []
-    gallery.urls = []
-    return gallery
-
-
-@pytest.fixture
-def mock_image():
-    """Fixture for mock Stash image."""
-    image = MagicMock(spec=Image)
-    image.id = "image_123"
-    image.title = "Test Image"
-    image.is_dirty = MagicMock(return_value=True)
-    image.save = AsyncMock()
-    image.__type_name__ = "Image"
-    return image
-
-
-@pytest.fixture
-def integration_mock_scene():
-    """Fixture for mock Stash scene."""
-    scene = MagicMock(spec=Scene)
-    scene.id = "scene_123"
-    scene.title = "Test Scene"
-    scene.is_dirty = MagicMock(return_value=True)
-    scene.save = AsyncMock()
-    scene.__type_name__ = "Scene"
-    return scene
+# REMOVED: integration_mock_performer, integration_mock_studio, integration_mock_scene
+# REMOVED: mock_gallery, mock_image
+# These are duplicate MagicMock fixtures.
+# ✅ Use real factories from stash_type_factories.py instead:
+#    - PerformerFactory / mock_performer
+#    - StudioFactory / mock_studio
+#    - SceneFactory / mock_scene
+#    - GalleryFactory / mock_gallery
+#    - ImageFactory / mock_image
 
 
 # ============================================================================
@@ -244,56 +126,29 @@ def integration_mock_scene():
 # ============================================================================
 
 
-@pytest.fixture
-def stash_processor(config, test_database_sync, mock_state, mock_stash_context):
-    """Fixture for StashProcessing with REAL database and MOCKED Stash API.
-
-    This is for tests that need real database operations but can mock Stash API.
-
-    Args:
-        config: Real FanslyConfig with UUID-isolated database
-        test_database_sync: Real Database instance
-        mock_state: Test download state
-        mock_stash_context: Mocked StashContext (no real HTTP calls)
-
-    Yields:
-        StashProcessing: Processor with real DB, mocked Stash
-    """
-    # Set up config with real database and mocked stash
-    config._database = test_database_sync
-    config._stash = mock_stash_context
-
-    # Disable prints for testing
-    with (
-        patch("textio.textio.print_info"),
-        patch("textio.textio.print_warning"),
-        patch("textio.textio.print_error"),
-    ):
-        processor = StashProcessing.from_config(config, mock_state)
-
-        # Disable progress bars
-        processor._setup_worker_pool = AsyncMock(
-            return_value=(
-                "task_name",
-                "process_name",
-                asyncio.Semaphore(2),
-                asyncio.Queue(),
-            )
-        )
-
-        yield processor
+# REMOVED: stash_processor fixture
+# This fixture used mock_stash_context which violated edge-mocking principles.
+#
+# ✅ Replacement: Use real_stash_processor with respx to mock HTTP responses:
+#    @respx.mock
+#    def test_something(real_stash_processor):
+#        respx.post("http://localhost:9999/graphql").mock(
+#            return_value=httpx.Response(200, json={"data": {...}})
+#        )
+#        # Now real_stash_processor will use real StashClient with mocked HTTP
 
 
 @pytest_asyncio.fixture
-async def real_stash_processor(config, test_database_sync, mock_state, stash_context):
+async def real_stash_processor(config, test_database_sync, test_state, stash_context):
     """Fixture for StashProcessing with REAL database and REAL Docker Stash.
 
     This is for true integration tests that hit the real Stash instance.
+    Can be combined with @respx.mock to mock HTTP responses for unit tests.
 
     Args:
         config: Real FanslyConfig with UUID-isolated database
         test_database_sync: Real Database instance
-        mock_state: Test download state
+        test_state: Real TestState (download state)
         stash_context: Real StashContext connected to Docker (localhost:9999)
 
     Yields:
@@ -309,7 +164,7 @@ async def real_stash_processor(config, test_database_sync, mock_state, stash_con
         patch("textio.textio.print_warning"),
         patch("textio.textio.print_error"),
     ):
-        processor = StashProcessing.from_config(config, mock_state)
+        processor = StashProcessing.from_config(config, test_state)
         yield processor
         # Cleanup happens via fixtures
 

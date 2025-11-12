@@ -36,17 +36,10 @@ from .stash_fixtures import (
 )
 from .stash_integration_fixtures import (
     fansly_network_studio,
-    integration_mock_performer,
-    integration_mock_scene,
-    integration_mock_studio,
-    mock_context,
-    mock_gallery,
-    mock_image,
     mock_permissions,
-    mock_stash_context,
-    mock_state,
     mock_studio_finder,
-    stash_processor,
+    real_stash_processor,
+    test_state,
 )
 from .stash_mixin_fixtures import (
     account_mixin,
@@ -123,17 +116,10 @@ __all__ = [
     "test_stash_object_no_strawberry",
     # Integration fixtures
     "fansly_network_studio",
-    "integration_mock_performer",
-    "integration_mock_scene",
-    "integration_mock_studio",
-    "mock_context",
-    "mock_gallery",
-    "mock_image",
     "mock_permissions",
-    "mock_stash_context",
-    "mock_state",
     "mock_studio_finder",
-    "stash_processor",
+    "real_stash_processor",
+    "test_state",
     # Mixin fixtures
     "account_mixin",
     "batch_mixin",

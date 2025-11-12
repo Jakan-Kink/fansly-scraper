@@ -125,30 +125,33 @@ from .stash import (
     gallery_mock_studio,
     generate_graphql_response,
     generate_stash_object_data,
-    integration_mock_performer,
-    integration_mock_scene,
-    integration_mock_studio,
     large_stash_object_data,
     media_mixin,
-    mock_client,
-    mock_context,
-    mock_gallery,
-    mock_image,
+    mock_gallery,  # From stash_type_factories (real factory)
+    mock_image,  # From stash_type_factories (real factory)
     mock_image_file,
     mock_item,
     # Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures
     # (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories)
     # Removed: mock_client, mock_session, mock_transport from stash_api_fixtures
     # (Mocked internal GraphQL components - use respx to mock HTTP instead)
+    # Removed: integration_mock_performer, integration_mock_studio, integration_mock_scene
+    # (MagicMock duplicates - use real factories from stash_type_factories)
+    # Removed: mock_stash_context, mock_context
+    # (Mocked internal StashContext - use real stash_context or respx)
+    # Removed: mock_stash_client_with_responses, mock_stash_client_with_errors
+    # (Mocked internal client.execute() - use respx to mock HTTP instead)
+    # Removed: stash_processor
+    # (Used mock_stash_context - use real_stash_processor with respx instead)
     mock_permissions,
-    mock_stash_client_with_errors,
-    mock_stash_client_with_responses,
-    mock_stash_context,
-    mock_state,
+    mock_performer,  # From stash_type_factories (real factory)
+    mock_scene,  # From stash_type_factories (real factory)
+    mock_studio,  # From stash_type_factories (real factory)
     mock_studio_finder,
     mock_tag,
     mock_tags,
     mock_video_file,
+    real_stash_processor,
     reset_stash_field_names_cache,
     safe_image_create,
     safe_scene_create,
@@ -159,10 +162,10 @@ from .stash import (
     stash_cleanup_tracker,
     stash_client,
     stash_context,
-    stash_processor,
     studio_mixin,
     tag_mixin,
     test_query,
+    test_state,
     test_stash_object,
     test_stash_object_new,
     test_stash_object_no_create,
