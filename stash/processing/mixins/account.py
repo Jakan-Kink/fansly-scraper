@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func, select
 
-from metadata import Account
+from metadata import Account, Media, account_avatar
 from metadata.decorators import with_session
 from textio import print_error, print_warning
 
@@ -92,7 +92,7 @@ class AccountProcessingMixin:
                 }
             )
             # Handle avatar if needed
-            await self._update_performer_avatar(account, performer)
+            await self._update_performer_avatar(account, performer, session=session)
         except Exception as e:
             print_error(f"Failed to process creator: {e}")
             logger.exception("Failed to process creator", exc_info=e)
@@ -109,7 +109,7 @@ class AccountProcessingMixin:
             return account, performer
 
     async def _update_performer_avatar(
-        self, account: Account, performer: Performer
+        self, account: Account, performer: Performer, session: Session | None = None
     ) -> None:
         """Update performer's avatar if needed.
 
@@ -118,13 +118,27 @@ class AccountProcessingMixin:
         Args:
             account: Account object containing avatar information
             performer: Performer object to update
+            session: Database session for querying avatar
         """
-        # Handle case where awaitable_attrs might not have avatar or avatar is None
-        try:
-            avatar = await account.awaitable_attrs.avatar
-            has_avatar = avatar and avatar.local_filename
-        except (AttributeError, TypeError):
-            has_avatar = False
+        # Query avatar explicitly instead of using relationship
+        # (relationship lazy loading has issues with async sessions)
+        avatar = None
+        if session:
+            try:
+                stmt = (
+                    select(Media)
+                    .join(account_avatar)
+                    .where(account_avatar.c.accountId == account.id)
+                )
+                result = await session.execute(stmt)
+                avatar = result.scalar_one_or_none()
+            except Exception as e:
+                logger.error(
+                    f"Failed to query avatar for account {account.id}: {e}",
+                    exc_info=e,
+                )
+
+        has_avatar = avatar and avatar.local_filename
 
         if not has_avatar:
             debug_print(
@@ -143,7 +157,7 @@ class AccountProcessingMixin:
                 image_filter={
                     "path": {
                         "modifier": "INCLUDES",
-                        "value": account.avatar.local_filename,
+                        "value": avatar.local_filename,
                     }
                 },
                 filter_={

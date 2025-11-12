@@ -22,97 +22,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from metadata.account import AccountMedia
-from metadata.attachment import ContentType
-from metadata.media import Media
 from stash.processing import StashProcessing
 from stash.types import FindStudiosResultType, Gallery, Image, Scene, StashID, Studio
-from tests.fixtures import (
-    AccountFactory,
-    AccountMediaBundleFactory,
-    AccountMediaFactory,
-    AttachmentFactory,
-    MediaFactory,
-    MessageFactory,
-    MetadataGroupFactory,
-    PostFactory,
-)
+
 
 # Import REAL database fixtures (UUID-isolated PostgreSQL)
-from tests.fixtures.database_fixtures import (
-    config,  # Real FanslyConfig with UUID database
-    session,  # Real async session
-    session_sync,  # Real sync session (used by factories)
-    test_database_sync,  # Real Database instance
-)
-
-# Import REAL Stash fixtures (connects to Docker)
-from tests.fixtures.stash_api_fixtures import (
-    mock_account as stash_mock_account,
-)
-from tests.fixtures.stash_api_fixtures import (
-    mock_client,
-    mock_transport,
-    stash_client,
-    stash_context,
-    test_query,
-)
-from tests.fixtures.stash_api_fixtures import (
-    mock_performer as base_mock_performer,
-)
-from tests.fixtures.stash_api_fixtures import (
-    mock_scene as base_mock_scene,
-)
-from tests.fixtures.stash_api_fixtures import (
-    mock_studio as base_mock_studio,
-)
+# Import aliases from Stash API fixtures for backwards compatibility
 
 
-__all__ = [
-    # Stash API mocks (for unit tests)
-    "base_mock_performer",
-    "base_mock_scene",
-    "base_mock_studio",
-    # Real database fixtures (UUID-isolated PostgreSQL)
-    "config",  # Real FanslyConfig
-    # Production data fixtures
-    "fansly_network_studio",  # Production Fansly network studio fixture
-    # Database object fixtures (using FactoryBoy)
-    "integration_mock_account",
-    "integration_mock_performer",
-    "integration_mock_scene",
-    "integration_mock_studio",
-    "mock_account_media",
-    "mock_attachment",
-    "mock_client",
-    "mock_context",  # Backwards compat alias for mock_stash_context
-    "mock_gallery",
-    "mock_group",
-    "mock_image",
-    "mock_media",
-    "mock_media_bundle",
-    "mock_message",
-    "mock_messages",
-    "mock_permissions",
-    "mock_post",
-    "mock_posts",
-    "mock_stash_context",  # Mocked StashContext
-    # Test state
-    "mock_state",
-    "mock_studio_finder",  # Mock find_studios function and creator studio factory
-    "mock_transport",
-    "real_stash_processor",  # With real Docker Stash
-    "session",  # Real async session
-    "session_sync",  # Real sync session
-    # Real Stash fixtures (for integration tests)
-    "stash_client",  # Real StashClient connected to Docker
-    "stash_context",  # Real StashContext connected to Docker
-    "stash_mock_account",
-    # StashProcessing fixtures
-    "stash_processor",  # With mocked Stash API
-    "test_database_sync",  # Real Database instance
-    "test_query",
-]
+# NOTE: This file should ONLY export fixtures defined in this file.
+# All fixture aggregation is handled by tests/fixtures/__init__.py
 
 
 # ============================================================================
@@ -201,241 +120,10 @@ def mock_context():
 
 
 # ============================================================================
-# Database Object Fixtures (Using Factories - No More Mocks!)
+# Stash Object Fixtures (Stash API objects - use mocks for external API)
 # ============================================================================
-
-
-@pytest.fixture
-def integration_mock_account(session_sync, factory_session):
-    """Create REAL Account using factory instead of mock.
-
-    This replaces AccessibleAsyncMock with a real SQLAlchemy object.
-    No more AwaitableAttrs complexity - SQLAlchemy handles it!
-
-    Args:
-        session_sync: Sync database session
-        factory_session: Factory session to configure FactoryBoy
-    """
-    # Use .build() to create without requiring session, then manually add/commit
-    account = AccountFactory.build(
-        id=54321,
-        username="test_user",
-    )
-    session_sync.add(account)
-    session_sync.commit()
-    session_sync.refresh(account)  # Ensure object is attached to session
-    return account
-
-
-@pytest.fixture
-def mock_media(session_sync, integration_mock_account):
-    """Create REAL Media using factory instead of mock.
-
-    No more MagicMock, no more awaitable_attrs complexity!
-
-    Args:
-        session_sync: Sync database session
-        integration_mock_account: Account that owns this media
-    """
-    media = MediaFactory.build(
-        id=20123,
-        accountId=integration_mock_account.id,
-        mimetype="video/mp4",
-        type=2,  # Video type
-        is_downloaded=True,
-        width=1920,
-        height=1080,
-    )
-    session_sync.add(media)
-    session_sync.commit()
-    session_sync.refresh(media)
-    return media
-
-
-@pytest.fixture
-def mock_group(session_sync, integration_mock_account):
-    """Create REAL Group using factory instead of mock.
-
-    Args:
-        session_sync: Database session
-        integration_mock_account: Account fixture (required for FK constraint)
-
-    Note:
-        Groups require an Account to exist (createdBy foreign key).
-        Uses integration_mock_account to satisfy this constraint.
-    """
-    group = MetadataGroupFactory.build(
-        id=40123,
-        createdBy=integration_mock_account.id,  # Use real account ID
-    )
-    session_sync.add(group)
-    session_sync.commit()
-    session_sync.refresh(group)
-    return group
-
-
-@pytest.fixture
-def mock_attachment(session_sync, integration_mock_account, mock_media):
-    """Create REAL Attachment using factory instead of mock."""
-    # First create an AccountMedia that links the Media to an Account
-    account_media = AccountMediaFactory.build(
-        id=70123,
-        accountId=integration_mock_account.id,
-        mediaId=mock_media.id,
-    )
-    session_sync.add(account_media)
-    session_sync.commit()
-
-    # Create attachment that references the AccountMedia
-    attachment = AttachmentFactory.build(
-        id=60123,
-        contentId=account_media.id,  # References AccountMedia.id
-        contentType=ContentType.ACCOUNT_MEDIA,
-        postId=None,  # Will be updated by tests if needed
-    )
-    session_sync.add(attachment)
-    session_sync.commit()
-    session_sync.refresh(attachment)
-    return attachment
-
-
-@pytest.fixture
-def mock_post(session_sync, integration_mock_account, mock_attachment):
-    """Create REAL Post using factory instead of AccessibleAsyncMock."""
-    post = PostFactory.build(
-        id=12345,
-        accountId=integration_mock_account.id,
-        content="Test post content #test",
-    )
-    session_sync.add(post)
-    session_sync.commit()
-
-    # Update attachment to link to this post
-    mock_attachment.postId = post.id
-    session_sync.add(mock_attachment)
-    session_sync.commit()
-
-    session_sync.refresh(post)
-    return post
-
-
-@pytest.fixture
-def mock_posts(session_sync, integration_mock_account):
-    """Create multiple REAL Posts using factories.
-
-    This shows how easy batch creation is with factories!
-    """
-    posts = []
-    for i in range(3):
-        # Create media
-        media = MediaFactory.build(
-            accountId=integration_mock_account.id,
-            mimetype="image/jpeg",
-        )
-        session_sync.add(media)
-
-        # Create AccountMedia to link Media to Account
-        account_media = AccountMediaFactory.build(
-            accountId=integration_mock_account.id,
-            mediaId=media.id,
-        )
-        session_sync.add(account_media)
-
-        # Create post
-        post = PostFactory.build(
-            accountId=integration_mock_account.id,
-            content=f"Test post content {i + 1}",
-        )
-        session_sync.add(post)
-
-        # Create attachment that references the AccountMedia
-        attachment = AttachmentFactory.build(
-            contentId=account_media.id,  # References AccountMedia.id
-            contentType=ContentType.ACCOUNT_MEDIA,
-            postId=post.id,
-        )
-        session_sync.add(attachment)
-
-        posts.append(post)
-
-    # Commit all at once
-    session_sync.commit()
-
-    # Refresh all objects
-    for post in posts:
-        session_sync.refresh(post)
-
-    return posts
-
-
-@pytest.fixture
-def mock_message(session_sync, mock_group, integration_mock_account, mock_attachment):
-    """Create REAL Message using factory instead of AccessibleAsyncMock."""
-    message = MessageFactory.build(
-        id=67890,
-        groupId=mock_group.id,
-        senderId=integration_mock_account.id,
-        content="Test message content",
-    )
-    session_sync.add(message)
-    session_sync.commit()
-
-    # Update attachment to link to this message
-    mock_attachment.contentId = message.id
-    mock_attachment.contentType = ContentType.ACCOUNT_MEDIA
-    session_sync.add(mock_attachment)
-    session_sync.commit()
-
-    session_sync.refresh(message)
-    return message
-
-
-@pytest.fixture
-def mock_messages(session_sync, mock_group, integration_mock_account):
-    """Create multiple REAL Messages using factories."""
-    messages = []
-    for i in range(3):
-        # Create media
-        media = MediaFactory.build(
-            accountId=integration_mock_account.id,
-            mimetype="image/jpeg" if i % 2 == 0 else "video/mp4",
-        )
-        session_sync.add(media)
-
-        # Create message
-        message = MessageFactory.build(
-            groupId=mock_group.id,
-            senderId=integration_mock_account.id,
-            content=f"Test message content {i + 1}",
-        )
-        session_sync.add(message)
-
-        # Create attachment (some messages don't have attachments)
-        if i % 2 == 0:
-            # Create AccountMedia to link Media to Account
-            account_media = AccountMediaFactory.build(
-                accountId=integration_mock_account.id,
-                mediaId=media.id,
-            )
-            session_sync.add(account_media)
-
-            attachment = AttachmentFactory.build(
-                contentId=account_media.id,  # References AccountMedia.id
-                contentType=ContentType.ACCOUNT_MEDIA,
-                messageId=message.id,
-            )
-            session_sync.add(attachment)
-
-        messages.append(message)
-
-    # Commit all at once
-    session_sync.commit()
-
-    # Refresh all objects
-    for message in messages:
-        session_sync.refresh(message)
-
-    return messages
+# NOTE: Metadata fixtures (Account, Media, Post, Message, etc.) have been moved
+# to tests/fixtures/metadata_fixtures.py for better separation of concerns.
 
 
 @pytest.fixture
@@ -463,11 +151,6 @@ def mock_permissions():
             "metadata": '{"4":"{\\"subscriptionTierId\\":\\"tier_123\\"}"}',
         },
     }
-
-
-# ============================================================================
-# Stash Object Fixtures (Keep as mocks - these are external API objects)
-# ============================================================================
 
 
 @pytest.fixture
@@ -554,39 +237,6 @@ def integration_mock_scene():
     scene.save = AsyncMock()
     scene.__type_name__ = "Scene"
     return scene
-
-
-@pytest.fixture
-def mock_account_media():
-    """Fixture for mock AccountMedia."""
-    account_media = MagicMock(spec=AccountMedia)
-    account_media.id = 123456
-    account_media.accountId = 12345
-    account_media.mediaId = 67890
-
-    # Create associated media mock
-    media = MagicMock(spec=Media)
-    media.id = 67890
-    media.mimetype = "image/jpeg"
-    media.local_filename = "test_image.jpg"
-    media.content_hash = "abcdef123456"
-    media.is_downloaded = True
-
-    account_media.media = media
-    return account_media
-
-
-@pytest.fixture
-def mock_media_bundle(session_sync, integration_mock_account):
-    """Create REAL AccountMediaBundle using factory instead of mock."""
-    bundle = AccountMediaBundleFactory.build(
-        id=111222,
-        accountId=integration_mock_account.id,
-    )
-    session_sync.add(bundle)
-    session_sync.commit()
-    session_sync.refresh(bundle)
-    return bundle
 
 
 # ============================================================================
