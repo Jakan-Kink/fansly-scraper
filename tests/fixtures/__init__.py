@@ -136,15 +136,14 @@ from .stash import (
     mock_image,
     mock_image_file,
     mock_item,
-    mock_performer,
+    # Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures
+    # (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories)
     mock_permissions,
-    mock_scene,
     mock_session,
     mock_stash_client_with_errors,
     mock_stash_client_with_responses,
     mock_stash_context,
     mock_state,
-    mock_studio,
     mock_studio_finder,
     mock_tag,
     mock_tags,
@@ -252,6 +251,7 @@ mod_metadata_fixtures = [
 ]
 
 mod_stash_type_factories = [
+    # Factory classes
     "PerformerFactory",
     "StudioFactory",
     "TagFactory",
@@ -261,10 +261,11 @@ mod_stash_type_factories = [
     "ImageFileFactory",
     "VideoFileFactory",
     "StashGroupFactory",
-    "mock_performer",
-    "mock_studio",
+    # Fixtures that return REAL objects (not MagicMock)
+    "mock_performer",  # From stash_type_factories - returns PerformerFactory()
+    "mock_studio",  # From stash_type_factories - returns StudioFactory()
     "mock_tag",
-    "mock_scene",
+    "mock_scene",  # From stash_type_factories - returns SceneFactory()
     "mock_gallery",
     "mock_image",
     "mock_image_file",
@@ -354,10 +355,8 @@ mod_stash_api_fixtures = [
     "mock_transport",
     "mock_client",
     "test_query",
-    "mock_account",
-    "mock_performer",
-    "mock_studio",
-    "mock_scene",
+    # Removed: mock_account, mock_performer, mock_studio, mock_scene
+    # (MagicMock duplicates - use real factories instead)
 ]
 
 mod_stash_integration_fixtures = [

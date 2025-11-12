@@ -2,12 +2,10 @@
 
 from .stash_api_fixtures import (
     enable_scene_creation,
-    mock_account,
+    # Removed: mock_account, mock_performer, mock_studio, mock_scene
+    # These were MagicMock duplicates - use real factories from stash_type_factories
     mock_client,
-    mock_performer,
-    mock_scene,
     mock_session,
-    mock_studio,
     mock_transport,
     stash_cleanup_tracker,
     stash_client,
@@ -94,12 +92,10 @@ from .stash_type_factories import (
 __all__ = [
     # API fixtures
     "enable_scene_creation",
-    "mock_account",
+    # Removed: mock_account, mock_performer, mock_studio, mock_scene
+    # (MagicMock duplicates - use real factories instead)
     "mock_client",
-    "mock_performer",
-    "mock_scene",
     "mock_session",
-    "mock_studio",
     "mock_transport",
     "stash_cleanup_tracker",
     "stash_client",

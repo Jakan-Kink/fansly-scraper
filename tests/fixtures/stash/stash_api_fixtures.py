@@ -18,12 +18,10 @@ from stash.types import Performer, Scene, SceneCreateInput, Studio
 # Export all fixtures for wildcard import
 __all__ = [
     "enable_scene_creation",
-    "mock_account",
+    # Removed: "mock_account", "mock_performer", "mock_studio", "mock_scene"
+    # These were MagicMock duplicates - use real factories from stash_type_factories instead
     "mock_client",
-    "mock_performer",
-    "mock_scene",
     "mock_session",
-    "mock_studio",
     "mock_transport",
     "stash_cleanup_tracker",
     "stash_client",
@@ -365,157 +363,14 @@ def test_query():
     """
 
 
-@pytest.fixture
-def mock_account():
-    """Create a mock account for testing.
-
-    This fixture provides a mock Account object that can be used for testing
-    without requiring a real database connection or actual account data.
-
-    This fixture is designed to be both injected by pytest and safe to call directly,
-    which helps prevent "Fixture called directly" errors in tests that might
-    accidentally use the fixture as a function.
-
-    Returns:
-        MagicMock: A mock account object with common properties that is also callable
-    """
-    account = MagicMock(spec=Account)
-    account.id = 54321
-    account.username = "test_user"
-    account.displayName = "Test User"
-    account.about = "Test account for unit tests"
-    account.location = "Test Location"
-    account.joinDate = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-    account.lastSeen = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
-
-    # Setup awaitable_attrs for async access to properties
-    # Each call to the property should return a new coroutine
-    account.awaitable_attrs = MagicMock()
-
-    def get_username():
-        async def _get():
-            return account.username
-
-        return _get()
-
-    def get_displayname():
-        async def _get():
-            return account.displayName
-
-        return _get()
-
-    # Make these properties that return fresh coroutines each time
-    type(account.awaitable_attrs).username = property(lambda _self: get_username())
-    type(account.awaitable_attrs).displayName = property(
-        lambda _self: get_displayname()
-    )
-
-    # Make the mock account safe to call directly (returns itself when called)
-    account.__call__ = MagicMock(return_value=account)
-
-    return account
-
-
-@pytest.fixture
-def mock_performer():
-    """Create a mock performer for testing.
-
-    This fixture provides a mock Performer object that can be used for testing
-    StashClient interactions without requiring a real Stash server connection.
-
-    This fixture is designed to be both injected by pytest and safe to call directly,
-    which helps prevent "Fixture called directly" errors in tests that might
-    accidentally use the fixture as a function.
-
-    Returns:
-        MagicMock: A mock performer object with common properties that is also callable
-    """
-    performer = MagicMock(spec=Performer)
-    performer.id = "performer_123"
-    performer.name = "Test Performer"
-    performer.aliases = ["Test Alias"]
-    performer.gender = "FEMALE"
-    performer.url = "https://example.com/performer"
-    performer.twitter = "@test_performer"
-    performer.instagram = "test_performer"
-    performer.birthdate = "1990-01-01"
-    performer.ethnicity = "CAUCASIAN"
-    performer.country = "Test Country"
-    performer.eye_color = "BLUE"
-    performer.height = 170
-    performer.measurements = "34-24-36"
-    performer.fake_tits = "NO"
-    performer.career_length = "2020-2024"
-    performer.tattoos = "None"
-    performer.piercings = "None"
-    performer.tags = []
-
-    # Make the mock performer safe to call directly (returns itself when called)
-    performer.__call__ = MagicMock(return_value=performer)
-
-    return performer
-
-
-@pytest.fixture
-def mock_studio():
-    """Create a mock studio for testing.
-
-    This fixture provides a mock Studio object that can be used for testing
-    StashClient interactions without requiring a real Stash server connection.
-
-    This fixture is designed to be both injected by pytest and safe to call directly,
-    which helps prevent "Fixture called directly" errors in tests that might
-    accidentally use the fixture as a function.
-
-    Returns:
-        MagicMock: A mock studio object with common properties that is also callable
-    """
-    studio = MagicMock(spec=Studio)
-    studio.id = "studio_123"
-    studio.name = "Test Studio"
-    studio.url = "https://example.com/studio"
-    studio.parent_studio = None
-
-    # Make the mock studio safe to call directly (returns itself when called)
-    studio.__call__ = MagicMock(return_value=studio)
-
-    return studio
-
-
-@pytest.fixture
-def mock_scene():
-    """Create a mock scene for testing.
-
-    This fixture provides a mock Scene object that can be used for testing
-    StashClient interactions without requiring a real Stash server connection.
-
-    This fixture is designed to be both injected by pytest and safe to call directly,
-    which helps prevent "Fixture called directly" errors in tests that might
-    accidentally use the fixture as a function.
-
-    Returns:
-        MagicMock: A mock scene object with common properties that is also callable
-    """
-    scene = MagicMock(spec=Scene)
-    scene.id = "scene_123"
-    scene.title = "Test Scene"
-    scene.details = "Test scene for testing"
-    scene.date = "2024-04-01"
-    scene.organized = True
-    scene.url = "https://example.com/scene"
-    scene.urls = ["https://example.com/scene"]
-    scene.files = []
-    scene.performers = []
-    scene.studio = None
-    scene.tags = []
-    scene.__type_name__ = "Scene"
-
-    # Make save and destroy awaitable
-    scene.save = AsyncMock()
-    scene.destroy = AsyncMock()
-    scene.is_dirty = MagicMock(return_value=True)
-
-    # Make the mock scene safe to call directly (returns itself when called)
-    scene.__call__ = MagicMock(return_value=scene)
-
-    return scene
+# REMOVED: mock_account, mock_performer, mock_studio, mock_scene
+# These fixtures were MagicMock-based duplicates.
+#
+# Replacements:
+# - mock_account: Use AccountFactory from tests.fixtures.metadata
+# - mock_performer: Use PerformerFactory or mock_performer from stash_type_factories
+# - mock_studio: Use StudioFactory or mock_studio from stash_type_factories
+# - mock_scene: Use SceneFactory or mock_scene from stash_type_factories
+#
+# The real factory-based fixtures are in stash_type_factories.py and return
+# actual Strawberry GraphQL type instances, not MagicMock objects.

@@ -24,7 +24,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter, sleep, time
-from unittest.mock import MagicMock
+# Removed: from unittest.mock import MagicMock
+# Now using real factories from tests.fixtures instead of MagicMock
 
 import psutil
 import pytest
@@ -452,13 +453,22 @@ def temp_db_dir():
 
 @pytest.fixture
 def mock_download_config():
-    """Create a mock FanslyConfig for download testing."""
-    config = MagicMock(spec=FanslyConfig)
-    config.download_path = Path("/test/download/path")
-    config.program_version = "0.0.0-test"
-    return config
+    """Create a FanslyConfig for download testing using real factory.
+
+    Note: Now uses FanslyConfigFactory instead of MagicMock.
+    For tests that need database access, use the 'config' fixture instead.
+    """
+    from tests.fixtures import FanslyConfigFactory
+
+    return FanslyConfigFactory(
+        download_path=Path("/test/download/path"),
+        program_version="0.0.0-test",
+    )
 
 
+# Note: download_state fixture already uses real DownloadState
+# It's defined in tests/fixtures/download/download_fixtures.py and imported via wildcard
+# Keeping this alias here for backward compatibility
 @pytest.fixture
 def download_state():
     """Create a real DownloadState for testing."""
@@ -469,13 +479,18 @@ def download_state():
 
 @pytest.fixture
 def mock_download_state():
-    """Create a mock DownloadState for testing."""
-    state = MagicMock(spec=DownloadState)
-    state.creator_id = "12345"
-    state.creator_name = "test_user"
-    state.messages_enabled = True
-    state.verbose_logs = False
-    return state
+    """Create a DownloadState for testing using real factory.
+
+    Note: Now uses DownloadStateFactory instead of MagicMock.
+    """
+    from tests.fixtures import DownloadStateFactory
+
+    return DownloadStateFactory(
+        creator_id="12345",
+        creator_name="test_user",
+        messages_enabled=True,
+        verbose_logs=False,
+    )
 
 
 @pytest.fixture
