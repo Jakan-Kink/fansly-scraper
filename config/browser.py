@@ -8,8 +8,16 @@ import traceback
 from pathlib import Path
 from time import sleep
 
-import plyvel
 import psutil
+
+# Optional dependency for browser auth
+try:
+    import plyvel
+
+    PLYVEL_AVAILABLE = True
+except ImportError:
+    PLYVEL_AVAILABLE = False
+    plyvel = None  # type: ignore[assignment]
 
 
 # Function to recursively search for "storage" folders and process SQLite files
@@ -283,6 +291,12 @@ def get_auth_token_from_leveldb_folder(
     :return: A Fansly authorization token or None.
     :rtype: str | None
     """
+    if not PLYVEL_AVAILABLE:
+        raise ImportError(
+            "plyvel-ci is not installed. "
+            "Install it with: poetry install --with browser-auth"
+        )
+
     try:
         db = plyvel.DB(leveldb_folder, compression="snappy")
 

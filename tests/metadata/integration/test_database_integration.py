@@ -44,8 +44,15 @@ class TestDatabaseThreading:
 
         # Create the test database
         admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-        with admin_engine.connect() as conn:
-            conn.execute(text(f'CREATE DATABASE "{test_db_name}"'))
+        try:
+            with admin_engine.connect() as conn:
+                conn.execute(text(f'CREATE DATABASE "{test_db_name}"'))
+        except Exception as e:
+            admin_engine.dispose()
+            pytest.skip(
+                f"PostgreSQL not available at {admin_config.pg_host}:{admin_config.pg_port} "
+                f"(user={admin_config.pg_user}): {e}"
+            )
         admin_engine.dispose()
 
         # Now create config pointing to our test database

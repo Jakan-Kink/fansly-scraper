@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Any
 
-from requests.structures import CaseInsensitiveDict
+from multidict import CIMultiDict
 
 from .client import StashClient
 from .logging import client_logger as logger
@@ -53,7 +53,7 @@ class StashContext:
             verify_ssl: Whether to verify SSL certificates
         """
         # Convert connection dict to case-insensitive
-        self.conn = CaseInsensitiveDict(conn or {})
+        self.conn = CIMultiDict(conn or {})
         self.verify_ssl = verify_ssl
         self._client: StashClient | None = None
 
