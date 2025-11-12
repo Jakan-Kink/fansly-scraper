@@ -1,32 +1,41 @@
-"""
-Fixture loading utilities for pytest tests.
+"""Fixture loading utilities for pytest tests.
 
 This module provides utilities for loading and managing test fixtures
-for the Fansly downloader application, including stash fixtures,
-configuration fixtures, and utility functions.
+for the Fansly downloader application. All fixtures are organized in
+a nested folder structure for better maintainability.
+
+Fixture Organization:
+- core/: Configuration and app-level fixtures
+- download/: Download state and path fixtures
+- api/: API client fixtures with respx for HTTP mocking
+- metadata/: Database model factories and fixtures
+- database/: Database connection and session fixtures
+- stash/: Stash integration fixtures
+- utils/: Cleanup and utility fixtures
 """
 
 import json
 from pathlib import Path
 from typing import Any
 
-# Import all fixtures from modules
-from .api_fixtures import (
-    create_mock_response,
+# Import from nested modules
+from .api import (
+    create_mock_json_response,
     fansly_api,
     fansly_api_factory,
-    mock_http_session,
+    fansly_api_with_respx,
+    mock_fansly_account_response,
+    mock_fansly_timeline_response,
 )
-from .cleanup_fixtures import (
-    cleanup_global_config_state,
-    cleanup_http_sessions,
-    cleanup_loguru_handlers,
-    cleanup_mock_patches,
-    cleanup_rich_progress_state,
-    cleanup_unawaited_coroutines,
+from .core import (
+    FanslyConfigFactory,
+    config_parser,
+    mock_config_file,
+    temp_config_dir,
+    test_config,
+    valid_api_config,
 )
-from .database_fixtures import (
-    AwaitableAttrsMock,
+from .database import (
     config,
     conversation_data,
     factory_async_session,
@@ -53,17 +62,27 @@ from .database_fixtures import (
     timeline_data,
     uuid_test_db_factory,
 )
-from .metadata_factories import (
+from .download import (
+    DownloadStateFactory,
+    download_state,
+    mock_download_dir,
+    mock_metadata_dir,
+    mock_temp_dir,
+    test_downloads_dir,
+)
+from .metadata import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
     BaseFactory,
+    GroupFactory,
     HashtagFactory,
     MediaFactory,
     MediaLocationFactory,
     MediaStoryStateFactory,
     MessageFactory,
+    MetadataGroupFactory,
     PostFactory,
     StoryFactory,
     StubTrackerFactory,
@@ -71,141 +90,147 @@ from .metadata_factories import (
     WallFactory,
     create_groups_from_messages,
     setup_accounts_and_groups,
+    test_attachment,
+    test_group,
+    test_media_bundle,
+    test_messages,
+    test_posts,
 )
-from .metadata_factories import (
-    GroupFactory as MetadataGroupFactory,  # Alias to avoid collision with Stash GroupFactory
-)
-from .stash_api_fixtures import (
-    enable_scene_creation,
-    mock_account,
-    mock_client,
-    mock_performer,
-    mock_scene,
-    mock_session,
-    mock_studio,
-    mock_transport,
-    stash_cleanup_tracker,
-    stash_client,
-    stash_context,
-    test_query,
-)
-from .stash_fixtures import (
+from .stash import (
+    GalleryFactory,
+    ImageFactory,
+    ImageFileFactory,
     MockTag,
+    PerformerFactory,
+    SceneFactory,
+    StudioFactory,
+    TagFactory,
     TestStashCreateInput,
     TestStashObject,
     TestStashObjectNoCreate,
     TestStashObjectNoStrawberry,
     TestStashUpdateInput,
+    VideoFileFactory,
+    account_mixin,
+    batch_mixin,
     bulk_update_ids_data,
     bulk_update_strings_data,
     complex_relationship_data,
-    edge_case_stash_data,
-    generate_graphql_response,
-    generate_stash_object_data,
-    large_stash_object_data,
-    mock_stash_client_with_errors,
-    mock_stash_client_with_responses,
-    mock_tags,
-    reset_stash_field_names_cache,
-    test_stash_object,
-    test_stash_object_new,
-    test_stash_object_no_create,
-    test_stash_object_no_strawberry,
-)
-from .stash_integration_fixtures import (
-    base_mock_performer,
-    base_mock_scene,
-    base_mock_studio,
-    fansly_network_studio,
-    integration_mock_account,
-    integration_mock_performer,
-    integration_mock_scene,
-    integration_mock_studio,
-    mock_account_media,
-    mock_attachment,
-    mock_context,
-    mock_gallery,
-    mock_group,
-    mock_image,
-    mock_media,
-    mock_media_bundle,
-    mock_message,
-    mock_messages,
-    mock_permissions,
-    mock_post,
-    mock_posts,
-    mock_stash_context,
-    mock_state,
-    mock_studio_finder,
-    real_stash_processor,
-    stash_mock_account,
-    stash_processor,
-)
-from .stash_mixin_fixtures import (
-    account_mixin,
-    batch_mixin,
     content_mixin,
+    edge_case_stash_data,
+    enable_scene_creation,
+    fansly_network_studio,
     gallery_mixin,
     gallery_mock_performer,
     gallery_mock_studio,
+    generate_graphql_response,
+    generate_stash_object_data,
+    large_stash_object_data,
     media_mixin,
+    mock_gallery,  # From stash_type_factories (real factory)
+    mock_image,  # From stash_type_factories (real factory)
+    mock_image_file,
     mock_item,
-    studio_mixin,
-    tag_mixin,
-)
-from .stash_processing_fixtures import (
-    AsyncResult,
-    AsyncSessionContext,
-    MockDatabase,
-    mock_database,
-    processing_mock_attachment,
-    processing_mock_media,
-    processing_mock_messages,
-    processing_mock_multiple_messages,
-    processing_mock_multiple_posts,
-    processing_mock_posts,
+    # Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures
+    # (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories)
+    # Removed: mock_client, mock_session, mock_transport from stash_api_fixtures
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
+    # Removed: integration_mock_performer, integration_mock_studio, integration_mock_scene
+    # (MagicMock duplicates - use real factories from stash_type_factories)
+    # Removed: mock_stash_context, mock_context
+    # (Mocked internal StashContext - use real stash_context or respx)
+    # Removed: mock_stash_client_with_responses, mock_stash_client_with_errors
+    # (Mocked internal client.execute() - use respx to mock HTTP instead)
+    # Removed: stash_processor
+    # (Used mock_stash_context - use real_stash_processor with respx instead)
+    mock_permissions,
+    mock_performer,  # From stash_type_factories (real factory)
+    mock_scene,  # From stash_type_factories (real factory)
+    mock_studio,  # From stash_type_factories (real factory)
+    mock_studio_finder,
+    mock_tag,
+    mock_tags,
+    mock_video_file,
+    real_stash_processor,
+    reset_stash_field_names_cache,
     safe_image_create,
     safe_scene_create,
     safe_scene_marker_create,
     safe_studio_create,
     safe_tag_create,
     sanitize_model_data,
-)
-from .stash_type_factories import (  # Pytest fixtures for Stash types
-    GalleryFactory,
-    GroupFactory,
-    ImageFactory,
-    ImageFileFactory,
-    PerformerFactory,
-    SceneFactory,
-    StudioFactory,
-    TagFactory,
-    VideoFileFactory,
-    mock_gallery,
-    mock_image,
-    mock_image_file,
-    mock_performer,
-    mock_scene,
-    mock_studio,
-    mock_tag,
-    mock_video_file,
+    stash_cleanup_tracker,
+    stash_client,
+    stash_context,
+    studio_mixin,
+    tag_mixin,
+    test_query,
+    test_state,
+    test_stash_object,
+    test_stash_object_new,
+    test_stash_object_no_create,
+    test_stash_object_no_strawberry,
 )
 
+# Note: Stash GroupFactory imported separately to avoid name collision
+from .stash import GroupFactory as StashGroupFactory
+from .utils import (
+    cleanup_global_config_state,
+    cleanup_http_sessions,
+    cleanup_loguru_handlers,
+    cleanup_mock_patches,
+    cleanup_rich_progress_state,
+    cleanup_unawaited_coroutines,
+)
 
 FIXTURES_DIR = Path(__file__).parent
 
-# Module-specific exports
+# Module-specific exports (maintained for backward compatibility)
+mod_core_factories = [
+    "FanslyConfigFactory",
+]
+
+mod_core_fixtures = [
+    "config_parser",
+    "mock_config_file",
+    "temp_config_dir",
+    "test_config",
+    "valid_api_config",
+]
+
+mod_download_factories = [
+    "DownloadStateFactory",
+]
+
+mod_download_fixtures = [
+    "download_state",
+    "mock_download_dir",
+    "mock_metadata_dir",
+    "mock_temp_dir",
+    "test_downloads_dir",
+]
+
+mod_api_fixtures = [
+    "create_mock_json_response",
+    "fansly_api",
+    "fansly_api_factory",
+    "fansly_api_with_respx",
+    "mock_fansly_account_response",
+    "mock_fansly_timeline_response",
+]
+
 mod_metadata_factories = [
     "AccountFactory",
     "AccountMediaFactory",
     "AccountMediaBundleFactory",
     "AttachmentFactory",
+    "BaseFactory",
     "HashtagFactory",
     "MediaFactory",
     "MediaLocationFactory",
     "MediaStoryStateFactory",
     "MessageFactory",
-    "MetadataGroupFactory",  # Renamed to avoid collision with Stash GroupFactory
+    "MetadataGroupFactory",
     "PostFactory",
     "StoryFactory",
     "StubTrackerFactory",
@@ -215,8 +240,21 @@ mod_metadata_factories = [
     "setup_accounts_and_groups",
 ]
 
+mod_metadata_fixtures = [
+    "test_account",
+    "test_media",
+    "test_group",
+    "test_attachment",
+    "test_post",
+    "test_posts",
+    "test_message",
+    "test_messages",
+    "test_account_media",
+    "test_media_bundle",
+]
+
 mod_stash_type_factories = [
-    # Factories
+    # Factory classes
     "PerformerFactory",
     "StudioFactory",
     "TagFactory",
@@ -225,12 +263,12 @@ mod_stash_type_factories = [
     "ImageFactory",
     "ImageFileFactory",
     "VideoFileFactory",
-    "GroupFactory",  # Stash API GroupFactory (for Strawberry GraphQL types)
-    # Pytest fixtures (real Strawberry type instances)
-    "mock_performer",
-    "mock_studio",
+    "StashGroupFactory",
+    # Fixtures that return REAL objects (not MagicMock)
+    "mock_performer",  # From stash_type_factories - returns PerformerFactory()
+    "mock_studio",  # From stash_type_factories - returns StudioFactory()
     "mock_tag",
-    "mock_scene",
+    "mock_scene",  # From stash_type_factories - returns SceneFactory()
     "mock_gallery",
     "mock_image",
     "mock_image_file",
@@ -262,7 +300,6 @@ mod_stash_fixtures = [
 ]
 
 mod_stash_mixin_fixtures = [
-    # Mixin test classes
     "account_mixin",
     "batch_mixin",
     "content_mixin",
@@ -270,32 +307,18 @@ mod_stash_mixin_fixtures = [
     "media_mixin",
     "studio_mixin",
     "tag_mixin",
-    # Gallery test fixture aliases (delegate to stash_type_factories fixtures)
     "gallery_mock_performer",
     "gallery_mock_studio",
-    # Mock item for Stash unit tests
     "mock_item",
 ]
 
-# Local utility functions
-mod_init = [
-    "load_json_fixture",
-    "save_json_fixture",
-    "anonymize_response",
-    "API_FIELD_MAPPINGS",
-    "FIXTURES_DIR",
-]
-
-# Fixture names from database_fixtures
 mod_database_fixtures = [
-    "AwaitableAttrsMock",
     "uuid_test_db_factory",
     "test_data_dir",
     "timeline_data",
     "json_conversation_data",
     "conversation_data",
     "safe_name",
-    # "temp_db_path" - REMOVED: Legacy SQLite fixture, no longer used
     "test_engine",
     "test_async_session",
     "config",
@@ -303,7 +326,6 @@ mod_database_fixtures = [
     "session_factory",
     "test_database_sync",
     "test_database",
-    # "cleanup_database" - REMOVED: UUID-based isolation makes cleanup redundant
     "session",
     "session_sync",
     "test_account",
@@ -318,7 +340,6 @@ mod_database_fixtures = [
     "factory_async_session",
 ]
 
-# Fixture names from stash_processing_fixtures
 mod_stash_processing_fixtures = [
     "sanitize_model_data",
     "safe_scene_marker_create",
@@ -326,67 +347,35 @@ mod_stash_processing_fixtures = [
     "safe_studio_create",
     "safe_image_create",
     "safe_scene_create",
-    "AsyncResult",
-    "AsyncSessionContext",
-    "MockDatabase",
-    # "mixin",
-    "mock_database",
-    "processing_mock_posts",
-    "processing_mock_messages",
-    "processing_mock_media",
-    "processing_mock_attachment",
-    "processing_mock_multiple_posts",
-    "processing_mock_multiple_messages",
 ]
 
-# Fixture names from stash_api_fixtures
 mod_stash_api_fixtures = [
     "stash_context",
     "stash_client",
     "enable_scene_creation",
     "stash_cleanup_tracker",
-    "mock_session",
-    "mock_transport",
-    "mock_client",
     "test_query",
-    "mock_account",
-    "mock_performer",
-    "mock_studio",
-    "mock_scene",
+    # Removed: mock_account, mock_performer, mock_studio, mock_scene
+    # (MagicMock duplicates - use real factories instead)
+    # Removed: mock_session, mock_transport, mock_client
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
 ]
 
-# Fixture names from stash_integration_fixtures
 mod_stash_integration_fixtures = [
-    "stash_mock_account",
-    "base_mock_performer",
-    "base_mock_studio",
-    "base_mock_scene",
     "fansly_network_studio",
     "mock_context",
     "mock_stash_context",
     "mock_state",
     "mock_studio_finder",
-    "integration_mock_account",
     "integration_mock_performer",
     "integration_mock_studio",
     "integration_mock_scene",
-    "mock_media",
-    "mock_group",
-    "mock_attachment",
-    "mock_post",
-    "mock_posts",
-    "mock_message",
-    "mock_messages",
     "mock_permissions",
-    "mock_account_media",
-    "mock_media_bundle",
     "mock_gallery",
     "mock_image",
     "stash_processor",
-    "real_stash_processor",
 ]
 
-# Fixture names from cleanup_fixtures
 mod_cleanup_fixtures = [
     "cleanup_rich_progress_state",
     "cleanup_loguru_handlers",
@@ -396,17 +385,23 @@ mod_cleanup_fixtures = [
     "cleanup_mock_patches",
 ]
 
-# Fixture names from api_fixtures
-mod_api_fixtures = [
-    "mock_http_session",
-    "fansly_api",
-    "fansly_api_factory",
-    "create_mock_response",
+mod_init = [
+    "load_json_fixture",
+    "save_json_fixture",
+    "anonymize_response",
+    "API_FIELD_MAPPINGS",
+    "FIXTURES_DIR",
 ]
 
 # Combined __all__ from all modules
-__all__ = [  # noqa: PLE0604 - all mod_ lists contain only strings
+__all__ = [  # noqa: PLE0604
+    *mod_core_factories,
+    *mod_core_fixtures,
+    *mod_download_factories,
+    *mod_download_fixtures,
+    *mod_api_fixtures,
     *mod_metadata_factories,
+    *mod_metadata_fixtures,
     *mod_stash_type_factories,
     *mod_stash_fixtures,
     *mod_stash_mixin_fixtures,
@@ -415,14 +410,12 @@ __all__ = [  # noqa: PLE0604 - all mod_ lists contain only strings
     *mod_stash_api_fixtures,
     *mod_stash_integration_fixtures,
     *mod_cleanup_fixtures,
-    *mod_api_fixtures,
     *mod_init,
 ]
 
 
 def load_json_fixture(filename: str) -> dict[str, Any]:
-    """
-    Load a JSON fixture file.
+    """Load a JSON fixture file.
 
     Args:
         filename: Path to JSON file relative to fixtures directory
@@ -448,8 +441,7 @@ def load_json_fixture(filename: str) -> dict[str, Any]:
 
 
 def save_json_fixture(data: dict[str, Any], filename: str) -> None:
-    """
-    Save data as a JSON fixture file.
+    """Save data as a JSON fixture file.
 
     Args:
         data: Data to save
@@ -465,8 +457,7 @@ def save_json_fixture(data: dict[str, Any], filename: str) -> None:
 def anonymize_response(
     response_data: dict[str, Any], field_mappings: dict[str, str] | None = None
 ) -> dict[str, Any]:
-    """
-    Anonymize API response data while preserving structure.
+    """Anonymize API response data while preserving structure.
 
     Args:
         response_data: Original API response data
@@ -497,9 +488,6 @@ def anonymize_response(
             return [_anonymize_value(key, item) for item in value]
         if key in field_mappings and isinstance(value, str):
             pass
-            # faker_method = getattr(fake, field_mappings[key], None)
-            # if faker_method:
-            #     return faker_method()
         return value
 
     result = _anonymize_value("", response_data)

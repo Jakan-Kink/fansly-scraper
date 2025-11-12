@@ -1,0 +1,159 @@
+"""Stash fixtures for testing Stash integration."""
+
+from .stash_api_fixtures import (
+    enable_scene_creation,
+    # Removed: mock_account, mock_performer, mock_studio, mock_scene
+    # (MagicMock duplicates - use real factories from stash_type_factories)
+    # Removed: mock_client, mock_session, mock_transport
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
+    stash_cleanup_tracker,
+    stash_client,
+    stash_context,
+    test_query,
+)
+from .stash_fixtures import (
+    MockTag,
+    TestStashCreateInput,
+    TestStashObject,
+    TestStashObjectNoCreate,
+    TestStashObjectNoStrawberry,
+    TestStashUpdateInput,
+    bulk_update_ids_data,
+    bulk_update_strings_data,
+    complex_relationship_data,
+    edge_case_stash_data,
+    generate_graphql_response,
+    generate_stash_object_data,
+    large_stash_object_data,
+    mock_stash_client_with_errors,
+    mock_stash_client_with_responses,
+    mock_tags,
+    reset_stash_field_names_cache,
+    test_stash_object,
+    test_stash_object_new,
+    test_stash_object_no_create,
+    test_stash_object_no_strawberry,
+)
+from .stash_integration_fixtures import (
+    fansly_network_studio,
+    mock_permissions,
+    mock_studio_finder,
+    real_stash_processor,
+    test_state,
+)
+from .stash_mixin_fixtures import (
+    account_mixin,
+    batch_mixin,
+    content_mixin,
+    gallery_mixin,
+    gallery_mock_performer,
+    gallery_mock_studio,
+    media_mixin,
+    mock_item,
+    studio_mixin,
+    tag_mixin,
+)
+from .stash_processing_fixtures import (
+    safe_image_create,
+    safe_scene_create,
+    safe_scene_marker_create,
+    safe_studio_create,
+    safe_tag_create,
+    sanitize_model_data,
+)
+from .stash_type_factories import (
+    GalleryFactory,
+    GroupFactory,
+    ImageFactory,
+    ImageFileFactory,
+    PerformerFactory,
+    SceneFactory,
+    StudioFactory,
+    TagFactory,
+    VideoFileFactory,
+    mock_gallery,
+    mock_image,
+    mock_image_file,
+    mock_performer,
+    mock_scene,
+    mock_studio,
+    mock_tag,
+    mock_video_file,
+)
+
+__all__ = [
+    # API fixtures
+    "enable_scene_creation",
+    # Removed: mock_account, mock_performer, mock_studio, mock_scene
+    # (MagicMock duplicates - use real factories instead)
+    # Removed: mock_client, mock_session, mock_transport
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
+    "stash_cleanup_tracker",
+    "stash_client",
+    "stash_context",
+    "test_query",
+    # Stash fixtures
+    "MockTag",
+    "TestStashCreateInput",
+    "TestStashObject",
+    "TestStashObjectNoCreate",
+    "TestStashObjectNoStrawberry",
+    "TestStashUpdateInput",
+    "bulk_update_ids_data",
+    "bulk_update_strings_data",
+    "complex_relationship_data",
+    "edge_case_stash_data",
+    "generate_graphql_response",
+    "generate_stash_object_data",
+    "large_stash_object_data",
+    "mock_stash_client_with_errors",
+    "mock_stash_client_with_responses",
+    "mock_tags",
+    "reset_stash_field_names_cache",
+    "test_stash_object",
+    "test_stash_object_new",
+    "test_stash_object_no_create",
+    "test_stash_object_no_strawberry",
+    # Integration fixtures
+    "fansly_network_studio",
+    "mock_permissions",
+    "mock_studio_finder",
+    "real_stash_processor",
+    "test_state",
+    # Mixin fixtures
+    "account_mixin",
+    "batch_mixin",
+    "content_mixin",
+    "gallery_mixin",
+    "gallery_mock_performer",
+    "gallery_mock_studio",
+    "media_mixin",
+    "mock_item",
+    "studio_mixin",
+    "tag_mixin",
+    # Processing fixtures
+    "safe_image_create",
+    "safe_scene_create",
+    "safe_scene_marker_create",
+    "safe_studio_create",
+    "safe_tag_create",
+    "sanitize_model_data",
+    # Type factories
+    "GalleryFactory",
+    "GroupFactory",
+    "ImageFactory",
+    "ImageFileFactory",
+    "PerformerFactory",
+    "SceneFactory",
+    "StudioFactory",
+    "TagFactory",
+    "VideoFileFactory",
+    "mock_gallery",
+    "mock_image",
+    "mock_image_file",
+    "mock_performer",
+    "mock_scene",
+    "mock_studio",
+    "mock_tag",
+    "mock_video_file",
+]

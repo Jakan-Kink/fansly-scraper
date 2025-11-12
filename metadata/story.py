@@ -42,7 +42,7 @@ class Story(Base):
     author: Mapped[Account] = relationship(
         "Account",
         back_populates="stories",
-        lazy="noload",  # Don't auto-load author to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
         cascade="all, delete, save-update",
     )
     title: Mapped[str | None] = mapped_column(String, nullable=True)

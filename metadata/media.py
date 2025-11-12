@@ -138,7 +138,7 @@ class Media(Base):
         "Media",
         collection_class=set,
         secondary="media_variants",
-        lazy="noload",  # Don't auto-load variants to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
         primaryjoin=id == media_variants.c.mediaId,
         secondaryjoin=id == media_variants.c.variantId,
     )
@@ -146,7 +146,7 @@ class Media(Base):
         "MediaLocation",
         collection_class=attribute_mapped_collection("locationId"),
         cascade="all, delete-orphan",
-        lazy="noload",  # Don't auto-load locations to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
         back_populates="media",
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -154,33 +154,6 @@ class ContentProcessingMixin:
             process_item=process_message,
         )
 
-        # We don't need to run batch processing again if it was already done in process_creator_posts
-        # But if this method is called independently and batch processing is enabled, we should do it
-        if (
-            hasattr(self, "use_batch_processing")
-            and self.use_batch_processing
-            and (
-                not hasattr(self, "_batch_processing_done")
-                or not self._batch_processing_done
-            )
-        ):
-            print_info("Starting batch processing of all media by mimetype...")
-            batch_results = await self.process_account_media_by_mimetype(
-                account=account,
-                performer=performer,
-                studio=studio,
-                session=session,
-            )
-            print_info(
-                f"Batch processing completed: {len(batch_results['images'])} images, {len(batch_results['scenes'])} scenes"
-            )
-            # Set flag to avoid duplicate batch processing
-            self._batch_processing_done = True
-        elif not hasattr(self, "use_batch_processing") or not self.use_batch_processing:
-            print_info("Batch processing is disabled, skipping")
-            # Clear the flag just to be sure
-            self._batch_processing_done = False
-
     @with_session()
     async def process_creator_posts(
         self,
@@ -300,26 +273,6 @@ class ContentProcessingMixin:
             queue=queue,
             process_item=process_post,
         )
-
-        # After processing posts individually, do a batch processing of all media by mimetype if enabled
-        # This will catch any media that might have been missed or not properly linked in the individual processing
-        if hasattr(self, "use_batch_processing") and self.use_batch_processing:
-            print_info("Starting batch processing of all media by mimetype...")
-            batch_results = await self.process_account_media_by_mimetype(
-                account=account,
-                performer=performer,
-                studio=studio,
-                session=session,
-            )
-            print_info(
-                f"Batch processing completed: {len(batch_results['images'])} images, {len(batch_results['scenes'])} scenes"
-            )
-            # Set flag to indicate batch processing has been done
-            self._batch_processing_done = True
-        else:
-            print_info("Batch processing is disabled, skipping")
-            # Clear the flag just to be sure
-            self._batch_processing_done = False
 
     async def _collect_media_from_attachments(
         self,

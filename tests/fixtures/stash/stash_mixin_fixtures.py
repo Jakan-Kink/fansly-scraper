@@ -1,12 +1,15 @@
 """Fixtures for Stash mixin testing.
 
 This module provides TestMixinClass definitions for testing StashProcessing mixins.
-Mixin fixtures create test instances with real StashContext and only external Stash
-client mocked.
+These classes use REAL objects and can accept real database/logger instances.
+
+For new tests, prefer:
+- Use real StashProcessing with real_stash_processor fixture
+- Use @respx.mock to intercept GraphQL HTTP calls
+- See /tmp/mock_to_respx_migration_guide.md for examples
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -60,18 +63,30 @@ class TestMixinBase(
     access to all methods, just like the real StashProcessing class does.
     """
 
-    def __init__(self):
-        """Initialize test class with real StashContext."""
+    def __init__(self, database=None, log=None):
+        """Initialize test class with real StashContext.
+
+        Args:
+            database: Optional Database instance (defaults to None for tests that don't use it)
+            log: Optional Logger instance (defaults to None for tests that don't use it)
+        """
         # Real StashContext with minimal test config
         self.context = StashContext(
             conn={"Scheme": "http", "Host": "localhost", "Port": 9999, "ApiKey": "test"}
         )
-        # ONLY mock the external Stash client
-        self.context._client = MagicMock()
-        # Mock database attribute (from StashProcessingBase)
-        self.database = MagicMock()
-        # Mock log attribute (from StashProcessingBase)
-        self.log = MagicMock()
+        # REMOVED: self.context._client = MagicMock()
+        # This mocked INTERNAL StashClient.execute() which violates edge-mocking.
+        # Tests should use @respx.mock to intercept HTTP calls instead.
+        # The _client will be None until StashContext.initialize() is called,
+        # which tests should do (and use respx to mock the HTTP responses).
+
+        # Database attribute (from StashProcessingBase)
+        # Tests can pass in real database fixtures via the fixture
+        self.database = database
+
+        # Log attribute (from StashProcessingBase)
+        # Tests can pass in real logger or leave as None
+        self.log = log
 
 
 class TestAccountMixin(TestMixinBase):
@@ -80,8 +95,11 @@ class TestAccountMixin(TestMixinBase):
     def __init__(self):
         """Initialize with account-specific state."""
         super().__init__()
-        # State for account processing
-        self.state = MagicMock()
+        # Import TestState from stash_integration_fixtures
+        from tests.fixtures.stash.stash_integration_fixtures import TestState
+
+        # Use REAL TestState instead of MagicMock
+        self.state = TestState()
         self.state.creator_id = "12345"
         self.state.creator_name = "test_user"
 
@@ -158,60 +176,6 @@ def tag_mixin():
 
 
 # ============================================================================
-# Batch Processing Fixtures
-# ============================================================================
-
-
-# @pytest.fixture
-# def mock_items():
-#     """Fixture for mock items."""
-#     return [MagicMock() for _ in range(10)]
-
-
-# @pytest.fixture
-# def mock_progress_bars():
-#     """Fixture for mock progress bars."""
-#     task_pbar = MagicMock()
-#     task_pbar.set_description = MagicMock()
-#     task_pbar.set_postfix = MagicMock()
-#     task_pbar.update = MagicMock()
-#     task_pbar.close = MagicMock()
-
-#     process_pbar = MagicMock()
-#     process_pbar.set_description = MagicMock()
-#     process_pbar.update = MagicMock()
-#     process_pbar.close = MagicMock()
-
-#     return task_pbar, process_pbar
-
-
-# @pytest.fixture
-# def mock_semaphore():
-#     """Fixture for mock asyncio.Semaphore."""
-#     semaphore = MagicMock()
-#     semaphore._value = 4  # Max concurrency
-#     semaphore.__aenter__ = AsyncMock()
-#     semaphore.__aexit__ = AsyncMock()
-#     return semaphore
-
-
-# @pytest.fixture
-# def mock_process_batch():
-#     """Fixture for mock process_batch function."""
-#     return AsyncMock()
-
-
-# @pytest.fixture
-# def mock_queue():
-#     """Fixture for mock asyncio.Queue."""
-#     queue = MagicMock()
-#     queue.get = AsyncMock()
-#     queue.put = AsyncMock()
-#     queue.task_done = MagicMock()
-#     return queue
-
-
-# ============================================================================
 # Mock Item Fixture (HasMetadata Protocol for Stash Unit Tests)
 # ============================================================================
 
@@ -219,16 +183,8 @@ def tag_mixin():
 @pytest.fixture
 def mock_item():
     """Fixture for Post/Message item used in Stash mixin unit tests.
-
-    Creates a real Post object using PostFactory.build() (detached from database)
-    and adds AwaitableAttrsMock for async relationship access. This provides a real
-    Post instance with the HasMetadata protocol for UNIT tests of Stash processing
-    mixins.
-
-    Uses the generic AwaitableAttrsMock to handle ANY async relationship access.
-
     Returns:
-        Post: Real Post object with awaitable_attrs support (detached from database)
+        Post: Real Post object (detached from database)
     """
     from tests.fixtures.metadata_factories import PostFactory
 

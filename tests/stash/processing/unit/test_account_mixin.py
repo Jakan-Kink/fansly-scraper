@@ -10,11 +10,7 @@ import pytest
 # Re-query account to ensure relationship is properly loaded
 from sqlalchemy import select
 
-# Re-query account with explicit relationship loading (avatar has lazy="noload")
-from sqlalchemy.orm import selectinload
-
 from metadata import Account
-from tests.fixtures.database_fixtures import AwaitableAttrsMock
 from tests.fixtures.metadata_factories import AccountFactory, MediaFactory
 
 
@@ -162,18 +158,10 @@ class TestAccountProcessingMixin:
         )
         await session.commit()
 
-        stmt = (
-            select(Account)
-            .where(Account.id == account.id)
-            .options(selectinload(Account.avatar))
-        )
+        # Re-query account to get fresh instance
+        stmt = select(Account).where(Account.id == account.id)
         result = await session.execute(stmt)
         account = result.scalar_one()
-
-        # avatar has lazy="noload", so manually set it and use AwaitableAttrsMock
-        object.__setattr__(account, "avatar", avatar)
-        # Use __dict__ to bypass the read-only awaitable_attrs property
-        account.__dict__["awaitable_attrs"] = AwaitableAttrsMock(account)
 
         # Mock performer with default image
         mock_performer.image_path = "default=true"
@@ -197,8 +185,10 @@ class TestAccountProcessingMixin:
             return_value=mock_image_result
         )
 
-        # Call _update_performer_avatar
-        await account_mixin._update_performer_avatar(account, mock_performer)
+        # Call _update_performer_avatar with session
+        await account_mixin._update_performer_avatar(
+            account, mock_performer, session=session
+        )
 
         # Verify avatar update was attempted
         account_mixin.context.client.find_images.assert_called_once()

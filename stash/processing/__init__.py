@@ -68,7 +68,6 @@ class StashProcessing(
         _background_task: asyncio.Task | None = None,
         _cleanup_event: asyncio.Event | None = None,
         _owns_db: bool = False,
-        use_batch_processing: bool = True,
     ) -> None:
         """Initialize StashProcessing.
 
@@ -80,7 +79,6 @@ class StashProcessing(
             _background_task: Background task for processing
             _cleanup_event: Event for cleanup signaling
             _owns_db: Whether this instance owns the database connection
-            use_batch_processing: Whether to use batch processing by mimetype
         """
         super().__init__(
             config, state, context, database, _background_task, _cleanup_event, _owns_db
@@ -92,10 +90,6 @@ class StashProcessing(
         ContentProcessingMixin.__init__(self)
         BatchProcessingMixin.__init__(self)
         TagProcessingMixin.__init__(self)
-
-        # Store batch processing flag
-        self.use_batch_processing = use_batch_processing
-        self._batch_processing_done = False
 
     @with_session()
     async def continue_stash_processing(
@@ -116,9 +110,6 @@ class StashProcessing(
             The performer object is a Stash GraphQL type, not a SQLAlchemy model.
         """
         try:
-            # Reset batch processing flag at the start of each processing session
-            self._batch_processing_done = False
-
             if not account or not performer:
                 raise ValueError("Missing account or performer data")
             # Convert dict to Performer if needed
