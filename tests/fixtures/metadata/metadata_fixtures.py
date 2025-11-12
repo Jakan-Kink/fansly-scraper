@@ -13,7 +13,7 @@ Philosophy:
 import pytest
 
 from metadata.attachment import ContentType
-from tests.fixtures.metadata_factories import (
+from .metadata_factories import (
     ACCOUNT_ID_BASE,
     ACCOUNT_MEDIA_BUNDLE_ID_BASE,
     ACCOUNT_MEDIA_ID_BASE,

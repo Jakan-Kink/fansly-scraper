@@ -1,12 +1,15 @@
 """Fixtures for Stash mixin testing.
 
 This module provides TestMixinClass definitions for testing StashProcessing mixins.
-Mixin fixtures create test instances with real StashContext and only external Stash
-client mocked.
+These classes use REAL objects and can accept real database/logger instances.
+
+For new tests, prefer:
+- Use real StashProcessing with real_stash_processor fixture
+- Use @respx.mock to intercept GraphQL HTTP calls
+- See /tmp/mock_to_respx_migration_guide.md for examples
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -60,18 +63,30 @@ class TestMixinBase(
     access to all methods, just like the real StashProcessing class does.
     """
 
-    def __init__(self):
-        """Initialize test class with real StashContext."""
+    def __init__(self, database=None, log=None):
+        """Initialize test class with real StashContext.
+
+        Args:
+            database: Optional Database instance (defaults to None for tests that don't use it)
+            log: Optional Logger instance (defaults to None for tests that don't use it)
+        """
         # Real StashContext with minimal test config
         self.context = StashContext(
             conn={"Scheme": "http", "Host": "localhost", "Port": 9999, "ApiKey": "test"}
         )
-        # ONLY mock the external Stash client
-        self.context._client = MagicMock()
-        # Mock database attribute (from StashProcessingBase)
-        self.database = MagicMock()
-        # Mock log attribute (from StashProcessingBase)
-        self.log = MagicMock()
+        # REMOVED: self.context._client = MagicMock()
+        # This mocked INTERNAL StashClient.execute() which violates edge-mocking.
+        # Tests should use @respx.mock to intercept HTTP calls instead.
+        # The _client will be None until StashContext.initialize() is called,
+        # which tests should do (and use respx to mock the HTTP responses).
+
+        # Database attribute (from StashProcessingBase)
+        # Tests can pass in real database fixtures via the fixture
+        self.database = database
+
+        # Log attribute (from StashProcessingBase)
+        # Tests can pass in real logger or leave as None
+        self.log = log
 
 
 class TestAccountMixin(TestMixinBase):
@@ -80,8 +95,11 @@ class TestAccountMixin(TestMixinBase):
     def __init__(self):
         """Initialize with account-specific state."""
         super().__init__()
-        # State for account processing
-        self.state = MagicMock()
+        # Import TestState from stash_integration_fixtures
+        from tests.fixtures.stash.stash_integration_fixtures import TestState
+
+        # Use REAL TestState instead of MagicMock
+        self.state = TestState()
         self.state.creator_id = "12345"
         self.state.creator_name = "test_user"
 

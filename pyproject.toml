@@ -101,6 +101,7 @@ psutil = ">=7.0.0"
 pytest-loguru = ">=0.4.0"
 factory-boy = ">=3.3.3"
 pytest-rerunfailures = ">=16.1"
+respx = "^0.22.0"
 
 
 [tool.bandit]
