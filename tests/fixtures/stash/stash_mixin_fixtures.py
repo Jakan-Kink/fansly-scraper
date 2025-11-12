@@ -1,11 +1,7 @@
 """Fixtures for Stash mixin testing.
 
 This module provides TestMixinClass definitions for testing StashProcessing mixins.
-
-MIGRATION NOTE: These test helper classes are being phased out in favor of:
-1. Using real StashProcessing instances with real fixtures
-2. Using @respx.mock to mock HTTP responses at the edge
-3. Using real database fixtures instead of MagicMock
+These classes use REAL objects and can accept real database/logger instances.
 
 For new tests, prefer:
 - Use real StashProcessing with real_stash_processor fixture
@@ -14,7 +10,6 @@ For new tests, prefer:
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -66,18 +61,14 @@ class TestMixinBase(
 
     Inherits from StashProcessingBase and all processing mixins to provide
     access to all methods, just like the real StashProcessing class does.
-
-    NOTE: This class still uses some MagicMock for infrastructure (database, logging).
-    For new tests, prefer real_stash_processor fixture + @respx.mock instead.
     """
 
-    def __init__(self):
+    def __init__(self, database=None, log=None):
         """Initialize test class with real StashContext.
 
-        WARNING: This approach is being phased out. Tests using this class should:
-        1. Use @respx.mock to mock GraphQL HTTP responses (not _client)
-        2. Use real database fixtures (not MagicMock)
-        3. Or use real_stash_processor fixture for full integration
+        Args:
+            database: Optional Database instance (defaults to None for tests that don't use it)
+            log: Optional Logger instance (defaults to None for tests that don't use it)
         """
         # Real StashContext with minimal test config
         self.context = StashContext(
@@ -89,13 +80,13 @@ class TestMixinBase(
         # The _client will be None until StashContext.initialize() is called,
         # which tests should do (and use respx to mock the HTTP responses).
 
-        # Mock database attribute (from StashProcessingBase)
-        # TODO: Replace with real database fixtures
-        self.database = MagicMock()
+        # Database attribute (from StashProcessingBase)
+        # Tests can pass in real database fixtures via the fixture
+        self.database = database
 
-        # Mock log attribute (from StashProcessingBase)
-        # NOTE: Logging is infrastructure, this is acceptable to mock
-        self.log = MagicMock()
+        # Log attribute (from StashProcessingBase)
+        # Tests can pass in real logger or leave as None
+        self.log = log
 
 
 class TestAccountMixin(TestMixinBase):
