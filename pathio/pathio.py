@@ -12,7 +12,16 @@ import os
 import sys
 import time
 from pathlib import Path
-from tkinter import Tk, filedialog
+
+# Optional GUI dependency
+try:
+    from tkinter import Tk, filedialog
+
+    TKINTER_AVAILABLE = True
+except ImportError:
+    TKINTER_AVAILABLE = False
+    Tk = None  # type: ignore[assignment,misc]
+    filedialog = None  # type: ignore[assignment]
 
 from config.logging import textio_logger
 from download.downloadstate import DownloadState
@@ -24,22 +33,56 @@ from .types import PathConfig
 
 # if the users custom provided filepath is invalid; a tkinter dialog will open during runtime, asking to adjust download path
 def ask_correct_dir() -> Path:
-    root = Tk()
-    root.withdraw()
+    # Try GUI dialog if tkinter is available
+    if TKINTER_AVAILABLE:
+        root = Tk()
+        root.withdraw()
 
-    while True:
-        directory_name = filedialog.askdirectory()
+        while True:
+            directory_name = filedialog.askdirectory()
 
-        if Path(directory_name).is_dir():
+            if Path(directory_name).is_dir():
+                textio_logger.opt(depth=1).log(
+                    "INFO", f"Folder path chosen: {directory_name}"
+                )
+                return Path(directory_name)
+
             textio_logger.opt(depth=1).log(
-                "INFO", f"Folder path chosen: {directory_name}"
+                "ERROR",
+                "<red>[5]</red> You did not choose a valid folder. Please try again!",
             )
-            return Path(directory_name)
 
+    # Fallback to text-based input if interactive
+    if sys.stdin and sys.stdin.isatty():
         textio_logger.opt(depth=1).log(
-            "ERROR",
-            "<red>[5]</red> You did not choose a valid folder. Please try again!",
+            "INFO",
+            "tkinter not available - using text-based input"
         )
+
+        while True:
+            try:
+                directory_name = input("Enter valid download directory path: ").strip()
+                path = Path(directory_name)
+
+                if path.is_dir():
+                    textio_logger.opt(depth=1).log(
+                        "INFO", f"Folder path chosen: {directory_name}"
+                    )
+                    return path
+
+                textio_logger.opt(depth=1).log(
+                    "ERROR",
+                    "<red>[5]</red> You did not choose a valid folder. Please try again!",
+                )
+            except (KeyboardInterrupt, EOFError):
+                textio_logger.opt(depth=1).log("ERROR", "Directory selection cancelled")
+                raise
+
+    # Not interactive - raise error
+    raise RuntimeError(
+        "Invalid download directory and unable to prompt for correction. "
+        "Please fix the download_directory in config.ini or install tkinter for GUI dialogs."
+    )
 
 
 def set_create_directory_for_download(config: PathConfig, state: DownloadState) -> Path:

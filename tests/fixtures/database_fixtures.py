@@ -204,6 +204,11 @@ def uuid_test_db_factory(request: Any) -> Generator[FanslyConfig, None, None]:
     try:
         with admin_engine.connect() as conn:
             conn.execute(text(f"CREATE DATABASE {test_db_name}"))
+    except Exception as e:
+        admin_engine.dispose()
+        pytest.skip(
+            f"PostgreSQL not available at {pg_host}:{pg_port} (user={pg_user}): {e}"
+        )
     finally:
         admin_engine.dispose()
 
