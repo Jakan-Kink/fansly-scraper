@@ -3,10 +3,9 @@
 from .stash_api_fixtures import (
     enable_scene_creation,
     # Removed: mock_account, mock_performer, mock_studio, mock_scene
-    # These were MagicMock duplicates - use real factories from stash_type_factories
-    mock_client,
-    mock_session,
-    mock_transport,
+    # (MagicMock duplicates - use real factories from stash_type_factories)
+    # Removed: mock_client, mock_session, mock_transport
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
     stash_cleanup_tracker,
     stash_client,
     stash_context,
@@ -94,9 +93,8 @@ __all__ = [
     "enable_scene_creation",
     # Removed: mock_account, mock_performer, mock_studio, mock_scene
     # (MagicMock duplicates - use real factories instead)
-    "mock_client",
-    "mock_session",
-    "mock_transport",
+    # Removed: mock_client, mock_session, mock_transport
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",

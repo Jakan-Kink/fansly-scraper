@@ -5,7 +5,8 @@ import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+# Removed: from unittest.mock import AsyncMock, MagicMock
+# No longer using MagicMock for GraphQL client mocking - use respx instead
 
 import pytest
 import pytest_asyncio
@@ -19,10 +20,9 @@ from stash.types import Performer, Scene, SceneCreateInput, Studio
 __all__ = [
     "enable_scene_creation",
     # Removed: "mock_account", "mock_performer", "mock_studio", "mock_scene"
-    # These were MagicMock duplicates - use real factories from stash_type_factories instead
-    "mock_client",
-    "mock_session",
-    "mock_transport",
+    # (MagicMock duplicates - use real factories from stash_type_factories)
+    # Removed: "mock_client", "mock_session", "mock_transport"
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",
@@ -286,60 +286,29 @@ async def stash_cleanup_tracker():
     return cleanup_context
 
 
-@pytest.fixture
-def mock_session():
-    """Create a mock session for testing GraphQL execution.
-
-    This fixture provides a mock SQLAlchemy session for testing database operations
-    without needing a real database connection. The execute method is set up as an
-    AsyncMock for use in async test functions.
-
-    Returns:
-        MagicMock: A mock session object with AsyncMock for the execute method
-    """
-    session = MagicMock()
-    session.execute = AsyncMock()
-    return session
-
-
-@pytest.fixture
-def mock_transport():
-    """Create a mock transport for testing GraphQL execution.
-
-    This fixture provides a mock transport object for GraphQL client testing, with
-    appropriate headers and async close method. This allows testing GraphQL client
-    code without making actual network requests.
-
-    Returns:
-        MagicMock: A mock transport object configured for GraphQL client testing
-    """
-    transport = MagicMock()
-    transport.headers = {}
-    transport.close = AsyncMock()
-    return transport
-
-
-@pytest.fixture
-def mock_client(mock_transport):
-    """Create a mock client with async context manager behavior and transport setup.
-
-    This fixture provides a mock GraphQL client that can be used for testing code
-    that requires a GraphQL client without making actual network requests. It sets up
-    the necessary transport attributes and async context manager behavior.
-
-    Args:
-        mock_transport: The mock transport fixture
-
-    Returns:
-        MagicMock: A mock client configured for GraphQL testing with async support
-    """
-    client = MagicMock()
-    client.transport = mock_transport
-    client.http_transport = mock_transport
-    client.ws_transport = mock_transport
-    client.__aenter__ = AsyncMock()
-    client.close_async = AsyncMock()
-    return client
+# REMOVED: mock_session, mock_transport, mock_client
+# These fixtures mocked internal GraphQL client components.
+#
+# Replacement: Use respx to mock at the true edge (HTTP layer)
+# respx successfully intercepts HTTP calls underneath _session.execute()
+# allowing tests through the real code path while mocking GraphQL HTTP responses.
+#
+# Migration example:
+#   Before:
+#     def test_query(mock_session, mock_client):
+#         mock_session.execute.return_value = {"data": {...}}
+#         mock_client.__aenter__.return_value = mock_session
+#         client.client = mock_client
+#
+#   After:
+#     @respx.mock
+#     def test_query():
+#         respx.post("http://localhost:9999/graphql").mock(
+#             return_value=httpx.Response(200, json={"data": {...}})
+#         )
+#         # Test with real client, real _session.execute()
+#
+# This tests the same behavior through the REAL _session.execute() boundary.
 
 
 @pytest.fixture

@@ -138,8 +138,9 @@ from .stash import (
     mock_item,
     # Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures
     # (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories)
+    # Removed: mock_client, mock_session, mock_transport from stash_api_fixtures
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
     mock_permissions,
-    mock_session,
     mock_stash_client_with_errors,
     mock_stash_client_with_responses,
     mock_stash_context,
@@ -147,7 +148,6 @@ from .stash import (
     mock_studio_finder,
     mock_tag,
     mock_tags,
-    mock_transport,
     mock_video_file,
     reset_stash_field_names_cache,
     safe_image_create,
@@ -351,12 +351,11 @@ mod_stash_api_fixtures = [
     "stash_client",
     "enable_scene_creation",
     "stash_cleanup_tracker",
-    "mock_session",
-    "mock_transport",
-    "mock_client",
     "test_query",
     # Removed: mock_account, mock_performer, mock_studio, mock_scene
     # (MagicMock duplicates - use real factories instead)
+    # Removed: mock_session, mock_transport, mock_client
+    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
 ]
 
 mod_stash_integration_fixtures = [
