@@ -14,7 +14,7 @@ import pytest
 import strawberry
 
 from stash.types.base import StashObject
-from tests.fixtures.stash_fixtures import TestStashObject
+from tests.fixtures.stash.stash_fixtures import TestStashObject
 
 
 # =============================================================================

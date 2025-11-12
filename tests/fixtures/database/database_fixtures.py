@@ -56,8 +56,7 @@ from metadata import (
     Wall,
     account_media_bundle_media,
 )
-from tests.fixtures import metadata_factories
-from tests.fixtures.metadata_factories import AccountFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory
 
 
 T = TypeVar("T")

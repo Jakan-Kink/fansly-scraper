@@ -6,8 +6,8 @@ objects efficiently by grouping them by mimetype and processing in batches.
 
 import pytest
 
-from tests.fixtures.metadata_factories import MediaFactory
-from tests.fixtures.stash_type_factories import (
+from tests.fixtures.metadata.metadata_factories import MediaFactory
+from tests.fixtures.stash.stash_type_factories import (
     ImageFactory,
     ImageFileFactory,
     SceneFactory,

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from stash.types import FindTagsResultType
-from tests.fixtures.metadata_factories import HashtagFactory
-from tests.fixtures.stash_type_factories import TagFactory
+from tests.fixtures.metadata.metadata_factories import HashtagFactory
+from tests.fixtures.stash.stash_type_factories import TagFactory
 
 
 @pytest.mark.asyncio

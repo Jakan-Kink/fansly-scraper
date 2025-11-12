@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 from stash.types import Image, Scene, SceneMarker, Studio, Tag
 
 # Import fixtures from stash_api_fixtures
-from tests.fixtures.stash_api_fixtures import (
+from tests.fixtures.stash.stash_api_fixtures import (
     stash_cleanup_tracker,
     stash_client,
     stash_context,

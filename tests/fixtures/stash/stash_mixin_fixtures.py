@@ -186,7 +186,7 @@ def mock_item():
     Returns:
         Post: Real Post object (detached from database)
     """
-    from tests.fixtures.metadata_factories import PostFactory
+    from tests.fixtures.metadata.metadata_factories import PostFactory
 
     # Create real Post object (detached from database)
     item = PostFactory.build(

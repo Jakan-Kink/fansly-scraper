@@ -208,7 +208,7 @@ def mock_studio_finder(fansly_network_studio):
         with patch.object(client, 'find_studios', new=AsyncMock(side_effect=mock_find_studios_fn)):
             ...
     """
-    from tests.fixtures.stash_type_factories import StudioFactory
+    from tests.fixtures.stash.stash_type_factories import StudioFactory
 
     async def mock_find_studios_fn(q=None, **kwargs):
         """Mock find_studios that returns Fansly network studio or empty result."""

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from stash.types import FindStudiosResultType
-from tests.fixtures.stash_type_factories import (
+from tests.fixtures.stash.stash_type_factories import (
     StudioFactory,
     TagFactory,
 )
@@ -148,7 +148,7 @@ class TestMetadataUpdate:
         mock_image.date = "2024-05-01"  # Later date in storage
 
         # Create item with earlier date using PostFactory
-        from tests.fixtures.metadata_factories import PostFactory
+        from tests.fixtures.metadata.metadata_factories import PostFactory
 
         earlier_item = PostFactory.build(
             id=99999,
@@ -213,7 +213,7 @@ class TestMetadataUpdate:
         # Create account mentions using AccountFactory
         from contextlib import asynccontextmanager
 
-        from tests.fixtures.metadata_factories import AccountFactory
+        from tests.fixtures.metadata.metadata_factories import AccountFactory
 
         mention1 = AccountFactory.build(
             id=22222,
@@ -400,7 +400,7 @@ class TestMetadataUpdate:
     ):
         """Test _update_stash_metadata method with tags."""
         # Create real hashtag objects using HashtagFactory
-        from tests.fixtures.metadata_factories import HashtagFactory
+        from tests.fixtures.metadata.metadata_factories import HashtagFactory
 
         hashtag1 = HashtagFactory.build(value="test_tag")
         hashtag2 = HashtagFactory.build(value="another_tag")

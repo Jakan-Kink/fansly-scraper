@@ -2,8 +2,8 @@
 
 import pytest
 
-from tests.fixtures.metadata_factories import MediaFactory
-from tests.fixtures.stash_type_factories import ImageFactory, ImageFileFactory
+from tests.fixtures.metadata.metadata_factories import MediaFactory
+from tests.fixtures.stash.stash_type_factories import ImageFactory, ImageFileFactory
 
 
 class TestMediaProcessing:

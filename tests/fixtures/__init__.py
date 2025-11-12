@@ -290,8 +290,8 @@ mod_stash_fixtures = [
     "generate_graphql_response",
     "generate_stash_object_data",
     "large_stash_object_data",
-    "mock_stash_client_with_errors",
-    "mock_stash_client_with_responses",
+    # Removed: "mock_stash_client_with_errors", "mock_stash_client_with_responses"
+    # (Mocked internal client.execute() - use respx to mock HTTP instead)
     "mock_tags",
     "test_stash_object",
     "test_stash_object_new",
@@ -363,17 +363,17 @@ mod_stash_api_fixtures = [
 
 mod_stash_integration_fixtures = [
     "fansly_network_studio",
-    "mock_context",
-    "mock_stash_context",
-    "mock_state",
+    # Removed: "mock_context", "mock_stash_context"
+    # (Mocked internal StashContext - use real stash_context or respx)
+    "test_state",  # was "mock_state" - already a real object, not a mock
     "mock_studio_finder",
-    "integration_mock_performer",
-    "integration_mock_studio",
-    "integration_mock_scene",
+    # Removed: "integration_mock_performer", "integration_mock_studio", "integration_mock_scene"
+    # (MagicMock duplicates - use real factories from stash_type_factories)
     "mock_permissions",
-    "mock_gallery",
-    "mock_image",
-    "stash_processor",
+    # Note: mock_gallery and mock_image are in mod_stash_fixtures (from stash_type_factories)
+    # Removed: "stash_processor"
+    # (Used mock_stash_context - use real_stash_processor with respx instead)
+    "real_stash_processor",  # The real replacement for stash_processor
 ]
 
 mod_cleanup_fixtures = [

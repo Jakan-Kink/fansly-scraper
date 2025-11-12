@@ -30,7 +30,7 @@ Usage:
 """
 
 # Import key test fixtures for easy access
-from ...fixtures.stash_fixtures import (
+from ...fixtures.stash.stash_fixtures import (
     MockTag,
     TestStashCreateInput,
     TestStashObject,

@@ -7,7 +7,7 @@ and factory-based test data instead of mocks.
 import pytest
 
 from stash.types import Performer
-from tests.fixtures.metadata_factories import AccountFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory
 
 
 class TestStashProcessingIntegration:
@@ -148,7 +148,7 @@ class TestStashProcessingIntegration:
         import strawberry
 
         from stash.types import FindStudiosResultType
-        from tests.fixtures.stash_type_factories import StudioFactory
+        from tests.fixtures.stash.stash_type_factories import StudioFactory
 
         # Create a real account using factory
         account = AccountFactory(username="studio_creator")
@@ -194,7 +194,7 @@ class TestStashProcessingIntegration:
         from unittest.mock import AsyncMock
 
         from stash.types import FindStudiosResultType
-        from tests.fixtures.stash_type_factories import StudioFactory
+        from tests.fixtures.stash.stash_type_factories import StudioFactory
 
         # Create a real account
         account = AccountFactory(username="new_studio_creator")

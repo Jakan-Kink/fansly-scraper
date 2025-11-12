@@ -9,13 +9,13 @@ from sqlalchemy import select
 
 from metadata import Account
 from stash.types import Gallery
-from tests.fixtures.metadata_factories import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     GroupFactory,
     MessageFactory,
     PostFactory,
 )
-from tests.fixtures.stash_type_factories import PerformerFactory, StudioFactory
+from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
 
 
 class TestContentProcessingIntegration:

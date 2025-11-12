@@ -21,7 +21,7 @@ import pytest
 
 from stash.processing.mixins.media import MediaProcessingMixin
 from stash.types import Scene
-from tests.fixtures.metadata_factories import AccountFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 
 
 class TestMediaMixin(MediaProcessingMixin):

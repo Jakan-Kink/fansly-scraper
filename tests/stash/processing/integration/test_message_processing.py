@@ -18,7 +18,7 @@ from tests.fixtures import (
     MediaFactory,
     MessageFactory,
 )
-from tests.fixtures.metadata_factories import GroupFactory
+from tests.fixtures.metadata.metadata_factories import GroupFactory
 
 
 @pytest.mark.asyncio

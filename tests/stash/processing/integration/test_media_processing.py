@@ -14,7 +14,7 @@ from metadata import Account
 from metadata.account import AccountMedia, account_media_bundle_media
 from metadata.attachment import Attachment, ContentType
 from stash.types import Image
-from tests.fixtures.metadata_factories import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,

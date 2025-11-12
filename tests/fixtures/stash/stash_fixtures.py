@@ -6,7 +6,7 @@ StashObject implementations and GraphQL operations.
 """
 
 import gc
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 import strawberry

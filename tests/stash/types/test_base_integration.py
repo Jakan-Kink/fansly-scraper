@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from ...fixtures.stash_fixtures import MockTag, TestStashObject
+from ...fixtures.stash.stash_fixtures import MockTag, TestStashObject
 
 
 # =============================================================================

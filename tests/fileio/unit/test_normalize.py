@@ -7,7 +7,7 @@ import pytest
 
 from fileio.normalize import get_id_from_filename, normalize_filename
 from metadata.media import Media
-from tests.fixtures.stash_processing_fixtures import MockDatabase
+from tests.fixtures.stash.stash_processing_fixtures import MockDatabase
 
 
 class TestGetIdFromFilename:
