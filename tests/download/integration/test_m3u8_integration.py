@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ffmpeg as ffmpeg_lib
+import httpx
 import pytest
-import requests
 
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import download_m3u8, fetch_m3u8_segment_playlist
