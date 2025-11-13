@@ -14,7 +14,12 @@ from tests.fixtures import (
 
 
 class MockDatabase:
-    """Minimal mock database to satisfy @with_session decorator."""
+    """Minimal mock database to satisfy @with_session decorator.
+
+    The @with_session decorator requires self.database.async_session_scope()
+    but the session parameter is unused by process_creator_studio (ARG002).
+    This provides minimal infrastructure support without requiring PostgreSQL.
+    """
 
     @contextlib.asynccontextmanager
     async def async_session_scope(self):
@@ -44,8 +49,7 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_both_exist(
-        self, studio_mixin, mock_account, mock_performer
-    ):
+        self, studio_mixin, mock_account, mock_performer    ):
         """Test process_creator_studio when both Fansly and Creator studios exist."""
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -97,8 +101,7 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_create_new(
-        self, studio_mixin, mock_account, mock_performer, mock_studio
-    ):
+        self, studio_mixin, mock_account, mock_performer, mock_studio    ):
         """Test process_creator_studio when Creator studio doesn't exist and needs to be created."""
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -162,8 +165,7 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_fansly_not_found(
-        self, studio_mixin, mock_account, mock_performer
-    ):
+        self, studio_mixin, mock_account, mock_performer    ):
         """Test process_creator_studio when Fansly studio doesn't exist."""
         # Create empty response
         empty_result = create_find_studios_result(count=0, studios=[])
@@ -196,8 +198,7 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_creation_fails_then_retry(
-        self, studio_mixin, mock_account, mock_performer
-    ):
+        self, studio_mixin, mock_account, mock_performer    ):
         """Test process_creator_studio when creation fails, then succeeds on retry."""
         # Create responses
         fansly_studio_dict = create_studio_dict(
