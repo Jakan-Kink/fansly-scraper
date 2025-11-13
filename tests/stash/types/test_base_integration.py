@@ -8,9 +8,13 @@ Coverage targets: Integration workflows, complete object lifecycle
 
 import time
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
+import httpx
 import pytest
+import respx
+
+from stash.client import StashClient
 
 from ...fixtures.stash.stash_fixtures import MockTag, TestStashObject
 
@@ -21,8 +25,16 @@ from ...fixtures.stash.stash_fixtures import MockTag, TestStashObject
 
 
 @pytest.mark.asyncio
-async def test_full_workflow_new_object(mock_stash_client_with_responses: Mock) -> None:
+@respx.mock
+async def test_full_workflow_new_object() -> None:
     """Test complete workflow for new object creation."""
+    # Mock HTTP response for create operation
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"testStashCreate": {"id": "created_456"}}}
+        )
+    )
+
     # Create new object
     obj = TestStashObject(
         id="new",
@@ -36,7 +48,8 @@ async def test_full_workflow_new_object(mock_stash_client_with_responses: Mock) 
     assert obj.is_dirty()
 
     # Save should work
-    await obj.save(mock_stash_client_with_responses)
+    client = await StashClient.create(conn={"url": "http://localhost:9999"})
+    await obj.save(client)
 
     # Should be clean with updated ID
     assert not obj.is_dirty()
@@ -44,10 +57,16 @@ async def test_full_workflow_new_object(mock_stash_client_with_responses: Mock) 
 
 
 @pytest.mark.asyncio
-async def test_full_workflow_update_object(
-    mock_stash_client_with_responses: Mock,
-) -> None:
+@respx.mock
+async def test_full_workflow_update_object() -> None:
     """Test complete workflow for object updates."""
+    # Mock HTTP response for update operation
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"testStashUpdate": {"id": "existing_123"}}}
+        )
+    )
+
     # Create existing object
     obj = TestStashObject(
         id="existing_123", name="Original Name", description="Original description"
@@ -62,19 +81,44 @@ async def test_full_workflow_update_object(
     assert obj.is_dirty()
 
     # Save should work
-    await obj.save(mock_stash_client_with_responses)
+    client = await StashClient.create(conn={"url": "http://localhost:9999"})
+    await obj.save(client)
 
     # Should be clean
     assert not obj.is_dirty()
 
 
 @pytest.mark.asyncio
-async def test_find_and_update_workflow(mock_stash_client_with_responses: Mock) -> None:
+@respx.mock
+async def test_find_and_update_workflow() -> None:
     """Test complete find-and-update workflow."""
-    # Find an existing object
-    found_obj = await TestStashObject.find_by_id(
-        mock_stash_client_with_responses, "existing_123"
+    # Mock HTTP responses for find and update
+    route = respx.post("http://localhost:9999/graphql")
+    # First call: find
+    route.mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "findTestStash": {
+                            "id": "existing_123",
+                            "name": "Existing Object",
+                        }
+                    }
+                },
+            ),
+            # Second call: update
+            httpx.Response(
+                200, json={"data": {"testStashUpdate": {"id": "existing_123"}}}
+            ),
+        ]
     )
+
+    client = await StashClient.create(conn={"url": "http://localhost:9999"})
+
+    # Find an existing object
+    found_obj = await TestStashObject.find_by_id(client, "existing_123")
 
     assert found_obj is not None
     assert found_obj.id == "existing_123"
@@ -89,7 +133,7 @@ async def test_find_and_update_workflow(mock_stash_client_with_responses: Mock) 
     assert found_obj.is_dirty()
 
     # Save changes
-    await found_obj.save(mock_stash_client_with_responses)
+    await found_obj.save(client)
 
     # Verify the name actually changed
     assert found_obj.name != original_name
@@ -191,32 +235,47 @@ async def test_field_processing_integration() -> None:
 
 
 @pytest.mark.asyncio
-async def test_error_recovery_workflow(mock_stash_client_with_errors: Mock) -> None:
+@respx.mock
+async def test_error_recovery_workflow() -> None:
     """Test error recovery in complete workflows."""
+    # Mock HTTP response with error
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200, json={"errors": [{"message": "GraphQL Error"}]}
+        )
+    )
+
     obj = TestStashObject(
         id="new", name="Error Recovery Test", description="Testing error scenarios"
     )
     obj.mark_dirty()
 
+    client = await StashClient.create(conn={"url": "http://localhost:9999"})
     # Mock to_input to return valid data
     with patch.object(obj, "to_input", return_value={"name": "Error Recovery Test"}):
-        # Attempt save with error client
+        # Attempt save with error response
         with pytest.raises(ValueError, match="Failed to save"):
-            await obj.save(mock_stash_client_with_errors)
+            await obj.save(client)
 
         # Object should still be dirty after failed save
         assert obj.is_dirty()
 
-    # Test find with error client
-    result = await TestStashObject.find_by_id(mock_stash_client_with_errors, "test")
+    # Test find with error response
+    result = await TestStashObject.find_by_id(client, "test")
     assert result is None  # Should handle error gracefully
 
 
 @pytest.mark.asyncio
-async def test_batch_operations_workflow(
-    mock_stash_client_with_responses: Mock,
-) -> None:
+@respx.mock
+async def test_batch_operations_workflow() -> None:
     """Test workflows involving multiple objects."""
+    # Mock HTTP response for update operations
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200, json={"data": {"testStashUpdate": {"id": "batch_0"}}}
+        )
+    )
+
     # Create multiple objects
     objects = []
     for i in range(3):
@@ -233,9 +292,10 @@ async def test_batch_operations_workflow(
         obj.name = f"Modified Batch Object {i}"
         assert obj.is_dirty()
 
+    client = await StashClient.create(conn={"url": "http://localhost:9999"})
     # Save all objects
     for obj in objects:
-        await obj.save(mock_stash_client_with_responses)
+        await obj.save(client)
         assert not obj.is_dirty()
 
 
