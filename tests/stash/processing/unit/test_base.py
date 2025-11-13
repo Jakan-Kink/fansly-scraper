@@ -9,33 +9,37 @@ import pytest
 
 from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
+from tests.fixtures.core import FanslyConfigFactory
 from tests.fixtures.download import DownloadStateFactory
 
 
 @pytest.fixture
 def mock_config():
-    """Fixture for mock configuration."""
-    config = MagicMock()
-    config.get_stash_context.return_value = MagicMock(spec=StashContext)
+    """Fixture for FanslyConfig using real FanslyConfigFactory."""
+    # Create a real FanslyConfig with mock Stash context
+    config = FanslyConfigFactory()
+    # Add Stash-specific mocks that aren't in factory
+    config.get_stash_context = MagicMock(return_value=MagicMock(spec=StashContext))
     config.stash_context_conn = {"url": "http://test.com", "api_key": "test_key"}
     config._database = MagicMock()
-    mock_task_list = MagicMock()
-    config.get_background_tasks.return_value = mock_task_list
+    config.get_background_tasks = MagicMock(return_value=[])
     return config
 
 
 @pytest.fixture
-def mock_state():
-    """Fixture for download state using real DownloadStateFactory."""
-    # Create a real DownloadState with test values
-    mock_path = MagicMock()
-    mock_path.is_dir.return_value = True
+def mock_state(tmp_path):
+    """Fixture for download state using real DownloadStateFactory with real paths."""
+    # Create real temporary paths
+    base_path = tmp_path / "downloads"
+    download_path = base_path / "test_user_fansly"
+    download_path.mkdir(parents=True)
 
+    # Use factory with real paths
     return DownloadStateFactory(
         creator_id="12345",
         creator_name="test_user",
-        download_path=mock_path,
-        base_path=MagicMock(),
+        base_path=base_path,
+        download_path=download_path,
     )
 
 
