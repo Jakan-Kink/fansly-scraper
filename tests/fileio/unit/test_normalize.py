@@ -6,7 +6,7 @@ import pytest
 
 from fileio.normalize import get_id_from_filename, normalize_filename
 from metadata.media import Media
-from tests.fixtures.metadata.metadata_factories import MediaFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 
 
 class TestGetIdFromFilename:
@@ -39,9 +39,14 @@ class TestNormalizeFilename:
     @pytest.mark.asyncio
     async def test_normalize_filename_with_database_match(self, config, session_sync):
         """Test normalize_filename with database match using real database."""
+        # Create account first (foreign key requirement)
+        account = AccountFactory.build(id=1, username="test_user")
+        session_sync.add(account)
+        session_sync.commit()
+
         # Create a real media object in the database
         media = MediaFactory.build(
-            id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
+            id=12345, accountId=1, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         )
         session_sync.add(media)
         session_sync.commit()
@@ -69,9 +74,14 @@ class TestNormalizeFilename:
     @pytest.mark.asyncio
     async def test_normalize_filename_different_extensions(self, config, session_sync):
         """Test normalize_filename with different extensions."""
+        # Create account first (foreign key requirement)
+        account = AccountFactory.build(id=1, username="test_user")
+        session_sync.add(account)
+        session_sync.commit()
+
         # Create a real media object in the database
         media = MediaFactory.build(
-            id=12345, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
+            id=12345, accountId=1, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         )
         session_sync.add(media)
         session_sync.commit()
