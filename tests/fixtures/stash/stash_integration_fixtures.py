@@ -18,8 +18,10 @@ Philosophy:
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 import pytest_asyncio
+import respx
 
 from stash.processing import StashProcessing
 from stash.types import FindStudiosResultType, StashID, Studio
@@ -157,9 +159,6 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
     Yields:
         StashProcessing: Fully functional processor hitting real services
     """
-    import httpx
-    import respx
-
     # Set up config with real database and real stash
     config._database = test_database_sync
     config._stash = stash_context
