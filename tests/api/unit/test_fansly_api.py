@@ -3,7 +3,9 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from api.fansly import FanslyApi
 
@@ -192,16 +194,19 @@ class TestFanslyApi:
         result = fansly_api.get_json_response_contents(mock_response)
         assert result == {"data": "test_data"}
 
-    def test_get_client_user_name(self, fansly_api, mock_http_session):
-        """Test get_client_user_name success path"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_response.json.return_value = {
-            "success": "true",
-            "response": {"account": {"username": "test_user"}},
-        }
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_client_user_name(self, fansly_api):
+        """Test get_client_user_name success path - mocks Fansly API at edge"""
+        # Mock the actual Fansly API endpoint
+        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": "true",
+                    "response": {"account": {"username": "test_user"}},
+                },
+            )
+        )
 
         assert fansly_api.get_client_user_name() == "test_user"
 
