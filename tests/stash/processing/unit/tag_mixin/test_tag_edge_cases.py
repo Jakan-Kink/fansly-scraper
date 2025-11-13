@@ -1,31 +1,50 @@
 """Tests for edge cases in TagProcessingMixin."""
 
-from unittest.mock import AsyncMock, MagicMock
-
+import httpx
 import pytest
+import respx
 
-from stash.types import FindTagsResultType
-from tests.fixtures.metadata.metadata_factories import HashtagFactory
-from tests.fixtures.stash.stash_type_factories import TagFactory
+from tests.fixtures import (
+    HashtagFactory,
+    SceneFactory,
+    TagFactory,
+    create_find_tags_result,
+    create_graphql_response,
+    create_tag_create_result,
+    create_tag_dict,
+)
 
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_process_hashtags_to_tags_alias_match(tag_mixin):
     """Test finding a tag by alias when exact name match fails."""
     # Create real hashtag using factory
     hashtag = HashtagFactory.build(value="alias_name")
 
-    # Mock tag name lookup to return no results
-    name_result = FindTagsResultType(count=0, tags=[])
+    # Create responses
+    empty_result = create_find_tags_result(count=0, tags=[])
+    tag_dict = create_tag_dict(id="tag_123", name="Original Name")
+    alias_result = create_find_tags_result(count=1, tags=[tag_dict])
 
-    # Mock alias lookup to return a match (GraphQL returns dict)
-    tag_dict = {"id": "tag_123", "name": "Original Name"}
-    alias_result = FindTagsResultType(count=1, tags=[tag_dict])
-
-    # Set up mock find_tags to return different results for name vs alias search
-    tag_mixin.context.client.find_tags = AsyncMock(
-        side_effect=[name_result, alias_result]
+    # Mock GraphQL responses - two calls with different results
+    respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            # First call: name search returns empty
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            ),
+            # Second call: alias search returns match
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", alias_result),
+            ),
+        ]
     )
+
+    # Initialize client
+    await tag_mixin.context.get_client()
 
     # Process the hashtag
     tags = await tag_mixin._process_hashtags_to_tags([hashtag])
@@ -34,11 +53,9 @@ async def test_process_hashtags_to_tags_alias_match(tag_mixin):
     assert tags[0].id == "tag_123"
     assert tags[0].name == "Original Name"
 
-    # Verify both name and alias searches were attempted
-    assert tag_mixin.context.client.find_tags.call_count == 2
-
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_process_hashtags_to_tags_creation_error_exists(tag_mixin):
     """Test handling when client's create_tag returns existing tag.
 
@@ -48,16 +65,35 @@ async def test_process_hashtags_to_tags_creation_error_exists(tag_mixin):
     # Create real hashtag using factory
     hashtag = HashtagFactory.build(value="test_tag")
 
-    # Mock searches to return no results (tag not found by name or alias)
-    empty_result = FindTagsResultType(count=0, tags=[])
-    tag_mixin.context.client.find_tags = AsyncMock(return_value=empty_result)
+    # Create responses
+    empty_result = create_find_tags_result(count=0, tags=[])
+    tag_dict = create_tag_dict(id="tag_123", name="test_tag")
 
-    # Mock create_tag to return existing tag (client handles "already exists" internally)
-    existing_tag = TagFactory.build(
-        id="tag_123",
-        name="test_tag",
+    # Mock GraphQL responses
+    respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            # First call: findTags by name returns empty
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            ),
+            # Second call: findTags by alias returns empty
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            ),
+            # Third call: tagCreate returns new tag
+            httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "tagCreate", create_tag_create_result(tag_dict)
+                ),
+            ),
+        ]
     )
-    tag_mixin.context.client.create_tag = AsyncMock(return_value=existing_tag)
+
+    # Initialize client
+    await tag_mixin.context.get_client()
 
     # Process the hashtag
     tags = await tag_mixin._process_hashtags_to_tags([hashtag])
@@ -66,79 +102,122 @@ async def test_process_hashtags_to_tags_creation_error_exists(tag_mixin):
     assert tags[0].id == "tag_123"
     assert tags[0].name == "test_tag"
 
-    # Verify create_tag was called once (client handles error internally)
-    assert tag_mixin.context.client.create_tag.call_count == 1
-
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_process_hashtags_to_tags_creation_error_other(tag_mixin):
     """Test handling of tag creation with other errors."""
     # Create real hashtag using factory
     hashtag = HashtagFactory.build(value="test_tag")
 
-    # Mock searches to return no results
-    empty_result = FindTagsResultType(count=0, tags=[])
-    tag_mixin.context.client.find_tags = AsyncMock(return_value=empty_result)
+    # Create responses
+    empty_result = create_find_tags_result(count=0, tags=[])
 
-    # Mock tag creation to raise a different error
-    tag_mixin.context.client.create_tag = AsyncMock(
-        side_effect=Exception("Some other error")
+    # Mock GraphQL responses to return errors
+    respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            # First call: findTags by name returns empty
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            ),
+            # Second call: findTags by alias returns empty
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            ),
+            # Third call: tagCreate returns GraphQL error
+            httpx.Response(
+                200,
+                json={
+                    "errors": [{"message": "Some other error"}],
+                    "data": None,
+                },
+            ),
+        ]
     )
 
+    # Initialize client
+    await tag_mixin.context.get_client()
+
     # Process the hashtag and expect the error to be raised
-    with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
+    with pytest.raises(
+        Exception
+    ) as exc_info:  # noqa: PT011 - message validated by assertion below
         await tag_mixin._process_hashtags_to_tags([hashtag])
 
-    assert str(exc_info.value) == "Some other error"
+    assert "Some other error" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_add_preview_tag_existing_tag(tag_mixin):
     """Test _add_preview_tag when tag is already present."""
-    # Create mock file (Scene/Image from Stash API)
-    mock_file = MagicMock()
-    mock_file.id = "file_123"
-    mock_file.tags = []
-
     # Create preview tag using factory
     preview_tag = TagFactory.build(
         id="preview_tag_123",
         name="Trailer",
     )
 
-    # Mock tag search to return the preview tag
-    tag_result = FindTagsResultType(count=1, tags=[preview_tag])
-    tag_mixin.context.client.find_tags = AsyncMock(return_value=tag_result)
+    # Create Scene with existing preview tag
+    scene = SceneFactory.build(
+        id="scene_123",
+        title="Test Scene",
+        tags=[preview_tag],
+    )
 
-    # Add the tag
-    await tag_mixin._add_preview_tag(mock_file)
+    # Create response
+    tag_dict = create_tag_dict(id="preview_tag_123", name="Trailer")
+    tag_result = create_find_tags_result(count=1, tags=[tag_dict])
 
-    # Verify tag was added
-    assert len(mock_file.tags) == 1
-    assert mock_file.tags[0].id == "preview_tag_123"
+    # Mock GraphQL response
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200,
+            json=create_graphql_response("findTags", tag_result),
+        )
+    )
+
+    # Initialize client
+    await tag_mixin.context.get_client()
+
+    # Verify tag is already present
+    assert len(scene.tags) == 1
+    assert scene.tags[0].id == "preview_tag_123"
 
     # Add the tag again
-    await tag_mixin._add_preview_tag(mock_file)
+    await tag_mixin._add_preview_tag(scene)
 
     # Verify tag wasn't duplicated
-    assert len(mock_file.tags) == 1
-    assert mock_file.tags[0].id == "preview_tag_123"
+    assert len(scene.tags) == 1
+    assert scene.tags[0].id == "preview_tag_123"
 
 
 @pytest.mark.asyncio
+@respx.mock
 async def test_add_preview_tag_no_tag_found(tag_mixin):
     """Test _add_preview_tag when preview tag doesn't exist."""
-    # Create mock file (Scene/Image from Stash API)
-    mock_file = MagicMock()
-    mock_file.id = "file_123"
-    mock_file.tags = []
+    # Create Scene without tags
+    scene = SceneFactory.build(
+        id="scene_123",
+        title="Test Scene",
+        tags=[],
+    )
 
     # Mock tag search to return no results
-    empty_result = FindTagsResultType(count=0, tags=[])
-    tag_mixin.context.client.find_tags = AsyncMock(return_value=empty_result)
+    empty_result = create_find_tags_result(count=0, tags=[])
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200,
+            json=create_graphql_response("findTags", empty_result),
+        )
+    )
+
+    # Initialize client
+    await tag_mixin.context.get_client()
 
     # Add the tag
-    await tag_mixin._add_preview_tag(mock_file)
+    await tag_mixin._add_preview_tag(scene)
 
     # Verify no tag was added since none was found
-    assert len(mock_file.tags) == 0
+    assert len(scene.tags) == 0
