@@ -31,7 +31,6 @@ Usage:
 
 from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock
 
 import httpx
 import pytest

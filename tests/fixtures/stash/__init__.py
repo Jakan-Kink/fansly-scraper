@@ -11,6 +11,18 @@ from .stash_api_fixtures import (
     stash_context,
     test_query,
 )
+from .stash_graphql_fixtures import (
+    create_find_performers_result,
+    create_find_scenes_result,
+    create_find_studios_result,
+    create_find_tags_result,
+    create_graphql_response,
+    create_performer_dict,
+    create_scene_dict,
+    create_studio_dict,
+    create_tag_create_result,
+    create_tag_dict,
+)
 from .stash_fixtures import (
     MockTag,
     TestStashCreateInput,
@@ -92,6 +104,17 @@ __all__ = [
     "stash_client",
     "stash_context",
     "test_query",
+    # GraphQL response helpers for respx mocking
+    "create_find_performers_result",
+    "create_find_scenes_result",
+    "create_find_studios_result",
+    "create_find_tags_result",
+    "create_graphql_response",
+    "create_performer_dict",
+    "create_scene_dict",
+    "create_studio_dict",
+    "create_tag_create_result",
+    "create_tag_dict",
     # Stash fixtures
     "MockTag",
     "TestStashCreateInput",
