@@ -1,6 +1,6 @@
 """Download fixtures for testing download functionality."""
 
-from .download_factories import DownloadStateFactory
+from .download_factories import DownloadStateFactory, GlobalStateFactory
 from .download_fixtures import (
     download_state,
     mock_download_dir,
@@ -11,6 +11,7 @@ from .download_fixtures import (
 
 __all__ = [
     "DownloadStateFactory",
+    "GlobalStateFactory",
     "download_state",
     "mock_download_dir",
     "mock_metadata_dir",

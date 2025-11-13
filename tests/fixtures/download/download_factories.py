@@ -21,7 +21,7 @@ from pathlib import Path
 
 from factory import Factory, LazyFunction, Sequence
 
-from download.core import DownloadState
+from download.core import DownloadState, GlobalState
 from download.downloadstate import DownloadType
 
 
@@ -104,7 +104,39 @@ class DownloadStateFactoryWithCreator(DownloadStateFactory):
     )  # Will be updated based on creator_name in practice
 
 
+class GlobalStateFactory(Factory):
+    """Factory for GlobalState instances.
+
+    Creates GlobalState instances with realistic defaults for testing.
+    Override any fields when creating instances.
+
+    Example:
+        # Basic global state
+        state = GlobalStateFactory()
+
+        # State with specific counts
+        state = GlobalStateFactory(
+            duplicate_count=5,
+            pic_count=10,
+            vid_count=3
+        )
+    """
+
+    class Meta:
+        model = GlobalState
+
+    # Counters
+    duplicate_count = 0
+    pic_count = 0
+    vid_count = 0
+
+    total_message_items = 0
+    total_timeline_pictures = 0
+    total_timeline_videos = 0
+
+
 __all__ = [
     "DownloadStateFactory",
     "DownloadStateFactoryWithCreator",
+    "GlobalStateFactory",
 ]

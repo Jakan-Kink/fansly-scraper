@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from download.core import DownloadState
 from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
+from tests.fixtures.download import DownloadStateFactory
 
 
 @pytest.fixture
@@ -26,14 +26,17 @@ def mock_config():
 
 @pytest.fixture
 def mock_state():
-    """Fixture for mock download state."""
-    state = MagicMock(spec=DownloadState)
-    state.creator_id = "12345"
-    state.creator_name = "test_user"
-    state.download_path = MagicMock()
-    state.download_path.is_dir.return_value = True
-    state.base_path = MagicMock()
-    return state
+    """Fixture for download state using real DownloadStateFactory."""
+    # Create a real DownloadState with test values
+    mock_path = MagicMock()
+    mock_path.is_dir.return_value = True
+
+    return DownloadStateFactory(
+        creator_id="12345",
+        creator_name="test_user",
+        download_path=mock_path,
+        base_path=MagicMock(),
+    )
 
 
 @pytest.fixture

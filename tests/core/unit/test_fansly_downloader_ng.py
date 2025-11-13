@@ -503,27 +503,12 @@ def mock_download_functions():
 
 @pytest.fixture
 def mock_state():
-    """Mock state fixture."""
-    with patch("download.globalstate.GlobalState") as mock_state_class:
-        # Create a real GlobalState instance
-        state = MagicMock()
-        state.duplicate_count = 0
-        state.pic_count = 0
-        state.vid_count = 0
-        state.total_message_items = 0
-        state.total_timeline_pictures = 0
-        state.total_timeline_videos = 0
-        state.total_timeline_items = MagicMock(return_value=0)
-        state.total_downloaded_items = MagicMock(return_value=0)
-        state.missing_items_count = MagicMock(
-            side_effect=lambda: 0
-        )  # Use side_effect to return a value
-        state.total_items_count = MagicMock(side_effect=lambda: 0)
-        state.downloaded_items_count = MagicMock(side_effect=lambda: 0)
-        state.skipped_items_count = MagicMock(side_effect=lambda: 0)
-        state.failed_items_count = MagicMock(side_effect=lambda: 0)
-        mock_state_class.return_value = state
-        yield state
+    """Mock state fixture using real GlobalStateFactory."""
+    from tests.fixtures.download import GlobalStateFactory
+
+    # Create a real GlobalState instance with default values
+    state = GlobalStateFactory()
+    yield state
 
 
 @pytest.fixture
