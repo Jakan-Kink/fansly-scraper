@@ -15,25 +15,25 @@ class TestFullWorkflowIntegration:
         self,
         real_stash_processor,
         session,
-        integration_mock_account,
-        integration_mock_performer,
-        integration_mock_studio,
+        test_account,
+        mock_performer,
+        mock_studio,
         mock_gallery,
         mock_image,
     ):
         """Test the full workflow using continue_stash_processing."""
         # Update account to have a stash_id that matches the performer
-        integration_mock_account.stash_id = integration_mock_performer.id
+        test_account.stash_id = mock_performer.id
 
         # Mock the Stash API methods that will be called during processing
         real_stash_processor.context.client.find_studio.return_value = None
         real_stash_processor.context.client.create_studio.return_value = (
-            integration_mock_studio
+            mock_studio
         )
 
         # Mock process_creator_studio to return the studio
         real_stash_processor.process_creator_studio = AsyncMock(
-            return_value=integration_mock_studio
+            return_value=mock_studio
         )
 
         # Set up find_gallery to return gallery
@@ -46,12 +46,12 @@ class TestFullWorkflowIntegration:
         real_stash_processor.context.client.find_images.return_value = mock_image_result
 
         # Mock internal methods to verify they're called
-        real_stash_processor._find_account = AsyncMock(return_value=integration_mock_account)
+        real_stash_processor._find_account = AsyncMock(return_value=test_account)
         real_stash_processor._find_existing_performer = AsyncMock(
-            return_value=integration_mock_performer
+            return_value=mock_performer
         )
         real_stash_processor._find_existing_studio = AsyncMock(
-            return_value=integration_mock_studio
+            return_value=mock_studio
         )
         real_stash_processor._process_items_with_gallery = AsyncMock()
 
@@ -61,8 +61,8 @@ class TestFullWorkflowIntegration:
 
         # Call the new API
         await real_stash_processor.continue_stash_processing(
-            account=integration_mock_account,
-            performer=integration_mock_performer,
+            account=test_account,
+            performer=mock_performer,
             session=session,
         )
 
@@ -77,10 +77,10 @@ class TestFullWorkflowIntegration:
         self,
         real_stash_processor,
         session,
-        integration_mock_account,
-        integration_mock_performer,
-        integration_mock_studio,
-        mock_posts,
+        test_account,
+        mock_performer,
+        mock_studio,
+        test_posts,
         mock_gallery,
         mock_image,
     ):
@@ -97,10 +97,10 @@ class TestFullWorkflowIntegration:
 
         # Directly call the item processing function to test the flow
         await real_stash_processor._process_item_gallery(
-            item=mock_posts[0],
-            account=integration_mock_account,
-            performer=integration_mock_performer,
-            studio=integration_mock_studio,
+            item=test_posts[0],
+            account=test_account,
+            performer=mock_performer,
+            studio=mock_studio,
             item_type="post",
             url_pattern="https://fansly.com/post/test",
             session=session,
@@ -126,9 +126,9 @@ class TestFullWorkflowIntegration:
         self,
         real_stash_processor,
         session,
-        integration_mock_account,
-        integration_mock_performer,
-        integration_mock_studio,
+        test_account,
+        mock_performer,
+        mock_studio,
     ):
         """Test error handling in the full workflow."""
         # Mock process_creator_studio to raise exception
@@ -145,8 +145,8 @@ class TestFullWorkflowIntegration:
             # The exception should be caught and re-raised
             with pytest.raises(Exception, match="Test error in studio processing"):
                 await real_stash_processor.continue_stash_processing(
-                    account=integration_mock_account,
-                    performer=integration_mock_performer,
+                    account=test_account,
+                    performer=mock_performer,
                     session=session,
                 )
             # Verify process_creator_studio was called
@@ -158,10 +158,10 @@ class TestFullWorkflowIntegration:
         self,
         real_stash_processor,
         session,
-        integration_mock_account,
-        integration_mock_performer,
-        integration_mock_studio,
-        mock_posts,
+        test_account,
+        mock_performer,
+        mock_studio,
+        test_posts,
     ):
         """Test integration with real worker pool batch processing (not mocked)."""
         # The real_stash_processor fixture already mocks _setup_worker_pool to avoid progress bars
@@ -175,11 +175,11 @@ class TestFullWorkflowIntegration:
             "asyncio.sleep", new_callable=AsyncMock
         ):  # Mock sleep to speed up test
             await real_stash_processor.process_creator_posts(
-                account=integration_mock_account,
-                performer=integration_mock_performer,
-                studio=integration_mock_studio,
+                account=test_account,
+                performer=mock_performer,
+                studio=mock_studio,
                 session=session,
             )
 
         # Verify process_item_gallery was called for each post
-        assert real_stash_processor._process_item_gallery.call_count == len(mock_posts)
+        assert real_stash_processor._process_item_gallery.call_count == len(test_posts)
