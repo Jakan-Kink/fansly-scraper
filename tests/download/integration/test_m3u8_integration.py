@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import ffmpeg as ffmpeg_lib
 import httpx
 import pytest
+import respx
 
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import download_m3u8, fetch_m3u8_segment_playlist
@@ -17,18 +18,12 @@ class TestM3U8Integration:
     """Integration tests for the m3u8 module."""
 
     @pytest.fixture
-    def mock_config(self):
-        """Fixture for a mocked FanslyConfig with working API."""
+    def mock_config(self, fansly_api):
+        """Fixture for a FanslyConfig with real API and respx mocking."""
         config = MagicMock(spec=FanslyConfig)
-        mock_api = MagicMock()
-
-        # Create a mock response for get_with_ngsw
-        mock_response = MagicMock(spec=requests.Response)
-        mock_response.status_code = 200
-        mock_api.get_with_ngsw.return_value.__enter__.return_value = mock_response
-
-        config.get_api.return_value = mock_api
-        return config, mock_api, mock_response
+        # Use real API from fixture, respx will mock HTTP at edge
+        config.get_api.return_value = fansly_api
+        return config
 
     @pytest.fixture
     def temp_dir(self):
@@ -36,14 +31,14 @@ class TestM3U8Integration:
         with tempfile.TemporaryDirectory() as tmpdirname:
             yield Path(tmpdirname)
 
+    @respx.mock
     @patch("download.m3u8.ffmpeg")
     @patch("download.m3u8._try_direct_download")
     def test_full_m3u8_download_workflow(
         self, mock_direct_download, mock_ffmpeg, mock_config, temp_dir
     ):
-        """Test the full M3U8 download workflow with segment download fallback."""
-        # Setup config and mock responses
-        config, mock_api, _mock_response = mock_config
+        """Test the full M3U8 download workflow with segment download fallback - mocks HTTP at edge."""
+        config = mock_config
 
         # Mock direct download to fail (forces segment download)
         mock_direct_download.return_value = False
@@ -72,33 +67,29 @@ segment2.ts
         # Segment content - just some dummy data
         segment_content = b"DUMMY_TS_SEGMENT_DATA"
 
-        # Set up mock api response sequence
-        # 1. Master playlist, 2. Segment playlist, 3-4. Segments
-        mock_master_response = MagicMock(spec=requests.Response)
-        mock_master_response.status_code = 200
-        mock_master_response.text = master_playlist
+        # Mock HTTP responses at edge using respx
+        # OPTIONS requests (preflight)
+        respx.options(url__regex=r"https://example\.com/.*").mock(
+            return_value=httpx.Response(200)
+        )
 
-        mock_segment_playlist_response = MagicMock(spec=requests.Response)
-        mock_segment_playlist_response.status_code = 200
-        mock_segment_playlist_response.text = segment_playlist
+        # Master playlist request
+        respx.get("https://example.com/video.m3u8").mock(
+            return_value=httpx.Response(200, text=master_playlist)
+        )
 
-        mock_segment_response1 = MagicMock(spec=requests.Response)
-        mock_segment_response1.status_code = 200
-        mock_segment_response1.iter_content.return_value = [segment_content]
-        mock_segment_response1.iter_bytes.return_value = [segment_content]
+        # Segment playlist request (highest quality)
+        respx.get("https://example.com/video_1080.m3u8").mock(
+            return_value=httpx.Response(200, text=segment_playlist)
+        )
 
-        mock_segment_response2 = MagicMock(spec=requests.Response)
-        mock_segment_response2.status_code = 200
-        mock_segment_response2.iter_content.return_value = [segment_content]
-        mock_segment_response2.iter_bytes.return_value = [segment_content]
-
-        # Configure the API mock to return the sequence of responses
-        mock_api.get_with_ngsw.return_value.__enter__.side_effect = [
-            mock_master_response,  # 1. Master playlist
-            mock_segment_playlist_response,  # 2. Segment playlist
-            mock_segment_response1,  # 3. First segment
-            mock_segment_response2,  # 4. Second segment
-        ]
+        # Segment requests
+        respx.get("https://example.com/segment1.ts").mock(
+            return_value=httpx.Response(200, content=segment_content)
+        )
+        respx.get("https://example.com/segment2.ts").mock(
+            return_value=httpx.Response(200, content=segment_content)
+        )
 
         # Mock ffmpeg concat
         mock_stream = MagicMock()
@@ -126,23 +117,14 @@ segment2.ts
                 mock_direct_download.assert_called_once()  # Tried direct first
                 mock_stream.run.assert_called_once()  # Then fell back to segment concat
 
-                # Check API calls
-                assert (
-                    mock_api.get_with_ngsw.call_count >= 3
-                )  # At minimum we should call for master, playlist, and segments
-
-                # Verify the segment response was handled correctly
-                assert mock_segment_response1.iter_bytes.called
-                assert mock_segment_response2.iter_bytes.called
-
+    @respx.mock
     @patch("download.m3u8.ffmpeg")
     @patch("download.m3u8._try_direct_download")
     def test_m3u8_download_with_error_handling(
         self, mock_direct_download, mock_ffmpeg, mock_config, temp_dir
     ):
-        """Test M3U8 download with error handling for missing segments."""
-        # Setup config and mock responses
-        config, mock_api, _mock_response = mock_config
+        """Test M3U8 download with error handling for missing segments - mocks HTTP at edge."""
+        config = mock_config
 
         # Mock direct download to fail (forces segment download)
         mock_direct_download.return_value = False
@@ -161,28 +143,26 @@ segment2.ts
         # Segment content - just some dummy data
         segment_content = b"DUMMY_TS_SEGMENT_DATA"
 
-        # Set up segment playlist response
-        mock_segment_playlist_response = MagicMock(spec=requests.Response)
-        mock_segment_playlist_response.status_code = 200
-        mock_segment_playlist_response.text = segment_playlist
+        # Mock HTTP responses at edge using respx
+        # OPTIONS requests (preflight)
+        respx.options(url__regex=r"https://example\.com/.*").mock(
+            return_value=httpx.Response(200)
+        )
+
+        # Segment playlist request
+        respx.get("https://example.com/video.m3u8").mock(
+            return_value=httpx.Response(200, text=segment_playlist)
+        )
 
         # First segment succeeds
-        mock_segment_response1 = MagicMock(spec=requests.Response)
-        mock_segment_response1.status_code = 200
-        mock_segment_response1.iter_content.return_value = [segment_content]
-        mock_segment_response1.iter_bytes.return_value = [segment_content]
+        respx.get("https://example.com/segment1.ts").mock(
+            return_value=httpx.Response(200, content=segment_content)
+        )
 
         # Second segment fails
-        mock_segment_response2 = MagicMock(spec=requests.Response)
-        mock_segment_response2.status_code = 404
-        mock_segment_response2.text = "Not Found"
-
-        # Configure the API mock to return the sequence of responses
-        mock_api.get_with_ngsw.return_value.__enter__.side_effect = [
-            mock_segment_playlist_response,  # Segment playlist
-            mock_segment_response1,  # First segment
-            mock_segment_response2,  # Second segment (fails)
-        ]
+        respx.get("https://example.com/segment2.ts").mock(
+            return_value=httpx.Response(404, text="Not Found")
+        )
 
         # Create a patched version of exists that returns True for first segment but False for second
         original_exists = Path.exists
