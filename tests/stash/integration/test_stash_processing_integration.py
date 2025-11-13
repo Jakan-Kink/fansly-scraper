@@ -15,15 +15,22 @@ from tests.fixtures.download import DownloadStateFactory
 
 
 @pytest.fixture
-def mock_config():
-    """Fixture for FanslyConfig using real FanslyConfigFactory."""
-    # Create a real FanslyConfig with mock Stash context
-    config = FanslyConfigFactory()
-    # Add Stash-specific mocks that aren't in factory
-    config.get_stash_context = MagicMock(return_value=MagicMock(spec=StashContext))
-    config.stash_context_conn = {"url": "http://test.com", "api_key": "test_key"}
-    config._database = MagicMock()
-    config.get_background_tasks = MagicMock(return_value=[])
+def mock_config(uuid_test_db_factory):
+    """Fixture for FanslyConfig with real database and StashContext setup."""
+    # Use the real config fixture with database
+    config = uuid_test_db_factory
+
+    # Configure Stash connection (won't actually connect unless used)
+    config.stash_context_conn = {
+        "scheme": "http",
+        "host": "localhost",
+        "port": 9999,
+        "apikey": "test_api_key",
+    }
+
+    # _background_tasks already exists as field with default_factory=list
+    # No need to mock get_background_tasks() - tests can use config._background_tasks directly
+
     return config
 
 
@@ -131,9 +138,8 @@ async def test_full_creator_processing_flow(
         processor.process_creator.assert_called_once()
         mock_loop.create_task.assert_called_once()
         assert processor._background_task == mock_task
-        mock_config.get_background_tasks.return_value.append.assert_called_once_with(
-            mock_task
-        )
+        # Verify task was added to background tasks list
+        assert mock_task in mock_config._background_tasks
 
 
 @pytest.mark.asyncio
