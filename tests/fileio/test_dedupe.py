@@ -28,7 +28,7 @@ from fileio.dedupe import (
 )
 from metadata.account import Account
 from metadata.media import Media
-from tests.fixtures.metadata_factories import (
+from tests.fixtures.metadata.metadata_factories import (
     ACCOUNT_ID_BASE,
     MEDIA_ID_BASE,
     AccountFactory,

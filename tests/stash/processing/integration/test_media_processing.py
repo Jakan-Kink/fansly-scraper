@@ -14,7 +14,7 @@ from metadata import Account
 from metadata.account import AccountMedia, account_media_bundle_media
 from metadata.attachment import Attachment, ContentType
 from stash.types import Image
-from tests.fixtures.metadata_factories import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
@@ -31,7 +31,7 @@ class TestMediaProcessingIntegration:
     async def test_process_media_integration(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mock_studio_finder,
         mocker,
@@ -72,7 +72,7 @@ class TestMediaProcessingIntegration:
         from unittest.mock import AsyncMock, patch
 
         from stash.types import FindImagesResultType
-        from tests.fixtures import ImageFactory, ImageFileFactory
+        from tests.fixtures.stash.stash_type_factories import ImageFactory, ImageFileFactory
 
         mock_image_file = ImageFileFactory(path=f"/path/to/{media.id}.jpg")
         mock_image = ImageFactory(
@@ -90,27 +90,27 @@ class TestMediaProcessingIntegration:
 
         with (
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_images",
                 new=AsyncMock(return_value=mock_find_result),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_studios",
                 new=AsyncMock(side_effect=mock_find_studios_fn),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "create_studio",
                 new=AsyncMock(return_value=mock_creator_studio),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_performer",
                 new=AsyncMock(return_value=None),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "execute",
                 new=AsyncMock(return_value={"imageUpdate": {"id": "image_123"}}),
             ),
@@ -148,7 +148,7 @@ class TestMediaProcessingIntegration:
                 )
                 async_post = post_query.unique().scalar_one()
 
-                result = await stash_processor.process_creator_attachment(
+                result = await real_stash_processor.process_creator_attachment(
                     attachment=async_attachment,
                     item=async_post,
                     account=async_account,
@@ -164,7 +164,7 @@ class TestMediaProcessingIntegration:
     async def test_process_bundle_media_integration(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mock_studio_finder,
         mocker,
@@ -259,32 +259,32 @@ class TestMediaProcessingIntegration:
 
         with (
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_images",
                 new=AsyncMock(return_value=mock_find_images_result),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_scenes",
                 new=AsyncMock(return_value=mock_find_scenes_result),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_studios",
                 new=AsyncMock(side_effect=mock_find_studios_fn),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "create_studio",
                 new=AsyncMock(return_value=mock_creator_studio),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_performer",
                 new=AsyncMock(return_value=None),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "execute",
                 new=AsyncMock(
                     side_effect=[
@@ -329,7 +329,7 @@ class TestMediaProcessingIntegration:
                 )
                 async_post = post_query.unique().scalar_one()
 
-                result = await stash_processor.process_creator_attachment(
+                result = await real_stash_processor.process_creator_attachment(
                     attachment=async_attachment,
                     item=async_post,
                     account=async_account,
@@ -346,7 +346,7 @@ class TestMediaProcessingIntegration:
     async def test_process_creator_attachment_integration(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mock_studio_finder,
         mocker,
@@ -416,27 +416,27 @@ class TestMediaProcessingIntegration:
         # Mock at client boundary using patch.object for better inspection
         with (
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_images",
                 new=AsyncMock(return_value=mock_find_images_result),
             ) as mock_find_images,
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_performer",
                 new=AsyncMock(return_value=None),
             ) as mock_find_performer,
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_studios",
                 new=AsyncMock(side_effect=mock_find_studios_fn),
             ) as mock_find_studios,
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "create_studio",
                 new=AsyncMock(return_value=mock_creator_studio),
             ) as mock_create_studio,
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "execute",
                 new=AsyncMock(return_value={"imageUpdate": {"id": "image_456"}}),
             ) as mock_execute,
@@ -456,7 +456,7 @@ class TestMediaProcessingIntegration:
                 )
                 async_attachment = result_query.unique().scalar_one()
 
-                result = await stash_processor.process_creator_attachment(
+                result = await real_stash_processor.process_creator_attachment(
                     attachment=async_attachment,
                     item=post,
                     account=account,
@@ -476,7 +476,7 @@ class TestMediaProcessingIntegration:
     async def test_process_creator_attachment_with_bundle(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mock_studio_finder,
         mocker,
@@ -527,7 +527,7 @@ class TestMediaProcessingIntegration:
 
         # Mock Stash client at API boundary
         from stash.types import FindImagesResultType
-        from tests.fixtures import ImageFactory, ImageFileFactory
+        from tests.fixtures.stash.stash_type_factories import ImageFactory, ImageFileFactory
 
         mock_image_file = ImageFileFactory(path=f"/path/to/{media.id}.jpg")
         mock_image = ImageFactory(
@@ -545,27 +545,27 @@ class TestMediaProcessingIntegration:
 
         with (
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_images",
                 new=AsyncMock(return_value=mock_find_result),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_studios",
                 new=AsyncMock(side_effect=mock_find_studios_fn),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "create_studio",
                 new=AsyncMock(return_value=mock_creator_studio),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "find_performer",
                 new=AsyncMock(return_value=None),
             ),
             patch.object(
-                stash_processor.context.client,
+                real_stash_processor.context.client,
                 "execute",
                 new=AsyncMock(return_value={"imageUpdate": {"id": "bundle_img_1"}}),
             ),
@@ -600,7 +600,7 @@ class TestMediaProcessingIntegration:
                 )
                 async_account = account_query.unique().scalar_one()
 
-                result = await stash_processor.process_creator_attachment(
+                result = await real_stash_processor.process_creator_attachment(
                     attachment=async_attachment,
                     item=async_post,
                     account=async_account,
@@ -614,7 +614,7 @@ class TestMediaProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_aggregated_post(
-        self, factory_session, stash_processor, test_database_sync, mocker
+        self, factory_session, real_stash_processor, test_database_sync, mocker
     ):
         """Test process_creator_attachment method with aggregated post."""
         # Create a real account
@@ -655,7 +655,7 @@ class TestMediaProcessingIntegration:
         }
 
         # Save the original method
-        original_method = stash_processor.process_creator_attachment
+        original_method = real_stash_processor.process_creator_attachment
 
         # Mock only the recursive call - use **kwargs to accept keyword args
         call_count = 0
@@ -670,7 +670,7 @@ class TestMediaProcessingIntegration:
             # Recursive call for aggregated attachment
             return mock_sub_result
 
-        stash_processor.process_creator_attachment = mock_recursive_call
+        real_stash_processor.process_creator_attachment = mock_recursive_call
 
         # Use real async session from database
         async with test_database_sync.async_session_scope() as async_session:

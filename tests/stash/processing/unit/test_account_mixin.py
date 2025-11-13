@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from metadata import Account
-from tests.fixtures.metadata_factories import AccountFactory, MediaFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 
 
 class TestAccountProcessingMixin:

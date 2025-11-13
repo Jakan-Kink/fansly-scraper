@@ -25,8 +25,8 @@ from .stash_fixtures import (
     generate_graphql_response,
     generate_stash_object_data,
     large_stash_object_data,
-    mock_stash_client_with_errors,
-    mock_stash_client_with_responses,
+    # Removed: mock_stash_client_with_errors, mock_stash_client_with_responses
+    # (Mocked internal client.execute() - use respx to mock HTTP instead)
     mock_tags,
     reset_stash_field_names_cache,
     test_stash_object,
@@ -106,8 +106,8 @@ __all__ = [
     "generate_graphql_response",
     "generate_stash_object_data",
     "large_stash_object_data",
-    "mock_stash_client_with_errors",
-    "mock_stash_client_with_responses",
+    # Removed: "mock_stash_client_with_errors", "mock_stash_client_with_responses"
+    # (Mocked internal client.execute() - use respx to mock HTTP instead)
     "mock_tags",
     "reset_stash_field_names_cache",
     "test_stash_object",

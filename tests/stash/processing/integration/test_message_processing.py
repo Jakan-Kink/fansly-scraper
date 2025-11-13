@@ -12,18 +12,18 @@ from sqlalchemy.orm import selectinload
 
 from metadata import Account, AccountMedia, Message
 from metadata.attachment import Attachment, ContentType
-from tests.fixtures import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AttachmentFactory,
     MediaFactory,
     MessageFactory,
+    GroupFactory,
 )
-from tests.fixtures.metadata_factories import GroupFactory
 
 
 @pytest.mark.asyncio
 async def test_process_message_with_media(
-    factory_session, test_database_sync, stash_processor, mocker
+    factory_session, test_database_sync, real_stash_processor, mocker
 ):
     """Test processing a message with media attachments using real database."""
     # Arrange: Create real database objects in sync session first
@@ -43,7 +43,7 @@ async def test_process_message_with_media(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(
         accountId=account.id,
@@ -67,7 +67,7 @@ async def test_process_message_with_media(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     # Create mock scene with proper structure
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
@@ -79,12 +79,12 @@ async def test_process_message_with_media(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_scenes",
             new=AsyncMock(return_value=None),  # No existing scene found
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_scene",
             new=AsyncMock(return_value=mock_scene),
         ) as mock_create_scene,
@@ -110,7 +110,7 @@ async def test_process_message_with_media(
             async_account = account_result.scalar_one()
 
             # Process the message
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(id="performer_123", name="Test Performer"),
                 studio=None,
@@ -127,7 +127,7 @@ async def test_process_message_with_media(
 
 @pytest.mark.asyncio
 async def test_process_message_with_bundle(
-    factory_session, test_database_sync, stash_processor, mocker
+    factory_session, test_database_sync, real_stash_processor, mocker
 ):
     """Test processing a message with media bundle."""
     # Arrange: Create real database objects with proper bundle structure
@@ -156,7 +156,7 @@ async def test_process_message_with_bundle(
 
     # Create AccountMedia for each media
     from metadata.account import account_media_bundle_media
-    from tests.fixtures import AccountMediaBundleFactory, AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory, AccountMediaFactory
 
     account_media1 = AccountMediaFactory(accountId=account.id, mediaId=media1.id)
     account_media2 = AccountMediaFactory(accountId=account.id, mediaId=media2.id)
@@ -195,18 +195,18 @@ async def test_process_message_with_bundle(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import GalleryFactory
+    from tests.fixtures.stash.stash_type_factories import GalleryFactory
 
     mock_gallery = GalleryFactory(id="gallery_123", title="Bundle Gallery")
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_galleries",
             new=AsyncMock(return_value=None),  # No existing gallery
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_gallery",
             new=AsyncMock(return_value=mock_gallery),
         ) as mock_create_gallery,
@@ -233,7 +233,7 @@ async def test_process_message_with_bundle(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(id="performer_123", name="Test Performer"),
                 studio=None,
@@ -249,7 +249,7 @@ async def test_process_message_with_bundle(
 
 @pytest.mark.asyncio
 async def test_process_message_with_variants(
-    factory_session, test_database_sync, stash_processor, mocker
+    factory_session, test_database_sync, real_stash_processor, mocker
 ):
     """Test processing a message with media variants."""
     # Arrange: Create real database objects
@@ -270,7 +270,7 @@ async def test_process_message_with_variants(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
     factory_session.commit()
@@ -291,7 +291,7 @@ async def test_process_message_with_variants(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.m3u8")
     mock_scene = SceneFactory(
@@ -302,12 +302,12 @@ async def test_process_message_with_variants(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_scenes",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_scene",
             new=AsyncMock(return_value=mock_scene),
         ),
@@ -331,7 +331,7 @@ async def test_process_message_with_variants(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(id="performer_123", name="Test Performer"),
                 studio=None,
@@ -346,7 +346,7 @@ async def test_process_message_with_variants(
 
 @pytest.mark.asyncio
 async def test_process_message_with_permissions(
-    factory_session, test_database_sync, stash_processor, mocker
+    factory_session, test_database_sync, real_stash_processor, mocker
 ):
     """Test processing a message with permission flags."""
     # Arrange: Create real database objects
@@ -365,7 +365,7 @@ async def test_process_message_with_permissions(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
     factory_session.commit()
@@ -388,7 +388,7 @@ async def test_process_message_with_permissions(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(
@@ -399,12 +399,12 @@ async def test_process_message_with_permissions(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_scenes",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_scene",
             new=AsyncMock(return_value=mock_scene),
         ),
@@ -428,7 +428,7 @@ async def test_process_message_with_permissions(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(id="performer_123", name="Test Performer"),
                 studio=None,
@@ -443,7 +443,7 @@ async def test_process_message_with_permissions(
 
 @pytest.mark.asyncio
 async def test_process_message_batch(
-    factory_session, test_database_sync, stash_processor, mocker
+    factory_session, test_database_sync, real_stash_processor, mocker
 ):
     """Test processing a batch of messages."""
     # Arrange: Create multiple real messages with proper AccountMedia
@@ -453,7 +453,7 @@ async def test_process_message_batch(
     group = GroupFactory(createdBy=account.id)
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     messages = []
     for i in range(3):
@@ -493,12 +493,12 @@ async def test_process_message_batch(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_images",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_image",
             new=AsyncMock(return_value=mock_image),
         ),
@@ -510,7 +510,7 @@ async def test_process_message_batch(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor.process_creator_messages(
+            await real_stash_processor.process_creator_messages(
                 account=async_account,
                 performer=mocker.MagicMock(id="performer_123", name="Test Performer"),
                 studio=None,
@@ -522,7 +522,7 @@ async def test_process_message_batch(
 
 @pytest.mark.asyncio
 async def test_process_message_error_handling(
-    factory_session, test_database_sync, stash_processor, mocker
+    factory_session, test_database_sync, real_stash_processor, mocker
 ):
     """Test error handling during message processing."""
     # Arrange: Create real database objects
@@ -542,7 +542,7 @@ async def test_process_message_error_handling(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
     factory_session.commit()
@@ -565,12 +565,12 @@ async def test_process_message_error_handling(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_scenes",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_scene",
             new=AsyncMock(side_effect=Exception("Test error")),
         ),
@@ -596,7 +596,7 @@ async def test_process_message_error_handling(
                 )
                 async_account = account_result.scalar_one()
 
-                await stash_processor._process_items_with_gallery(
+                await real_stash_processor._process_items_with_gallery(
                     account=async_account,
                     performer=mocker.MagicMock(
                         id="performer_123", name="Test Performer"

@@ -3,7 +3,9 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
+import respx
 
 from api.fansly import FanslyApi
 
@@ -141,23 +143,27 @@ class TestFanslyApi:
         assert fansly_api.int32(2**31 + 1) < 2**31
 
     @pytest.mark.asyncio
-    async def test_setup_session(self, fansly_api, mock_http_session):
-        """Test setup_session success path"""
-        # Mock the account info response
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_response.json.return_value = {"success": "true", "response": {}}
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    async def test_setup_session(self, fansly_api):
+        """Test setup_session success path - mocks HTTP at edge"""
+        # Mock the account info HTTP endpoint at edge (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(200)
+        )
+        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": {}})
+        )
 
         # Create a mock websocket instance with proper async methods
         mock_ws_instance = AsyncMock()
         mock_ws_instance.__aenter__.return_value = mock_ws_instance
-        mock_ws_instance.recv.return_value = (
-            '{"t":1,"d":"{\\"session\\":{\\"id\\":\\"test_session_id\\"}}"}'
+        mock_ws_instance.__aexit__.return_value = AsyncMock()
+        # Mock recv to return the session ID in the expected format
+        mock_ws_instance.recv = AsyncMock(
+            return_value='{"t":1,"d":"{\\"session\\":{\\"id\\":\\"test_session_id\\"}}"}'
         )
 
-        # Mock the websocket connection
+        # Mock the websocket connection (this is OK - websockets are external boundary)
         with patch("websockets.client.connect", return_value=mock_ws_instance):
             result = await fansly_api.setup_session()
             assert result is True
@@ -192,235 +198,310 @@ class TestFanslyApi:
         result = fansly_api.get_json_response_contents(mock_response)
         assert result == {"data": "test_data"}
 
-    def test_get_client_user_name(self, fansly_api, mock_http_session):
-        """Test get_client_user_name success path"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_response.json.return_value = {
-            "success": "true",
-            "response": {"account": {"username": "test_user"}},
-        }
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_client_user_name(self, fansly_api):
+        """Test get_client_user_name success path - mocks Fansly API at edge"""
+        # Mock the actual Fansly API endpoint (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(200)
+        )
+        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": "true",
+                    "response": {"account": {"username": "test_user"}},
+                },
+            )
+        )
 
         assert fansly_api.get_client_user_name() == "test_user"
 
-    def test_get_with_ngsw(self, fansly_api, mock_http_session):
-        """Test get_with_ngsw builds correct request"""
+    @respx.mock
+    def test_get_with_ngsw(self, fansly_api):
+        """Test get_with_ngsw builds correct request - mocks HTTP at edge"""
         test_url = "https://api.test.com/endpoint"
         test_params = {"test": "param"}
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+        # Mock OPTIONS and GET requests at edge
+        options_route = respx.options(test_url).mock(
+            return_value=httpx.Response(200)
+        )
+        get_route = respx.get(test_url).mock(
+            return_value=httpx.Response(200)
+        )
 
         fansly_api.get_with_ngsw(
             url=test_url, params=test_params, add_fansly_headers=True
         )
 
-        # Verify options request was made
-        mock_http_session.options.assert_called_once()
+        # Verify OPTIONS request was made
+        assert options_route.called
 
         # Verify GET request was made with correct parameters
-        args = mock_http_session.get.call_args
-        expected_params = test_params.copy()
-        expected_params["ngsw-bypass"] = "true"
-        assert args[1]["params"] == expected_params
-        assert args[1]["headers"]["Origin"] == "https://fansly.com"
+        assert get_route.called
+        get_request = get_route.calls.last.request
+        assert get_request.url.params["test"] == "param"
+        assert get_request.url.params["ngsw-bypass"] == "true"
+        assert get_request.headers["Origin"] == "https://fansly.com"
 
-    def test_get_creator_account_info_single(self, fansly_api, mock_http_session):
-        """Test get_creator_account_info with single username"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_creator_account_info_single(self, fansly_api):
+        """Test get_creator_account_info with single username - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for account info (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_creator_account_info("test_creator")
 
-        args = mock_http_session.get.call_args
-        assert args[1]["params"] == {"usernames": "test_creator", "ngsw-bypass": "true"}
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["usernames"] == "test_creator"
+        assert request.url.params["ngsw-bypass"] == "true"
 
-    def test_get_creator_account_info_multiple(self, fansly_api, mock_http_session):
-        """Test get_creator_account_info with multiple usernames"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_creator_account_info_multiple(self, fansly_api):
+        """Test get_creator_account_info with multiple usernames - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for account info (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_creator_account_info(["creator1", "creator2"])
 
-        args = mock_http_session.get.call_args
-        assert args[1]["params"] == {
-            "usernames": "creator1,creator2",
-            "ngsw-bypass": "true",
-        }
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["usernames"] == "creator1,creator2"
+        assert request.url.params["ngsw-bypass"] == "true"
 
-    def test_get_account_info_by_id_single(self, fansly_api, mock_http_session):
-        """Test get_account_info_by_id with single ID"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_account_info_by_id_single(self, fansly_api):
+        """Test get_account_info_by_id with single ID - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for account info by ID (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_account_info_by_id(123)
 
-        args = mock_http_session.get.call_args
-        assert args[1]["params"] == {"ids": "123", "ngsw-bypass": "true"}
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["ids"] == "123"
+        assert request.url.params["ngsw-bypass"] == "true"
 
-    def test_get_account_info_by_id_multiple(self, fansly_api, mock_http_session):
-        """Test get_account_info_by_id with multiple IDs"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_account_info_by_id_multiple(self, fansly_api):
+        """Test get_account_info_by_id with multiple IDs - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for account info by ID (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/account").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_account_info_by_id([123, 456])
 
-        args = mock_http_session.get.call_args
-        assert args[1]["params"] == {"ids": "123,456", "ngsw-bypass": "true"}
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["ids"] == "123,456"
+        assert request.url.params["ngsw-bypass"] == "true"
 
-    def test_get_media_collections(self, fansly_api, mock_http_session):
-        """Test get_media_collections request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_media_collections(self, fansly_api):
+        """Test get_media_collections request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for media collections (OPTIONS + GET)
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/media/orders/.*").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/media/orders/.*").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_media_collections()
 
-        args = mock_http_session.get.call_args
-        assert args[1]["params"]["limit"] == "9999"
-        assert args[1]["params"]["offset"] == "0"
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["limit"] == "9999"
+        assert request.url.params["offset"] == "0"
 
-    def test_get_following_list(self, fansly_api, mock_http_session):
-        """Test get_following_list with default parameters"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_following_list(self, fansly_api):
+        """Test get_following_list with default parameters - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for following list (OPTIONS + GET)
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_following_list("user123")
 
-        args = mock_http_session.get.call_args
-        params = args[1]["params"]
-        assert params["limit"] == "425"
-        assert params["offset"] == "0"
-        assert params["before"] == "0"
-        assert params["after"] == "0"
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["limit"] == "425"
+        assert request.url.params["offset"] == "0"
+        assert request.url.params["before"] == "0"
+        assert request.url.params["after"] == "0"
 
-    def test_get_following_list_with_params(self, fansly_api, mock_http_session):
-        """Test get_following_list with custom parameters"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_following_list_with_params(self, fansly_api):
+        """Test get_following_list with custom parameters - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for following list (OPTIONS + GET)
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_following_list(
             "user123", limit=10, offset=5, before=1000, after=500
         )
 
-        args = mock_http_session.get.call_args
-        params = args[1]["params"]
-        assert params["limit"] == "10"
-        assert params["offset"] == "5"
-        assert params["before"] == "1000"
-        assert params["after"] == "500"
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["limit"] == "10"
+        assert request.url.params["offset"] == "5"
+        assert request.url.params["before"] == "1000"
+        assert request.url.params["after"] == "500"
 
-    def test_get_account_media(self, fansly_api, mock_http_session):
-        """Test get_account_media request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_account_media(self, fansly_api):
+        """Test get_account_media request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for account media (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account/media").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/account/media").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_account_media("media123,media456")
 
-        args = mock_http_session.get.call_args
+        assert route.called
+        request = route.calls.last.request
         # The media IDs should be part of the parameters, not the URL
-        assert args[1]["params"]["ids"] == "media123,media456"
+        assert request.url.params["ids"] == "media123,media456"
 
-    def test_get_post(self, fansly_api, mock_http_session):
-        """Test get_post request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_post(self, fansly_api):
+        """Test get_post request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for post (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/post").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/post").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_post("post123")
 
-        args = mock_http_session.get.call_args
-        assert args[1]["params"]["ids"] == "post123"
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["ids"] == "post123"
 
-    def test_get_timeline(self, fansly_api, mock_http_session):
-        """Test get_timeline request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_timeline(self, fansly_api):
+        """Test get_timeline request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for timeline (OPTIONS + GET)
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_timeline("creator123", "cursor123")
 
-        args = mock_http_session.get.call_args
-        params = args[1]["params"]
-        assert params["before"] == "cursor123"
-        assert params["after"] == "0"
-        assert params["wallId"] == ""
-        assert params["contentSearch"] == ""
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["before"] == "cursor123"
+        assert request.url.params["after"] == "0"
+        assert request.url.params["wallId"] == ""
+        assert request.url.params["contentSearch"] == ""
 
-    def test_get_wall_posts(self, fansly_api, mock_http_session):
-        """Test get_wall_posts request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_wall_posts(self, fansly_api):
+        """Test get_wall_posts request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for wall posts (OPTIONS + GET)
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_wall_posts("creator123", "wall123", "cursor456")
 
-        args = mock_http_session.get.call_args
-        params = args[1]["params"]
-        assert params["before"] == "cursor456"
-        assert params["after"] == "0"
-        assert params["wallId"] == "wall123"
-        assert params["contentSearch"] == ""
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["before"] == "cursor456"
+        assert request.url.params["after"] == "0"
+        assert request.url.params["wallId"] == "wall123"
+        assert request.url.params["contentSearch"] == ""
 
-    def test_get_group(self, fansly_api, mock_http_session):
-        """Test get_group request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_group(self, fansly_api):
+        """Test get_group request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for messaging groups (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/messaging/groups").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/messaging/groups").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         fansly_api.get_group()
 
-        mock_http_session.get.assert_called_once()
-        assert "messaging/groups" in mock_http_session.get.call_args[1]["url"]
+        assert route.called
 
-    def test_get_message(self, fansly_api, mock_http_session):
-        """Test get_message request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_message(self, fansly_api):
+        """Test get_message request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for messages (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/message").mock(
+            return_value=httpx.Response(200)
+        )
+        route = respx.get("https://apiv3.fansly.com/api/v1/message").mock(
+            return_value=httpx.Response(200, json={"success": "true", "response": []})
+        )
 
         test_params = {"param1": "value1"}
-        expected_params = test_params.copy()
-        expected_params["ngsw-bypass"] = "true"
         fansly_api.get_message(test_params)
 
-        args = mock_http_session.get.call_args
-        assert args[1]["params"] == expected_params
+        assert route.called
+        request = route.calls.last.request
+        assert request.url.params["param1"] == "value1"
+        assert request.url.params["ngsw-bypass"] == "true"
 
-    def test_get_device_id(self, fansly_api, mock_http_session):
-        """Test get_device_id request"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_response.json.return_value = {
-            "success": "true",
-            "response": "test_device_id",
-        }
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_get_device_id(self, fansly_api):
+        """Test get_device_id request - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for device ID (OPTIONS + GET)
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/device/.*").mock(
+            return_value=httpx.Response(200)
+        )
+        respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/device/.*").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": "true",
+                    "response": "test_device_id",
+                }
+            )
+        )
 
         result = fansly_api.get_device_id()
         assert result == "test_device_id"
@@ -434,16 +515,22 @@ class TestFanslyApi:
         updated_id = fansly_api.update_device_id()
         assert updated_id == original_device_id
 
-    def test_update_device_id_expired(self, fansly_api, mock_http_session):
-        """Test update_device_id updates when timestamp expired"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.reason_phrase = "OK"
-        mock_response.json.return_value = {
-            "success": "true",
-            "response": "new_device_id",
-        }
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    def test_update_device_id_expired(self, fansly_api):
+        """Test update_device_id updates when timestamp expired - mocks HTTP at edge"""
+        # Mock the Fansly API endpoint for device ID (OPTIONS + GET)
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/device/.*").mock(
+            return_value=httpx.Response(200)
+        )
+        respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/device/.*").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": "true",
+                    "response": "new_device_id",
+                }
+            )
+        )
 
         # Set old timestamp
         fansly_api.device_id_timestamp = 0
@@ -457,15 +544,18 @@ class TestFanslyApi:
         mock_callback.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_setup_session_error(self, fansly_api, mock_http_session):
-        """Test setup_session handles errors"""
-        # Mock HTTP response failure
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.reason_phrase = "Unauthorized"
-        mock_http_session.get.return_value = mock_response
+    @respx.mock
+    async def test_setup_session_error(self, fansly_api):
+        """Test setup_session handles errors - mocks HTTP at edge"""
+        # Mock HTTP response failure at edge (OPTIONS + GET)
+        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(200)
+        )
+        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(401)
+        )
 
-        # Mock websocket to raise exception
+        # Mock websocket to raise exception (this is OK - websockets are external boundary)
         with patch("websockets.client.connect") as mock_ws:
             mock_ws.side_effect = Exception("Connection failed")
 

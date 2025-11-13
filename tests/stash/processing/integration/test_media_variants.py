@@ -5,23 +5,24 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from stash.types import Image, Scene
-from tests.fixtures import AccountMediaFactory, MediaFactory, MediaLocationFactory
+from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
+from tests.fixtures import MediaLocationFactory
 
 
 @pytest.mark.asyncio
 async def test_process_hls_variant(
-    stash_processor,
-    mock_media,
-    integration_mock_performer,
-    integration_mock_account,
-    mock_post,
+    real_stash_processor,
+    test_media,
+    mock_performer,
+    test_account,
+    test_post,
     session_sync,
 ):
     """Test processing media with HLS stream variant."""
     # Arrange - Create REAL HLS variant Media using factory
     hls_variant = MediaFactory.build(
         id=100102,
-        accountId=integration_mock_account.id,
+        accountId=test_account.id,
         type=302,  # HLS stream
         mimetype="application/vnd.apple.mpegurl",
         meta_info='{"variants":[{"w":1920,"h":1080},{"w":1280,"h":720}]}',
@@ -39,11 +40,11 @@ async def test_process_hls_variant(
     session_sync.add(hls_location)
     session_sync.commit()
 
-    # Add variant to mock_media
-    mock_media.variants = {hls_variant}
-    mock_media.stash_id = None
-    mock_media.is_downloaded = True
-    session_sync.add(mock_media)
+    # Add variant to test_media
+    test_media.variants = {hls_variant}
+    test_media.stash_id = None
+    test_media.is_downloaded = True
+    session_sync.add(test_media)
     session_sync.commit()
 
     # Mock internal methods to simulate finding media in Stash
@@ -51,38 +52,38 @@ async def test_process_hls_variant(
     mock_scene.id = "scene_123"
 
     # Mock _find_stash_files_by_path to return a scene
-    stash_processor._find_stash_files_by_path = AsyncMock(
+    real_stash_processor._find_stash_files_by_path = AsyncMock(
         return_value=[(mock_scene, MagicMock())]
     )
-    stash_processor._update_stash_metadata = AsyncMock()
+    real_stash_processor._update_stash_metadata = AsyncMock()
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_media(
-        mock_media, mock_post, integration_mock_account, result
+    await real_stash_processor._process_media(
+        test_media, test_post, test_account, result
     )
 
     # Assert
     assert len(result["scenes"]) == 1
     assert result["scenes"][0] == mock_scene
-    stash_processor._find_stash_files_by_path.assert_called_once()
-    stash_processor._update_stash_metadata.assert_called_once()
+    real_stash_processor._find_stash_files_by_path.assert_called_once()
+    real_stash_processor._update_stash_metadata.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_dash_variant(
-    stash_processor,
-    mock_media,
-    integration_mock_performer,
-    integration_mock_account,
-    mock_post,
+    real_stash_processor,
+    test_media,
+    mock_performer,
+    test_account,
+    test_post,
     session_sync,
 ):
     """Test processing media with DASH stream variant."""
     # Arrange - Create REAL DASH variant Media using factory
     dash_variant = MediaFactory.build(
         id=100103,
-        accountId=integration_mock_account.id,
+        accountId=test_account.id,
         type=303,  # DASH stream
         mimetype="application/dash+xml",
         meta_info='{"variants":[{"w":1920,"h":1080},{"w":1280,"h":720}]}',
@@ -100,11 +101,11 @@ async def test_process_dash_variant(
     session_sync.add(dash_location)
     session_sync.commit()
 
-    # Add variant to mock_media
-    mock_media.variants = {dash_variant}
-    mock_media.stash_id = None
-    mock_media.is_downloaded = True
-    session_sync.add(mock_media)
+    # Add variant to test_media
+    test_media.variants = {dash_variant}
+    test_media.stash_id = None
+    test_media.is_downloaded = True
+    session_sync.add(test_media)
     session_sync.commit()
 
     # Mock internal methods to simulate finding media in Stash
@@ -112,38 +113,38 @@ async def test_process_dash_variant(
     mock_scene.id = "scene_123"
 
     # Mock _find_stash_files_by_path to return a scene
-    stash_processor._find_stash_files_by_path = AsyncMock(
+    real_stash_processor._find_stash_files_by_path = AsyncMock(
         return_value=[(mock_scene, MagicMock())]
     )
-    stash_processor._update_stash_metadata = AsyncMock()
+    real_stash_processor._update_stash_metadata = AsyncMock()
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_media(
-        mock_media, mock_post, integration_mock_account, result
+    await real_stash_processor._process_media(
+        test_media, test_post, test_account, result
     )
 
     # Assert
     assert len(result["scenes"]) == 1
     assert result["scenes"][0] == mock_scene
-    stash_processor._find_stash_files_by_path.assert_called_once()
-    stash_processor._update_stash_metadata.assert_called_once()
+    real_stash_processor._find_stash_files_by_path.assert_called_once()
+    real_stash_processor._update_stash_metadata.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_preview_variant(
-    stash_processor,
-    mock_media,
-    integration_mock_performer,
-    integration_mock_account,
-    mock_post,
+    real_stash_processor,
+    test_media,
+    mock_performer,
+    test_account,
+    test_post,
     session_sync,
 ):
     """Test processing media with preview image variant."""
     # Arrange - Create REAL preview variant Media using factory
     preview_variant = MediaFactory.build(
         id=100001,
-        accountId=integration_mock_account.id,
+        accountId=test_account.id,
         type=1,  # Preview image
         mimetype="image/jpeg",
         meta_info='{"resolutionMode":1}',
@@ -161,11 +162,11 @@ async def test_process_preview_variant(
     session_sync.add(preview_location)
     session_sync.commit()
 
-    # Add variant to mock_media
-    mock_media.variants = {preview_variant}
-    mock_media.stash_id = None
-    mock_media.is_downloaded = True
-    session_sync.add(mock_media)
+    # Add variant to test_media
+    test_media.variants = {preview_variant}
+    test_media.stash_id = None
+    test_media.is_downloaded = True
+    session_sync.add(test_media)
     session_sync.commit()
 
     # Mock internal methods to simulate finding media in Stash
@@ -173,30 +174,30 @@ async def test_process_preview_variant(
     mock_image.id = "image_123"
 
     # Mock _find_stash_files_by_path to return an image
-    stash_processor._find_stash_files_by_path = AsyncMock(
+    real_stash_processor._find_stash_files_by_path = AsyncMock(
         return_value=[(mock_image, MagicMock())]
     )
-    stash_processor._update_stash_metadata = AsyncMock()
+    real_stash_processor._update_stash_metadata = AsyncMock()
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_media(
-        mock_media, mock_post, integration_mock_account, result
+    await real_stash_processor._process_media(
+        test_media, test_post, test_account, result
     )
 
     # Assert
     assert len(result["images"]) == 1
     assert result["images"][0] == mock_image
-    stash_processor._find_stash_files_by_path.assert_called_once()
-    stash_processor._update_stash_metadata.assert_called_once()
+    real_stash_processor._find_stash_files_by_path.assert_called_once()
+    real_stash_processor._update_stash_metadata.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_bundle_ordering(
-    stash_processor,
-    mock_media_bundle,
-    integration_mock_performer,
-    integration_mock_account,
+    real_stash_processor,
+    test_media_bundle,
+    mock_performer,
+    test_account,
     session_sync,
 ):
     """Test processing media bundle with specific ordering."""
@@ -206,15 +207,15 @@ async def test_process_bundle_ordering(
     from tests.fixtures import PostFactory
 
     # Create a mock post to pass to _process_bundle_media
-    mock_post = PostFactory.build(accountId=integration_mock_account.id)
-    session_sync.add(mock_post)
+    test_post = PostFactory.build(accountId=test_account.id)
+    session_sync.add(test_post)
     session_sync.commit()
 
     media_items = []
     for _ in range(3):
         # Create Media
         media = MediaFactory.build(
-            accountId=mock_media_bundle.accountId,
+            accountId=test_media_bundle.accountId,
             mimetype="image/jpeg",
         )
         session_sync.add(media)
@@ -222,7 +223,7 @@ async def test_process_bundle_ordering(
 
         # Create AccountMedia to link Media to Account
         account_media = AccountMediaFactory.build(
-            accountId=mock_media_bundle.accountId,
+            accountId=test_media_bundle.accountId,
             mediaId=media.id,
         )
         session_sync.add(account_media)
@@ -235,7 +236,7 @@ async def test_process_bundle_ordering(
     for i, account_media in enumerate(media_items):
         session_sync.execute(
             account_media_bundle_media.insert().values(
-                bundle_id=mock_media_bundle.id,
+                bundle_id=test_media_bundle.id,
                 media_id=account_media.id,
                 pos=i,
             )
@@ -243,32 +244,32 @@ async def test_process_bundle_ordering(
     session_sync.commit()
 
     # Refresh bundle to load relationships
-    session_sync.refresh(mock_media_bundle)
+    session_sync.refresh(test_media_bundle)
 
     # Mock Stash client responses
-    stash_processor.context.client.find_performer.return_value = (
-        integration_mock_performer
+    real_stash_processor.context.client.find_performer.return_value = (
+        mock_performer
     )
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_bundle_media(
-        mock_media_bundle, mock_post, integration_mock_account, result
+    await real_stash_processor._process_bundle_media(
+        test_media_bundle, test_post, test_account, result
     )
 
     # Assert
     # Verify items were added in correct order by checking account_media_ids property
-    bundle_media_ids = mock_media_bundle.account_media_ids
+    bundle_media_ids = test_media_bundle.account_media_ids
     assert len(bundle_media_ids) == 3
     assert bundle_media_ids == [m.id for m in media_items]
 
 
 @pytest.mark.asyncio
 async def test_process_bundle_with_preview(
-    stash_processor,
-    mock_media_bundle,
-    integration_mock_performer,
-    integration_mock_account,
+    real_stash_processor,
+    test_media_bundle,
+    mock_performer,
+    test_account,
     session_sync,
 ):
     """Test processing media bundle with preview image."""
@@ -276,14 +277,14 @@ async def test_process_bundle_with_preview(
     from tests.fixtures import PostFactory
 
     # Create a mock post to pass to _process_bundle_media
-    mock_post = PostFactory.build(accountId=integration_mock_account.id)
-    session_sync.add(mock_post)
+    test_post = PostFactory.build(accountId=test_account.id)
+    session_sync.add(test_post)
     session_sync.commit()
 
     # Create REAL preview media using factory instead of MagicMock
     preview_media = MediaFactory.build(
         id=123456,  # Specific ID for this test
-        accountId=mock_media_bundle.accountId,
+        accountId=test_media_bundle.accountId,
         mimetype="image/jpeg",
         type=1,  # Image type
     )
@@ -292,33 +293,33 @@ async def test_process_bundle_with_preview(
     session_sync.refresh(preview_media)
 
     # Update bundle to reference this preview
-    mock_media_bundle.previewId = preview_media.id
-    session_sync.add(mock_media_bundle)
+    test_media_bundle.previewId = preview_media.id
+    session_sync.add(test_media_bundle)
     session_sync.commit()
-    session_sync.refresh(mock_media_bundle)
+    session_sync.refresh(test_media_bundle)
 
     # Mock Stash client responses
-    stash_processor.context.client.find_performer.return_value = (
-        integration_mock_performer
+    real_stash_processor.context.client.find_performer.return_value = (
+        mock_performer
     )
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_bundle_media(
-        mock_media_bundle, mock_post, integration_mock_account, result
+    await real_stash_processor._process_bundle_media(
+        test_media_bundle, test_post, test_account, result
     )
 
     # Assert
     # Verify preview was used (check that previewId is set)
-    assert mock_media_bundle.previewId == preview_media.id
+    assert test_media_bundle.previewId == preview_media.id
 
 
 @pytest.mark.asyncio
 async def test_bundle_permission_inheritance(
-    stash_processor,
-    mock_media_bundle,
-    integration_mock_performer,
-    integration_mock_account,
+    real_stash_processor,
+    test_media_bundle,
+    mock_performer,
+    test_account,
     session_sync,
 ):
     """Test that media items inherit bundle permissions."""
@@ -329,8 +330,8 @@ async def test_bundle_permission_inheritance(
     from tests.fixtures import PostFactory
 
     # Create a mock post to pass to _process_bundle_media
-    mock_post = PostFactory.build(accountId=integration_mock_account.id)
-    session_sync.add(mock_post)
+    test_post = PostFactory.build(accountId=test_account.id)
+    session_sync.add(test_post)
     session_sync.commit()
 
     # Create REAL media items using factories
@@ -338,7 +339,7 @@ async def test_bundle_permission_inheritance(
     for _ in range(2):
         # Create Media
         media = MediaFactory.build(
-            accountId=mock_media_bundle.accountId,
+            accountId=test_media_bundle.accountId,
             mimetype="image/jpeg",
         )
         session_sync.add(media)
@@ -346,7 +347,7 @@ async def test_bundle_permission_inheritance(
 
         # Create AccountMedia to link Media to Account
         account_media = AccountMediaFactory.build(
-            accountId=mock_media_bundle.accountId,
+            accountId=test_media_bundle.accountId,
             mediaId=media.id,
         )
         session_sync.add(account_media)
@@ -358,7 +359,7 @@ async def test_bundle_permission_inheritance(
     for i, account_media in enumerate(media_items):
         session_sync.execute(
             account_media_bundle_media.insert().values(
-                bundle_id=mock_media_bundle.id,
+                bundle_id=test_media_bundle.id,
                 media_id=account_media.id,
                 pos=i,
             )
@@ -366,21 +367,21 @@ async def test_bundle_permission_inheritance(
     session_sync.commit()
 
     # Refresh bundle to load relationships
-    session_sync.refresh(mock_media_bundle)
+    session_sync.refresh(test_media_bundle)
 
     # Mock Stash client responses
-    stash_processor.context.client.find_performer.return_value = (
-        integration_mock_performer
+    real_stash_processor.context.client.find_performer.return_value = (
+        mock_performer
     )
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_bundle_media(
-        mock_media_bundle, mock_post, integration_mock_account, result
+    await real_stash_processor._process_bundle_media(
+        test_media_bundle, test_post, test_account, result
     )
 
     # Assert
     # Verify bundle was processed
-    bundle_media_ids = mock_media_bundle.account_media_ids
+    bundle_media_ids = test_media_bundle.account_media_ids
     assert len(bundle_media_ids) == 2
     assert bundle_media_ids == [m.id for m in media_items]

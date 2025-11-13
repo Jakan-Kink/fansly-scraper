@@ -3,9 +3,9 @@
 from unittest.mock import MagicMock, patch
 
 import ffmpeg
+import httpx
 import pytest
 from m3u8 import M3U8
-from requests import Response
 
 from config.fanslyconfig import FanslyConfig
 from download.m3u8 import (
@@ -80,7 +80,7 @@ class TestFetchM3U8SegmentPlaylist:
         """Fixture for a mocked FanslyConfig."""
         config = MagicMock(spec=FanslyConfig)
         mock_api = MagicMock()
-        mock_response = MagicMock(spec=Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_api.get_with_ngsw.return_value.__enter__.return_value = mock_response
         config.get_api.return_value = mock_api
         return config, mock_api, mock_response
@@ -125,7 +125,7 @@ video_720.m3u8
 video_1080.m3u8"""
 
         # Second response - segment playlist
-        second_response = MagicMock(spec=Response)
+        second_response = MagicMock(spec=httpx.Response)
         second_response.status_code = 200
         second_response.text = """#EXTM3U
 #EXT-X-VERSION:3
@@ -171,7 +171,7 @@ segment2.ts
 #EXT-X-STREAM-INF:BANDWIDTH=0,RESOLUTION=0x0"""
 
         # Second response - segment playlist
-        second_response = MagicMock(spec=Response)
+        second_response = MagicMock(spec=httpx.Response)
         second_response.status_code = 200
         second_response.text = """#EXTM3U
 #EXT-X-VERSION:3
@@ -386,7 +386,7 @@ class TestDirectDownload:
         """Fixture for a mocked FanslyConfig."""
         config = MagicMock(spec=FanslyConfig)
         mock_api = MagicMock()
-        mock_response = MagicMock(spec=Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_api.get_with_ngsw.return_value.__enter__.return_value = mock_response
         config.get_api.return_value = mock_api

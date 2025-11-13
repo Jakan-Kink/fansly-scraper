@@ -15,7 +15,7 @@ from strawberry import ID
 
 from stash.types.base import StashObject
 
-from ...fixtures.stash_fixtures import (
+from ...fixtures.stash.stash_fixtures import (
     MockTag,
     TestStashObject,
     TestStashObjectNoCreate,

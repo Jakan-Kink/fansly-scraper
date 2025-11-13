@@ -19,7 +19,8 @@ import pytest
 from download.core import DownloadState
 from stash.context import StashContext
 from stash.processing import StashProcessing
-from tests.fixtures import AccountFactory, PerformerFactory, StudioFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
 
 
 # ============================================================================

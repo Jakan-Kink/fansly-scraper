@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from metadata import Account, Post, post_mentions
 from stash.types import Gallery
-from tests.fixtures import AccountFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 
 
 class TestGalleryCreation:

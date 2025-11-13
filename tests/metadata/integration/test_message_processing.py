@@ -16,13 +16,17 @@ from metadata.messages import (
     process_groups_response,
     process_messages_metadata,
 )
-from tests.fixtures import AccountFactory, setup_accounts_and_groups
+from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures import setup_accounts_and_groups
 
 
 @pytest.fixture(scope="session")
 def group_data(test_data_dir: str):
     """Load group messages test data."""
-    with (Path(test_data_dir) / "messages-group.json").open() as f:
+    json_file = Path(test_data_dir) / "messages-group.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)
 
 

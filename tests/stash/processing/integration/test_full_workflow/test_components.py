@@ -14,7 +14,7 @@ class TestAccountSetupIntegration:
     @pytest.mark.asyncio
     async def test_account_lookup(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
     ):
@@ -27,7 +27,7 @@ class TestAccountSetupIntegration:
         mock_database.session.execute = AsyncMock(return_value=mock_result)
 
         # Test account lookup
-        account = await stash_processor._find_account(session=mock_database.session)
+        account = await real_stash_processor._find_account(session=mock_database.session)
 
         # Verify results
         assert account == integration_mock_account
@@ -36,46 +36,46 @@ class TestAccountSetupIntegration:
     @pytest.mark.asyncio
     async def test_performer_lookup(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         integration_mock_performer,
     ):
         """Test just the performer lookup functionality."""
         # Setup client mock
-        stash_processor.context.client.find_performer = AsyncMock(
+        real_stash_processor.context.client.find_performer = AsyncMock(
             return_value=integration_mock_performer
         )
 
         # Test performer lookup
-        performer = await stash_processor._find_existing_performer(
+        performer = await real_stash_processor._find_existing_performer(
             integration_mock_account
         )
 
         # Verify results
         assert performer == integration_mock_performer
-        stash_processor.context.client.find_performer.assert_called_once()
+        real_stash_processor.context.client.find_performer.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_studio_lookup(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         integration_mock_studio,
     ):
         """Test just the studio lookup functionality."""
         # Setup client mock
-        stash_processor.context.client.find_studio = AsyncMock(
+        real_stash_processor.context.client.find_studio = AsyncMock(
             return_value=integration_mock_studio
         )
 
         # Test studio lookup
-        studio = await stash_processor._find_existing_studio(integration_mock_account)
+        studio = await real_stash_processor._find_existing_studio(integration_mock_account)
 
         # Verify results
         assert studio == integration_mock_studio
-        stash_processor.context.client.find_studio.assert_called_once()
+        real_stash_processor.context.client.find_studio.assert_called_once()
 
 
 class TestContentProcessingComponents:
@@ -84,7 +84,7 @@ class TestContentProcessingComponents:
     @pytest.mark.asyncio
     async def test_post_query_execution(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         integration_mock_performer,
@@ -105,17 +105,17 @@ class TestContentProcessingComponents:
         mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Mock the batch processing to avoid full execution
-        stash_processor._setup_batch_processing = AsyncMock(
+        real_stash_processor._setup_batch_processing = AsyncMock(
             return_value=(MagicMock(), MagicMock(), MagicMock(), MagicMock())
         )
-        stash_processor._run_batch_processor = AsyncMock()
+        real_stash_processor._run_batch_processor = AsyncMock()
 
         # Execute the test - use a patched version to avoid real execution
         with patch(
             "stash.processing.mixins.content.ContentProcessingMixin._process_items_with_gallery",
             new=AsyncMock(),
         ):
-            await stash_processor.process_creator_posts(
+            await real_stash_processor.process_creator_posts(
                 account=integration_mock_account,
                 performer=integration_mock_performer,
                 studio=integration_mock_studio,
@@ -132,7 +132,7 @@ class TestContentProcessingComponents:
     @pytest.mark.asyncio
     async def test_message_query_execution(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         integration_mock_performer,
@@ -153,17 +153,17 @@ class TestContentProcessingComponents:
         mock_result.unique = MagicMock(return_value=mock_unique_result)
 
         # Mock the batch processing to avoid full execution
-        stash_processor._setup_batch_processing = AsyncMock(
+        real_stash_processor._setup_batch_processing = AsyncMock(
             return_value=(MagicMock(), MagicMock(), MagicMock(), MagicMock())
         )
-        stash_processor._run_batch_processor = AsyncMock()
+        real_stash_processor._run_batch_processor = AsyncMock()
 
         # Execute the test - use a patched version to avoid real execution
         with patch(
             "stash.processing.mixins.content.ContentProcessingMixin._process_items_with_gallery",
             new=AsyncMock(),
         ):
-            await stash_processor.process_creator_messages(
+            await real_stash_processor.process_creator_messages(
                 account=integration_mock_account,
                 performer=integration_mock_performer,
                 studio=integration_mock_studio,
@@ -181,7 +181,7 @@ class TestGalleryCreationComponents:
     @pytest.mark.asyncio
     async def test_gallery_creation(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         integration_mock_performer,
@@ -194,24 +194,24 @@ class TestGalleryCreationComponents:
         mock_item = mock_posts[0]
 
         # Setup mocks
-        stash_processor.context.client.create_gallery = AsyncMock(
+        real_stash_processor.context.client.create_gallery = AsyncMock(
             return_value=mock_gallery
         )
-        stash_processor._generate_title_from_content = MagicMock(
+        real_stash_processor._generate_title_from_content = MagicMock(
             return_value="Test Title"
         )
 
         # Call gallery creation
-        gallery = await stash_processor._create_new_gallery(mock_item, "Test Title")
+        gallery = await real_stash_processor._create_new_gallery(mock_item, "Test Title")
 
         # Verify results
         assert gallery is not None
-        stash_processor.context.client.create_gallery.assert_called_once()
+        real_stash_processor.context.client.create_gallery.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_gallery_lookup(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         integration_mock_performer,
@@ -224,17 +224,17 @@ class TestGalleryCreationComponents:
         mock_item = mock_posts[0]
 
         # Setup mocks
-        stash_processor._get_gallery_by_stash_id = AsyncMock(return_value=None)
-        stash_processor._get_gallery_by_code = AsyncMock(return_value=None)
-        stash_processor._get_gallery_by_title = AsyncMock(return_value=None)
-        stash_processor._get_gallery_by_url = AsyncMock(return_value=mock_gallery)
+        real_stash_processor._get_gallery_by_stash_id = AsyncMock(return_value=None)
+        real_stash_processor._get_gallery_by_code = AsyncMock(return_value=None)
+        real_stash_processor._get_gallery_by_title = AsyncMock(return_value=None)
+        real_stash_processor._get_gallery_by_url = AsyncMock(return_value=mock_gallery)
 
         # Call get_or_create_gallery with mocked has_media_content
         with patch(
             "stash.processing.mixins.gallery.GalleryProcessingMixin._has_media_content",
             new=AsyncMock(return_value=True),
         ):
-            gallery = await stash_processor._get_or_create_gallery(
+            gallery = await real_stash_processor._get_or_create_gallery(
                 mock_item,
                 integration_mock_account,
                 integration_mock_performer,
@@ -244,10 +244,10 @@ class TestGalleryCreationComponents:
             )
 
         # Verify lookup methods were called in the right order
-        stash_processor._get_gallery_by_stash_id.assert_called_once()
-        stash_processor._get_gallery_by_code.assert_called_once()
-        stash_processor._get_gallery_by_title.assert_called_once()
-        stash_processor._get_gallery_by_url.assert_called_once()
+        real_stash_processor._get_gallery_by_stash_id.assert_called_once()
+        real_stash_processor._get_gallery_by_code.assert_called_once()
+        real_stash_processor._get_gallery_by_title.assert_called_once()
+        real_stash_processor._get_gallery_by_url.assert_called_once()
         assert gallery == mock_gallery
 
 
@@ -257,7 +257,7 @@ class TestMediaProcessingComponents:
     @pytest.mark.asyncio
     async def test_process_media(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         mock_posts,
@@ -269,29 +269,29 @@ class TestMediaProcessingComponents:
         mock_item = mock_posts[0]
 
         # Setup mocks
-        stash_processor._find_stash_files_by_id = AsyncMock(return_value=[])
-        stash_processor._find_stash_files_by_path = AsyncMock(
+        real_stash_processor._find_stash_files_by_id = AsyncMock(return_value=[])
+        real_stash_processor._find_stash_files_by_path = AsyncMock(
             return_value=[(mock_image, MagicMock())]
         )
-        stash_processor._update_stash_metadata = AsyncMock()
+        real_stash_processor._update_stash_metadata = AsyncMock()
 
         # Call process_media
         result = {"images": [], "scenes": []}
-        await stash_processor._process_media(
+        await real_stash_processor._process_media(
             mock_media, mock_item, integration_mock_account, result
         )
 
         # Verify results
         assert len(result["images"]) == 1
         assert result["images"][0] == mock_image
-        stash_processor._find_stash_files_by_id.assert_called_once()
-        stash_processor._find_stash_files_by_path.assert_called_once()
-        stash_processor._update_stash_metadata.assert_called_once()
+        real_stash_processor._find_stash_files_by_id.assert_called_once()
+        real_stash_processor._find_stash_files_by_path.assert_called_once()
+        real_stash_processor._update_stash_metadata.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_attachment(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         mock_posts,
@@ -313,10 +313,10 @@ class TestMediaProcessingComponents:
         async def mock_process_media(media, item, account, result):
             result["images"].append(mock_image)
 
-        stash_processor._process_media = AsyncMock(side_effect=mock_process_media)
+        real_stash_processor._process_media = AsyncMock(side_effect=mock_process_media)
 
         # Call process_creator_attachment
-        result = await stash_processor.process_creator_attachment(
+        result = await real_stash_processor.process_creator_attachment(
             attachment=mock_attachment,
             item=mock_item,
             account=integration_mock_account,
@@ -325,7 +325,7 @@ class TestMediaProcessingComponents:
         # Verify results
         assert len(result["images"]) == 1
         assert result["images"][0] == mock_image
-        stash_processor._process_media.assert_called()
+        real_stash_processor._process_media.assert_called()
 
 
 class TestBatchProcessingComponents:
@@ -334,7 +334,7 @@ class TestBatchProcessingComponents:
     @pytest.mark.asyncio
     async def test_batch_setup(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_posts,
     ):
         """Test just the batch processing setup."""
@@ -344,7 +344,7 @@ class TestBatchProcessingComponents:
             process_pbar,
             semaphore,
             queue,
-        ) = await stash_processor._setup_batch_processing(mock_posts, "post")
+        ) = await real_stash_processor._setup_batch_processing(mock_posts, "post")
 
         # Verify results
         assert task_pbar is not None
@@ -356,7 +356,7 @@ class TestBatchProcessingComponents:
     @pytest.mark.asyncio
     async def test_batch_queue_processing(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_posts,
     ):
         """Test just the batch queue processing."""
@@ -378,7 +378,7 @@ class TestBatchProcessingComponents:
 
         # Call run batch processor with mocked sleep
         with patch("asyncio.sleep", new_callable=AsyncMock):
-            await stash_processor._run_batch_processor(
+            await real_stash_processor._run_batch_processor(
                 items=items,
                 batch_size=1,  # Process one at a time
                 process_batch=process_batch,
@@ -400,7 +400,7 @@ class TestErrorHandlingComponents:
     @pytest.mark.asyncio
     async def test_process_item_gallery_error(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_database,
         integration_mock_account,
         integration_mock_performer,
@@ -412,7 +412,7 @@ class TestErrorHandlingComponents:
         mock_item = mock_posts[0]
 
         # Setup _get_or_create_gallery to raise exception
-        stash_processor._get_or_create_gallery = AsyncMock(
+        real_stash_processor._get_or_create_gallery = AsyncMock(
             side_effect=Exception("Test error")
         )
 
@@ -424,7 +424,7 @@ class TestErrorHandlingComponents:
         # Mock error logging to avoid console output
         with patch("stash.processing.mixins.gallery.print_error"):
             # Call process_item_gallery
-            await stash_processor._process_item_gallery(
+            await real_stash_processor._process_item_gallery(
                 item=mock_item,
                 account=integration_mock_account,
                 performer=integration_mock_performer,
@@ -435,13 +435,13 @@ class TestErrorHandlingComponents:
             )
 
         # Verify gallery creation was attempted
-        stash_processor._get_or_create_gallery.assert_called_once()
+        real_stash_processor._get_or_create_gallery.assert_called_once()
         # Test passes if no exception is raised
 
     @pytest.mark.asyncio
     async def test_batch_processing_error(
         self,
-        stash_processor,
+        real_stash_processor,
         mock_posts,
     ):
         """Test error handling in batch processing."""
@@ -467,7 +467,7 @@ class TestErrorHandlingComponents:
             patch("stash.processing.mixins.batch.print_error"),
         ):
             # Call run batch processor
-            await stash_processor._run_batch_processor(
+            await real_stash_processor._run_batch_processor(
                 items=items,
                 batch_size=1,  # Process one at a time
                 process_batch=process_batch,

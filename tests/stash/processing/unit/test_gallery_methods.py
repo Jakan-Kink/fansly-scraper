@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from stash.types import FindGalleriesResultType
-from tests.fixtures.metadata_factories import HashtagFactory
-from tests.fixtures.stash_type_factories import (
+from tests.fixtures.metadata.metadata_factories import HashtagFactory
+from tests.fixtures.stash.stash_type_factories import (
     GalleryFactory,
     StudioFactory,
     TagFactory,

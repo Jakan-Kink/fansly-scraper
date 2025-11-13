@@ -56,8 +56,23 @@ from metadata import (
     Wall,
     account_media_bundle_media,
 )
-from tests.fixtures import metadata_factories
-from tests.fixtures.metadata_factories import AccountFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
+    AttachmentFactory,
+    GroupFactory,
+    HashtagFactory,
+    MediaFactory,
+    MediaLocationFactory,
+    MediaStoryStateFactory,
+    MessageFactory,
+    PostFactory,
+    StoryFactory,
+    StubTrackerFactory,
+    TimelineStatsFactory,
+    WallFactory,
+)
 
 
 T = TypeVar("T")
@@ -366,21 +381,30 @@ def test_data_dir() -> str:
 @pytest.fixture(scope="session")
 def timeline_data(test_data_dir: str) -> dict[str, Any]:
     """Load timeline test data."""
-    with (Path(test_data_dir) / "timeline-sample-account.json").open() as f:
+    json_file = Path(test_data_dir) / "timeline-sample-account.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
 def json_conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load conversation test data."""
-    with (Path(test_data_dir) / "conversation-sample-account.json").open() as f:
+    json_file = Path(test_data_dir) / "conversation-sample-account.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
 def conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load test message variants data for testing media variants and bundles."""
-    with (Path(test_data_dir) / "test_message_variants.json").open() as f:
+    json_file = Path(test_data_dir) / "test_message_variants.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
@@ -890,21 +914,21 @@ def factory_session(test_database_sync: Database):
 
     # Get all factory classes (BaseFactory and all subclasses)
     factory_classes = [
-        metadata_factories.AccountFactory,
-        metadata_factories.MediaFactory,
-        metadata_factories.MediaLocationFactory,
-        metadata_factories.PostFactory,
-        metadata_factories.GroupFactory,
-        metadata_factories.MessageFactory,
-        metadata_factories.AttachmentFactory,
-        metadata_factories.AccountMediaFactory,
-        metadata_factories.AccountMediaBundleFactory,
-        metadata_factories.HashtagFactory,
-        metadata_factories.StoryFactory,
-        metadata_factories.WallFactory,
-        metadata_factories.MediaStoryStateFactory,
-        metadata_factories.TimelineStatsFactory,
-        metadata_factories.StubTrackerFactory,
+        AccountFactory,
+        MediaFactory,
+        MediaLocationFactory,
+        PostFactory,
+        GroupFactory,
+        MessageFactory,
+        AttachmentFactory,
+        AccountMediaFactory,
+        AccountMediaBundleFactory,
+        HashtagFactory,
+        StoryFactory,
+        WallFactory,
+        MediaStoryStateFactory,
+        TimelineStatsFactory,
+        StubTrackerFactory,
     ]
 
     # Configure all factory classes to use this direct session
@@ -961,21 +985,21 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
 
     # Get all factory classes
     factory_classes = [
-        metadata_factories.AccountFactory,
-        metadata_factories.MediaFactory,
-        metadata_factories.MediaLocationFactory,
-        metadata_factories.PostFactory,
-        metadata_factories.GroupFactory,
-        metadata_factories.MessageFactory,
-        metadata_factories.AttachmentFactory,
-        metadata_factories.AccountMediaFactory,
-        metadata_factories.AccountMediaBundleFactory,
-        metadata_factories.HashtagFactory,
-        metadata_factories.StoryFactory,
-        metadata_factories.WallFactory,
-        metadata_factories.MediaStoryStateFactory,
-        metadata_factories.TimelineStatsFactory,
-        metadata_factories.StubTrackerFactory,
+        AccountFactory,
+        MediaFactory,
+        MediaLocationFactory,
+        PostFactory,
+        GroupFactory,
+        MessageFactory,
+        AttachmentFactory,
+        AccountMediaFactory,
+        AccountMediaBundleFactory,
+        HashtagFactory,
+        StoryFactory,
+        WallFactory,
+        MediaStoryStateFactory,
+        TimelineStatsFactory,
+        StubTrackerFactory,
     ]
 
     # Configure all factory classes to use the sync session

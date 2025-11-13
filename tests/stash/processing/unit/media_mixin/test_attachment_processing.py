@@ -7,14 +7,14 @@ from attachments into batches for efficient processing.
 import pytest
 
 from metadata.attachment import ContentType
-from tests.fixtures.metadata_factories import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
     MediaFactory,
     PostFactory,
 )
-from tests.fixtures.stash_type_factories import ImageFactory
+from tests.fixtures.stash.stash_type_factories import ImageFactory
 
 
 class TestAttachmentProcessing:

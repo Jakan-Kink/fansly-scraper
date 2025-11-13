@@ -14,7 +14,7 @@ from tests.fixtures import (
     MediaFactory,
     PostFactory,
 )
-from tests.fixtures.stash_type_factories import ImageFactory, SceneFactory, TagFactory
+from tests.fixtures.stash.stash_type_factories import ImageFactory, SceneFactory, TagFactory
 
 
 class TestProcessItemGallery:

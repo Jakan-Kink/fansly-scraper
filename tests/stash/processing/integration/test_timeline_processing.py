@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from metadata import Account, AccountMedia
 from metadata.attachment import Attachment, ContentType
-from tests.fixtures import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaFactory,
     AttachmentFactory,
@@ -26,7 +26,7 @@ from tests.fixtures import (
 
 @pytest.mark.asyncio
 async def test_process_timeline_post(
-    stash_processor,
+    real_stash_processor,
     factory_session,
     test_database_sync,
     mocker,
@@ -63,7 +63,7 @@ async def test_process_timeline_post(
     factory_session.commit()
 
     # Mock Stash client at API boundary
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(
@@ -74,12 +74,12 @@ async def test_process_timeline_post(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_scenes",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_scene",
             new=AsyncMock(return_value=mock_scene),
         ) as mock_create_scene,
@@ -104,7 +104,7 @@ async def test_process_timeline_post(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(
                     id="performer_123", name="Timeline Performer"
@@ -121,7 +121,7 @@ async def test_process_timeline_post(
 
 @pytest.mark.asyncio
 async def test_process_timeline_bundle(
-    stash_processor,
+    real_stash_processor,
     factory_session,
     test_database_sync,
     mocker,
@@ -150,7 +150,7 @@ async def test_process_timeline_bundle(
 
     # Create AccountMedia for each media
     from metadata.account import account_media_bundle_media
-    from tests.fixtures import AccountMediaBundleFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
 
     account_media1 = AccountMediaFactory(accountId=account.id, mediaId=media1.id)
     account_media2 = AccountMediaFactory(accountId=account.id, mediaId=media2.id)
@@ -190,12 +190,12 @@ async def test_process_timeline_bundle(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_galleries",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_gallery",
             new=AsyncMock(return_value=mock_gallery),
         ),
@@ -221,7 +221,7 @@ async def test_process_timeline_bundle(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(
                     id="performer_123", name="Timeline Performer"
@@ -238,7 +238,7 @@ async def test_process_timeline_bundle(
 
 @pytest.mark.asyncio
 async def test_process_timeline_hashtags(
-    stash_processor,
+    real_stash_processor,
     factory_session,
     test_database_sync,
     mocker,
@@ -303,20 +303,20 @@ async def test_process_timeline_hashtags(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_images",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_image",
             new=AsyncMock(return_value=mock_image),
         ),
         patch.object(
-            stash_processor.context.client, "find_tags", new=AsyncMock(return_value=[])
+            real_stash_processor.context.client, "find_tags", new=AsyncMock(return_value=[])
         ),
         patch.object(
-            stash_processor.context.client, "create_tag", new=AsyncMock()
+            real_stash_processor.context.client, "create_tag", new=AsyncMock()
         ) as mock_create_tag,
     ):
         # Act - Use async session with proper eager loading
@@ -340,7 +340,7 @@ async def test_process_timeline_hashtags(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(
                     id="performer_123", name="Hashtag Performer"
@@ -358,7 +358,7 @@ async def test_process_timeline_hashtags(
 
 @pytest.mark.asyncio
 async def test_process_timeline_account_mentions(
-    stash_processor,
+    real_stash_processor,
     factory_session,
     test_database_sync,
     mocker,
@@ -417,7 +417,7 @@ async def test_process_timeline_account_mentions(
     factory_session.commit()
 
     # Mock Stash client at API boundary
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(
@@ -428,12 +428,12 @@ async def test_process_timeline_account_mentions(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_scenes",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_scene",
             new=AsyncMock(return_value=mock_scene),
         ),
@@ -459,7 +459,7 @@ async def test_process_timeline_account_mentions(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(
                     id="performer_123", name="Mentions Performer"
@@ -476,7 +476,7 @@ async def test_process_timeline_account_mentions(
 
 @pytest.mark.asyncio
 async def test_process_timeline_batch(
-    stash_processor,
+    real_stash_processor,
     mock_posts,
     integration_mock_account,
     integration_mock_performer,
@@ -485,10 +485,10 @@ async def test_process_timeline_batch(
     """Test processing a batch of timeline posts with real database objects."""
     # Arrange
     # Mock Stash client responses
-    stash_processor.context.client.find_performer.return_value = (
+    real_stash_processor.context.client.find_performer.return_value = (
         integration_mock_performer
     )
-    stash_processor.context.client.create_scene = AsyncMock(
+    real_stash_processor.context.client.create_scene = AsyncMock(
         return_value=MagicMock(id="scene_123")
     )
 
@@ -499,7 +499,7 @@ async def test_process_timeline_batch(
         )
         account = result.scalar_one()
 
-        await stash_processor.process_creator_posts(
+        await real_stash_processor.process_creator_posts(
             account=account,
             performer=integration_mock_performer,
             studio=None,
@@ -512,12 +512,12 @@ async def test_process_timeline_batch(
     # Assert
     assert all(results)
     # Can't assert exact call count since the function was mocked
-    # assert stash_processor.context.client.create_scene.call_count == len(mock_posts)
+    # assert real_stash_processor.context.client.create_scene.call_count == len(mock_posts)
 
 
 @pytest.mark.asyncio
 async def test_process_expired_timeline_post(
-    stash_processor,
+    real_stash_processor,
     factory_session,
     test_database_sync,
     mocker,
@@ -557,7 +557,7 @@ async def test_process_expired_timeline_post(
     factory_session.commit()
 
     # Mock Stash client at API boundary
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(
@@ -568,12 +568,12 @@ async def test_process_expired_timeline_post(
 
     with (
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "find_scenes",
             new=AsyncMock(return_value=None),
         ),
         patch.object(
-            stash_processor.context.client,
+            real_stash_processor.context.client,
             "create_scene",
             new=AsyncMock(return_value=mock_scene),
         ),
@@ -598,7 +598,7 @@ async def test_process_expired_timeline_post(
             )
             async_account = account_result.scalar_one()
 
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=async_account,
                 performer=mocker.MagicMock(
                     id="performer_123", name="Expired Performer"

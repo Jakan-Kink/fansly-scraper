@@ -14,7 +14,7 @@ import pytest
 
 from stash.types.base import StashObject
 
-from ...fixtures.stash_fixtures import MockTag, TestStashObject
+from ...fixtures.stash.stash_fixtures import MockTag, TestStashObject
 
 
 @pytest.fixture(autouse=True)
