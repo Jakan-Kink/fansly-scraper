@@ -39,6 +39,23 @@ from metadata import (
 from metadata.attachment import ContentType
 
 
+# 60-bit ID ranges for BigInteger testing
+# Each entity type gets a 100 trillion range within the 60-bit space (2^60 - 1)
+# This simulates realistic Fansly API IDs which are large snowflake-like integers
+ACCOUNT_ID_BASE = 100_000_000_000_000_000  # Accounts
+MEDIA_ID_BASE = 200_000_000_000_000_000  # Media
+MEDIA_LOCATION_ID_BASE = 210_000_000_000_000_000  # MediaLocations
+POST_ID_BASE = 300_000_000_000_000_000  # Posts
+GROUP_ID_BASE = 400_000_000_000_000_000  # Groups (conversations)
+MESSAGE_ID_BASE = 500_000_000_000_000_000  # Messages
+ATTACHMENT_ID_BASE = 600_000_000_000_000_000  # Attachments
+ACCOUNT_MEDIA_ID_BASE = 700_000_000_000_000_000  # AccountMedia
+ACCOUNT_MEDIA_BUNDLE_ID_BASE = 800_000_000_000_000_000  # AccountMediaBundle
+HASHTAG_ID_BASE = 900_000_000_000_000_000  # Hashtags
+STORY_ID_BASE = 1_000_000_000_000_000_000  # Stories (within 60-bit max)
+WALL_ID_BASE = 110_000_000_000_000_000  # Walls
+
+
 class BaseFactory(SQLAlchemyModelFactory):
     """Base factory for all SQLAlchemy model factories.
 
@@ -71,7 +88,7 @@ class AccountFactory(BaseFactory):
     class Meta:
         model = Account
 
-    id = Sequence(lambda n: 10000 + n)
+    id = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     username = Sequence(lambda n: f"user_{n}")
     displayName = LazyAttribute(lambda obj: f"Display {obj.username}")
     flags = 0
@@ -106,8 +123,8 @@ class MediaFactory(BaseFactory):
     class Meta:
         model = Media
 
-    id = Sequence(lambda n: 20000 + n)
-    accountId = Sequence(lambda n: 10000 + n)
+    id = Sequence(lambda n: MEDIA_ID_BASE + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     meta_info = None
     location = Sequence(lambda n: f"https://example.com/media_{n}.jpg")
     flags = 298
@@ -140,8 +157,8 @@ class MediaLocationFactory(BaseFactory):
     class Meta:
         model = MediaLocation
 
-    mediaId = Sequence(lambda n: 20000 + n)
-    locationId = Sequence(lambda n: 100 + n)
+    mediaId = Sequence(lambda n: MEDIA_ID_BASE + n)
+    locationId = Sequence(lambda n: MEDIA_LOCATION_ID_BASE + n)
     location = Sequence(lambda n: f"https://cdn.example.com/file_{n}.jpg")
 
 
@@ -163,8 +180,8 @@ class PostFactory(BaseFactory):
     class Meta:
         model = Post
 
-    id = Sequence(lambda n: 30000 + n)
-    accountId = Sequence(lambda n: 10000 + n)
+    id = Sequence(lambda n: POST_ID_BASE + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     content = Sequence(lambda n: f"Test post content {n}")
     fypFlag = 0  # Note: singular, not plural (API has fypFlags but we store fypFlag)
     inReplyTo = None
@@ -185,8 +202,8 @@ class GroupFactory(BaseFactory):
     class Meta:
         model = Group
 
-    id = Sequence(lambda n: 40000 + n)
-    createdBy = Sequence(lambda n: 10000 + n)  # Default account ID
+    id = Sequence(lambda n: GROUP_ID_BASE + n)
+    createdBy = Sequence(lambda n: ACCOUNT_ID_BASE + n)  # Default account ID
     lastMessageId = None
 
 
@@ -206,9 +223,9 @@ class MessageFactory(BaseFactory):
     class Meta:
         model = Message
 
-    id = Sequence(lambda n: 50000 + n)
-    groupId = Sequence(lambda n: 40000 + n)
-    senderId = Sequence(lambda n: 10000 + n)
+    id = Sequence(lambda n: MESSAGE_ID_BASE + n)
+    groupId = Sequence(lambda n: GROUP_ID_BASE + n)
+    senderId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     recipientId = None
     content = Sequence(lambda n: f"Test message content {n}")
     createdAt = LazyFunction(lambda: datetime.now(UTC))
@@ -239,9 +256,9 @@ class AttachmentFactory(BaseFactory):
     class Meta:
         model = Attachment
 
-    id = Sequence(lambda n: 60000 + n)
+    id = Sequence(lambda n: ATTACHMENT_ID_BASE + n)
     contentId = Sequence(
-        lambda n: 20000 + n
+        lambda n: ACCOUNT_MEDIA_ID_BASE + n
     )  # References AccountMedia.id or AccountMediaBundle.id
     contentType = ContentType.ACCOUNT_MEDIA  # Use enum, not string
     pos = 0  # Position in attachment list (required NOT NULL field)
@@ -264,9 +281,9 @@ class AccountMediaFactory(BaseFactory):
     class Meta:
         model = AccountMedia
 
-    id = Sequence(lambda n: 70000 + n)
-    accountId = Sequence(lambda n: 10000 + n)
-    mediaId = Sequence(lambda n: 20000 + n)
+    id = Sequence(lambda n: ACCOUNT_MEDIA_ID_BASE + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
+    mediaId = Sequence(lambda n: MEDIA_ID_BASE + n)
     previewId = None
     createdAt = LazyFunction(lambda: datetime.now(UTC))
     deletedAt = None
@@ -291,8 +308,8 @@ class AccountMediaBundleFactory(BaseFactory):
     class Meta:
         model = AccountMediaBundle
 
-    id = Sequence(lambda n: 80000 + n)
-    accountId = Sequence(lambda n: 10000 + n)
+    id = Sequence(lambda n: ACCOUNT_MEDIA_BUNDLE_ID_BASE + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     previewId = None
     createdAt = LazyFunction(lambda: datetime.now(UTC))
     deletedAt = None
@@ -311,7 +328,7 @@ class HashtagFactory(BaseFactory):
     class Meta:
         model = Hashtag
 
-    id = Sequence(lambda n: 90000 + n)
+    id = Sequence(lambda n: HASHTAG_ID_BASE + n)
     value = Sequence(lambda n: f"tag_{n}")
     stash_id = None
 
@@ -332,8 +349,8 @@ class StoryFactory(BaseFactory):
     class Meta:
         model = Story
 
-    id = Sequence(lambda n: 100000 + n)
-    authorId = Sequence(lambda n: 10000 + n)
+    id = Sequence(lambda n: STORY_ID_BASE + n)
+    authorId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     title = Sequence(lambda n: f"Story Title {n}")
     description = Sequence(lambda n: f"Story description {n}")
     content = Sequence(lambda n: f"Story content {n}")
@@ -357,8 +374,8 @@ class WallFactory(BaseFactory):
     class Meta:
         model = Wall
 
-    id = Sequence(lambda n: 110000 + n)
-    accountId = Sequence(lambda n: 10000 + n)
+    id = Sequence(lambda n: WALL_ID_BASE + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     pos = Sequence(lambda n: n)
     name = Sequence(lambda n: f"Wall {n}")
     description = Sequence(lambda n: f"Wall description {n}")
@@ -384,7 +401,7 @@ class MediaStoryStateFactory(BaseFactory):
     class Meta:
         model = MediaStoryState
 
-    accountId = Sequence(lambda n: 10000 + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     status = 1
     storyCount = 0
     version = 1
@@ -411,7 +428,7 @@ class TimelineStatsFactory(BaseFactory):
     class Meta:
         model = TimelineStats
 
-    accountId = Sequence(lambda n: 10000 + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     imageCount = 0
     videoCount = 0
     bundleCount = 0
@@ -439,7 +456,7 @@ class StubTrackerFactory(BaseFactory):
         model = StubTracker
 
     table_name = "accounts"
-    record_id = Sequence(lambda n: 10000 + n)
+    record_id = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     created_at = LazyFunction(lambda: datetime.now(UTC))
     reason = None
 

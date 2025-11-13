@@ -45,6 +45,24 @@ if TYPE_CHECKING:
     from .wall import Wall
 
 
+# Association tables for many-to-many relationships
+# Must be defined before Account class to be referenced in relationships
+account_avatar = Table(
+    "account_avatar",
+    Base.metadata,
+    Column("accountId", BigInteger, ForeignKey("accounts.id")),
+    Column("mediaId", BigInteger, ForeignKey("media.id")),
+    UniqueConstraint("accountId", "mediaId"),
+)
+account_banner = Table(
+    "account_banner",
+    Base.metadata,
+    Column("accountId", BigInteger, ForeignKey("accounts.id")),
+    Column("mediaId", BigInteger, ForeignKey("media.id")),
+    UniqueConstraint("accountId", "mediaId"),
+)
+
+
 @require_database_config
 @with_database_session(async_session=True)
 async def process_media_bundles_data(
@@ -163,12 +181,20 @@ class Account(Base):
     following: Mapped[bool] = mapped_column(Boolean, nullable=True, default=False)
     avatar: Mapped[Media | None] = relationship(
         "Media",
-        secondary="account_avatar",
-        lazy="noload",  # Don't auto-load avatar to reduce SQL queries
+        secondary=account_avatar,
+        primaryjoin="Account.id == account_avatar.c.accountId",
+        secondaryjoin="account_avatar.c.mediaId == Media.id",
+        lazy="select",  # Changed from noload - allows normal lazy loading
+        uselist=False,  # Return single object, not list
     )
     banner: Mapped[Media | None] = relationship(
         "Media",
-        secondary="account_banner",
+        secondary=account_banner,
+        primaryjoin="Account.id == account_banner.c.accountId",
+        secondaryjoin="Media.id == account_banner.c.mediaId",
+        lazy="select",
+        uselist=False,
+        viewonly=True,
     )
     # Back references
     posts: Mapped[list[Post]] = relationship(
@@ -192,7 +218,7 @@ class Account(Base):
     accountMedia: Mapped[set[AccountMedia]] = relationship(
         "AccountMedia",
         back_populates="account",
-        lazy="noload",  # Don't auto-load accountMedia to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
         collection_class=set,
         cascade="all, delete",  # Use delete to ensure child objects are deleted
         passive_deletes=True,  # Allow database-level cascade
@@ -210,7 +236,7 @@ class Account(Base):
     stories: Mapped[set[Story]] = relationship(
         "Story",
         back_populates="author",
-        lazy="noload",  # Don't auto-load stories to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
         collection_class=set,
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -292,20 +318,6 @@ class TimelineStats(Base):
     )
 
 
-account_avatar = Table(
-    "account_avatar",
-    Base.metadata,
-    Column("accountId", BigInteger, ForeignKey("accounts.id")),
-    Column("mediaId", BigInteger, ForeignKey("media.id")),
-    UniqueConstraint("accountId", "mediaId"),
-)
-account_banner = Table(
-    "account_banner",
-    Base.metadata,
-    Column("accountId", BigInteger, ForeignKey("accounts.id")),
-    Column("mediaId", BigInteger, ForeignKey("media.id")),
-    UniqueConstraint("accountId", "mediaId"),
-)
 account_media_bundle_media = Table(
     "account_media_bundle_media",
     Base.metadata,
@@ -386,7 +398,7 @@ class AccountMedia(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
-        lazy="noload",  # Don't auto-load media to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
     )
     previewId: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("media.id"), nullable=True
@@ -397,7 +409,7 @@ class AccountMedia(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         single_parent=True,
-        lazy="noload",  # Don't auto-load preview to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
     )
     createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     deletedAt: Mapped[datetime | None] = mapped_column(
@@ -461,7 +473,7 @@ class AccountMediaBundle(Base):
         primaryjoin="AccountMediaBundle.id == account_media_bundle_media.c.bundle_id",
         secondaryjoin="AccountMedia.id == account_media_bundle_media.c.media_id",
         collection_class=set,
-        lazy="noload",  # Don't auto-load accountMedia to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
         order_by=account_media_bundle_media.c.pos,
         cascade="all, delete-orphan",
         passive_deletes=True,

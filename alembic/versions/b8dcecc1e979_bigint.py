@@ -185,12 +185,15 @@ def upgrade() -> None:
         type_=sa.BigInteger(),
         existing_nullable=False,
     )
+    # Convert locationId from VARCHAR to BIGINT
+    # API sends as strings ("1", "102", etc.) but code converts to integers
     op.alter_column(
         "media_locations",
         "locationId",
         existing_type=sa.VARCHAR(),
         type_=sa.BigInteger(),
         existing_nullable=False,
+        postgresql_using='"locationId"::bigint',
     )
     op.alter_column(
         "media_story_states",
@@ -264,6 +267,8 @@ def upgrade() -> None:
         type_=sa.BigInteger(),
         existing_nullable=False,
     )
+    # Drop and recreate constraint to ensure idempotency
+    op.execute('ALTER TABLE post_hashtags DROP CONSTRAINT IF EXISTS "pk_post_hashtags"')
     op.create_unique_constraint(
         "pk_post_hashtags", "post_hashtags", ["postId", "hashtagId"]
     )
@@ -287,6 +292,10 @@ def upgrade() -> None:
         existing_type=sa.VARCHAR(),
         server_default=None,
         existing_nullable=False,
+    )
+    # Drop and recreate constraint to ensure idempotency
+    op.execute(
+        'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_handle"'
     )
     op.create_unique_constraint(
         "uix_post_mentions_handle", "post_mentions", ["postId", "handle"]
@@ -350,8 +359,12 @@ def upgrade() -> None:
         type_=sa.DateTime(timezone=True),
         existing_nullable=True,
     )
-    op.drop_constraint(op.f("stories_authorId_fkey"), "stories", type_="foreignkey")
+    # Drop the foreign key constraint if it exists (may not exist in all databases)
+    # Using raw SQL because op.drop_constraint doesn't support IF EXISTS
+    op.execute('ALTER TABLE stories DROP CONSTRAINT IF EXISTS "stories_authorId_fkey"')
     op.create_foreign_key(None, "stories", "accounts", ["authorId"], ["id"])
+    # Drop and recreate constraint to ensure idempotency
+    op.execute('ALTER TABLE stub_tracker DROP CONSTRAINT IF EXISTS "uix_stub_tracker"')
     op.create_unique_constraint(
         "uix_stub_tracker", "stub_tracker", ["table_name", "record_id"]
     )
@@ -599,6 +612,7 @@ def downgrade() -> None:
         type_=sa.INTEGER(),
         existing_nullable=False,
     )
+    # Revert locationId from BIGINT to VARCHAR
     op.alter_column(
         "media_locations",
         "locationId",

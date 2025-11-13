@@ -147,8 +147,8 @@ class Message(Base):
     group: Mapped[Group] = relationship(
         "Group",
         foreign_keys=[groupId],
-        lazy="noload",
-        overlaps="messages",  # Don't auto-load group to reduce SQL queries
+        lazy="select",  # Use select loading for lazy loading
+        overlaps="messages",
     )
     stash_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

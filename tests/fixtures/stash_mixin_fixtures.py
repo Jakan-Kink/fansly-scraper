@@ -158,60 +158,6 @@ def tag_mixin():
 
 
 # ============================================================================
-# Batch Processing Fixtures
-# ============================================================================
-
-
-# @pytest.fixture
-# def mock_items():
-#     """Fixture for mock items."""
-#     return [MagicMock() for _ in range(10)]
-
-
-# @pytest.fixture
-# def mock_progress_bars():
-#     """Fixture for mock progress bars."""
-#     task_pbar = MagicMock()
-#     task_pbar.set_description = MagicMock()
-#     task_pbar.set_postfix = MagicMock()
-#     task_pbar.update = MagicMock()
-#     task_pbar.close = MagicMock()
-
-#     process_pbar = MagicMock()
-#     process_pbar.set_description = MagicMock()
-#     process_pbar.update = MagicMock()
-#     process_pbar.close = MagicMock()
-
-#     return task_pbar, process_pbar
-
-
-# @pytest.fixture
-# def mock_semaphore():
-#     """Fixture for mock asyncio.Semaphore."""
-#     semaphore = MagicMock()
-#     semaphore._value = 4  # Max concurrency
-#     semaphore.__aenter__ = AsyncMock()
-#     semaphore.__aexit__ = AsyncMock()
-#     return semaphore
-
-
-# @pytest.fixture
-# def mock_process_batch():
-#     """Fixture for mock process_batch function."""
-#     return AsyncMock()
-
-
-# @pytest.fixture
-# def mock_queue():
-#     """Fixture for mock asyncio.Queue."""
-#     queue = MagicMock()
-#     queue.get = AsyncMock()
-#     queue.put = AsyncMock()
-#     queue.task_done = MagicMock()
-#     return queue
-
-
-# ============================================================================
 # Mock Item Fixture (HasMetadata Protocol for Stash Unit Tests)
 # ============================================================================
 
@@ -219,16 +165,8 @@ def tag_mixin():
 @pytest.fixture
 def mock_item():
     """Fixture for Post/Message item used in Stash mixin unit tests.
-
-    Creates a real Post object using PostFactory.build() (detached from database)
-    and adds AwaitableAttrsMock for async relationship access. This provides a real
-    Post instance with the HasMetadata protocol for UNIT tests of Stash processing
-    mixins.
-
-    Uses the generic AwaitableAttrsMock to handle ANY async relationship access.
-
     Returns:
-        Post: Real Post object with awaitable_attrs support (detached from database)
+        Post: Real Post object (detached from database)
     """
     from tests.fixtures.metadata_factories import PostFactory
 

@@ -47,6 +47,8 @@ class FanslyConfig:
 
     # Configuration file
     config_path: Path | None = None
+    # Original config file path (before CLI args create config_args.ini)
+    original_config_path: Path | None = None
 
     # Misc
     token_from_browser_name: str | None = None
@@ -177,14 +179,22 @@ class FanslyConfig:
             # Allow empty token if username/password are provided (for login flow)
             has_login_credentials = self.username and self.password
 
-            if user_agent and self.check_key and (token or has_login_credentials):
+            if (
+                user_agent
+                and self.check_key
+                and (self.token_is_valid() or has_login_credentials)
+            ):
                 # Initialize rate limiter
                 from api.rate_limiter import RateLimiter
 
                 rate_limiter = RateLimiter(self)
 
+                # Use empty string if token is invalid (for login flow)
+                # Otherwise use the valid unscrambled token
+                api_token = token if self.token_is_valid() else ""
+
                 self._api = FanslyApi(
-                    token=token or "",  # Empty string if using login flow
+                    token=api_token,
                     user_agent=user_agent,
                     check_key=self.check_key,
                     device_id=self.cached_device_id,
@@ -193,12 +203,15 @@ class FanslyConfig:
                     rate_limiter=rate_limiter,
                 )
 
-                # If we have login credentials but no token, perform login
-                if has_login_credentials and not token:
+                # If we have login credentials but no valid token, perform login
+                if has_login_credentials and not self.token_is_valid():
                     try:
                         self._api.login(self.username, self.password)  # type: ignore
                         # Update config with the new token
                         self.token = self._api.token
+                        # Save token to original config file (not config_args.ini)
+                        self._save_token_to_original_config()
+                        # Also save to working config for current session
                         self._save_config()
                     except Exception as e:
                         raise RuntimeError(f"Login failed: {e}")
@@ -408,6 +421,64 @@ class FanslyConfig:
 
         with self.config_path.open("w", encoding="utf-8") as f:
             self._parser.write(f)
+            return True
+
+    def _save_token_to_original_config(self) -> bool:
+        """Save the authorization token to the original config file.
+
+        This is used when CLI args create a temporary config_args.ini,
+        but we want to persist the token to the original config.ini for future sessions.
+
+        Returns:
+            True if token was saved successfully, False otherwise
+        """
+        target_path = self.original_config_path or self.config_path
+        if target_path is None or self.token is None:
+            return False
+
+        # Load the original config file
+        original_parser = ConfigParser(interpolation=None)
+        original_parser.read(target_path)
+
+        # Ensure MyAccount section exists
+        if not original_parser.has_section("MyAccount"):
+            original_parser.add_section("MyAccount")
+
+        # Update only the token
+        original_parser.set("MyAccount", "authorization_token", self.token)
+
+        # Save back to original config
+        with target_path.open("w", encoding="utf-8") as f:
+            original_parser.write(f)
+            return True
+
+    def _save_checkkey_to_original_config(self) -> bool:
+        """Save the check key to the original config file.
+
+        This is used when a new checkKey is extracted from Fansly's main.js,
+        persisting it to the original config.ini for future sessions.
+
+        Returns:
+            True if checkKey was saved successfully, False otherwise
+        """
+        target_path = self.original_config_path or self.config_path
+        if target_path is None or self.check_key is None:
+            return False
+
+        # Load the original config file
+        original_parser = ConfigParser(interpolation=None)
+        original_parser.read(target_path)
+
+        # Ensure MyAccount section exists
+        if not original_parser.has_section("MyAccount"):
+            original_parser.add_section("MyAccount")
+
+        # Update only the check_key
+        original_parser.set("MyAccount", "check_key", self.check_key)
+
+        # Save back to original config
+        with target_path.open("w", encoding="utf-8") as f:
+            original_parser.write(f)
             return True
 
     def token_is_valid(self) -> bool:

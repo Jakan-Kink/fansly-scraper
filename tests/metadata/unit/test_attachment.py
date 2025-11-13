@@ -172,3 +172,46 @@ async def test_attachment_exclusivity(session, test_account):
     session.add(attachment)
     with pytest.raises(Exception):  # noqa: PT011, B017 - database constraint violations vary by backend
         await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_invalid_content_type_skipped(session, test_account):
+    """Test that attachments with invalid contentType values are skipped."""
+    # Create a message
+    message = Message(
+        id=1,
+        senderId=test_account.id,
+        content="Test message",
+        createdAt=datetime.now(UTC),
+    )
+    session.add(message)
+    await session.flush()
+
+    # Try to process attachment with invalid contentType
+    attachment_data = {
+        "contentId": 12345,
+        "contentType": 99999,  # Invalid contentType (not in ContentType enum)
+        "pos": 0,
+    }
+
+    # Known relations for filtering
+    known_relations = {"post", "message"}
+
+    # Process the attachment (should skip due to invalid contentType)
+    await Attachment.process_attachment(
+        attachment_data=attachment_data,
+        parent=message,
+        known_relations=known_relations,
+        parent_field="messageId",
+        session=session,
+        context="test",
+    )
+
+    await session.commit()
+
+    # Verify no attachment was created
+    result = await session.execute(
+        select(Attachment).where(Attachment.messageId == message.id)
+    )
+    attachments = result.scalars().all()
+    assert len(attachments) == 0, "Invalid attachment should have been skipped"

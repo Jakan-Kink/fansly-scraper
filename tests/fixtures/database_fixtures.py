@@ -70,7 +70,7 @@ __all__ = [
     "factory_session",
     "json_conversation_data",
     "mock_account",
-    "safe_name",
+    # "safe_name",  # Commented out - fixture is not currently defined
     "session",
     "session_factory",
     "session_sync",
@@ -89,77 +89,6 @@ __all__ = [
     "timeline_data",
     "uuid_test_db_factory",
 ]
-
-
-# ============================================================================
-# Utility Classes for Mocking SQLAlchemy Async Patterns
-# ============================================================================
-
-
-class AwaitableAttrsMock:
-    """Generic mock for SQLAlchemy's awaitable_attrs pattern.
-
-    This utility class mocks SQLAlchemy's awaitable_attrs, which provides async
-    access to relationship attributes. It dynamically handles ANY attribute access,
-    returning a fresh coroutine each time, allowing unlimited reuse.
-
-    This is completely generic - no need to hardcode attribute names.
-
-    Usage:
-        # Works with any attributes
-        post = MagicMock()
-        post.hashtags = [...]
-        post.accountMentions = [...]
-        post.attachments = [...]
-        post.awaitable_attrs = AwaitableAttrsMock(post)
-
-        # All attributes are automatically awaitable:
-        tags = await post.awaitable_attrs.hashtags
-        mentions = await post.awaitable_attrs.accountMentions
-        attachments = await post.awaitable_attrs.attachments
-
-        # Can await the same attribute multiple times:
-        tags1 = await post.awaitable_attrs.hashtags
-        tags2 = await post.awaitable_attrs.hashtags  # Creates fresh coroutine!
-
-    Design:
-        Uses __getattr__ to intercept ANY attribute access and return a coroutine
-        that fetches the actual value from the parent object.
-    """
-
-    def __init__(self, parent_item: Any) -> None:
-        """Initialize with reference to parent item.
-
-        Args:
-            parent_item: The parent object (mock or real) containing the actual data.
-                        Can be a MagicMock, a factory-created model, or any object.
-        """
-        object.__setattr__(self, "_item", parent_item)
-
-    def __getattr__(self, name: str) -> Awaitable[Any]:
-        """Intercept any attribute access and return a fresh coroutine.
-
-        Args:
-            name: The attribute name being accessed
-
-        Returns:
-            A coroutine that will return the attribute value from the parent
-        """
-
-        async def get_attr() -> Any:
-            return getattr(self._item, name, None)
-
-        return get_attr()
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Prevent setting attributes directly (maintain clean interface)."""
-        if name == "_item":
-            object.__setattr__(self, name, value)
-        else:
-            raise AttributeError(
-                f"Cannot set attribute '{name}' on AwaitableAttrsMock. "
-                f"Set it on the parent object instead."
-            )
 
 
 # ============================================================================
@@ -465,13 +394,13 @@ def run_async(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., An
     return wrapper
 
 
-@pytest.fixture
-def safe_name(request) -> str:
-    """Generate a safe name for the test database based on the test name."""
-    # Get the full test name to ensure uniqueness
-    test_id = request.node.nodeid.encode("utf-8")
-    safe_name = f"test_{abs(hash(test_id))}"
-    return safe_name
+# @pytest.fixture
+# def safe_name(request) -> str:
+#     """Generate a safe name for the test database based on the test name."""
+#     # Get the full test name to ensure uniqueness
+#     test_id = request.node.nodeid.encode("utf-8")
+#     safe_name = f"test_{abs(hash(test_id))}"
+#     return safe_name
 
 
 @pytest_asyncio.fixture
