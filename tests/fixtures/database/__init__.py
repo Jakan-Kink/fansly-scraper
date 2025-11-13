@@ -7,7 +7,7 @@ from .database_fixtures import (
     factory_session,
     json_conversation_data,
     mock_account,
-    safe_name,
+    # safe_name,  # Commented out - fixture is not currently defined
     session,
     session_factory,
     session_sync,
@@ -35,7 +35,7 @@ __all__ = [
     "factory_session",
     "json_conversation_data",
     "mock_account",
-    "safe_name",
+    # "safe_name",  # Commented out - fixture is not currently defined
     "session",
     "session_factory",
     "session_sync",

@@ -42,7 +42,7 @@ from .database import (
     factory_session,
     json_conversation_data,
     mock_account,
-    safe_name,
+    # safe_name,  # Commented out - fixture is not currently defined
     session,
     session_factory,
     session_sync,
@@ -339,7 +339,7 @@ mod_database_fixtures = [
     "timeline_data",
     "json_conversation_data",
     "conversation_data",
-    "safe_name",
+    # "safe_name",  # Commented out - fixture is not currently defined
     "test_engine",
     "test_async_session",
     "config",
