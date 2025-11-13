@@ -96,12 +96,17 @@ async def test_process_hashtags_to_tags_not_found_creates_new(tag_mixin):
     # Mock findTags (empty) and tagCreate responses
     find_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
-            # First call: findTags returns empty
+            # First call: findTags by name returns empty
             httpx.Response(
                 200,
                 json=create_graphql_response("findTags", empty_result),
             ),
-            # Second call: tagCreate returns new tag
+            # Second call: findTags by alias returns empty
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            ),
+            # Third call: tagCreate returns new tag
             httpx.Response(
                 200,
                 json=create_graphql_response("tagCreate", create_tag_create_result(new_tag_dict)),
