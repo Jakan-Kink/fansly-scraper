@@ -11,7 +11,7 @@ from tests.fixtures import MediaLocationFactory
 
 @pytest.mark.asyncio
 async def test_process_hls_variant(
-    stash_processor,
+    real_stash_processor,
     mock_media,
     integration_mock_performer,
     integration_mock_account,
@@ -52,27 +52,27 @@ async def test_process_hls_variant(
     mock_scene.id = "scene_123"
 
     # Mock _find_stash_files_by_path to return a scene
-    stash_processor._find_stash_files_by_path = AsyncMock(
+    real_stash_processor._find_stash_files_by_path = AsyncMock(
         return_value=[(mock_scene, MagicMock())]
     )
-    stash_processor._update_stash_metadata = AsyncMock()
+    real_stash_processor._update_stash_metadata = AsyncMock()
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_media(
+    await real_stash_processor._process_media(
         mock_media, mock_post, integration_mock_account, result
     )
 
     # Assert
     assert len(result["scenes"]) == 1
     assert result["scenes"][0] == mock_scene
-    stash_processor._find_stash_files_by_path.assert_called_once()
-    stash_processor._update_stash_metadata.assert_called_once()
+    real_stash_processor._find_stash_files_by_path.assert_called_once()
+    real_stash_processor._update_stash_metadata.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_dash_variant(
-    stash_processor,
+    real_stash_processor,
     mock_media,
     integration_mock_performer,
     integration_mock_account,
@@ -113,27 +113,27 @@ async def test_process_dash_variant(
     mock_scene.id = "scene_123"
 
     # Mock _find_stash_files_by_path to return a scene
-    stash_processor._find_stash_files_by_path = AsyncMock(
+    real_stash_processor._find_stash_files_by_path = AsyncMock(
         return_value=[(mock_scene, MagicMock())]
     )
-    stash_processor._update_stash_metadata = AsyncMock()
+    real_stash_processor._update_stash_metadata = AsyncMock()
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_media(
+    await real_stash_processor._process_media(
         mock_media, mock_post, integration_mock_account, result
     )
 
     # Assert
     assert len(result["scenes"]) == 1
     assert result["scenes"][0] == mock_scene
-    stash_processor._find_stash_files_by_path.assert_called_once()
-    stash_processor._update_stash_metadata.assert_called_once()
+    real_stash_processor._find_stash_files_by_path.assert_called_once()
+    real_stash_processor._update_stash_metadata.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_preview_variant(
-    stash_processor,
+    real_stash_processor,
     mock_media,
     integration_mock_performer,
     integration_mock_account,
@@ -174,27 +174,27 @@ async def test_process_preview_variant(
     mock_image.id = "image_123"
 
     # Mock _find_stash_files_by_path to return an image
-    stash_processor._find_stash_files_by_path = AsyncMock(
+    real_stash_processor._find_stash_files_by_path = AsyncMock(
         return_value=[(mock_image, MagicMock())]
     )
-    stash_processor._update_stash_metadata = AsyncMock()
+    real_stash_processor._update_stash_metadata = AsyncMock()
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_media(
+    await real_stash_processor._process_media(
         mock_media, mock_post, integration_mock_account, result
     )
 
     # Assert
     assert len(result["images"]) == 1
     assert result["images"][0] == mock_image
-    stash_processor._find_stash_files_by_path.assert_called_once()
-    stash_processor._update_stash_metadata.assert_called_once()
+    real_stash_processor._find_stash_files_by_path.assert_called_once()
+    real_stash_processor._update_stash_metadata.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_bundle_ordering(
-    stash_processor,
+    real_stash_processor,
     mock_media_bundle,
     integration_mock_performer,
     integration_mock_account,
@@ -247,13 +247,13 @@ async def test_process_bundle_ordering(
     session_sync.refresh(mock_media_bundle)
 
     # Mock Stash client responses
-    stash_processor.context.client.find_performer.return_value = (
+    real_stash_processor.context.client.find_performer.return_value = (
         integration_mock_performer
     )
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_bundle_media(
+    await real_stash_processor._process_bundle_media(
         mock_media_bundle, mock_post, integration_mock_account, result
     )
 
@@ -266,7 +266,7 @@ async def test_process_bundle_ordering(
 
 @pytest.mark.asyncio
 async def test_process_bundle_with_preview(
-    stash_processor,
+    real_stash_processor,
     mock_media_bundle,
     integration_mock_performer,
     integration_mock_account,
@@ -299,13 +299,13 @@ async def test_process_bundle_with_preview(
     session_sync.refresh(mock_media_bundle)
 
     # Mock Stash client responses
-    stash_processor.context.client.find_performer.return_value = (
+    real_stash_processor.context.client.find_performer.return_value = (
         integration_mock_performer
     )
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_bundle_media(
+    await real_stash_processor._process_bundle_media(
         mock_media_bundle, mock_post, integration_mock_account, result
     )
 
@@ -316,7 +316,7 @@ async def test_process_bundle_with_preview(
 
 @pytest.mark.asyncio
 async def test_bundle_permission_inheritance(
-    stash_processor,
+    real_stash_processor,
     mock_media_bundle,
     integration_mock_performer,
     integration_mock_account,
@@ -370,13 +370,13 @@ async def test_bundle_permission_inheritance(
     session_sync.refresh(mock_media_bundle)
 
     # Mock Stash client responses
-    stash_processor.context.client.find_performer.return_value = (
+    real_stash_processor.context.client.find_performer.return_value = (
         integration_mock_performer
     )
 
     # Act
     result = {"images": [], "scenes": []}
-    await stash_processor._process_bundle_media(
+    await real_stash_processor._process_bundle_media(
         mock_media_bundle, mock_post, integration_mock_account, result
     )
 

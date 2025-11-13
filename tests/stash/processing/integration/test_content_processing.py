@@ -25,7 +25,7 @@ class TestContentProcessingIntegration:
     async def test_process_creator_posts_integration(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mocker,
     ):
@@ -45,13 +45,13 @@ class TestContentProcessingIntegration:
 
         # Mock gallery creation (external Stash API call)
         mock_gallery = Gallery(id="gallery_123", title="Test Gallery", urls=[])
-        stash_processor._get_or_create_gallery = mocker.AsyncMock(
+        real_stash_processor._get_or_create_gallery = mocker.AsyncMock(
             return_value=mock_gallery
         )
-        stash_processor._update_stash_metadata = mocker.AsyncMock()
+        real_stash_processor._update_stash_metadata = mocker.AsyncMock()
 
         # Mock _run_worker_pool since fixture only mocks _setup_worker_pool
-        stash_processor._run_worker_pool = mocker.AsyncMock()
+        real_stash_processor._run_worker_pool = mocker.AsyncMock()
 
         # Use async session from the database and query account fresh
         async with test_database_sync.async_session_scope() as async_session:
@@ -61,22 +61,22 @@ class TestContentProcessingIntegration:
             )
             async_account = result.scalar_one()
 
-            await stash_processor.process_creator_posts(
+            await real_stash_processor.process_creator_posts(
                 account=async_account,
                 performer=performer,
                 studio=studio,
                 session=async_session,
             )
 
-        # Verify worker pool was used (from mocked methods in stash_processor fixture)
-        assert stash_processor._setup_worker_pool.call_count >= 1
-        assert stash_processor._run_worker_pool.call_count >= 1
+        # Verify worker pool was used (from mocked methods in real_stash_processor fixture)
+        assert real_stash_processor._setup_worker_pool.call_count >= 1
+        assert real_stash_processor._run_worker_pool.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_process_creator_messages_integration(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mocker,
     ):
@@ -102,13 +102,13 @@ class TestContentProcessingIntegration:
 
         # Mock gallery creation (external Stash API call)
         mock_gallery = Gallery(id="gallery_456", title="Message Gallery", urls=[])
-        stash_processor._get_or_create_gallery = mocker.AsyncMock(
+        real_stash_processor._get_or_create_gallery = mocker.AsyncMock(
             return_value=mock_gallery
         )
-        stash_processor._update_stash_metadata = mocker.AsyncMock()
+        real_stash_processor._update_stash_metadata = mocker.AsyncMock()
 
         # Mock _run_worker_pool since fixture only mocks _setup_worker_pool
-        stash_processor._run_worker_pool = mocker.AsyncMock()
+        real_stash_processor._run_worker_pool = mocker.AsyncMock()
 
         # Use async session from the database and query account fresh
         async with test_database_sync.async_session_scope() as async_session:
@@ -118,7 +118,7 @@ class TestContentProcessingIntegration:
             )
             async_account = result.scalar_one()
 
-            await stash_processor.process_creator_messages(
+            await real_stash_processor.process_creator_messages(
                 account=async_account,
                 performer=performer,
                 studio=studio,
@@ -126,14 +126,14 @@ class TestContentProcessingIntegration:
             )
 
         # Verify worker pool was used
-        assert stash_processor._setup_worker_pool.call_count >= 1
-        assert stash_processor._run_worker_pool.call_count >= 1
+        assert real_stash_processor._setup_worker_pool.call_count >= 1
+        assert real_stash_processor._run_worker_pool.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_process_items_with_gallery(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mocker,
     ):
@@ -153,7 +153,7 @@ class TestContentProcessingIntegration:
         studio = StudioFactory(id="studio_789", name="Gallery Studio")
 
         # Mock _process_item_gallery
-        stash_processor._process_item_gallery = mocker.AsyncMock()
+        real_stash_processor._process_item_gallery = mocker.AsyncMock()
 
         # Define URL pattern function
         def url_pattern_func(item):
@@ -161,7 +161,7 @@ class TestContentProcessingIntegration:
 
         # Use async session from the database
         async with test_database_sync.async_session_scope() as async_session:
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
                 studio=studio,
@@ -172,20 +172,20 @@ class TestContentProcessingIntegration:
             )
 
         # Verify _process_item_gallery was called for each post
-        assert stash_processor._process_item_gallery.call_count == 2
+        assert real_stash_processor._process_item_gallery.call_count == 2
 
         # Verify the URLs were generated correctly
-        first_call = stash_processor._process_item_gallery.call_args_list[0]
+        first_call = real_stash_processor._process_item_gallery.call_args_list[0]
         assert first_call[1]["url_pattern"] == f"https://example.com/{posts[0].id}"
 
-        second_call = stash_processor._process_item_gallery.call_args_list[1]
+        second_call = real_stash_processor._process_item_gallery.call_args_list[1]
         assert second_call[1]["url_pattern"] == f"https://example.com/{posts[1].id}"
 
     @pytest.mark.asyncio
     async def test_process_items_with_gallery_error_handling(
         self,
         factory_session,
-        stash_processor,
+        real_stash_processor,
         test_database_sync,
         mocker,
     ):
@@ -205,7 +205,7 @@ class TestContentProcessingIntegration:
         studio = StudioFactory(id="studio_999", name="Error Studio")
 
         # Setup _process_item_gallery to raise exception for first post
-        stash_processor._process_item_gallery = mocker.AsyncMock(
+        real_stash_processor._process_item_gallery = mocker.AsyncMock(
             side_effect=[
                 Exception("Test error"),  # First call fails
                 None,  # Second call succeeds
@@ -221,7 +221,7 @@ class TestContentProcessingIntegration:
 
         # Use async session from the database
         async with test_database_sync.async_session_scope() as async_session:
-            await stash_processor._process_items_with_gallery(
+            await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
                 studio=studio,
@@ -232,4 +232,4 @@ class TestContentProcessingIntegration:
             )
 
         # Verify _process_item_gallery was called for both posts despite the error
-        assert stash_processor._process_item_gallery.call_count == 2
+        assert real_stash_processor._process_item_gallery.call_count == 2
