@@ -14,13 +14,13 @@ class TestStashProcessingIntegration:
     """Integration tests for StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_initialization(self, factory_session, real_stash_processor, mock_state):
+    async def test_initialization(self, factory_session, real_stash_processor, test_state):
         """Test StashProcessing initialization with real database."""
         # Verify the processor was properly initialized with real dependencies
         assert real_stash_processor.config is not None
-        assert real_stash_processor.state.creator_id == mock_state.creator_id
-        assert real_stash_processor.state.creator_name == mock_state.creator_name
-        assert real_stash_processor.state.messages_enabled == mock_state.messages_enabled
+        assert real_stash_processor.state.creator_id == test_state.creator_id
+        assert real_stash_processor.state.creator_name == test_state.creator_name
+        assert real_stash_processor.state.messages_enabled == test_state.messages_enabled
         assert real_stash_processor.context is not None
         assert real_stash_processor.database is not None
 

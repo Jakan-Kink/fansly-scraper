@@ -15,14 +15,14 @@ from tests.fixtures.stash.stash_type_factories import PerformerFactory
 
 
 # Most fixtures are imported from tests.fixtures via conftest.py:
-# - mock_config, mock_state, mock_context, mock_database (from stash_integration_fixtures)
+# - mock_config, test_state, mock_context, mock_database (from stash_integration_fixtures)
 # - stash_processor (for integration tests)
 #
 # For unit tests, we define a simple processor fixture below that uses mocked dependencies
 
 
 @pytest.fixture
-def processor(mock_config, mock_state, mock_context, mock_database):
+def processor(mock_config, test_state, mock_context, mock_database):
     """Fixture for stash processor instance for unit testing.
 
     This creates a StashProcessing instance with all dependencies mocked.
@@ -30,7 +30,7 @@ def processor(mock_config, mock_state, mock_context, mock_database):
     """
     processor = StashProcessing(
         config=mock_config,
-        state=mock_state,
+        state=test_state,
         context=mock_context,
         database=mock_database,
         _background_task=None,
