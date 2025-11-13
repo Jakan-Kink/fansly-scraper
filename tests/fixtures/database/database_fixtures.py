@@ -56,7 +56,23 @@ from metadata import (
     Wall,
     account_media_bundle_media,
 )
-from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
+    AttachmentFactory,
+    GroupFactory,
+    HashtagFactory,
+    MediaFactory,
+    MediaLocationFactory,
+    MediaStoryStateFactory,
+    MessageFactory,
+    PostFactory,
+    StoryFactory,
+    StubTrackerFactory,
+    TimelineStatsFactory,
+    WallFactory,
+)
 
 
 T = TypeVar("T")
@@ -889,21 +905,21 @@ def factory_session(test_database_sync: Database):
 
     # Get all factory classes (BaseFactory and all subclasses)
     factory_classes = [
-        metadata_factories.AccountFactory,
-        metadata_factories.MediaFactory,
-        metadata_factories.MediaLocationFactory,
-        metadata_factories.PostFactory,
-        metadata_factories.GroupFactory,
-        metadata_factories.MessageFactory,
-        metadata_factories.AttachmentFactory,
-        metadata_factories.AccountMediaFactory,
-        metadata_factories.AccountMediaBundleFactory,
-        metadata_factories.HashtagFactory,
-        metadata_factories.StoryFactory,
-        metadata_factories.WallFactory,
-        metadata_factories.MediaStoryStateFactory,
-        metadata_factories.TimelineStatsFactory,
-        metadata_factories.StubTrackerFactory,
+        AccountFactory,
+        MediaFactory,
+        MediaLocationFactory,
+        PostFactory,
+        GroupFactory,
+        MessageFactory,
+        AttachmentFactory,
+        AccountMediaFactory,
+        AccountMediaBundleFactory,
+        HashtagFactory,
+        StoryFactory,
+        WallFactory,
+        MediaStoryStateFactory,
+        TimelineStatsFactory,
+        StubTrackerFactory,
     ]
 
     # Configure all factory classes to use this direct session
@@ -960,21 +976,21 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
 
     # Get all factory classes
     factory_classes = [
-        metadata_factories.AccountFactory,
-        metadata_factories.MediaFactory,
-        metadata_factories.MediaLocationFactory,
-        metadata_factories.PostFactory,
-        metadata_factories.GroupFactory,
-        metadata_factories.MessageFactory,
-        metadata_factories.AttachmentFactory,
-        metadata_factories.AccountMediaFactory,
-        metadata_factories.AccountMediaBundleFactory,
-        metadata_factories.HashtagFactory,
-        metadata_factories.StoryFactory,
-        metadata_factories.WallFactory,
-        metadata_factories.MediaStoryStateFactory,
-        metadata_factories.TimelineStatsFactory,
-        metadata_factories.StubTrackerFactory,
+        AccountFactory,
+        MediaFactory,
+        MediaLocationFactory,
+        PostFactory,
+        GroupFactory,
+        MessageFactory,
+        AttachmentFactory,
+        AccountMediaFactory,
+        AccountMediaBundleFactory,
+        HashtagFactory,
+        StoryFactory,
+        WallFactory,
+        MediaStoryStateFactory,
+        TimelineStatsFactory,
+        StubTrackerFactory,
     ]
 
     # Configure all factory classes to use the sync session
