@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ...client.utils import sanitize_model_data
 from ...logging import debug_print
 from ...types import Image, Scene, Tag
 
@@ -39,7 +40,7 @@ class TagProcessingMixin:
             )
             if name_results.count > 0:
                 # Convert dict to Tag object using unpacking
-                found_tag = Tag(**name_results.tags[0])
+                found_tag = Tag(**sanitize_model_data(name_results.tags[0]))
                 debug_print(
                     {
                         "method": "StashProcessing - _process_hashtags_to_tags",
@@ -55,7 +56,7 @@ class TagProcessingMixin:
                 )
                 if alias_results.count > 0:
                     # Convert dict to Tag object using unpacking
-                    found_tag = Tag(**alias_results.tags[0])
+                    found_tag = Tag(**sanitize_model_data(alias_results.tags[0]))
                     debug_print(
                         {
                             "method": "StashProcessing - _process_hashtags_to_tags",
@@ -97,7 +98,7 @@ class TagProcessingMixin:
             q="Trailer",
         )
         if tag_data.count > 0:
-            preview_tag = tag_data.tags[0]
+            preview_tag = Tag(**sanitize_model_data(tag_data.tags[0]))
             # Check if tag already exists
             current_tag_ids = (
                 {t.id for t in file.tags} if hasattr(file, "tags") else set()

@@ -673,7 +673,20 @@ async def cleanup_with_global_timeout(config: FanslyConfig) -> None:
     cleanup_start = time.time()
     max_cleanup_time = 40  # Increased maximum cleanup time to 40 seconds
 
-    # First check and cancel any Stash processing tasks
+    # First, properly stop the WebSocket if it exists
+    # This MUST be done before cancelling tasks to prevent reconnect loops
+    try:
+        if hasattr(config, "_api") and config._api is not None:
+            print_info("Stopping WebSocket connection...")
+            try:
+                await config._api.close_websocket()
+                print_info("WebSocket stopped successfully")
+            except Exception as e:
+                print_warning(f"Error stopping WebSocket: {e}")
+    except Exception as e:
+        print_warning(f"Error during WebSocket shutdown: {e}")
+
+    # Then check and cancel any Stash processing tasks
     try:
         # Look for tasks that belong to StashProcessing
         stash_tasks = []

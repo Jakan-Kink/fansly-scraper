@@ -823,6 +823,9 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
             f"{20 * ' '}A separate, temporary config file will be generated for this session\n"
             f"{20 * ' '}to prevent accidental changes to your original configuration.\n",
         )
+        # Save original config path before switching to temporary config_args.ini
+        # This ensures tokens obtained from login are saved to the original config
+        config.original_config_path = config.config_path
         config.config_path = config.config_path.parent / "config_args.ini"
         save_config_or_raise(config)
 

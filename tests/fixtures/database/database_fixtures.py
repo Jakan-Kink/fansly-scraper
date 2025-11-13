@@ -85,7 +85,7 @@ __all__ = [
     "factory_session",
     "json_conversation_data",
     "mock_account",
-    "safe_name",
+    # "safe_name",  # Commented out - fixture is not currently defined
     "session",
     "session_factory",
     "session_sync",
@@ -418,13 +418,13 @@ def run_async(func: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., An
     return wrapper
 
 
-@pytest.fixture
-def safe_name(request) -> str:
-    """Generate a safe name for the test database based on the test name."""
-    # Get the full test name to ensure uniqueness
-    test_id = request.node.nodeid.encode("utf-8")
-    safe_name = f"test_{abs(hash(test_id))}"
-    return safe_name
+# @pytest.fixture
+# def safe_name(request) -> str:
+#     """Generate a safe name for the test database based on the test name."""
+#     # Get the full test name to ensure uniqueness
+#     test_id = request.node.nodeid.encode("utf-8")
+#     safe_name = f"test_{abs(hash(test_id))}"
+#     return safe_name
 
 
 @pytest_asyncio.fixture

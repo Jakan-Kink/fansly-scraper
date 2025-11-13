@@ -131,6 +131,7 @@ from .stash import (
     mock_image,  # From stash_type_factories (real factory)
     mock_image_file,
     mock_item,
+    mock_performer,  # From stash_type_factories (real factory)
     # Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures
     # (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories)
     # Removed: mock_client, mock_session, mock_transport from stash_api_fixtures
@@ -144,7 +145,6 @@ from .stash import (
     # Removed: stash_processor
     # (Used mock_stash_context - use real_stash_processor with respx instead)
     mock_permissions,
-    mock_performer,  # From stash_type_factories (real factory)
     mock_scene,  # From stash_type_factories (real factory)
     mock_studio,  # From stash_type_factories (real factory)
     mock_studio_finder,
@@ -165,11 +165,11 @@ from .stash import (
     studio_mixin,
     tag_mixin,
     test_query,
-    test_state,
     test_stash_object,
     test_stash_object_new,
     test_stash_object_no_create,
     test_stash_object_no_strawberry,
+    test_state,
 )
 
 # Note: Stash GroupFactory imported separately to avoid name collision
@@ -182,6 +182,7 @@ from .utils import (
     cleanup_rich_progress_state,
     cleanup_unawaited_coroutines,
 )
+
 
 FIXTURES_DIR = Path(__file__).parent
 

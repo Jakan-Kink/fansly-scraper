@@ -45,6 +45,12 @@ class ContentType(Enum):
         TIP_GOALS: Tip goal content (type=7100)
         STORY: Story content (type=32001)
         POLL: Poll content (type=42001)
+
+    Note:
+        The following contentType values are intentionally NOT included in this enum
+        and will be skipped during processing (monetary transactions, not media):
+        - TIP (type=7): Simple tip/payment attachment
+        - TIP_GOALS (type=7100): Also skipped explicitly in post processing
     """
 
     ACCOUNT_MEDIA = 1
@@ -271,6 +277,7 @@ class Attachment(Base):
                 f"meta/{context} - invalid_content_type: {old_content_type}",
                 attachment_data,
             )
+            return  # Skip invalid content types
 
         # Process attachment data
         filtered_attachment, _ = cls.process_data(
