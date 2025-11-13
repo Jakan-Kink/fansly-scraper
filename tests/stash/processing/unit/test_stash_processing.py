@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from stash.context import StashContext
 from stash.processing import StashProcessing
 from stash.types import Image
-from tests.fixtures import AccountFactory, PerformerFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.stash.stash_type_factories import PerformerFactory
 
 
 # Most fixtures are imported from tests.fixtures via conftest.py:

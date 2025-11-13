@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from metadata.media import Media, process_media_item_dict
-from tests.fixtures import AccountFactory, MediaFactory, MediaLocationFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
+from tests.fixtures import MediaLocationFactory
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tests.fixtures import HashtagFactory
+from tests.fixtures.metadata.metadata_factories import HashtagFactory
 
 
 class TestTagMethods:

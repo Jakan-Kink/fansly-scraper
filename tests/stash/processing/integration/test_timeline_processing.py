@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from metadata import Account, AccountMedia
 from metadata.attachment import Attachment, ContentType
-from tests.fixtures import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaFactory,
     AttachmentFactory,
@@ -63,7 +63,7 @@ async def test_process_timeline_post(
     factory_session.commit()
 
     # Mock Stash client at API boundary
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(
@@ -150,7 +150,7 @@ async def test_process_timeline_bundle(
 
     # Create AccountMedia for each media
     from metadata.account import account_media_bundle_media
-    from tests.fixtures import AccountMediaBundleFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
 
     account_media1 = AccountMediaFactory(accountId=account.id, mediaId=media1.id)
     account_media2 = AccountMediaFactory(accountId=account.id, mediaId=media2.id)
@@ -417,7 +417,7 @@ async def test_process_timeline_account_mentions(
     factory_session.commit()
 
     # Mock Stash client at API boundary
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(
@@ -557,7 +557,7 @@ async def test_process_expired_timeline_post(
     factory_session.commit()
 
     # Mock Stash client at API boundary
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(

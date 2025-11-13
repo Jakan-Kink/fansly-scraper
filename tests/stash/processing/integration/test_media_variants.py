@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from stash.types import Image, Scene
-from tests.fixtures import AccountMediaFactory, MediaFactory, MediaLocationFactory
+from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
+from tests.fixtures import MediaLocationFactory
 
 
 @pytest.mark.asyncio

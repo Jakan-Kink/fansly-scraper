@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from metadata import Post
-from tests.fixtures import AccountFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 from tests.fixtures.stash.stash_type_factories import GalleryFactory
 
 

@@ -16,7 +16,8 @@ from metadata.messages import (
     process_groups_response,
     process_messages_metadata,
 )
-from tests.fixtures import AccountFactory, setup_accounts_and_groups
+from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures import setup_accounts_and_groups
 
 
 @pytest.fixture(scope="session")

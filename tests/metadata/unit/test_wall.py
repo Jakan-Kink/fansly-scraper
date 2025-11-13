@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from download.downloadstate import DownloadState
 from metadata import Account, Post, Wall, process_account_walls, process_wall_posts
 from metadata.wall import wall_posts
-from tests.fixtures import AccountFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 
 
 @pytest.mark.asyncio

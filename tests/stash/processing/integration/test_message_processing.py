@@ -12,13 +12,13 @@ from sqlalchemy.orm import selectinload
 
 from metadata import Account, AccountMedia, Message
 from metadata.attachment import Attachment, ContentType
-from tests.fixtures import (
+from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AttachmentFactory,
     MediaFactory,
     MessageFactory,
+    GroupFactory,
 )
-from tests.fixtures.metadata.metadata_factories import GroupFactory
 
 
 @pytest.mark.asyncio
@@ -43,7 +43,7 @@ async def test_process_message_with_media(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(
         accountId=account.id,
@@ -67,7 +67,7 @@ async def test_process_message_with_media(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     # Create mock scene with proper structure
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
@@ -156,7 +156,7 @@ async def test_process_message_with_bundle(
 
     # Create AccountMedia for each media
     from metadata.account import account_media_bundle_media
-    from tests.fixtures import AccountMediaBundleFactory, AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory, AccountMediaFactory
 
     account_media1 = AccountMediaFactory(accountId=account.id, mediaId=media1.id)
     account_media2 = AccountMediaFactory(accountId=account.id, mediaId=media2.id)
@@ -195,7 +195,7 @@ async def test_process_message_with_bundle(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import GalleryFactory
+    from tests.fixtures.stash.stash_type_factories import GalleryFactory
 
     mock_gallery = GalleryFactory(id="gallery_123", title="Bundle Gallery")
 
@@ -270,7 +270,7 @@ async def test_process_message_with_variants(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
     factory_session.commit()
@@ -291,7 +291,7 @@ async def test_process_message_with_variants(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.m3u8")
     mock_scene = SceneFactory(
@@ -365,7 +365,7 @@ async def test_process_message_with_permissions(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
     factory_session.commit()
@@ -388,7 +388,7 @@ async def test_process_message_with_permissions(
     # Mock Stash client at the API boundary
     from unittest.mock import AsyncMock, patch
 
-    from tests.fixtures import SceneFactory, VideoFileFactory
+    from tests.fixtures.stash.stash_type_factories import SceneFactory, VideoFileFactory
 
     mock_video_file = VideoFileFactory(path=f"/path/to/{media.id}.mp4")
     mock_scene = SceneFactory(
@@ -453,7 +453,7 @@ async def test_process_message_batch(
     group = GroupFactory(createdBy=account.id)
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     messages = []
     for i in range(3):
@@ -542,7 +542,7 @@ async def test_process_message_error_handling(
     )
     factory_session.commit()
 
-    from tests.fixtures import AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import AccountMediaFactory
 
     account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
     factory_session.commit()

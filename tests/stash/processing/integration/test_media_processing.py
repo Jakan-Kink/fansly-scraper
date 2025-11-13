@@ -72,7 +72,7 @@ class TestMediaProcessingIntegration:
         from unittest.mock import AsyncMock, patch
 
         from stash.types import FindImagesResultType
-        from tests.fixtures import ImageFactory, ImageFileFactory
+        from tests.fixtures.stash.stash_type_factories import ImageFactory, ImageFileFactory
 
         mock_image_file = ImageFileFactory(path=f"/path/to/{media.id}.jpg")
         mock_image = ImageFactory(
@@ -527,7 +527,7 @@ class TestMediaProcessingIntegration:
 
         # Mock Stash client at API boundary
         from stash.types import FindImagesResultType
-        from tests.fixtures import ImageFactory, ImageFileFactory
+        from tests.fixtures.stash.stash_type_factories import ImageFactory, ImageFileFactory
 
         mock_image_file = ImageFileFactory(path=f"/path/to/{media.id}.jpg")
         mock_image = ImageFactory(
