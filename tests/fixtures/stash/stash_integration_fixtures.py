@@ -145,6 +145,9 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
     This is for true integration tests that hit the real Stash instance.
     Can be combined with @respx.mock to mock HTTP responses for unit tests.
 
+    NOTE: Automatically initializes the StashContext client with a default
+    respx mock. Tests can add their own respx routes to override defaults.
+
     Args:
         config: Real FanslyConfig with UUID-isolated database
         test_database_sync: Real Database instance
@@ -154,19 +157,33 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
     Yields:
         StashProcessing: Fully functional processor hitting real services
     """
+    import httpx
+    import respx
+
     # Set up config with real database and real stash
     config._database = test_database_sync
     config._stash = stash_context
 
-    # Disable prints for testing
-    with (
-        patch("textio.textio.print_info"),
-        patch("textio.textio.print_warning"),
-        patch("textio.textio.print_error"),
-    ):
-        processor = StashProcessing.from_config(config, test_state)
-        yield processor
-        # Cleanup happens via fixtures
+    # Set up default respx mock for GraphQL endpoint
+    # Tests can add more specific mocks as needed
+    with respx.mock:
+        # Default response for any GraphQL requests
+        respx.post("http://localhost:9999/graphql").mock(
+            return_value=httpx.Response(200, json={"data": {}})
+        )
+
+        # Initialize the client (will use mocked HTTP)
+        await stash_context.get_client()
+
+        # Disable prints for testing
+        with (
+            patch("textio.textio.print_info"),
+            patch("textio.textio.print_warning"),
+            patch("textio.textio.print_error"),
+        ):
+            processor = StashProcessing.from_config(config, test_state)
+            yield processor
+            # Cleanup happens via fixtures
 
 
 @pytest.fixture
