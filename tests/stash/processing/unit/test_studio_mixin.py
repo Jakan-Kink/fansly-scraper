@@ -1,9 +1,9 @@
 """Unit tests for StudioProcessingMixin."""
 
+import contextlib
 import httpx
 import pytest
 import respx
-from sqlalchemy.orm import Session
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from tests.fixtures import (
@@ -11,6 +11,17 @@ from tests.fixtures import (
     create_graphql_response,
     create_studio_dict,
 )
+
+
+class MockDatabase:
+    """Minimal mock database to satisfy @with_session decorator."""
+
+    @contextlib.asynccontextmanager
+    async def async_session_scope(self):
+        """Provide async session context manager."""
+        # Yield a mock session (unused by process_creator_studio due to ARG002)
+        session = MagicMock()
+        yield session
 
 
 class TestStudioProcessingMixin:
@@ -36,9 +47,6 @@ class TestStudioProcessingMixin:
         self, studio_mixin, mock_account, mock_performer
     ):
         """Test process_creator_studio when both Fansly and Creator studios exist."""
-        # Mock session
-        mock_session = MagicMock(spec=Session)
-
         # Create responses
         fansly_studio_dict = create_studio_dict(
             id="fansly_123", name="Fansly (network)"
@@ -73,9 +81,12 @@ class TestStudioProcessingMixin:
         # Initialize client
         await studio_mixin.context.get_client()
 
+        # Provide mock database for @with_session decorator
+        studio_mixin.database = MockDatabase()
+
         # Call process_creator_studio
         result = await studio_mixin.process_creator_studio(
-            account=mock_account, performer=mock_performer, session=mock_session
+            account=mock_account, performer=mock_performer
         )
 
         # Verify result
@@ -89,9 +100,6 @@ class TestStudioProcessingMixin:
         self, studio_mixin, mock_account, mock_performer, mock_studio
     ):
         """Test process_creator_studio when Creator studio doesn't exist and needs to be created."""
-        # Mock session
-        mock_session = MagicMock(spec=Session)
-
         # Create responses
         fansly_studio_dict = create_studio_dict(
             id="fansly_123", name="Fansly (network)"
@@ -133,10 +141,13 @@ class TestStudioProcessingMixin:
         # Initialize client
         await studio_mixin.context.get_client()
 
+        # Provide mock database for @with_session decorator
+        studio_mixin.database = MockDatabase()
+
         # Call process_creator_studio
         with patch("stash.processing.mixins.studio.print_info") as mock_print_info:
             result = await studio_mixin.process_creator_studio(
-                account=mock_account, performer=mock_performer, session=mock_session
+                account=mock_account, performer=mock_performer
             )
 
             # Verify result
@@ -154,9 +165,6 @@ class TestStudioProcessingMixin:
         self, studio_mixin, mock_account, mock_performer
     ):
         """Test process_creator_studio when Fansly studio doesn't exist."""
-        # Mock session
-        mock_session = MagicMock(spec=Session)
-
         # Create empty response
         empty_result = create_find_studios_result(count=0, studios=[])
 
@@ -171,12 +179,15 @@ class TestStudioProcessingMixin:
         # Initialize client
         await studio_mixin.context.get_client()
 
+        # Provide mock database for @with_session decorator
+        studio_mixin.database = MockDatabase()
+
         # Call process_creator_studio and expect error
         with pytest.raises(
             ValueError
         ) as excinfo:  # noqa: PT011 - message validated by assertion below
             await studio_mixin.process_creator_studio(
-                account=mock_account, performer=mock_performer, session=mock_session
+                account=mock_account, performer=mock_performer
             )
 
         # Verify error message
@@ -188,9 +199,6 @@ class TestStudioProcessingMixin:
         self, studio_mixin, mock_account, mock_performer
     ):
         """Test process_creator_studio when creation fails, then succeeds on retry."""
-        # Mock session
-        mock_session = MagicMock(spec=Session)
-
         # Create responses
         fansly_studio_dict = create_studio_dict(
             id="fansly_123", name="Fansly (network)"
@@ -245,6 +253,9 @@ class TestStudioProcessingMixin:
         # Initialize client
         await studio_mixin.context.get_client()
 
+        # Provide mock database for @with_session decorator
+        studio_mixin.database = MockDatabase()
+
         # Call process_creator_studio with error mocks
         with (
             patch("stash.processing.mixins.studio.print_error") as mock_print_error,
@@ -254,7 +265,7 @@ class TestStudioProcessingMixin:
             patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
         ):
             result = await studio_mixin.process_creator_studio(
-                account=mock_account, performer=mock_performer, session=mock_session
+                account=mock_account, performer=mock_performer
             )
 
             # Verify result (should get the existing studio from retry)
