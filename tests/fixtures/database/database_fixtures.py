@@ -381,21 +381,30 @@ def test_data_dir() -> str:
 @pytest.fixture(scope="session")
 def timeline_data(test_data_dir: str) -> dict[str, Any]:
     """Load timeline test data."""
-    with (Path(test_data_dir) / "timeline-sample-account.json").open() as f:
+    json_file = Path(test_data_dir) / "timeline-sample-account.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
 def json_conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load conversation test data."""
-    with (Path(test_data_dir) / "conversation-sample-account.json").open() as f:
+    json_file = Path(test_data_dir) / "conversation-sample-account.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
 def conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load test message variants data for testing media variants and bundles."""
-    with (Path(test_data_dir) / "test_message_variants.json").open() as f:
+    json_file = Path(test_data_dir) / "test_message_variants.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
