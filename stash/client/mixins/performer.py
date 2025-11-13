@@ -76,7 +76,7 @@ class PerformerClientMixin(StashClientProtocol):
                         performer_filter={"name": {"value": name, "modifier": "EQUALS"}}
                     )
                     if result.count > 0:
-                        return result.performers[0]
+                        return Performer(**sanitize_model_data(result.performers[0]))
 
                     # Try by alias
                     result = await self.find_performers(
@@ -85,7 +85,7 @@ class PerformerClientMixin(StashClientProtocol):
                         }
                     )
                     if result.count > 0:
-                        return result.performers[0]
+                        return Performer(**sanitize_model_data(result.performers[0]))
                     return None
             # If it's an ID, use direct lookup
             result = await self.execute(

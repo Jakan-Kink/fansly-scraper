@@ -365,6 +365,9 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 
         if guessed_key is not None:
             config.check_key = guessed_key
+            # Save to original config file (not config_args.ini)
+            config._save_checkkey_to_original_config()
+            # Also save to working config for current session
             save_config_or_raise(config)
 
             textio_logger.info(
@@ -405,6 +408,9 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
                 if new_key_confirmation.startswith("y"):
                     done = True
                     config.check_key = new_key
+                    # Save to original config file (not config_args.ini)
+                    config._save_checkkey_to_original_config()
+                    # Also save to working config for current session
                     save_config_or_raise(config)
 
     else:

@@ -87,7 +87,7 @@ _setup_nvm_environment()
 
 # Import JSPyBridge (required)
 try:
-    from javascript import eval_js, globalThis, require
+    from javascript import connection, eval_js, globalThis, require
 except ImportError as e:
     textio_logger.error(
         f"JSPyBridge not available: {e}. Install with: poetry install && npm install -g acorn acorn-walk"
@@ -95,8 +95,296 @@ except ImportError as e:
     raise
 
 
-def extract_checkkey_from_js(js_content: str) -> str | None:
-    """Extract checkKey from JavaScript using AST parsing.
+def _extract_expression_at_position(js_content: str, start_pos: int) -> str | None:
+    """Extract a JavaScript expression starting at a given position.
+
+    Uses bracket/paren/brace counting to find expression boundaries.
+    Handles string literals and stops at statement terminators when nesting depth is 0.
+
+    :param js_content: The JavaScript source code
+    :type js_content: str
+    :param start_pos: Position to start extracting from (after the '=')
+    :type start_pos: int
+    :return: The extracted expression or None if extraction fails
+    :rtype: str | None
+    """
+    depth = 0  # Track nesting depth for (), [], {}
+    pos = start_pos
+    length = len(js_content)
+
+    # Skip leading whitespace
+    while pos < length and js_content[pos] in " \t\n\r":
+        pos += 1
+
+    if pos >= length:
+        return None
+
+    start = pos
+    in_string = None  # Track if we're in a string (' or " or `)
+    escape_next = False
+
+    while pos < length:
+        char = js_content[pos]
+
+        # Handle escape sequences
+        if escape_next:
+            escape_next = False
+            pos += 1
+            continue
+
+        if char == "\\" and in_string:
+            escape_next = True
+            pos += 1
+            continue
+
+        # Handle string literals
+        if char in ('"', "'", "`"):
+            if in_string == char:
+                in_string = None
+            elif in_string is None:
+                in_string = char
+            pos += 1
+            continue
+
+        # If we're in a string, skip all other processing
+        if in_string:
+            pos += 1
+            continue
+
+        # Track nesting depth for brackets/parens/braces
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth < 0:
+                # Closing bracket for outer context - we're done
+                break
+
+        # Statement terminators at depth 0
+        if depth == 0:
+            if char in (";", "\n"):
+                # End of expression
+                break
+            if char == ",":
+                # Comma at depth 0 (sequence expression) - we're done
+                break
+
+        pos += 1
+
+    # Extract the expression
+    if pos > start:
+        return js_content[start:pos].strip()
+
+    return None
+
+
+def _validate_checkkey_format(checkkey: str) -> bool:
+    """Validate that checkKey matches expected format.
+
+    Current expected format: "string-string-string"
+    Example: "oybZy8-fySzis-bubayf"
+
+    This validation detects if Fansly changes their checkKey generation.
+
+    :param checkkey: The checkKey value to validate
+    :type checkkey: str
+    :return: True if format is valid
+    :rtype: bool
+    """
+    # Must be a non-empty string
+    if not isinstance(checkkey, str) or not checkkey:
+        return False
+
+    # Must contain hyphens (current format is dash-separated)
+    if "-" not in checkkey:
+        return False
+
+    # Must have reasonable length (current is ~23 chars)
+    # Allow range 10-50 to handle format variations
+    if not (10 <= len(checkkey) <= 50):
+        return False
+
+    # Must be alphanumeric with hyphens only
+    return all(c.isalnum() or c == "-" for c in checkkey)
+
+
+def _extract_checkkey_regex(js_content: str) -> str | None:
+    """Fast extraction using regex to find assignment positions.
+
+    This is much faster than AST parsing (1900x) for minified code.
+    Searches for 'this.checkKey_ = <expression>' patterns.
+
+    Falls back to None if:
+    - No assignments found
+    - Expression extraction fails
+    - Evaluation fails
+    - Result doesn't pass validation
+
+    :param js_content: The JavaScript content to parse
+    :type js_content: str
+    :return: The extracted checkKey value or None if extraction fails
+    :rtype: str | None
+    """
+    checkkey_value = None
+
+    try:
+        # Find all occurrences of 'this.checkKey_' followed by optional whitespace and '='
+        pattern = r"this\.checkKey_\s*="
+        matches = list(re.finditer(pattern, js_content))
+
+        if not matches:
+            textio_logger.debug("Regex: No 'this.checkKey_' assignments found")
+            return None
+
+        textio_logger.debug(f"Regex: Found {len(matches)} potential assignment(s)")
+
+        # Extract expressions at each position
+        assignments = []
+        for match in matches:
+            # Position right after the '='
+            expr_start = match.end()
+
+            # Extract the expression
+            expression = _extract_expression_at_position(js_content, expr_start)
+
+            if not expression:
+                textio_logger.debug(
+                    f"Regex: Failed to extract expression at position {expr_start}"
+                )
+                continue
+
+            assignments.append(
+                {
+                    "position": match.start(),
+                    "expression": expression,
+                }
+            )
+
+        if not assignments:
+            textio_logger.debug("Regex: No valid expressions extracted")
+            return None
+
+        # Assignments are already sorted by position (regex finds them in order)
+        # Use the first assignment (Fansly's real checkKey comes before decoys)
+        first_expression = assignments[0]["expression"]
+
+        # Normalize whitespace (beautified JS may have newlines)
+        normalized_expression = " ".join(first_expression.split())
+
+        # Try to evaluate the expression
+        checkkey_value = eval_js(normalized_expression)
+
+        # Validate format
+        if not _validate_checkkey_format(checkkey_value):
+            textio_logger.warning(
+                f"Regex: Extracted checkKey failed validation: {checkkey_value}"
+            )
+            return None
+
+        textio_logger.debug(f"Regex: Successfully extracted checkKey: {checkkey_value}")
+
+    except Exception as e:
+        textio_logger.debug(f"Regex: Extraction failed: {e}")
+        return None
+    else:
+        return checkkey_value
+
+
+def extract_checkkey_from_js(  # noqa: PLR0911
+    js_content: str, expected_checkkey: str | None = None
+) -> str | None:
+    """Extract checkKey from JavaScript with hybrid regex+AST approach.
+
+    Strategy:
+    1. Try fast regex extraction
+    2. If regex succeeds and matches expected → return (validated, fast path)
+    3. If regex succeeds but doesn't match expected → run AST to verify
+    4. If regex fails → run AST fallback
+
+    This provides:
+    - Fast extraction for normal operation (~1900x faster)
+    - Safety verification when values mismatch (detects Fansly changes)
+    - Robust fallback for edge cases
+
+    :param js_content: The JavaScript content to parse
+    :type js_content: str
+    :param expected_checkkey: Expected checkKey value (from config or default) for validation
+    :type expected_checkkey: str | None
+    :return: The extracted checkKey value or None if extraction fails
+    :rtype: str | None
+    """
+    # Try fast regex extraction first
+    textio_logger.debug("Attempting fast regex extraction...")
+    regex_checkkey = _extract_checkkey_regex(js_content)
+
+    if regex_checkkey:
+        # Regex succeeded - validate against expected value
+        if expected_checkkey:
+            if regex_checkkey == expected_checkkey:
+                # Match! Fast path - trust the regex result
+                textio_logger.debug(f"Regex matches expected value: {regex_checkkey} ✓")
+                return regex_checkkey
+
+            # Mismatch! Fansly may have changed their implementation
+            # Run AST verification to determine which is correct
+            textio_logger.warning(
+                f"Regex checkKey mismatch! Regex: {regex_checkkey}, "
+                f"Expected: {expected_checkkey}. Running AST verification..."
+            )
+            ast_checkkey = _extract_checkkey_ast_fallback(js_content)
+
+            if ast_checkkey:
+                if ast_checkkey == regex_checkkey:
+                    textio_logger.warning(
+                        f"AST confirms regex is correct: {ast_checkkey}. "
+                        f"Expected value {expected_checkkey} is outdated!"
+                    )
+                    return ast_checkkey
+                if ast_checkkey == expected_checkkey:
+                    textio_logger.warning(
+                        f"AST confirms expected is correct: {ast_checkkey}. "
+                        f"Regex extraction failed validation!"
+                    )
+                    return ast_checkkey
+
+                # AST returned different value from both - something is wrong
+                textio_logger.error(
+                    f"AST returned different value! Regex: {regex_checkkey}, "
+                    f"Expected: {expected_checkkey}, AST: {ast_checkkey}"
+                )
+                # Trust AST as authoritative source
+                return ast_checkkey
+
+            # AST failed - trust regex if it passes format validation
+            if _validate_checkkey_format(regex_checkkey):
+                textio_logger.warning(
+                    f"AST failed but regex passes validation: {regex_checkkey}"
+                )
+                return regex_checkkey
+
+            # Both mismatched and AST failed - use expected as last resort
+            textio_logger.warning(
+                f"Regex/AST mismatch and AST failed. Using expected: {expected_checkkey}"
+            )
+            return expected_checkkey
+
+        # No expected value - just validate format and return regex result
+        if _validate_checkkey_format(regex_checkkey):
+            textio_logger.debug(f"Regex extraction successful: {regex_checkkey}")
+            return regex_checkkey
+
+        textio_logger.warning(
+            f"Regex result failed format validation: {regex_checkkey}"
+        )
+        # Fall through to AST
+
+    # Regex failed or validation failed - use AST fallback
+    textio_logger.debug("Regex extraction failed, falling back to AST parsing...")
+    return _extract_checkkey_ast_fallback(js_content)
+
+
+def _extract_checkkey_ast_fallback(js_content: str) -> str | None:
+    """Extract checkKey from JavaScript using AST parsing (fallback method).
 
     This uses JSPyBridge with acorn to:
     1. Parse JavaScript into AST
@@ -104,7 +392,9 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
     3. Execute those assignments to get values
     4. Return the first value (which is correct for fansly-client-check)
 
-    NO REGEX for finding - pure AST traversal!
+    This is slower than regex but handles edge cases where regex might fail.
+    SequenceExpression callback removed - acorn_walk.simple() visits all nodes
+    recursively, so assignments inside SequenceExpression are still found.
 
     :param js_content: The JavaScript content to parse
     :type js_content: str
@@ -155,7 +445,8 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
                                     )
 
         # Walk the AST to find assignments
-        # Check both direct AssignmentExpression and those within SequenceExpression
+        # Only use AssignmentExpression callback - acorn_walk.simple() visits all nodes
+        # recursively, so assignments inside SequenceExpression are still found!
         assignment_count = [0]  # Use list for closure
 
         def count_assignments(node: Any, _state: Any = None) -> None:
@@ -163,81 +454,86 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
             assignment_count[0] += 1
             check_node(node, _state)
 
-        # Also check within SequenceExpression (for minified code like: a=1,b=2,c=3)
-        def check_sequence(node: Any, _state: Any = None) -> None:
-            nonlocal assignments, assignment_count
-            with suppress(AttributeError, TypeError):
-                # SequenceExpression has an 'expressions' array (JavaScript Proxy object)
-                if hasattr(node, "expressions"):
-                    expressions_array = node.expressions
-                    # Use .length property to get array size
-                    length = int(expressions_array.length)
-                    # Iterate using index access
-                    for idx in range(length):
-                        expr = expressions_array[idx]
-                        # Inline the check instead of calling check_node
-                        # (nested callbacks don't work well with JSPyBridge async)
-                        # Use separate if statements (combining with 'and' doesn't work with JSPyBridge)
-                        with suppress(AttributeError, TypeError):
-                            if str(expr.type) == "AssignmentExpression":  # noqa: SIM102
-                                if str(expr.left.type) == "MemberExpression":  # noqa: SIM102
-                                    if str(expr.left.object.type) == "ThisExpression":  # noqa: SIM102
-                                        if str(expr.left.property.type) == "Identifier":  # noqa: SIM102
-                                            if (
-                                                str(expr.left.property.name)
-                                                == "checkKey_"
-                                            ):
-                                                # Extract the expression from the source
-                                                start = int(expr.right.start)
-                                                end = int(expr.right.end)
-                                                expression = js_content[start:end]
-                                                assignments.append(
-                                                    {
-                                                        "position": start,
-                                                        "expression": expression,
-                                                    }
-                                                )
-                                                assignment_count[0] += 1
-
         textio_logger.debug("Starting AST walk...")
+
+        # Track when AST walk completes (it runs synchronously but triggers async callbacks)
+        walk_start = time.monotonic()
         acorn_walk.simple(
             ast,
             {
                 "AssignmentExpression": count_assignments,
-                "SequenceExpression": check_sequence,
+                # SequenceExpression callback removed - acorn_walk.simple() visits all
+                # AssignmentExpression nodes recursively, regardless of parent context
             },
         )
-        textio_logger.debug("AST walk completed")
+        walk_elapsed = time.monotonic() - walk_start
+        textio_logger.debug(f"AST walk completed in {walk_elapsed:.2f}s")
 
-        # Wait for JSPyBridge async callbacks to complete using monotonic time
-        timeout_seconds = 30.0
-        poll_interval = 0.1  # Check every 100ms
+        # Wait for JSPyBridge async callbacks to complete
+        # The walk itself is done, but callbacks are still being processed asynchronously
+        # We need to wait for ALL callbacks to finish, not just until we find assignments
+        timeout_seconds = 60.0  # Increased timeout for large JS files
+        poll_interval = 0.5  # Check less frequently since we're waiting for completion
         start_time = time.monotonic()
         timeout_end = start_time + timeout_seconds
 
         textio_logger.debug(
-            f"Waiting for JSPyBridge callbacks (timeout: {timeout_seconds}s)..."
+            f"Waiting for all {assignment_count[0]} AST callbacks to complete (timeout: {timeout_seconds}s)..."
         )
+
+        # Wait until we either find assignments or timeout
+        # Don't break early - let all callbacks complete to avoid orphaned operations
+        last_count = 0
+        stable_iterations = 0
         while time.monotonic() < timeout_end:
             time.sleep(poll_interval)
 
-            # Check if we found any assignments
-            if len(assignments) > 0:
-                elapsed = time.monotonic() - start_time
-                textio_logger.debug(
-                    f"Found {len(assignments)} assignments after {elapsed:.1f}s"
-                )
-                break
+            current_count = len(assignments)
+            if current_count > 0 and current_count == last_count:
+                # Count hasn't changed - callbacks might be complete
+                stable_iterations += 1
+                if stable_iterations >= 3:  # Stable for 3 iterations (1.5s)
+                    elapsed = time.monotonic() - start_time
+                    textio_logger.debug(
+                        f"Found {len(assignments)} assignments after {elapsed:.1f}s (stable)"
+                    )
+                    break
+            else:
+                stable_iterations = 0
+
+            last_count = current_count
 
         textio_logger.debug(
             f"Finished waiting. Total assignments found: {len(assignments)}"
         )
         textio_logger.debug(f"Total assignment nodes checked: {assignment_count[0]}")
 
-        # Additional wait to let any pending JSPyBridge callbacks complete
-        # The AST walk triggers thousands of callbacks - give them time to drain
-        textio_logger.debug("Waiting for pending callbacks to drain...")
-        time.sleep(0.5)
+        # Give extra time for any final stragglers to complete
+        # Monitor the JSPyBridge communication queues to ensure they're empty
+        textio_logger.debug("Waiting for JSPyBridge communication queues to drain...")
+        drain_timeout = 10.0
+        drain_start = time.monotonic()
+        drain_end = drain_start + drain_timeout
+
+        while time.monotonic() < drain_end:
+            # Check if queues are empty
+            send_queue_empty = len(connection.sendQ) == 0
+            com_items_empty = len(connection.com_items) == 0
+
+            if send_queue_empty and com_items_empty:
+                elapsed = time.monotonic() - drain_start
+                textio_logger.debug(
+                    f"All JSPyBridge queues drained after {elapsed:.2f}s"
+                )
+                break
+
+            time.sleep(0.1)
+        else:
+            # Timeout reached
+            textio_logger.debug(
+                f"Queue drain timeout after {drain_timeout}s "
+                f"(sendQ: {len(connection.sendQ)}, com_items: {len(connection.com_items)})"
+            )
 
         # Sort by position (first in file = first in execution)
         assignments.sort(key=lambda x: x["position"])
@@ -274,7 +570,6 @@ def extract_checkkey_from_js(js_content: str) -> str | None:
             del ast
             del assignments
             del count_assignments
-            del check_sequence
             del acorn
             del acorn_walk
 
@@ -392,17 +687,20 @@ def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
 
         textio_logger.debug(f"main.js downloaded: {len(js_response.text)} bytes")
 
-        # Step 3: Extract checkKey using AST parsing (NO REGEX!)
+        # Step 3: Extract checkKey using hybrid regex+AST approach
         # Uses JSPyBridge for JavaScript execution
+        # Pass default_check_key for cross-validation
         textio_logger.debug("Starting checkKey extraction...")
-        checkkey = extract_checkkey_from_js(js_response.text)
+        checkkey = extract_checkkey_from_js(
+            js_response.text, expected_checkkey=default_check_key
+        )
 
         if checkkey:
             textio_logger.debug(f"Successfully extracted checkKey: {checkkey}")
             return checkkey
 
-        # If AST extraction fails, fall back to default
-        textio_logger.warning("AST extraction failed, using default checkKey")
+        # If extraction fails, fall back to default
+        textio_logger.warning("Extraction failed, using default checkKey")
         textio_logger.debug(f"Using default checkKey: {default_check_key}")
         return default_check_key  # noqa: TRY300
 

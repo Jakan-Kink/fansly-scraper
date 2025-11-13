@@ -65,7 +65,7 @@ class MediaLocation(Base):
 
     Attributes:
         mediaId: ID of the media this location belongs to (snowflake ID)
-        locationId: Unique identifier for this location (snowflake ID)
+        locationId: CDN location identifier (integer, API sends as "1", "102", "103" strings)
         location: The actual URL or path where the media is stored
         media: Relationship to the parent Media object
     """

@@ -11,6 +11,7 @@ from metadata import Account
 from metadata.decorators import with_session
 from textio import print_error, print_info
 
+from ...client.utils import sanitize_model_data
 from ...logging import debug_print
 from ...logging import processing_logger as logger
 from ...types import Performer, Studio
@@ -66,7 +67,7 @@ class StudioProcessingMixin:
             raise ValueError("Fansly Studio not found in Stash")
 
         # Get Studio object from results (convert dict to Studio)
-        fansly_studio = Studio(**fansly_studio_result.studios[0])
+        fansly_studio = Studio(**sanitize_model_data(fansly_studio_result.studios[0]))
         debug_print(
             {
                 "method": "StashProcessing - process_creator_studio",
@@ -116,4 +117,4 @@ class StudioProcessingMixin:
                 return studio
 
         # Return first matching studio (convert dict to Studio)
-        return Studio(**studio_data.studios[0])
+        return Studio(**sanitize_model_data(studio_data.studios[0]))
