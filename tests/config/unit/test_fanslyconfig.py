@@ -56,8 +56,9 @@ def config(config_path, mock_parser):
     config = FanslyConfig(program_version="1.0.0")
     config.config_path = config_path
     config._parser = mock_parser
-    config.token = "test_token"
-    config.user_agent = "test_user_agent"
+    # Token must be >= 50 chars to pass token_is_valid() check
+    config.token = "test_token_long_enough_to_pass_validation_checks_here"
+    config.user_agent = "test_user_agent_long_enough_for_validation"
     config.check_key = "test_check_key"
     config.user_names = {"user1", "user2"}
 
