@@ -171,29 +171,29 @@ class TestFanslyApi:
 
     def test_validate_json_response_success(self, fansly_api):
         """Test validate_json_response with successful response"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"success": "true"}
+        # Use real httpx.Response instead of MagicMock
+        mock_response = httpx.Response(200, json={"success": "true"})
 
         assert fansly_api.validate_json_response(mock_response) is True
 
     def test_validate_json_response_failure(self, fansly_api):
         """Test validate_json_response with failed response"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"success": "false"}
+        # Use real httpx.Response instead of MagicMock
+        mock_response = httpx.Response(200, json={"success": "false"})
 
         with pytest.raises(RuntimeError, match="Invalid or failed JSON response"):
             fansly_api.validate_json_response(mock_response)
 
     def test_get_json_response_contents(self, fansly_api):
         """Test get_json_response_contents extracts response field"""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "success": "true",
-            "response": {"data": "test_data"},
-        }
+        # Use real httpx.Response instead of MagicMock
+        mock_response = httpx.Response(
+            200,
+            json={
+                "success": "true",
+                "response": {"data": "test_data"},
+            },
+        )
 
         result = fansly_api.get_json_response_contents(mock_response)
         assert result == {"data": "test_data"}
@@ -572,9 +572,8 @@ class TestFanslyApi:
 
     def test_validate_json_response_non_200(self, fansly_api):
         """Test validate_json_response with non-200 status"""
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.reason = "Not Found"
+        # Use real httpx.Response instead of MagicMock
+        mock_response = httpx.Response(404, json={})
 
         with pytest.raises(RuntimeError, match="Web request failed: 404"):
             fansly_api.validate_json_response(mock_response)
