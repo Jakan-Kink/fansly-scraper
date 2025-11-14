@@ -39,9 +39,9 @@ class TestM3U8Cookies:
         cookies = get_m3u8_cookies(test_url)
 
         assert cookies == {
-            "CloudFront-Key-Pair-Id": "",  # Empty string for missing value
+            "CloudFront-Key-Pair-Id": None,  # None for missing value
             "CloudFront-Policy": "abc123",  # Present value
-            "CloudFront-Signature": "",  # Empty string for missing value
+            "CloudFront-Signature": None,  # None for missing value
         }
 
     def test_get_m3u8_cookies_no_values(self):
@@ -50,9 +50,9 @@ class TestM3U8Cookies:
         cookies = get_m3u8_cookies(test_url)
 
         assert cookies == {
-            "CloudFront-Key-Pair-Id": "",
-            "CloudFront-Policy": "",
-            "CloudFront-Signature": "",
+            "CloudFront-Key-Pair-Id": None,
+            "CloudFront-Policy": None,
+            "CloudFront-Signature": None,
         }
 
 
