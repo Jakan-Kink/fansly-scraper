@@ -643,13 +643,11 @@ class TestGetFollowingAccounts:
         # Setup mocks
         mock_config_with_api.separate_metadata = False  # Process accounts in main DB
 
-        # Mock database session
-        mock_session = MagicMock(spec=AsyncSession)
-        mock_session.flush = AsyncMock()
-        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = mock_session
-
         state = DownloadState()
         state.creator_id = "client123"
+
+        # Create mock session to track calls
+        mock_session = AsyncMock(spec=AsyncSession)
 
         # Create httpx.Request for response construction
         request = httpx.Request("GET", "https://example.com")
@@ -683,34 +681,40 @@ class TestGetFollowingAccounts:
             account_details_response,  # Second call - account details
         ]
 
-        # Mock process_account_data
-        with patch(
-            "download.account.process_account_data", AsyncMock()
-        ) as mock_process:
-            # Call function
-            result = await get_following_accounts(mock_config_with_api, state)
+        # Mock database async_session_scope to yield our mock session
+        with patch.object(
+            mock_config_with_api._database,
+            'async_session_scope',
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_session), __aexit__=AsyncMock())
+        ):
+            # Mock process_account_data
+            with patch(
+                "download.account.process_account_data", AsyncMock()
+            ) as mock_process:
+                # Call function
+                result = await get_following_accounts(mock_config_with_api, state)
 
-            # Verify result
-            assert result == {"creator1user", "creator2user"}
+                # Verify result
+                assert result == {"creator1user", "creator2user"}
 
-            # Verify API calls
-            assert mock_make_request.call_count == 2
+                # Verify API calls
+                assert mock_make_request.call_count == 2
 
-            # Verify account processing
-            assert mock_process.call_count == 2
-            # Should process both accounts
-            mock_process.assert_any_call(
-                config=mock_config_with_api,
-                state=state,
-                data={"id": "creator1", "username": "creator1user"},
-                session=mock_session,
-            )
-            mock_process.assert_any_call(
-                config=mock_config_with_api,
-                state=state,
-                data={"id": "creator2", "username": "creator2user"},
-                session=mock_session,
-            )
+                # Verify account processing
+                assert mock_process.call_count == 2
+                # Should process both accounts
+                mock_process.assert_any_call(
+                    config=mock_config_with_api,
+                    state=state,
+                    data={"id": "creator1", "username": "creator1user"},
+                    session=mock_session,
+                )
+                mock_process.assert_any_call(
+                    config=mock_config_with_api,
+                    state=state,
+                    data={"id": "creator2", "username": "creator2user"},
+                    session=mock_session,
+                )
 
     @pytest.mark.asyncio
     async def test_get_following_accounts_empty(
@@ -825,9 +829,8 @@ class TestGetFollowingAccounts:
         state = DownloadState()
         state.creator_id = "client123"
 
-        # Mock session for async context manager
-        mock_session = MagicMock()
-        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = mock_session
+        # Create mock session to track calls
+        mock_session = AsyncMock(spec=AsyncSession)
 
         # Create httpx.Request for response construction
         request = httpx.Request("GET", "https://example.com")
@@ -883,13 +886,19 @@ class TestGetFollowingAccounts:
             account_details_response2,  # Account details for second page
         ]
 
-        # Mock asyncio.sleep to speed up test
-        with patch("asyncio.sleep", AsyncMock()):
-            # Call function
-            result = await get_following_accounts(mock_config_with_api, state)
+        # Mock database async_session_scope to yield our mock session
+        with patch.object(
+            mock_config_with_api._database,
+            'async_session_scope',
+            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_session), __aexit__=AsyncMock())
+        ):
+            # Mock asyncio.sleep to speed up test
+            with patch("asyncio.sleep", AsyncMock()):
+                # Call function
+                result = await get_following_accounts(mock_config_with_api, state)
 
-            # Verify result - all usernames from both pages (52 total)
-            expected_usernames = {f"creator{i}user" for i in range(1, 53)}
-            assert result == expected_usernames
-            # Should make 4 calls total
-            assert mock_make_request.call_count == 4
+                # Verify result - all usernames from both pages (52 total)
+                expected_usernames = {f"creator{i}user" for i in range(1, 53)}
+                assert result == expected_usernames
+                # Should make 4 calls total
+                assert mock_make_request.call_count == 4
