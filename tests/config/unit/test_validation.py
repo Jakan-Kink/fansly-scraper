@@ -174,7 +174,7 @@ def test_validate_adjust_user_agent_valid(mock_config):
     mock_config.useragent_is_valid.assert_called_once()
 
 
-@patch("requests.get")
+@patch("httpx.get")
 def test_validate_adjust_user_agent_invalid(mock_get, mock_config):
     """Test user agent validation with invalid agent"""
     # Set up the mock to return invalid user agent and then get a new one
