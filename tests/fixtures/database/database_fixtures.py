@@ -707,9 +707,8 @@ async def test_media(session: AsyncSession, test_account: Account) -> Media:
             width=1920,
             height=1080,
             duration=30.5,
-            size=1024 * 1024,  # 1MB
-            hash="test_hash",
-            url="https://example.com/test.mp4",
+            content_hash="test_hash",  # Use content_hash instead of hash
+            location="https://example.com/test.mp4",  # Use location instead of url
             createdAt=datetime.now(UTC),
         )
 
