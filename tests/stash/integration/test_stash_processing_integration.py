@@ -64,13 +64,30 @@ def mock_context():
 def mock_database():
     """Fixture for mock database."""
     database = MagicMock()
-    mock_session = MagicMock()
+
+    # Use separate sessions for sync and async operations
+    mock_sync_session = MagicMock()
+    mock_async_session = AsyncMock(spec=AsyncSession)
+
     mock_account = MagicMock(spec=Account)
     mock_account.id = 12345
     mock_account.username = "test_user"
-    mock_session.execute.return_value.scalar_one_or_none.return_value = mock_account
-    database.session_scope.return_value.__enter__.return_value = mock_session
-    database.async_session_scope.return_value.__aenter__.return_value = mock_session
+
+    # Setup sync session
+    mock_sync_session.execute.return_value.scalar_one_or_none.return_value = mock_account
+    database.session_scope.return_value.__enter__.return_value = mock_sync_session
+
+    # Setup async session with proper async context manager
+    mock_async_session.execute.return_value.scalar_one_or_none.return_value = mock_account
+    database.async_session_scope.return_value = AsyncMock(
+        __aenter__=AsyncMock(return_value=mock_async_session),
+        __aexit__=AsyncMock()
+    )
+
+    # Store sessions as attributes so tests can reconfigure them if needed
+    database._mock_sync_session = mock_sync_session
+    database._mock_async_session = mock_async_session
+
     return database
 
 
@@ -116,8 +133,8 @@ async def test_full_creator_processing_flow(
     processor.process_creator = AsyncMock(return_value=(mock_account, mock_performer))
 
     # Mock database queries
-    mock_database.session_scope.return_value.__enter__.return_value.execute.return_value.scalar_one_or_none.return_value = mock_account
-    mock_database.async_session_scope.return_value.__aenter__.return_value.execute.return_value.scalar_one.return_value = mock_account
+    mock_database._mock_sync_session.execute.return_value.scalar_one_or_none.return_value = mock_account
+    mock_database._mock_async_session.execute.return_value.scalar_one.return_value = mock_account
 
     # Mock process_creator as AsyncMock
     processor.process_creator = AsyncMock(return_value=(mock_account, mock_performer))
