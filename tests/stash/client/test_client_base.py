@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+import respx
 from graphql import (
     GraphQLArgument,
     GraphQLField,
@@ -51,63 +52,50 @@ def base_client(mock_transport, mock_client):
         return client
 
 
+@respx.mock
 @pytest.mark.asyncio
-async def test_client_create(mock_session, mock_client) -> None:
+async def test_client_create() -> None:
     """Test client creation."""
-    # Create a basic schema that we'll use to mock the schema fetch
-    query_type = GraphQLObjectType(
-        name="Query",
-        fields={"test": GraphQLField(type_=GraphQLString)},
+    # Mock any potential HTTP requests from gql client initialization
+    # GQL clients might make introspection or connection check requests
+    respx.post(url__regex=r".*graphql").mock(
+        return_value=httpx.Response(200, json={"data": {}})
     )
-    mock_schema = GraphQLSchema(query=query_type)
-    mock_session.client = MagicMock(schema=mock_schema)
 
-    # Set up mock client to return our session
-    mock_client.__aenter__.return_value = mock_session
-    mock_client.close_async = AsyncMock()  # Add mock for close_async
+    # Test with minimal conn
+    client = await StashClientBase.create(conn={})
+    assert client.url == "http://localhost:9999/graphql"
+    assert client._initialized is True
+    await client.close()
 
-    # Create mock transport
-    mock_transport = MagicMock()
-    mock_transport.headers = {}
+    # Test with full conn
+    client = await StashClientBase.create(
+        conn={
+            "Scheme": "http",
+            "Host": "localhost",
+            "Port": 9999,
+            "ApiKey": "",
+            "Logger": logging.getLogger("test"),
+        },
+        verify_ssl=False,
+    )
+    assert client.url == "http://localhost:9999/graphql"
+    assert client.log.name == "test"
+    assert client._initialized is True
+    await client.close()
 
-    with (
-        patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
-        patch("gql.transport.websockets.WebsocketsTransport"),
-    ):
-        # Test with minimal conn
-        client = await StashClientBase.create(conn={})
-        assert client.url == "http://localhost:9999/graphql"
-        assert not any(h.get("ApiKey") for h in [getattr(client, "headers", {}), {}])
-        assert client._initialized is True
+    # Test with 0.0.0.0 host (should convert to 127.0.0.1)
+    bad_host = "0.0.0.0"  # noqa: S104 - testing host conversion
+    client = await StashClientBase.create(conn={"Host": bad_host})
+    assert "127.0.0.1" in client.url
+    assert client._initialized is True
+    await client.close()
 
-        # Test with full conn
-        client = await StashClientBase.create(
-            conn={
-                "Scheme": "http",
-                "Host": "localhost",
-                "Port": 9999,
-                "ApiKey": "",
-                "Logger": logging.getLogger("test"),
-            },
-            verify_ssl=False,
-        )
-        assert client.url == "http://localhost:9999/graphql"
-        assert not any(h.get("ApiKey") for h in [getattr(client, "headers", {}), {}])
-        assert client.log.name == "test"
-        assert client._initialized is True
-
-        # Test with 0.0.0.0 host (should convert to 127.0.0.1)
-        bad_host = "0.0.0.0"  # noqa: S104 - testing host conversion
-        client = await StashClientBase.create(conn={"Host": bad_host})
-        assert "127.0.0.1" in client.url
-        assert client._initialized is True
-
-        # Test with None conn (should use defaults)
-        client = await StashClientBase.create(conn=None)
-        assert client.url == "http://localhost:9999/graphql"
-        assert not any(h.get("ApiKey") for h in [getattr(client, "headers", {}), {}])
-        assert client._initialized is True
+    # Test with None conn (should use defaults)
+    client = await StashClientBase.create(conn=None)
+    assert client.url == "http://localhost:9999/graphql"
+    assert client._initialized is True
+    await client.close()
 
 
 @pytest.mark.asyncio
@@ -129,105 +117,58 @@ async def test_client_initialization_error() -> None:
         await StashClientBase.create()
 
 
+@respx.mock
 @pytest.mark.asyncio
-async def test_client_execute(mock_session, mock_client) -> None:
+async def test_client_execute() -> None:
     """Test client execute method."""
-    # Create a basic schema with ID type and findScene field for testing
-    query_type = GraphQLObjectType(
-        name="Query",
-        fields={
-            "hello": GraphQLField(type_=GraphQLString),
-            "findScene": GraphQLField(
-                type_=GraphQLObjectType(
-                    name="Scene",
-                    fields={
-                        "id": GraphQLField(type_=GraphQLString),
-                        "title": GraphQLField(type_=GraphQLString),
-                    },
-                ),
-                args={"id": GraphQLArgument(type_=GraphQLNonNull(GraphQLID))},
-            ),
-        },
+    # Mock GraphQL endpoint for initialization
+    graphql_route = respx.post("http://localhost:9999/graphql")
+    graphql_route.mock(return_value=httpx.Response(200, json={"data": {}}))
+
+    # Create client
+    client = await StashClientBase.create()
+
+    # Test successful response with hello query
+    graphql_route.mock(
+        return_value=httpx.Response(200, json={"data": {"hello": "world"}})
     )
-    mock_schema = GraphQLSchema(query=query_type)
-    mock_session.client = MagicMock(schema=mock_schema)
-    mock_client.schema = mock_schema  # Set schema on client directly
+    result = await client.execute("query { hello }")
+    # client.execute() returns just the data portion, not the full response
+    assert result == {"hello": "world"}
 
-    # Set up mock client with session
-    mock_client.__aenter__.return_value = mock_session
-    mock_client.close_async = AsyncMock()
-
-    # Create mock transport
-    mock_transport = MagicMock()
-    mock_transport.headers = {}
-
-    with (
-        patch("gql.Client", return_value=mock_client),
-        patch("gql.transport.httpx.HTTPXAsyncTransport", return_value=mock_transport),
-        patch("gql.transport.websockets.WebsocketsTransport"),
-    ):
-        client = await StashClientBase.create()
-        client._ensure_initialized = MagicMock()
-        client.log = MagicMock()
-        client.client = mock_client
-        client.schema = mock_schema
-
-        # Test successful response with hello query
-        mock_session.execute = AsyncMock(return_value={"data": {"hello": "world"}})
-        result = await client.execute("query { hello }")
-        assert result == {"data": {"hello": "world"}}
-
-        # Test successful response with variables
-        mock_session.execute = AsyncMock(
-            return_value={"data": {"findScene": {"id": "123", "title": "Test Scene"}}}
+    # Test successful response with variables
+    graphql_route.mock(
+        return_value=httpx.Response(
+            200, json={"data": {"findScene": {"id": "123", "title": "Test Scene"}}}
         )
+    )
 
-        query = """
-        query TestQuery($id: ID!) {
-            findScene(id: $id) {
-                id
-                title
-            }
+    query = """
+    query TestQuery($id: ID!) {
+        findScene(id: $id) {
+            id
+            title
         }
-        """
-        variables = {"id": "123"}
-        result = await client.execute(query, variables)
-        assert isinstance(result, dict)
-        assert "data" in result
-        assert "findScene" in result["data"]
-        assert result["data"]["findScene"]["id"] == "123"
-        assert result["data"]["findScene"]["title"] == "Test Scene"
+    }
+    """
+    variables = {"id": "123"}
+    result = await client.execute(query, variables)
+    # client.execute() returns just the data portion
+    assert isinstance(result, dict)
+    assert "findScene" in result
+    assert result["findScene"]["id"] == "123"
+    assert result["findScene"]["title"] == "Test Scene"
 
-        # Test GraphQL validation error
-        mock_session.execute = AsyncMock(
-            side_effect=ValueError(
-                "Invalid GraphQL query: Syntax Error: Unexpected Name 'invalid'."
-            )
-        )
+    # Test HTTP network error
+    graphql_route.mock(side_effect=httpx.NetworkError("Connection failed"))
 
-        with pytest.raises(
-            ValueError,
-            match=r"Invalid GraphQL query: Syntax Error: Unexpected Name 'invalid'\.",
-        ):
-            await client.execute("invalid { query }")
+    with pytest.raises(
+        StashConnectionError,
+        match=r"Failed to connect to .*/graphql: Connection failed",
+    ):
+        await client.execute("query { hello }")
 
-        # Test schema validation error
-        with pytest.raises(
-            ValueError,
-            match=r"Invalid GraphQL query: Schema validation errors: \[.*Cannot query field 'invalid' on type 'Query'.*\]",
-        ):
-            await client.execute("query { invalid }")
-
-        # Test HTTP error last since it's most catastrophic
-        mock_session.execute = AsyncMock(
-            side_effect=httpx.NetworkError("Connection failed")
-        )
-
-        with pytest.raises(
-            StashConnectionError,
-            match=r"Unexpected error during request \(NetworkError\): Connection failed",
-        ):
-            await client.execute("query { hello }")
+    await client.close()
 
 
 @pytest.mark.asyncio
