@@ -34,7 +34,7 @@ async def processor(
         patch("stash.processing.base.print_info"),
         patch("stash.processing.base.print_warning"),
     ):
-        processor = StashProcessing.from_config(config, download_state, True)
+        processor = StashProcessing.from_config(config, download_state)
         processor.context = context
         # Ensure database is set from config (needed for _update_account_stash_id)
         processor.database = config._database
