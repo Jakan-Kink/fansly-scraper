@@ -1,7 +1,10 @@
 """Test for FanslyApi device update callback functionality"""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import httpx
+import respx
 
 from api.fansly import FanslyApi
 
@@ -9,9 +12,10 @@ from api.fansly import FanslyApi
 class TestFanslyApiCallback:
     """Tests for the FanslyApi device update callback functionality."""
 
+    @respx.mock
     def test_callback_when_update_needed(self):
         """Test that the callback is called when device ID is updated."""
-        # Create a mock callback
+        # Create a mock callback (mocking user-provided callback is appropriate)
         mock_callback = MagicMock()
 
         # Initialize API with device info to avoid update during initialization
@@ -24,8 +28,13 @@ class TestFanslyApiCallback:
             on_device_updated=mock_callback,
         )
 
-        # Replace get_device_id with a mock to avoid real API calls
-        api.get_device_id = MagicMock(return_value="new_device_id")
+        # Mock the HTTP response for get_device_id at the edge
+        respx.get(url__regex=r".*api/v1/check/device.*").mock(
+            return_value=httpx.Response(
+                200,
+                json={"success": True, "response": {"deviceId": "new_device_id"}},
+            )
+        )
 
         # Set timestamp to a very old value to trigger update
         api.device_id_timestamp = 0
