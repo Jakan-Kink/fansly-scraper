@@ -78,12 +78,13 @@ class DownloadStateFactory(Factory):
     # Batch tracking
     current_batch_duplicates = 0
 
-    # Message state (from GlobalState parent)
-    messages_enabled = False
-    messages_by_creator_id = LazyFunction(dict)
-
-    # Verbose logging
-    verbose_logs = False
+    # GlobalState parent fields (inherited from GlobalState)
+    duplicate_count = 0
+    pic_count = 0
+    vid_count = 0
+    total_message_items = 0
+    total_timeline_pictures = 0
+    total_timeline_videos = 0
 
 
 class DownloadStateFactoryWithCreator(DownloadStateFactory):
