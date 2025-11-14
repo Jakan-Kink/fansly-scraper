@@ -31,6 +31,9 @@ def mock_config():
     config.check_key = "test_check_key"
     config.download_directory = Path.cwd()
     config.download_mode = DownloadMode.TIMELINE
+    # Ensure username/password are None (not MagicMock) to prevent early return
+    config.username = None
+    config.password = None
     # Make validation functions return True
     config.token_is_valid.return_value = True
     config.useragent_is_valid.return_value = True
