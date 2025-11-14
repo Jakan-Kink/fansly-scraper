@@ -1,51 +1,35 @@
 """Tests for media processing methods in MediaProcessingMixin."""
 
+from datetime import UTC, datetime
+
 import pytest
 
-from tests.fixtures.metadata.metadata_factories import MediaFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory, PostFactory
 from tests.fixtures.stash.stash_type_factories import ImageFactory, ImageFileFactory
 
 
 class TestMediaProcessing:
     """Test media processing methods in MediaProcessingMixin."""
 
-    # NOTE: This helper method is deprecated and should be removed once all tests
-    # are refactored to use factory-based approaches instead of AccessibleAsyncMock
-    # @staticmethod
-    # def _convert_to_accessible_mock(mock_obj) -> AccessibleAsyncMock | None:
-    #     """Convert a regular mock to an AccessibleAsyncMock with proper attributes."""
-    #     if mock_obj is None:
-    #         return None
-    #
-    #     accessible_mock = AccessibleAsyncMock()
-    #
-    #     # Copy all non-private attributes
-    #     for key, value in mock_obj.__dict__.items():
-    #         if not key.startswith("_"):
-    #             setattr(accessible_mock, key, value)
-    #
-    #     # Ensure it's properly awaitable
-    #     accessible_mock.__await__ = lambda: async_return(accessible_mock)().__await__()
-    #     return accessible_mock
-
     @pytest.mark.asyncio
-    async def test_process_media(
-        self, media_mixin, mock_item, mock_account, mock_media
-    ):
+    async def test_process_media(self, media_mixin):
         """Test _process_media method."""
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
 
+        # Create test data directly using factories
+        account = AccountFactory.build(id=123)
+        item = PostFactory.build(id=456, accountId=123)
+
         # Create real Media object using factory WITH stash_id
         media = MediaFactory.build(
-            id=mock_media.id,
-            mimetype=mock_media.mimetype,
-            is_downloaded=mock_media.is_downloaded,
-            accountId=mock_account.id,
+            id=789,
+            mimetype="video/mp4",
+            is_downloaded=True,
+            accountId=account.id,
             stash_id="stash_456",  # Add stash_id so _find_stash_files_by_id gets called
         )
         media.variants = set()
-        # Note: SQLAlchemy objects already have awaitable_attrs, no need to add it
 
         # Create a mock implementation
         async def mock_find_by_stash_id(stash_files):
@@ -55,16 +39,14 @@ class TestMediaProcessing:
             return [(image, image_file)]
 
         # Create a mock update_stash_metadata that records calls
-        async def mock_update_metadata(
-            stash_obj, item, account, media_id, is_preview=False
-        ):
+        async def mock_update_metadata(stash_obj, **kwargs):
             found_results.append(
                 {
                     "stash_obj": stash_obj,
-                    "item": item,
-                    "account": account,
-                    "media_id": media_id,
-                    "is_preview": is_preview,
+                    "item": kwargs.get("item"),
+                    "account": kwargs.get("account"),
+                    "media_id": kwargs.get("media_id"),
+                    "is_preview": kwargs.get("is_preview", False),
                 }
             )
 
@@ -81,15 +63,15 @@ class TestMediaProcessing:
             # Call the method
             await media_mixin._process_media(
                 media=media,
-                item=mock_item,
-                account=mock_account,
+                item=item,
+                account=account,
                 result=result,
             )
 
             # Verify update_stash_metadata was called
             assert len(found_results) == 1
-            assert found_results[0]["item"] == mock_item
-            assert found_results[0]["account"] == mock_account
+            assert found_results[0]["item"] == item
+            assert found_results[0]["account"] == account
             assert found_results[0]["media_id"] == str(media.id)
         finally:
             # Restore original methods
@@ -97,20 +79,21 @@ class TestMediaProcessing:
             media_mixin._update_stash_metadata = original_update
 
     @pytest.mark.asyncio
-    async def test_process_media_with_stash_id(
-        self, media_mixin, mock_item, mock_account, mock_media
-    ):
+    async def test_process_media_with_stash_id(self, media_mixin):
         """Test _process_media method with stash_id."""
+        # Create test data directly using factories
+        account = AccountFactory.build(id=123)
+        item = PostFactory.build(id=456, accountId=123)
+
         # Create real Media object using factory with stash_id
         media = MediaFactory.build(
-            id=mock_media.id,
-            mimetype=mock_media.mimetype,
-            is_downloaded=mock_media.is_downloaded,
-            accountId=mock_account.id,
+            id=789,
+            mimetype="video/mp4",
+            is_downloaded=True,
+            accountId=account.id,
         )
         media.stash_id = "stash_123"
         media.variants = set()
-        # Note: SQLAlchemy objects already have awaitable_attrs, no need to add it
 
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
@@ -123,16 +106,14 @@ class TestMediaProcessing:
             return [(image, image_file)]
 
         # Create a mock update_stash_metadata that records calls
-        async def mock_update_metadata(
-            stash_obj, item, account, media_id, is_preview=False
-        ):
+        async def mock_update_metadata(stash_obj, **kwargs):
             found_results.append(
                 {
                     "stash_obj": stash_obj,
-                    "item": item,
-                    "account": account,
-                    "media_id": media_id,
-                    "is_preview": is_preview,
+                    "item": kwargs.get("item"),
+                    "account": kwargs.get("account"),
+                    "media_id": kwargs.get("media_id"),
+                    "is_preview": kwargs.get("is_preview", False),
                 }
             )
 
@@ -149,15 +130,15 @@ class TestMediaProcessing:
             # Call the method
             await media_mixin._process_media(
                 media=media,
-                item=mock_item,
-                account=mock_account,
+                item=item,
+                account=account,
                 result=result,
             )
 
             # Verify update_stash_metadata was called
             assert len(found_results) == 1
-            assert found_results[0]["item"] == mock_item
-            assert found_results[0]["account"] == mock_account
+            assert found_results[0]["item"] == item
+            assert found_results[0]["account"] == account
             assert found_results[0]["media_id"] == str(media.id)
         finally:
             # Restore original methods
@@ -165,32 +146,33 @@ class TestMediaProcessing:
             media_mixin._update_stash_metadata = original_update
 
     @pytest.mark.asyncio
-    async def test_process_media_with_variants(
-        self, media_mixin, mock_item, mock_account, mock_media
-    ):
+    async def test_process_media_with_variants(self, media_mixin):
         """Test _process_media method with variants."""
+        # Create test data directly using factories
+        account = AccountFactory.build(id=123)
+        item = PostFactory.build(id=456, accountId=123)
+
         # Create real variant Media objects using factory
         variant1 = MediaFactory.build(
             id="variant_1",
             mimetype="image/jpeg",
-            accountId=mock_account.id,
+            accountId=account.id,
         )
         variant2 = MediaFactory.build(
             id="variant_2",
             mimetype="video/mp4",
-            accountId=mock_account.id,
+            accountId=account.id,
         )
         variants = {variant1, variant2}  # Use set, not list
 
         # Create real Media object using factory with variants
         media = MediaFactory.build(
-            id=mock_media.id,
-            mimetype=mock_media.mimetype,
-            is_downloaded=mock_media.is_downloaded,
-            accountId=mock_account.id,
+            id=789,
+            mimetype="video/mp4",
+            is_downloaded=True,
+            accountId=account.id,
         )
         media.variants = variants
-        # Note: SQLAlchemy objects already have awaitable_attrs, no need to add it
 
         # Setup test harness to avoid awaiting AsyncMock
         found_results = []
@@ -203,16 +185,14 @@ class TestMediaProcessing:
             return [(image, image_file)]
 
         # Create a mock update_stash_metadata that records calls
-        async def mock_update_metadata(
-            stash_obj, item, account, media_id, is_preview=False
-        ):
+        async def mock_update_metadata(stash_obj, **kwargs):
             found_results.append(
                 {
                     "stash_obj": stash_obj,
-                    "item": item,
-                    "account": account,
-                    "media_id": media_id,
-                    "is_preview": is_preview,
+                    "item": kwargs.get("item"),
+                    "account": kwargs.get("account"),
+                    "media_id": kwargs.get("media_id"),
+                    "is_preview": kwargs.get("is_preview", False),
                 }
             )
 
@@ -229,15 +209,15 @@ class TestMediaProcessing:
             # Call the method
             await media_mixin._process_media(
                 media=media,
-                item=mock_item,
-                account=mock_account,
+                item=item,
+                account=account,
                 result=result,
             )
 
             # Verify update_stash_metadata was called
             assert len(found_results) == 1
-            assert found_results[0]["item"] == mock_item
-            assert found_results[0]["account"] == mock_account
+            assert found_results[0]["item"] == item
+            assert found_results[0]["account"] == account
             assert found_results[0]["media_id"] == str(media.id)
         finally:
             # Restore original methods
