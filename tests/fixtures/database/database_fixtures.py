@@ -734,11 +734,8 @@ async def test_account_media(
             accountId=test_account.id,
             mediaId=test_media.id,
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            status="active",
-            type="video",
-            title="Test Media Title",
-            description="Test media description",
+            deleted=False,
+            access=True,
         )
 
     return await create_test_entity(
@@ -759,13 +756,7 @@ async def test_post(session: AsyncSession, test_account: Account) -> Post:
             accountId=test_account.id,
             content="Test post content",
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            type="text",
-            status="published",
-            title="Test Post Title",
-            description="Test post description",
-            likes=0,
-            comments=0,
+            fypFlag=0,
         )
 
     return await create_test_entity(
@@ -788,10 +779,6 @@ async def test_wall(session: AsyncSession, test_account: Account) -> Wall:
             description="Test wall description",
             pos=1,
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            status="active",
-            type="default",
-            postCount=0,
         )
 
     return await create_test_entity(
@@ -812,12 +799,7 @@ async def test_message(session: AsyncSession, test_account: Account) -> Message:
             senderId=test_account.id,
             content="Test message content",
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            type="text",
-            status="sent",
-            isEdited=False,
-            isDeleted=False,
-            hasAttachments=False,
+            deleted=False,
         )
 
     return await create_test_entity(
@@ -843,12 +825,10 @@ async def test_bundle(
             id=unique_id,
             accountId=test_account.id,
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            name=f"Test Bundle {unique_id}",
-            description="Test bundle description",
-            status="active",
-            type="collection",
-            mediaCount=1,
+            deleted=False,
+            access=True,
+            purchased=False,
+            whitelisted=False,
         )
         session.add(bundle)
         await session.flush()
