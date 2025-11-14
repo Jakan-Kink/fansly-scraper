@@ -15,10 +15,26 @@ from tests.fixtures.stash.stash_type_factories import PerformerFactory
 
 
 # Most fixtures are imported from tests.fixtures via conftest.py:
-# - mock_config, test_state, mock_context, mock_database (from stash_integration_fixtures)
+# - mock_config, test_state (from stash_integration_fixtures)
 # - stash_processor (for integration tests)
 #
-# For unit tests, we define a simple processor fixture below that uses mocked dependencies
+# For unit tests, we define mock_context and mock_database fixtures locally
+
+
+@pytest.fixture
+def mock_context():
+    """Fixture for mock stash context."""
+    context = MagicMock(spec=StashContext)
+    context.client = MagicMock()
+    context.get_client = AsyncMock()
+    return context
+
+
+@pytest.fixture
+def mock_database():
+    """Fixture for mock database."""
+    database = MagicMock()
+    return database
 
 
 @pytest.fixture
@@ -43,12 +59,12 @@ def processor(mock_config, test_state, mock_context, mock_database):
 class TestStashProcessingBasics:
     """Test the basic functionality of StashProcessing class."""
 
-    def test_init(self, mock_config, mock_state, mock_context, mock_database):
+    def test_init(self, mock_config, test_state, mock_context, mock_database):
         """Test initialization of StashProcessing."""
         # Create without background task
         processor = StashProcessing(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
             _background_task=None,
@@ -58,7 +74,7 @@ class TestStashProcessingBasics:
 
         # Verify attributes
         assert processor.config == mock_config
-        assert processor.state == mock_state
+        assert processor.state == test_state
         assert processor.context == mock_context
         assert processor.database == mock_database
         assert processor._background_task is None
@@ -70,7 +86,7 @@ class TestStashProcessingBasics:
         mock_task = MagicMock()
         processor = StashProcessing(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
             _background_task=mock_task,
@@ -83,7 +99,7 @@ class TestStashProcessingBasics:
         assert not processor._cleanup_event.is_set()
         assert processor._owns_db
 
-    def test_from_config(self, mock_config, mock_state):
+    def test_from_config(self, mock_config, test_state):
         """Test creating processor from config."""
         # Mock get_stash_context
         mock_context = MagicMock(spec=StashContext)
@@ -93,14 +109,14 @@ class TestStashProcessingBasics:
             # Call from_config
             processor = StashProcessing.from_config(
                 config=mock_config,
-                state=mock_state,
+                state=test_state,
             )
 
             # Verify processor
             assert processor.config == mock_config
-            assert processor.state is not mock_state  # Should be a copy
-            assert processor.state.creator_id == mock_state.creator_id
-            assert processor.state.creator_name == mock_state.creator_name
+            assert processor.state is not test_state  # Should be a copy
+            assert processor.state.creator_id == test_state.creator_id
+            assert processor.state.creator_name == test_state.creator_name
             assert processor.context == mock_context
             assert processor.database == mock_config._database
             assert processor._background_task is None

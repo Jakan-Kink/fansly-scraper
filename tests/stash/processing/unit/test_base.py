@@ -67,7 +67,7 @@ def mock_database():
 
 
 @pytest.fixture
-def base_processor(mock_config, mock_state, mock_context, mock_database):
+def base_processor(mock_config, test_state, mock_context, mock_database):
     """Fixture for base processor instance with mocked abstract methods."""
 
     class TestProcessor(StashProcessingBase):
@@ -82,7 +82,7 @@ def base_processor(mock_config, mock_state, mock_context, mock_database):
 
     processor = TestProcessor(
         config=mock_config,
-        state=mock_state,
+        state=test_state,
         context=mock_context,
         database=mock_database,
         _background_task=None,
@@ -95,7 +95,7 @@ def base_processor(mock_config, mock_state, mock_context, mock_database):
 class TestStashProcessingBase:
     """Test the basic functionality of StashProcessingBase class."""
 
-    def test_init(self, mock_config, mock_state, mock_context, mock_database):
+    def test_init(self, mock_config, test_state, mock_context, mock_database):
         """Test initialization of StashProcessingBase."""
 
         # Mock abstract methods for testing
@@ -111,7 +111,7 @@ class TestStashProcessingBase:
         # Create without background task
         processor = TestProcessor(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
             _background_task=None,
@@ -121,7 +121,7 @@ class TestStashProcessingBase:
 
         # Verify attributes
         assert processor.config == mock_config
-        assert processor.state == mock_state
+        assert processor.state == test_state
         assert processor.context == mock_context
         assert processor.database == mock_database
         assert processor._background_task is None
@@ -133,7 +133,7 @@ class TestStashProcessingBase:
         mock_task = MagicMock()
         processor = TestProcessor(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
             _background_task=mock_task,
