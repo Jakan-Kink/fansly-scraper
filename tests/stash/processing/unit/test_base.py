@@ -129,24 +129,30 @@ class TestStashProcessingBase:
         assert not processor._owns_db
         assert isinstance(processor.log, logging.Logger)
 
-        # Create with background task
-        mock_task = MagicMock()
+        # Create with background task - use real asyncio.Task
+        async def dummy_task():
+            await asyncio.sleep(0)
+
+        real_task = asyncio.create_task(dummy_task())
         processor = TestProcessor(
             config=mock_config,
             state=test_state,
             context=mock_context,
             database=mock_database,
-            _background_task=mock_task,
+            _background_task=real_task,
             _cleanup_event=None,
             _owns_db=True,
         )
 
         # Verify attributes
-        assert processor._background_task == mock_task
+        assert processor._background_task == real_task
         assert not processor._cleanup_event.is_set()
         assert processor._owns_db
 
-    def test_from_config(self, mock_config, mock_state):
+        # Clean up task
+        real_task.cancel()
+
+    def test_from_config(self, mock_config, test_state):
         """Test creating processor from config."""
 
         # Mock abstract methods for testing
@@ -159,22 +165,27 @@ class TestStashProcessingBase:
             async def process_creator(self, session=None):
                 return None, None
 
-        # Mock get_stash_context
-        mock_context = MagicMock(spec=StashContext)
-        mock_config.get_stash_context.return_value = mock_context
+        # Configure real stash context connection instead of mocking
+        mock_config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": 9999,
+            "apikey": "test_api_key",
+        }
 
         # Call from_config - use_batch_processing is handled in derived classes only
         processor = TestProcessor.from_config(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
         )
 
         # Verify processor
         assert processor.config == mock_config
-        assert processor.state is not mock_state  # Should be a copy
-        assert processor.state.creator_id == mock_state.creator_id
-        assert processor.state.creator_name == mock_state.creator_name
-        assert processor.context == mock_context
+        assert processor.state is not test_state  # Should be a copy
+        assert processor.state.creator_id == test_state.creator_id
+        assert processor.state.creator_name == test_state.creator_name
+        # Context should be real StashContext from get_stash_context()
+        assert processor.context is not None
         assert processor.database == mock_config._database
         assert processor._background_task is None
         assert not processor._cleanup_event.is_set()
