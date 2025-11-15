@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import pytest
 
 from fileio.normalize import get_id_from_filename, normalize_filename
-from metadata.media import Media
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 
 
@@ -37,8 +36,11 @@ class TestNormalizeFilename:
     """Tests for the normalize_filename function."""
 
     @pytest.mark.asyncio
-    async def test_normalize_filename_with_database_match(self, config, session_sync):
+    async def test_normalize_filename_with_database_match(
+        self, config_with_database, session_sync
+    ):
         """Test normalize_filename with database match using real database."""
+
         # Create account first (foreign key requirement)
         account = AccountFactory.build(id=1, username="test_user")
         session_sync.add(account)
@@ -53,11 +55,13 @@ class TestNormalizeFilename:
 
         # Test that the filename gets normalized using the database timestamp
         filename = "2023-01-01_at_10-30_id_12345.jpg"
-        result = normalize_filename(filename, config=config)
+        result = normalize_filename(filename, config=config_with_database)
         assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
 
     @pytest.mark.asyncio
-    async def test_normalize_filename_no_database_match(self, config, session_sync):
+    async def test_normalize_filename_no_database_match(
+        self, config_with_database, session_sync
+    ):
         """Test normalize_filename without database match.
 
         Even without database match, if config is provided, the function
@@ -68,11 +72,13 @@ class TestNormalizeFilename:
         # EST (UTC-5) + 5 hours = UTC
         # 10:30 EST → 15:30 UTC
         filename = "2023-01-01_at_10-30_id_12345.jpg"
-        result = normalize_filename(filename, config=config)
+        result = normalize_filename(filename, config=config_with_database)
         assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
 
     @pytest.mark.asyncio
-    async def test_normalize_filename_different_extensions(self, config, session_sync):
+    async def test_normalize_filename_different_extensions(
+        self, config_with_database, session_sync
+    ):
         """Test normalize_filename with different extensions."""
         # Create account first (foreign key requirement)
         account = AccountFactory.build(id=1, username="test_user")
@@ -90,12 +96,12 @@ class TestNormalizeFilename:
         for ext in ["jpg", "mp4", "m3u8", "ts"]:
             # Local time should convert to UTC with database match
             filename = f"2023-01-01_at_10-30_id_12345.{ext}"
-            result = normalize_filename(filename, config=config)
+            result = normalize_filename(filename, config=config_with_database)
             assert result == f"2023-01-01_at_15-30_UTC_id_12345.{ext}"
 
             # UTC time should stay unchanged
             filename = f"2023-01-01_at_15-30_UTC_id_12345.{ext}"
-            result = normalize_filename(filename, config=config)
+            result = normalize_filename(filename, config=config_with_database)
             assert result == filename
 
     def test_normalize_filename_no_id(self, config):

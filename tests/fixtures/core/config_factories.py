@@ -26,7 +26,7 @@ Usage:
 import os
 from pathlib import Path
 
-from factory import Factory, LazyAttribute, LazyFunction, Sequence
+from factory import Factory, LazyAttribute, LazyFunction
 
 from config import FanslyConfig
 from config.metadatahandling import MetadataHandling
@@ -97,7 +97,7 @@ class FanslyConfigFactory(Factory):
 
     # Download settings
     download_mode = DownloadMode.NOTSET
-    download_path = LazyFunction(lambda: Path("/tmp/test_downloads"))
+    download_path = LazyFunction(lambda: Path("/tmp/test_downloads"))  # noqa: S108
     local_directory = LazyAttribute(lambda o: str(o.download_path))
 
     # Metadata handling
@@ -146,34 +146,6 @@ class FanslyConfigFactory(Factory):
     quality_str = None
 
 
-class FanslyConfigFactoryWithDB(FanslyConfigFactory):
-    """Factory for FanslyConfig instances with database configuration.
-
-    This is a specialized factory for creating configs with real database setup.
-    It should be used in conjunction with database fixtures.
-
-    WARNING: This factory alone does NOT create the database - it only sets the
-    configuration fields. Use with uuid_test_db_factory or config fixture for
-    actual database creation.
-
-    Example:
-        @pytest.fixture
-        def my_config(uuid_test_db_factory):
-            # uuid_test_db_factory creates the DB and returns a config
-            config = uuid_test_db_factory
-            # Further customize if needed
-            config.download_mode = DownloadMode.TIMELINE
-            return config
-    """
-
-    # Use a unique database name pattern
-    pg_database = Sequence(lambda n: f"test_factory_{n}")
-
-    # Enable metadata database
-    metadata_db_file = None  # PostgreSQL mode
-
-
 __all__ = [
     "FanslyConfigFactory",
-    "FanslyConfigFactoryWithDB",
 ]

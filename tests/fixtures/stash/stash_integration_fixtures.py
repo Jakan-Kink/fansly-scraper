@@ -15,8 +15,7 @@ Philosophy:
 - Use factories for test data creation
 """
 
-import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -144,11 +143,8 @@ def mock_permissions():
 async def real_stash_processor(config, test_database_sync, test_state, stash_context):
     """Fixture for StashProcessing with REAL database and REAL Docker Stash.
 
-    This is for true integration tests that hit the real Stash instance.
-    Can be combined with @respx.mock to mock HTTP responses for unit tests.
-
-    NOTE: Automatically initializes the StashContext client with a default
-    respx mock. Tests can add their own respx routes to override defaults.
+    This is for TRUE integration tests that hit the real Stash instance.
+    All HTTP calls go to the actual Docker Stash server (localhost:9999).
 
     Args:
         config: Real FanslyConfig with UUID-isolated database
@@ -157,7 +153,49 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
         stash_context: Real StashContext connected to Docker (localhost:9999)
 
     Yields:
-        StashProcessing: Fully functional processor hitting real services
+        StashProcessing: Fully functional processor hitting real Docker Stash
+    """
+    # Set up config with real database and real stash
+    config._database = test_database_sync
+    config._stash = stash_context
+
+    # Initialize the client (will make REAL HTTP calls)
+    await stash_context.get_client()
+
+    # Disable prints for testing
+    with (
+        patch("textio.textio.print_info"),
+        patch("textio.textio.print_warning"),
+        patch("textio.textio.print_error"),
+    ):
+        processor = StashProcessing.from_config(config, test_state)
+        yield processor
+        # Cleanup happens via fixtures
+
+
+@pytest_asyncio.fixture
+async def respx_stash_processor(config, test_database_sync, test_state, stash_context):
+    """Fixture for StashProcessing with respx HTTP mocking enabled.
+
+    This is for unit tests that want to mock HTTP responses to Stash.
+    Use @respx.mock decorator and add routes in your test to override defaults.
+
+    Args:
+        config: Real FanslyConfig with UUID-isolated database
+        test_database_sync: Real Database instance
+        test_state: Real TestState (download state)
+        stash_context: Real StashContext but using a respx wrapper (localhost:9999)
+
+    Yields:
+        StashProcessing: Processor with mocked HTTP responses
+
+    Example:
+        @respx.mock
+        async def test_something(respx_stash_processor):
+            respx.post("http://localhost:9999/graphql").mock(
+                return_value=httpx.Response(200, json={"data": {...}})
+            )
+            # Now respx_stash_processor will use your mocked responses
     """
     # Set up config with real database and real stash
     config._database = test_database_sync

@@ -2,6 +2,7 @@
 
 from .database_fixtures import (
     config,
+    config_with_database,
     conversation_data,
     factory_async_session,
     factory_session,
@@ -28,8 +29,10 @@ from .database_fixtures import (
     uuid_test_db_factory,
 )
 
+
 __all__ = [
     "config",
+    "config_with_database",
     "conversation_data",
     "factory_async_session",
     "factory_session",

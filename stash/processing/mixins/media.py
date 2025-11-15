@@ -723,6 +723,7 @@ class MediaProcessingMixin:
         # Only update metadata if this is the earliest instance we've seen
         item_date = item.createdAt.date()  # Get date part of datetime
         current_date_str = getattr(stash_obj, "date", None)
+        current_date = None  # Initialize to None, will be parsed from current_date_str if it exists
         is_organized = getattr(stash_obj, "organized", False)
         current_title = getattr(stash_obj, "title", None) or ""
 

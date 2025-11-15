@@ -6,7 +6,7 @@ FactoryBoy factories instead of mocks.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -313,7 +313,9 @@ async def test_process_timeline_hashtags(
             new=AsyncMock(return_value=mock_image),
         ),
         patch.object(
-            real_stash_processor.context.client, "find_tags", new=AsyncMock(return_value=[])
+            real_stash_processor.context.client,
+            "find_tags",
+            new=AsyncMock(return_value=[]),
         ),
         patch.object(
             real_stash_processor.context.client, "create_tag", new=AsyncMock()
@@ -472,47 +474,6 @@ async def test_process_timeline_account_mentions(
             )
 
         # Assert - validates mention processing
-
-
-@pytest.mark.asyncio
-async def test_process_timeline_batch(
-    real_stash_processor,
-    mock_posts,
-    integration_mock_account,
-    integration_mock_performer,
-    test_database_sync,
-):
-    """Test processing a batch of timeline posts with real database objects."""
-    # Arrange
-    # Mock Stash client responses
-    real_stash_processor.context.client.find_performer.return_value = (
-        integration_mock_performer
-    )
-    real_stash_processor.context.client.create_scene = AsyncMock(
-        return_value=MagicMock(id="scene_123")
-    )
-
-    # Act - Use real async session and re-query account to avoid session attachment
-    async with test_database_sync.async_session_scope() as async_session:
-        result = await async_session.execute(
-            select(Account).where(Account.id == integration_mock_account.id)
-        )
-        account = result.scalar_one()
-
-        await real_stash_processor.process_creator_posts(
-            account=account,
-            performer=integration_mock_performer,
-            studio=None,
-            session=async_session,
-        )
-
-    # Mock results for testing
-    results = [True] * len(mock_posts)
-
-    # Assert
-    assert all(results)
-    # Can't assert exact call count since the function was mocked
-    # assert real_stash_processor.context.client.create_scene.call_count == len(mock_posts)
 
 
 @pytest.mark.asyncio

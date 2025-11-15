@@ -158,9 +158,21 @@ def gallery_mixin():
 
 
 @pytest.fixture
-def media_mixin():
-    """Fixture for media mixin test class."""
-    return TestMediaMixin()
+async def media_mixin(stash_context, test_database_sync):
+    """Fixture for media mixin test class with initialized client and database.
+
+    For unit tests, we provide a StashContext with a real client instance
+    so tests can mock individual client methods (find_performer, find_studios, etc.)
+    without mocking the entire client.
+    """
+    mixin = TestMediaMixin()
+    # Replace the test context with one that has an initialized client
+    mixin.context = stash_context
+    # Set the database so @with_session decorators work
+    mixin.database = test_database_sync
+    # Initialize the client so tests can mock its methods
+    await stash_context.get_client()
+    return mixin
 
 
 @pytest.fixture

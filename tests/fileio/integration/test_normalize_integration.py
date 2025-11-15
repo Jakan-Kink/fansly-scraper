@@ -2,10 +2,9 @@
 
 from datetime import UTC, datetime
 
-import pytest
-
 from fileio.normalize import normalize_filename
-from tests.fixtures.metadata import MediaFactory
+from metadata.database import Database
+from tests.fixtures.metadata import AccountFactory, MediaFactory
 
 
 class TestNormalizeFilenameIntegration:
@@ -14,9 +13,16 @@ class TestNormalizeFilenameIntegration:
     def test_normalize_filename_with_database(self, uuid_test_db_factory):
         """Test normalize_filename with database match."""
         config = uuid_test_db_factory
+        config._database = Database(config)
 
-        # Create real media object and insert into database
-        media = MediaFactory(
+        # Create Account first (FK requirement with proper 60-bit BigInt)
+        account = AccountFactory.build(
+            id=555000000000000000,
+            username="test_user",
+        )
+
+        # ID must match filename for database lookup (id_12345 in filename)
+        media = MediaFactory.build(
             id=12345,
             accountId=555000000000000000,
             createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
@@ -24,6 +30,7 @@ class TestNormalizeFilenameIntegration:
 
         # Insert into database
         with config._database.session_scope() as session:
+            session.add(account)
             session.add(media)
             session.commit()
 
@@ -40,19 +47,26 @@ class TestNormalizeFilenameIntegration:
     def test_normalize_filename_with_database_no_match(self, uuid_test_db_factory):
         """Test normalize_filename without database match."""
         config = uuid_test_db_factory
+        config._database = Database(config)
 
         # No media in database, so query returns None
         filename = "2023-01-01_at_10-30_id_12345.jpg"
         result = normalize_filename(filename, config=config)
-        # Without database match, time should stay unchanged
-        assert result == filename
+        # Even without database match, local time is converted to UTC
+        assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
 
     def test_normalize_filename_with_mp4(self, uuid_test_db_factory):
         """Test normalize_filename with mp4 extension."""
         config = uuid_test_db_factory
+        config._database = Database(config)
 
-        # Create real media object and insert into database
-        media = MediaFactory(
+        # Create Account first (FK requirement with proper 60-bit BigInt)
+        account = AccountFactory.build(
+            id=555000000000000000,
+            username="test_user",
+        )
+
+        media = MediaFactory.build(
             id=12345,
             accountId=555000000000000000,
             createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
@@ -60,6 +74,7 @@ class TestNormalizeFilenameIntegration:
 
         # Insert into database
         with config._database.session_scope() as session:
+            session.add(account)
             session.add(media)
             session.commit()
 
@@ -76,9 +91,15 @@ class TestNormalizeFilenameIntegration:
     def test_normalize_filename_with_m3u8(self, uuid_test_db_factory):
         """Test normalize_filename with m3u8 extension."""
         config = uuid_test_db_factory
+        config._database = Database(config)
 
-        # Create real media object and insert into database
-        media = MediaFactory(
+        # Create Account first (FK requirement with proper 60-bit BigInt)
+        account = AccountFactory.build(
+            id=555000000000000000,
+            username="test_user",
+        )
+
+        media = MediaFactory.build(
             id=12345,
             accountId=555000000000000000,
             createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
@@ -86,6 +107,7 @@ class TestNormalizeFilenameIntegration:
 
         # Insert into database
         with config._database.session_scope() as session:
+            session.add(account)
             session.add(media)
             session.commit()
 
@@ -102,9 +124,15 @@ class TestNormalizeFilenameIntegration:
     def test_normalize_filename_with_ts(self, uuid_test_db_factory):
         """Test normalize_filename with ts extension."""
         config = uuid_test_db_factory
+        config._database = Database(config)
 
-        # Create real media object and insert into database
-        media = MediaFactory(
+        # Create Account first (FK requirement with proper 60-bit BigInt)
+        account = AccountFactory.build(
+            id=555000000000000000,
+            username="test_user",
+        )
+
+        media = MediaFactory.build(
             id=12345,
             accountId=555000000000000000,
             createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
@@ -112,6 +140,7 @@ class TestNormalizeFilenameIntegration:
 
         # Insert into database
         with config._database.session_scope() as session:
+            session.add(account)
             session.add(media)
             session.commit()
 

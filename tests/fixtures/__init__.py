@@ -37,12 +37,12 @@ from .core import (
 )
 from .database import (
     config,
+    config_with_database,
     conversation_data,
     factory_async_session,
     factory_session,
     json_conversation_data,
     mock_account,
-    # safe_name,  # Commented out - fixture is not currently defined
     session,
     session_factory,
     session_sync,
@@ -96,6 +96,20 @@ from .metadata import (
     test_messages,
     test_posts,
 )
+
+# Note: Stash GroupFactory imported separately to avoid name collision
+# Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures;
+# (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories);
+# Removed: mock_client, mock_session, mock_transport from stash_api_fixtures;
+# (Mocked internal GraphQL components - use respx to mock HTTP instead);
+# Removed: integration_mock_performer, integration_mock_studio, integration_mock_scene;
+# (MagicMock duplicates - use real factories from stash_type_factories);
+# Removed: mock_stash_context, mock_context;
+# (Mocked internal StashContext - use real stash_context or respx);
+# Removed: mock_stash_client_with_responses, mock_stash_client_with_errors;
+# (Mocked internal client.execute() - use respx to mock HTTP instead);
+# Removed: stash_processor;
+# (Used mock_stash_context - use real_stash_processor with respx instead)
 from .stash import (
     GalleryFactory,
     ImageFactory,
@@ -142,18 +156,6 @@ from .stash import (
     mock_image_file,
     mock_item,
     mock_performer,  # From stash_type_factories (real factory)
-    # Removed: mock_performer, mock_studio, mock_scene from stash_api_fixtures
-    # (MagicMock duplicates - use real mock_performer/mock_studio/mock_scene from stash_type_factories)
-    # Removed: mock_client, mock_session, mock_transport from stash_api_fixtures
-    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
-    # Removed: integration_mock_performer, integration_mock_studio, integration_mock_scene
-    # (MagicMock duplicates - use real factories from stash_type_factories)
-    # Removed: mock_stash_context, mock_context
-    # (Mocked internal StashContext - use real stash_context or respx)
-    # Removed: mock_stash_client_with_responses, mock_stash_client_with_errors
-    # (Mocked internal client.execute() - use respx to mock HTTP instead)
-    # Removed: stash_processor
-    # (Used mock_stash_context - use real_stash_processor with respx instead)
     mock_permissions,
     mock_scene,  # From stash_type_factories (real factory)
     mock_studio,  # From stash_type_factories (real factory)
@@ -163,6 +165,7 @@ from .stash import (
     mock_video_file,
     real_stash_processor,
     reset_stash_field_names_cache,
+    respx_stash_processor,
     safe_image_create,
     safe_scene_create,
     safe_scene_marker_create,
@@ -181,8 +184,6 @@ from .stash import (
     test_stash_object_no_strawberry,
     test_state,
 )
-
-# Note: Stash GroupFactory imported separately to avoid name collision
 from .stash import GroupFactory as StashGroupFactory
 from .utils import (
     cleanup_global_config_state,
@@ -343,6 +344,7 @@ mod_database_fixtures = [
     "test_engine",
     "test_async_session",
     "config",
+    "config_with_database",
     "test_sync_engine",
     "session_factory",
     "test_database_sync",
@@ -394,7 +396,8 @@ mod_stash_integration_fixtures = [
     # Note: mock_gallery and mock_image are in mod_stash_fixtures (from stash_type_factories)
     # Removed: "stash_processor"
     # (Used mock_stash_context - use real_stash_processor with respx instead)
-    "real_stash_processor",  # The real replacement for stash_processor
+    "real_stash_processor",  # Hits real Docker Stash (true integration tests)
+    "respx_stash_processor",  # Has respx.mock wrapper (unit tests with mocked HTTP)
 ]
 
 mod_cleanup_fixtures = [

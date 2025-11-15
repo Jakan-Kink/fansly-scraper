@@ -5,15 +5,13 @@ Only external calls (like hash calculation) are mocked using patch.
 """
 
 import re
-import shutil
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+from PIL import Image
 from sqlalchemy import select
 
-from download.downloadstate import DownloadState
 from fileio.dedupe import (
     calculate_file_hash,
     categorize_file,
@@ -28,6 +26,7 @@ from fileio.dedupe import (
 )
 from metadata.account import Account
 from metadata.media import Media
+from tests.fixtures.download import DownloadStateFactory
 from tests.fixtures.metadata.metadata_factories import (
     ACCOUNT_ID_BASE,
     MEDIA_ID_BASE,
@@ -36,31 +35,27 @@ from tests.fixtures.metadata.metadata_factories import (
 )
 
 
-@pytest.fixture
-def mock_state():
-    """Create a mock DownloadState."""
-    state = MagicMock(spec=DownloadState)
-    state.creator_id = "12345"
-    state.creator_name = "test_user"
-    state.download_path = None  # Will be set in individual tests
-
-    return state
-
-
-@pytest.fixture
-def temp_dir():
-    """Create a temporary directory for test files."""
-    temp_dir = tempfile.mkdtemp()
-    yield Path(temp_dir)
-    # Cleanup after tests
-    shutil.rmtree(temp_dir)
-
-
 def create_test_file(base_path, filename, content=b"test content"):
     """Helper to create a test file."""
     file_path = base_path / filename
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(content)
+    return file_path
+
+
+def create_test_image(base_path, filename):
+    """Helper to create a minimal valid image file that PIL can open.
+
+    Creates a 1x1 pixel RGB image in JPEG format.
+    This is the smallest valid image that PIL.Image.open() can process.
+    """
+    file_path = base_path / filename
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create a minimal 1x1 pixel RGB image
+    img = Image.new("RGB", (1, 1), color=(255, 255, 255))
+    img.save(file_path, format="JPEG")
+
     return file_path
 
 
@@ -79,29 +74,29 @@ async def test_get_filename_only():
 
 
 @pytest.mark.asyncio
-async def test_safe_rglob(temp_dir):
+async def test_safe_rglob(tmp_path):
     """Test safe_rglob function."""
     # Create test files
-    create_test_file(temp_dir, "file1.txt")
-    create_test_file(temp_dir, "subdir/file2.txt")
-    create_test_file(temp_dir, "subdir/deeper/file3.txt")
+    create_test_file(tmp_path, "file1.txt")
+    create_test_file(tmp_path, "subdir/file2.txt")
+    create_test_file(tmp_path, "subdir/deeper/file3.txt")
 
     # Test with simple filename
-    files = await safe_rglob(temp_dir, "file1.txt")
+    files = await safe_rglob(tmp_path, "file1.txt")
     assert len(files) == 1
     assert files[0].name == "file1.txt"
 
     # Test with filename in path
-    files = await safe_rglob(temp_dir, "subdir/file2.txt")
+    files = await safe_rglob(tmp_path, "subdir/file2.txt")
     assert len(files) == 1
     assert files[0].name == "file2.txt"
 
     # Test with wildcard
-    files = await safe_rglob(temp_dir, "*.txt")
+    files = await safe_rglob(tmp_path, "*.txt")
     assert len(files) == 3
 
     # Test with non-existent file
-    files = await safe_rglob(temp_dir, "nonexistent.txt")
+    files = await safe_rglob(tmp_path, "nonexistent.txt")
     assert len(files) == 0
 
 
@@ -178,11 +173,11 @@ async def test_find_media_records(session, session_sync):
 
 
 @pytest.mark.asyncio
-async def test_verify_file_existence(temp_dir):
+async def test_verify_file_existence(tmp_path):
     """Test verify_file_existence function."""
     # Create test files
-    create_test_file(temp_dir, "file1.txt")
-    create_test_file(temp_dir, "subdir/file2.txt")
+    create_test_file(tmp_path, "file1.txt")
+    create_test_file(tmp_path, "subdir/file2.txt")
 
     # Since we're having issues with the coroutine and awaitable handling in verify_file_existence,
     # we'll test the concept rather than the actual implementation
@@ -198,35 +193,36 @@ async def test_verify_file_existence(temp_dir):
 
     # Test with existing files
     results = await mock_verify_file_existence(
-        temp_dir, ["file1.txt", "subdir/file2.txt"]
+        tmp_path, ["file1.txt", "subdir/file2.txt"]
     )
     assert results == {"file1.txt": True, "subdir/file2.txt": True}
 
     # Test with non-existent file
-    results = await mock_verify_file_existence(temp_dir, ["nonexistent.txt"])
+    results = await mock_verify_file_existence(tmp_path, ["nonexistent.txt"])
     assert results == {"nonexistent.txt": False}
 
     # Test with mixed results
     results = await mock_verify_file_existence(
-        temp_dir, ["file1.txt", "nonexistent.txt"]
+        tmp_path, ["file1.txt", "nonexistent.txt"]
     )
     assert results == {"file1.txt": True, "nonexistent.txt": False}
 
 
 @pytest.mark.asyncio
-async def test_calculate_file_hash(temp_dir):
+async def test_calculate_file_hash(tmp_path):
     """Test calculate_file_hash function."""
-    # Create test image file
-    image_file = create_test_file(temp_dir, "test.jpg", b"image content")
+    # Create REAL image file so PIL can open it
+    image_file = create_test_image(tmp_path, "test.jpg")
 
     # Create test video file
-    video_file = create_test_file(temp_dir, "test.mp4", b"video content")
+    video_file = create_test_file(tmp_path, "test.mp4", b"video content")
 
     # Create test text file
-    text_file = create_test_file(temp_dir, "test.txt", b"text content")
+    text_file = create_test_file(tmp_path, "test.txt", b"text content")
 
-    # Test image hash calculation
-    with patch("fileio.dedupe.get_hash_for_image", return_value="image_hash"):
+    # Test image hash calculation - patch 2-3 layers deep
+    # Layers: calculate_file_hash → get_hash_for_image → Image.open() → imagehash.phash()
+    with patch("imagehash.phash", return_value="image_hash"):
         result, hash_value, debug_info = await calculate_file_hash(
             (image_file, "image/jpeg")
         )
@@ -235,7 +231,7 @@ async def test_calculate_file_hash(temp_dir):
         assert debug_info["hash_type"] == "image"
         assert debug_info["hash_success"] is True
 
-    # Test video hash calculation
+    # Test video hash calculation - patch the video hash function
     with patch("fileio.dedupe.get_hash_for_other_content", return_value="video_hash"):
         result, hash_value, debug_info = await calculate_file_hash(
             (video_file, "video/mp4")
@@ -253,8 +249,8 @@ async def test_calculate_file_hash(temp_dir):
     assert hash_value is None
     assert debug_info["hash_type"] == "unsupported"
 
-    # Test error handling
-    with patch("fileio.dedupe.get_hash_for_image", side_effect=Exception("Test error")):
+    # Test error handling - patch 2-3 layers deep
+    with patch("imagehash.phash", side_effect=Exception("Test error")):
         result, hash_value, debug_info = await calculate_file_hash(
             (image_file, "image/jpeg")
         )
@@ -269,13 +265,13 @@ async def test_get_account_id(session, session_sync):
     """Test get_account_id function with real database using 60-bit BigInt IDs.
 
     Uses REAL session and REAL Account objects from AccountFactory.
-    No mocks - testing actual database query and insert behavior with BigInt IDs.
+    Uses REAL DownloadState from DownloadStateFactory - no mocks.
     """
-    # Create mock state with 60-bit BigInt ID
+    # Create real state with 60-bit BigInt ID
     test_account_id = ACCOUNT_ID_BASE + 100
-    state = MagicMock(spec=DownloadState)
-    state.creator_id = str(test_account_id)
-    state.creator_name = "test_user"
+    state = DownloadStateFactory.build(
+        creator_id=str(test_account_id), creator_name="test_user"
+    )
 
     # Test case 1: creator_id already set - should return immediately
     account_id = await get_account_id(session, state)
@@ -325,16 +321,16 @@ async def test_get_account_id(session, session_sync):
 
 
 @pytest.mark.asyncio
-async def test_categorize_file(temp_dir):
+async def test_categorize_file(tmp_path):
     """Test categorize_file function."""
     # Create hash2 pattern
     hash2_pattern = re.compile(r"_hash2_([a-fA-F0-9]+)")
 
     # Create test files
-    hash2_file = create_test_file(temp_dir, "file_hash2_abc123.jpg")
-    media_id_file = create_test_file(temp_dir, "2023-05-01_id_12345.jpg")
-    regular_file = create_test_file(temp_dir, "regular.jpg")
-    text_file = create_test_file(temp_dir, "document.txt")
+    hash2_file = create_test_file(tmp_path, "file_hash2_abc123.jpg")
+    media_id_file = create_test_file(tmp_path, "2023-05-01_id_12345.jpg")
+    regular_file = create_test_file(tmp_path, "regular.jpg")
+    text_file = create_test_file(tmp_path, "document.txt")
 
     # Test hash2 categorization
     result = await categorize_file(hash2_file, hash2_pattern)
@@ -439,17 +435,22 @@ async def test_migrate_full_paths_to_filenames(config, test_database):
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_media(config, session, session_sync, mock_state, temp_dir):
+async def test_get_or_create_media(config, session, tmp_path):
     """Test get_or_create_media function with real database using 60-bit BigInt IDs.
 
-    Uses REAL session and REAL Media objects from MediaFactory.
+    Uses REAL async session and REAL Media objects from MediaFactory.
     Only mocks imagehash.phash() - everything else is real.
     """
     # Create real account first (required for FK) with 60-bit ID
     account_id = ACCOUNT_ID_BASE + 400
     account = AccountFactory.build(id=account_id, username="test_user")
-    session_sync.add(account)
-    session_sync.commit()
+    session.add(account)
+    await session.commit()  # Commit with expire_on_commit=False keeps objects attached
+
+    # Create real DownloadState instead of mock
+    state = DownloadStateFactory.build(
+        creator_id=str(account_id), creator_name="test_user"
+    )
 
     # Use 60-bit Media IDs
     media_id_1 = MEDIA_ID_BASE + 400
@@ -457,7 +458,7 @@ async def test_get_or_create_media(config, session, session_sync, mock_state, te
     media_id_3 = MEDIA_ID_BASE + 402
 
     # Create test file
-    file_path = create_test_file(temp_dir, f"2023-05-01_id_{media_id_1}.jpg")
+    file_path = create_test_file(tmp_path, f"2023-05-01_id_{media_id_1}.jpg")
 
     # Test case 1: Media found by ID with existing hash
     existing_media = MediaFactory.build(
@@ -467,14 +468,14 @@ async def test_get_or_create_media(config, session, session_sync, mock_state, te
         local_filename=f"2023-05-01_id_{media_id_1}.jpg",
         mimetype="image/jpeg",
     )
-    session_sync.add(existing_media)
-    session_sync.commit()
+    session.add(existing_media)
+    await session.commit()
 
     media, hash_verified = await get_or_create_media(
         file_path=file_path,
         media_id=media_id_1,
         mimetype="image/jpeg",
-        state=mock_state,
+        state=state,
         file_hash="new_hash",  # Different hash to test trust_filename
         trust_filename=True,
         config=config,
@@ -495,10 +496,11 @@ async def test_get_or_create_media(config, session, session_sync, mock_state, te
         local_filename="different_filename.jpg",
         mimetype="image/jpeg",
     )
-    session_sync.add(media_no_hash)
-    session_sync.commit()
+    session.add(media_no_hash)
+    await session.commit()
 
-    file_path2 = create_test_file(temp_dir, f"2023-05-01_id_{media_id_2}.jpg")
+    # Create a REAL image file (not empty) so PIL can open it
+    file_path2 = create_test_image(tmp_path, f"2023-05-01_id_{media_id_2}.jpg")
 
     # Only mock imagehash.phash(), not get_hash_for_image
     with patch("imagehash.phash", return_value="calculated_hash"):
@@ -506,7 +508,7 @@ async def test_get_or_create_media(config, session, session_sync, mock_state, te
             file_path=file_path2,
             media_id=media_id_2,
             mimetype="image/jpeg",
-            state=mock_state,
+            state=state,
             trust_filename=False,
             config=config,
             session=session,
@@ -519,14 +521,15 @@ async def test_get_or_create_media(config, session, session_sync, mock_state, te
     assert hash_verified is True
 
     # Test case 3: No media found, create new
-    file_path3 = create_test_file(temp_dir, f"2023-05-01_id_{media_id_3}.jpg")
+    # Create a REAL image file (not empty) so PIL can open it
+    file_path3 = create_test_image(tmp_path, f"2023-05-01_id_{media_id_3}.jpg")
 
     with patch("imagehash.phash", return_value="new_calculated_hash"):
         media, hash_verified = await get_or_create_media(
             file_path=file_path3,
             media_id=media_id_3,
             mimetype="image/jpeg",
-            state=mock_state,
+            state=state,
             trust_filename=False,
             config=config,
             session=session,
@@ -546,61 +549,56 @@ async def test_get_or_create_media(config, session, session_sync, mock_state, te
 
 
 @pytest.mark.asyncio
-async def test_dedupe_init(config, session, mock_state, temp_dir):
-    """Test dedupe_init function with real session."""
-    # Set up config with required download_directory
-    config.download_directory = temp_dir
+async def test_dedupe_init(config_with_database, session, tmp_path):
+    """Test dedupe_init function with real session and real file operations."""
+    # Set up config with required download_directory and database
+    config = config_with_database
+    config.download_directory = tmp_path
 
-    # Set up mock state
-    mock_state.download_path = temp_dir
-    mock_state.creator_name = "test_creator"
+    # Create real account for integration test
+    account_id = ACCOUNT_ID_BASE + 550
+    account = AccountFactory.build(id=account_id, username="test_creator")
+    session.add(account)
+    await session.commit()
 
-    # Create test files
-    hash2_file = create_test_file(temp_dir, "file_hash2_abc123.jpg")
-    media_id_file = create_test_file(temp_dir, "2023-05-01_id_12345.jpg")
-    regular_file = create_test_file(temp_dir, "regular.jpg")
+    # Create real DownloadState with account ID
+    state = DownloadStateFactory.build(
+        download_path=tmp_path,
+        creator_name="test_creator",
+        creator_id=str(account_id),
+    )
 
-    # Patch external functions to control test flow
-    with (
-        patch(
-            "fileio.dedupe.migrate_full_paths_to_filenames", return_value=None
-        ) as mock_migrate,
-        patch(
-            "fileio.dedupe.safe_rglob",
-            return_value=[hash2_file, media_id_file, regular_file],
-        ) as mock_rglob,
-        patch("fileio.dedupe.find_media_records", return_value=[]),
-        patch("fileio.dedupe.categorize_file", side_effect=Exception("Stop early")),
-    ):
-        try:
-            await dedupe_init(config, mock_state, session=session)
-        except Exception as e:
-            if "Stop early" not in str(e):
-                raise
+    # Create REAL test files that safe_rglob will find
+    create_test_image(tmp_path, "file_hash2_abc123.jpg")  # Real image for hash2
+    create_test_image(tmp_path, "2023-05-01_id_12345.jpg")  # Real image with ID
+    create_test_image(tmp_path, "regular.jpg")  # Regular file
 
-        # Verify that the mocked functions were called as expected
-        mock_migrate.assert_called_once()
-        mock_rglob.assert_called_once()
+    # Only patch external edge: imagehash (2-3 layers deep)
+    # Layers: test → dedupe_init → categorize_file/etc → get_hash_for_image → imagehash.phash
+    with patch("imagehash.phash", return_value="test_hash"):
+        # Let real functions run: safe_rglob, categorize_file, find_media_records
+        await dedupe_init(config, state, session=session)
 
 
 @pytest.mark.asyncio
-async def test_dedupe_media_file(config, session, session_sync, mock_state, temp_dir):
+async def test_dedupe_media_file(config, session, tmp_path):
     """Test dedupe_media_file with real database and Media objects using 60-bit BigInt IDs."""
-    mock_state.download_path = temp_dir
+    # Create real DownloadState instead of mock
+    state = DownloadStateFactory.build(download_path=tmp_path)
 
     # Create real account with 60-bit ID
     account_id = ACCOUNT_ID_BASE + 500
     account = AccountFactory.build(id=account_id, username="test_user")
-    session_sync.add(account)
-    session_sync.commit()
+    session.add(account)
+    await session.commit()
 
     # Use 60-bit Media IDs
     media_id_1 = MEDIA_ID_BASE + 500
     media_id_2 = MEDIA_ID_BASE + 501
     media_id_3 = MEDIA_ID_BASE + 502
 
-    # Create test file
-    file_path = create_test_file(temp_dir, f"2023-05-01_id_{media_id_1}.jpg")
+    # Create REAL image file (not empty) so PIL can open it
+    file_path = create_test_image(tmp_path, f"2023-05-01_id_{media_id_1}.jpg")
 
     # Test case 1: New media, no duplicate
     media_record = MediaFactory.build(
@@ -611,18 +609,22 @@ async def test_dedupe_media_file(config, session, session_sync, mock_state, temp
         is_downloaded=False,
         mimetype="image/jpeg",
     )
-    session_sync.add(media_record)
-    session_sync.commit()
+    session.add(media_record)
+    await session.commit()
 
     with patch("imagehash.phash", return_value="hash123"):
         is_duplicate = await dedupe_media_file(
             config=config,
-            state=mock_state,
+            state=state,
             mimetype="image/jpeg",
             filename=file_path,
             media_record=media_record,
             session=session,
         )
+
+    # Query fresh from async session instead of trying to refresh sync session object
+    result = await session.execute(select(Media).where(Media.id == media_id_1))
+    media_record = result.scalar_one()
 
     assert media_record.content_hash == "hash123"
     assert media_record.local_filename == f"2023-05-01_id_{media_id_1}.jpg"
@@ -630,6 +632,9 @@ async def test_dedupe_media_file(config, session, session_sync, mock_state, temp
     assert is_duplicate is False
 
     # Test case 2: Duplicate found by hash
+    # Create the existing file that duplicate_media references
+    create_test_image(tmp_path, "existing.jpg")
+
     duplicate_media = MediaFactory.build(
         id=media_id_2,
         accountId=account_id,
@@ -638,8 +643,8 @@ async def test_dedupe_media_file(config, session, session_sync, mock_state, temp
         is_downloaded=True,
         mimetype="image/jpeg",
     )
-    session_sync.add(duplicate_media)
-    session_sync.commit()
+    session.add(duplicate_media)
+    await session.commit()
 
     new_media = MediaFactory.build(
         id=media_id_3,
@@ -649,15 +654,16 @@ async def test_dedupe_media_file(config, session, session_sync, mock_state, temp
         is_downloaded=False,
         mimetype="image/jpeg",
     )
-    session_sync.add(new_media)
-    session_sync.commit()
+    session.add(new_media)
+    await session.commit()
 
-    file_path2 = create_test_file(temp_dir, f"2023-05-01_id_{media_id_3}.jpg")
+    # Create REAL image file (not empty) so PIL can open it
+    file_path2 = create_test_image(tmp_path, f"2023-05-01_id_{media_id_3}.jpg")
 
     with patch("imagehash.phash", return_value="hash_duplicate"):
         is_duplicate = await dedupe_media_file(
             config=config,
-            state=mock_state,
+            state=state,
             mimetype="image/jpeg",
             filename=file_path2,
             media_record=new_media,
