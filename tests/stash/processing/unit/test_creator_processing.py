@@ -15,6 +15,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from download.core import DownloadState
 from stash.context import StashContext
@@ -70,10 +71,16 @@ def mock_database_for_unit_tests():
     from metadata import Database
 
     mock_db = MagicMock(spec=Database)
-    # Add basic async context manager support
-    mock_db.async_session_scope = MagicMock()
-    mock_db.async_session_scope.return_value.__aenter__ = AsyncMock()
-    mock_db.async_session_scope.return_value.__aexit__ = AsyncMock()
+
+    # Add async session with proper async context manager
+    mock_async_session = AsyncMock(spec=AsyncSession)
+    mock_db.async_session_scope.return_value = AsyncMock(
+        __aenter__=AsyncMock(return_value=mock_async_session), __aexit__=AsyncMock()
+    )
+
+    # Store session as attribute so tests can reconfigure if needed
+    mock_db._mock_async_session = mock_async_session
+
     return mock_db
 
 

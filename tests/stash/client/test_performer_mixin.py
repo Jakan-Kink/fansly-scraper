@@ -1,24 +1,26 @@
 """Unit tests for PerformerClientMixin."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from metadata import Account
 from stash import StashClient
 from stash.types import FindPerformersResultType, Performer, Tag
+from tests.fixtures.metadata.metadata_factories import AccountFactory
 
 
 @pytest.fixture
-def mock_account() -> MagicMock:
+def mock_account() -> Account:
     """Create a mock account for testing."""
-    mock = MagicMock()
-    mock.id = 123
-    mock.username = "test_account"
-    mock.displayName = "Test Account"
-    mock.about = "Test account bio"
-    mock.location = "US"
-    return mock
+    return AccountFactory.build(
+        id=123,
+        username="test_account",
+        displayName="Test Account",
+        about="Test account bio",
+        location="US",
+    )
 
 
 @pytest.fixture
@@ -249,7 +251,7 @@ async def test_update_performer_avatar(
 
 @pytest.mark.asyncio
 async def test_performer_from_account(
-    stash_client: StashClient, mock_performer: Performer, mock_account: MagicMock
+    stash_client: StashClient, mock_performer: Performer, mock_account: Account
 ) -> None:
     """Test creating a performer from an account."""
     # Mock the create_performer method directly
