@@ -508,7 +508,7 @@ def mock_state():
 
     # Create a real GlobalState instance with default values
     state = GlobalStateFactory()
-    yield state
+    return state
 
 
 @pytest.fixture

@@ -109,7 +109,9 @@ async def test_process_hashtags_to_tags_not_found_creates_new(tag_mixin):
             # Third call: tagCreate returns new tag
             httpx.Response(
                 200,
-                json=create_graphql_response("tagCreate", create_tag_create_result(new_tag_dict)),
+                json=create_graphql_response(
+                    "tagCreate", create_tag_create_result(new_tag_dict)
+                ),
             ),
         ]
     )

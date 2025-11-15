@@ -1,10 +1,12 @@
 """Tests for media processing methods in MediaProcessingMixin."""
 
-from datetime import UTC, datetime
-
 import pytest
 
-from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    MediaFactory,
+    PostFactory,
+)
 from tests.fixtures.stash.stash_type_factories import ImageFactory, ImageFileFactory
 
 

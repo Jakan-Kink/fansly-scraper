@@ -114,6 +114,7 @@ from .stash import (
     GalleryFactory,
     ImageFactory,
     ImageFileFactory,
+    JobFactory,
     MockTag,
     PerformerFactory,
     SceneFactory,
@@ -275,6 +276,7 @@ mod_stash_type_factories = [
     "ImageFactory",
     "ImageFileFactory",
     "VideoFileFactory",
+    "JobFactory",
     "StashGroupFactory",
     # Fixtures that return REAL objects (not MagicMock)
     "mock_performer",  # From stash_type_factories - returns PerformerFactory()

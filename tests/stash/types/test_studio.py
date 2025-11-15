@@ -3,8 +3,6 @@
 Tests studio types including Studio, StudioCreateInput, StudioUpdateInput and related types.
 """
 
-from unittest.mock import Mock
-
 import pytest
 from strawberry import ID
 
@@ -280,7 +278,7 @@ async def test_studio_from_account_method() -> None:
     account = AccountFactory.build(
         displayName="Test Display Name",
         username="testuser",
-        about="Test bio description"
+        about="Test bio description",
     )
 
     # Call the method
@@ -301,9 +299,7 @@ async def test_studio_from_account_fallback_name() -> None:
 
     # Create account with no displayName
     account = AccountFactory.build(
-        displayName=None,
-        username="testuser",
-        about="Test bio"
+        displayName=None, username="testuser", about="Test bio"
     )
 
     # Call the method
@@ -313,11 +309,7 @@ async def test_studio_from_account_fallback_name() -> None:
     assert studio.name == "testuser"
 
     # Test with no username either
-    account2 = AccountFactory.build(
-        displayName=None,
-        username=None,
-        about="Test bio"
-    )
+    account2 = AccountFactory.build(displayName=None, username=None, about="Test bio")
     studio2 = await Studio.from_account(account2)
 
     # Should fallback to "Unknown"

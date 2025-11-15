@@ -9,8 +9,6 @@ Usage:
         assert download_state.creator_name == "test_creator"
 """
 
-from pathlib import Path
-
 import pytest
 
 from tests.fixtures.download.download_factories import DownloadStateFactory

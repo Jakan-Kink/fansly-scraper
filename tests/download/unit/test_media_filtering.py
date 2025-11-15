@@ -2,7 +2,6 @@
 
 import pytest
 
-from config import FanslyConfig
 from download.common import process_download_accessible_media
 from download.downloadstate import DownloadState
 from download.types import DownloadType

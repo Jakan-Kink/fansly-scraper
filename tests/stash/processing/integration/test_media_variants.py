@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from stash.types import Image, Scene
-from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
 from tests.fixtures import MediaLocationFactory
+from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
 
 
 @pytest.mark.asyncio
@@ -247,9 +247,7 @@ async def test_process_bundle_ordering(
     session_sync.refresh(test_media_bundle)
 
     # Mock Stash client responses
-    real_stash_processor.context.client.find_performer.return_value = (
-        mock_performer
-    )
+    real_stash_processor.context.client.find_performer.return_value = mock_performer
 
     # Act
     result = {"images": [], "scenes": []}
@@ -299,9 +297,7 @@ async def test_process_bundle_with_preview(
     session_sync.refresh(test_media_bundle)
 
     # Mock Stash client responses
-    real_stash_processor.context.client.find_performer.return_value = (
-        mock_performer
-    )
+    real_stash_processor.context.client.find_performer.return_value = mock_performer
 
     # Act
     result = {"images": [], "scenes": []}
@@ -370,9 +366,7 @@ async def test_bundle_permission_inheritance(
     session_sync.refresh(test_media_bundle)
 
     # Mock Stash client responses
-    real_stash_processor.context.client.find_performer.return_value = (
-        mock_performer
-    )
+    real_stash_processor.context.client.find_performer.return_value = mock_performer
 
     # Act
     result = {"images": [], "scenes": []}

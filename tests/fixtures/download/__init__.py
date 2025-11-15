@@ -9,6 +9,7 @@ from .download_fixtures import (
     test_downloads_dir,
 )
 
+
 __all__ = [
     "DownloadStateFactory",
     "GlobalStateFactory",

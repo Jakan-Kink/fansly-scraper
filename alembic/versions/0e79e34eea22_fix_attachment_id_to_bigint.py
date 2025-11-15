@@ -5,15 +5,17 @@ Revises: b8dcecc1e979
 Create Date: 2025-11-14 02:16:37.592374
 
 """
+
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = '0e79e34eea22'
-down_revision: str | None = 'b8dcecc1e979'
+revision: str = "0e79e34eea22"
+down_revision: str | None = "b8dcecc1e979"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

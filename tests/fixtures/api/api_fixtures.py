@@ -34,7 +34,6 @@ from typing import Any
 
 import httpx
 import pytest
-import respx
 
 
 @pytest.fixture

@@ -4,16 +4,14 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
-from datetime import UTC, datetime
+
 # Removed: from unittest.mock import AsyncMock, MagicMock
 # No longer using MagicMock for GraphQL client mocking - use respx instead
-
 import pytest
 import pytest_asyncio
 
-from metadata import Account
 from stash import StashClient, StashContext
-from stash.types import Performer, Scene, SceneCreateInput, Studio
+from stash.types import Scene, SceneCreateInput
 
 
 # Export all fixtures for wildcard import

@@ -170,9 +170,7 @@ class TestTagMethods:
         await gallery_mixin.context.get_client()
 
         # Call the method and expect error
-        with pytest.raises(
-            Exception
-        ) as excinfo:  # noqa: PT011 - message validated by assertion below
+        with pytest.raises(Exception, match="network error") as excinfo:
             await gallery_mixin._process_hashtags_to_tags([hashtag1])
 
         # Verify the error is re-raised

@@ -15,9 +15,9 @@ from metadata.attachment import Attachment, ContentType
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AttachmentFactory,
+    GroupFactory,
     MediaFactory,
     MessageFactory,
-    GroupFactory,
 )
 
 
@@ -156,7 +156,10 @@ async def test_process_message_with_bundle(
 
     # Create AccountMedia for each media
     from metadata.account import account_media_bundle_media
-    from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory, AccountMediaFactory
+    from tests.fixtures.metadata.metadata_factories import (
+        AccountMediaBundleFactory,
+        AccountMediaFactory,
+    )
 
     account_media1 = AccountMediaFactory(accountId=account.id, mediaId=media1.id)
     account_media2 = AccountMediaFactory(accountId=account.id, mediaId=media2.id)

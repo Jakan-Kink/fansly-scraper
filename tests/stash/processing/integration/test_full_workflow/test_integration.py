@@ -27,9 +27,7 @@ class TestFullWorkflowIntegration:
 
         # Mock the Stash API methods that will be called during processing
         real_stash_processor.context.client.find_studio.return_value = None
-        real_stash_processor.context.client.create_studio.return_value = (
-            mock_studio
-        )
+        real_stash_processor.context.client.create_studio.return_value = mock_studio
 
         # Mock process_creator_studio to return the studio
         real_stash_processor.process_creator_studio = AsyncMock(
@@ -50,9 +48,7 @@ class TestFullWorkflowIntegration:
         real_stash_processor._find_existing_performer = AsyncMock(
             return_value=mock_performer
         )
-        real_stash_processor._find_existing_studio = AsyncMock(
-            return_value=mock_studio
-        )
+        real_stash_processor._find_existing_studio = AsyncMock(return_value=mock_studio)
         real_stash_processor._process_items_with_gallery = AsyncMock()
 
         # Mock process_creator_posts and process_creator_messages
@@ -86,14 +82,20 @@ class TestFullWorkflowIntegration:
     ):
         """Test the full post processing flow with gallery creation and media processing."""
         # Setup gallery creation
-        real_stash_processor._get_or_create_gallery = AsyncMock(return_value=mock_gallery)
+        real_stash_processor._get_or_create_gallery = AsyncMock(
+            return_value=mock_gallery
+        )
 
         # Setup process_creator_attachment to return some images and scenes
         mock_result = {"images": [mock_image], "scenes": []}
-        real_stash_processor.process_creator_attachment = AsyncMock(return_value=mock_result)
+        real_stash_processor.process_creator_attachment = AsyncMock(
+            return_value=mock_result
+        )
 
         # Setup gallery image addition
-        real_stash_processor.context.client.add_gallery_images = AsyncMock(return_value=True)
+        real_stash_processor.context.client.add_gallery_images = AsyncMock(
+            return_value=True
+        )
 
         # Directly call the item processing function to test the flow
         await real_stash_processor._process_item_gallery(

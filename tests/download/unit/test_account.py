@@ -121,12 +121,14 @@ class TestGetAccountResponse:
         state.creator_name = "testcreator"  # Creator account
 
         # Mock CORS preflight OPTIONS request
-        respx.options("https://apiv3.fansly.com/api/v1/account?usernames=testcreator").mock(
-            return_value=httpx.Response(200)
-        )
+        respx.options(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
+        ).mock(return_value=httpx.Response(200))
 
         # Mock HTTP response at the edge (Fansly API endpoint) - includes ngsw-bypass param
-        respx.get("https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true").mock(
+        respx.get(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+        ).mock(
             return_value=httpx.Response(
                 200,
                 json={"response": [{"id": "creator123"}]},
@@ -148,14 +150,14 @@ class TestGetAccountResponse:
         state.creator_name = "testcreator"
 
         # Mock CORS preflight OPTIONS request
-        respx.options("https://apiv3.fansly.com/api/v1/account?usernames=testcreator").mock(
-            return_value=httpx.Response(200)
-        )
+        respx.options(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
+        ).mock(return_value=httpx.Response(200))
 
         # Mock HTTP response at the edge with error status - includes ngsw-bypass param
-        respx.get("https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true").mock(
-            return_value=httpx.Response(400, text="Bad Request")
-        )
+        respx.get(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+        ).mock(return_value=httpx.Response(400, text="Bad Request"))
 
         # Should raise ApiError when HTTP returns 400 (wrapped HTTPStatusError)
         with pytest.raises(ApiError) as excinfo:
@@ -275,9 +277,7 @@ class TestExtractAccountData:
         """Test handling of unauthorized error."""
         # Create proper httpx.Response for 401 error
         mock_response = httpx.Response(
-            status_code=401,
-            json={"error": "Unauthorized"},
-            text="Unauthorized"
+            status_code=401, json={"error": "Unauthorized"}, text="Unauthorized"
         )
 
         mock_config_with_api.token = "invalid_token"
@@ -453,9 +453,7 @@ class TestMakeRateLimitedRequest:
 
         # First response is rate limited
         error_response = httpx.Response(
-            status_code=429,
-            json={"error": "Rate limited"},
-            request=request
+            status_code=429, json={"error": "Rate limited"}, request=request
         )
 
         # Create httpx.HTTPStatusError for rate limit
@@ -466,9 +464,7 @@ class TestMakeRateLimitedRequest:
 
         # Second response is success
         success_response = httpx.Response(
-            status_code=200,
-            json={"response": "success"},
-            request=request
+            status_code=200, json={"response": "success"}, request=request
         )
 
         mock_request_func.side_effect = [error_response, success_response]
@@ -496,9 +492,7 @@ class TestMakeRateLimitedRequest:
 
         # Response with 404 error
         error_response = httpx.Response(
-            status_code=404,
-            json={"error": "Not Found"},
-            request=request
+            status_code=404, json={"error": "Not Found"}, request=request
         )
 
         # Create httpx.HTTPStatusError for 404
@@ -659,7 +653,7 @@ class TestGetFollowingAccounts:
                 "success": "true",
                 "response": [{"accountId": "creator1"}, {"accountId": "creator2"}],
             },
-            request=request
+            request=request,
         )
 
         # Mock account details response
@@ -672,7 +666,7 @@ class TestGetFollowingAccounts:
                     {"id": "creator2", "username": "creator2user"},
                 ],
             },
-            request=request
+            request=request,
         )
 
         # Configure _make_rate_limited_request to return our mock responses
@@ -682,39 +676,41 @@ class TestGetFollowingAccounts:
         ]
 
         # Mock database async_session_scope to yield our mock session
-        with patch.object(
-            mock_config_with_api._database,
-            'async_session_scope',
-            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_session), __aexit__=AsyncMock())
+        with (
+            patch.object(
+                mock_config_with_api._database,
+                "async_session_scope",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(),
+                ),
+            ),
+            patch("download.account.process_account_data", AsyncMock()) as mock_process,
         ):
-            # Mock process_account_data
-            with patch(
-                "download.account.process_account_data", AsyncMock()
-            ) as mock_process:
-                # Call function
-                result = await get_following_accounts(mock_config_with_api, state)
+            # Call function
+            result = await get_following_accounts(mock_config_with_api, state)
 
-                # Verify result
-                assert result == {"creator1user", "creator2user"}
+            # Verify result
+            assert result == {"creator1user", "creator2user"}
 
-                # Verify API calls
-                assert mock_make_request.call_count == 2
+            # Verify API calls
+            assert mock_make_request.call_count == 2
 
-                # Verify account processing
-                assert mock_process.call_count == 2
-                # Should process both accounts
-                mock_process.assert_any_call(
-                    config=mock_config_with_api,
-                    state=state,
-                    data={"id": "creator1", "username": "creator1user"},
-                    session=mock_session,
-                )
-                mock_process.assert_any_call(
-                    config=mock_config_with_api,
-                    state=state,
-                    data={"id": "creator2", "username": "creator2user"},
-                    session=mock_session,
-                )
+            # Verify account processing
+            assert mock_process.call_count == 2
+            # Should process both accounts
+            mock_process.assert_any_call(
+                config=mock_config_with_api,
+                state=state,
+                data={"id": "creator1", "username": "creator1user"},
+                session=mock_session,
+            )
+            mock_process.assert_any_call(
+                config=mock_config_with_api,
+                state=state,
+                data={"id": "creator2", "username": "creator2user"},
+                session=mock_session,
+            )
 
     @pytest.mark.asyncio
     async def test_get_following_accounts_empty(
@@ -730,9 +726,7 @@ class TestGetFollowingAccounts:
 
         # Mock empty following list response
         following_list_response = httpx.Response(
-            status_code=200,
-            json={"success": "true", "response": []},
-            request=request
+            status_code=200, json={"success": "true", "response": []}, request=request
         )
 
         # Configure _make_rate_limited_request to return our mock response
@@ -776,9 +770,7 @@ class TestGetFollowingAccounts:
 
         # Mock unauthorized error
         error_response = httpx.Response(
-            status_code=401,
-            json={"error": "Unauthorized"},
-            request=request
+            status_code=401, json={"error": "Unauthorized"}, request=request
         )
 
         # Make the request raise httpx.HTTPStatusError with this response
@@ -855,26 +847,26 @@ class TestGetFollowingAccounts:
         following_list_response1 = httpx.Response(
             status_code=200,
             json={"success": "true", "response": first_page_accounts},
-            request=request
+            request=request,
         )
 
         following_list_response2 = httpx.Response(
             status_code=200,
             json={"success": "true", "response": second_page_accounts},
-            request=request
+            request=request,
         )
 
         # Mock account details responses
         account_details_response1 = httpx.Response(
             status_code=200,
             json={"success": "true", "response": first_page_details},
-            request=request
+            request=request,
         )
 
         account_details_response2 = httpx.Response(
             status_code=200,
             json={"success": "true", "response": second_page_details},
-            request=request
+            request=request,
         )
 
         # Configure _make_rate_limited_request to return our mock responses in sequence
@@ -887,18 +879,22 @@ class TestGetFollowingAccounts:
         ]
 
         # Mock database async_session_scope to yield our mock session
-        with patch.object(
-            mock_config_with_api._database,
-            'async_session_scope',
-            return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_session), __aexit__=AsyncMock())
+        with (
+            patch.object(
+                mock_config_with_api._database,
+                "async_session_scope",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(),
+                ),
+            ),
+            patch("asyncio.sleep", AsyncMock()),
         ):
-            # Mock asyncio.sleep to speed up test
-            with patch("asyncio.sleep", AsyncMock()):
-                # Call function
-                result = await get_following_accounts(mock_config_with_api, state)
+            # Call function
+            result = await get_following_accounts(mock_config_with_api, state)
 
-                # Verify result - all usernames from both pages (52 total)
-                expected_usernames = {f"creator{i}user" for i in range(1, 53)}
-                assert result == expected_usernames
-                # Should make 4 calls total
-                assert mock_make_request.call_count == 4
+        # Verify result - all usernames from both pages (52 total)
+        expected_usernames = {f"creator{i}user" for i in range(1, 53)}
+        assert result == expected_usernames
+        # Should make 4 calls total
+        assert mock_make_request.call_count == 4

@@ -242,9 +242,11 @@ async def test_save_input_data_type_validation() -> None:
 
     client = await StashClient.create(conn={"url": "http://localhost:9999"})
     # Mock to_input to return a non-dict type
-    with patch.object(obj, "to_input", return_value="not_a_dict"):
-        with pytest.raises(ValueError, match=r"to_input\(\) must return a dict"):
-            await obj.save(client)
+    with (
+        patch.object(obj, "to_input", return_value="not_a_dict"),
+        pytest.raises(ValueError, match=r"to_input\(\) must return a dict"),
+    ):
+        await obj.save(client)
 
 
 @pytest.mark.asyncio
@@ -376,7 +378,10 @@ async def test_find_by_id_graphql_variations() -> None:
     # Test successful response
     route = respx.post("http://localhost:9999/graphql").mock(
         return_value=httpx.Response(
-            200, json={"data": {"findTestStash": {"id": "found_123", "name": "Found Object"}}}
+            200,
+            json={
+                "data": {"findTestStash": {"id": "found_123", "name": "Found Object"}}
+            },
         )
     )
 

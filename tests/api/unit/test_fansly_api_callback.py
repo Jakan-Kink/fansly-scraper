@@ -1,7 +1,7 @@
 """Test for FanslyApi device update callback functionality"""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import respx

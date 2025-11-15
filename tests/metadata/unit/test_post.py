@@ -11,7 +11,11 @@ from sqlalchemy.orm import selectinload
 from metadata.account import Account
 from metadata.attachment import Attachment, ContentType
 from metadata.post import Post, pinned_posts, post_mentions, process_pinned_posts
-from tests.fixtures.metadata.metadata_factories import AccountFactory, AttachmentFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    AttachmentFactory,
+    PostFactory,
+)
 
 
 @pytest.mark.asyncio

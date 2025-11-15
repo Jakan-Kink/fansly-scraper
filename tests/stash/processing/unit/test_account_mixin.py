@@ -26,6 +26,7 @@ class TestAccountProcessingMixin:
         await session.commit()
 
         # Call _find_account with creator_id
+        await account_mixin.context.get_client()
         found_account = await account_mixin._find_account(session=session)
 
         # Verify account was found
@@ -71,6 +72,7 @@ class TestAccountProcessingMixin:
         await session.commit()
 
         # Setup context.client methods
+        await account_mixin.context.get_client()
         account_mixin.context.client.find_performer = AsyncMock(
             return_value=mock_performer
         )
@@ -137,6 +139,7 @@ class TestAccountProcessingMixin:
         await session.refresh(account)
 
         # Call _update_performer_avatar with no avatar
+        await account_mixin.context.get_client()
         await account_mixin._update_performer_avatar(account, mock_performer)
 
         # Verify no avatar update was attempted (mock_performer.update_avatar is a real method, not called)
@@ -211,6 +214,7 @@ class TestAccountProcessingMixin:
         await session.commit()
 
         # Setup context.client.find_performer
+        await account_mixin.context.get_client()
         account_mixin.context.client.find_performer = AsyncMock(
             return_value=mock_performer
         )
@@ -264,6 +268,7 @@ class TestAccountProcessingMixin:
         await session.commit()
 
         # Call _update_account_stash_id
+        await account_mixin.context.get_client()
         await account_mixin._update_account_stash_id(
             account, mock_performer, session=session
         )

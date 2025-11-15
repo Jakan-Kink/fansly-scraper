@@ -106,21 +106,22 @@ segment2.ts
         mock_stat = MagicMock()
         mock_stat.st_size = 1024  # Mock file size
         mock_stat.st_mode = 33188  # Regular file (S_IFREG | 0644)
-        with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.stat", return_value=mock_stat):
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.stat", return_value=mock_stat),
+            patch("builtins.open", create=True),
+        ):
+            # Run the download
+            result = download_m3u8(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                save_path=save_path,
+            )
 
-            # Mock temp file operations for segments and ffmpeg list file
-            with patch("builtins.open", create=True):
-                # Run the download
-                result = download_m3u8(
-                    config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                    save_path=save_path,
-                )
-
-                # Verify results
-                assert result == save_path.parent / "video.mp4"
-                mock_direct_download.assert_called_once()  # Tried direct first
-                mock_stream.run.assert_called_once()  # Then fell back to segment concat
+            # Verify results
+            assert result == save_path.parent / "video.mp4"
+            mock_direct_download.assert_called_once()  # Tried direct first
+            mock_stream.run.assert_called_once()  # Then fell back to segment concat
 
     @respx.mock
     @patch("download.m3u8.ffmpeg")
@@ -178,34 +179,35 @@ segment2.ts
 
         # Create a custom mock for exists() that makes segments appear to not exist
         exists_mock = MagicMock()
+
         def exists_side_effect(*args, **kwargs):
             # When called as path.exists(), self is the first argument
             if args:
                 path_obj = args[0]
-                if hasattr(path_obj, 'name'):
-                    # Make segment files appear to not exist to trigger error
-                    if path_obj.name.endswith(".ts"):
-                        return False
+                # Make segment files appear to not exist to trigger error
+                if hasattr(path_obj, "name") and path_obj.name.endswith(".ts"):
+                    return False
             # Default to True for other paths (like directories, temp files)
             return True
+
         exists_mock.side_effect = exists_side_effect
 
         # Setup for the test
-        with patch("pathlib.Path.exists", exists_mock):
+        with (
+            patch("pathlib.Path.exists", exists_mock),
+            patch("builtins.open", create=True),
+            pytest.raises(M3U8Error) as excinfo,
+        ):
+            # Run the download - should raise M3U8Error for missing segments
+            download_m3u8(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                save_path=save_path,
+            )
 
-            # Mock temp file operations for segments and ffmpeg list file
-            with patch("builtins.open", create=True):
-                # Run the download - should raise M3U8Error for missing segments
-                with pytest.raises(M3U8Error) as excinfo:
-                    download_m3u8(
-                        config=config,
-                        m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                        save_path=save_path,
-                    )
-
-                # Verify error was raised due to download failure (segments or output file missing)
-                assert "Failed to download HLS video" in str(excinfo.value)
-                mock_direct_download.assert_called_once()
+        # Verify error was raised due to download failure (segments or output file missing)
+        assert "Failed to download HLS video" in str(excinfo.value)
+        mock_direct_download.assert_called_once()
 
     @respx.mock
     @patch("download.m3u8.ffmpeg")
@@ -366,26 +368,28 @@ segment2.ts
         mock_stat = MagicMock()
         mock_stat.st_size = 1024  # Mock file size
         mock_stat.st_mode = 33188  # Regular file (S_IFREG | 0644)
-        with patch("pathlib.Path.exists", return_value=True), patch("pathlib.Path.stat", return_value=mock_stat):
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.stat", return_value=mock_stat),
+            patch("builtins.open", create=True),
+            patch("os.utime") as mock_utime,
+        ):
+            # Run the download
+            result = download_m3u8(
+                config=config,
+                m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
+                save_path=save_path,
+                created_at=created_at,
+            )
 
-            # Mock temp file operations and utime
-            with patch("builtins.open", create=True), patch("os.utime") as mock_utime:
-                # Run the download
-                result = download_m3u8(
-                    config=config,
-                    m3u8_url="https://example.com/video.m3u8?Policy=abc&Key-Pair-Id=xyz&Signature=def",
-                    save_path=save_path,
-                    created_at=created_at,
-                )
+            # Verify results
+            assert result == save_path.parent / "video.mp4"
+            mock_stream.run.assert_called_once()
 
-                # Verify results
-                assert result == save_path.parent / "video.mp4"
-                mock_stream.run.assert_called_once()
-
-                # Check that timestamp was set
-                mock_utime.assert_called_once_with(
-                    save_path.parent / "video.mp4", (created_at, created_at)
-                )
+            # Check that timestamp was set
+            mock_utime.assert_called_once_with(
+                save_path.parent / "video.mp4", (created_at, created_at)
+            )
 
     @patch("download.m3u8._try_direct_download")
     @patch("download.m3u8._try_segment_download")

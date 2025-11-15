@@ -14,7 +14,10 @@ import pytest
 from stash.types.base import StashObject
 from tests.fixtures.stash.stash_fixtures import TestStashObject
 
-from ...fixtures.stash.stash_fixtures import TestStashObject, TestStashObjectNoStrawberry
+from ...fixtures.stash.stash_fixtures import (
+    TestStashObject,
+    TestStashObjectNoStrawberry,
+)
 
 
 # =============================================================================

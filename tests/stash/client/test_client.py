@@ -266,9 +266,7 @@ async def test_client_server_error() -> None:
 
     # Mock server error - HTTP 500 response
     error_message = "Internal server error"
-    graphql_route.mock(
-        return_value=httpx.Response(500, text=error_message)
-    )
+    graphql_route.mock(return_value=httpx.Response(500, text=error_message))
 
     # Test server error
     with pytest.raises(StashServerError) as exc_info:

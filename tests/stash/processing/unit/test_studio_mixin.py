@@ -1,10 +1,11 @@
 """Unit tests for StudioProcessingMixin."""
 
 import contextlib
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
 import pytest
 import respx
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from tests.fixtures import (
     create_find_studios_result,
@@ -49,7 +50,8 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_both_exist(
-        self, studio_mixin, mock_account, mock_performer    ):
+        self, studio_mixin, mock_account, mock_performer
+    ):
         """Test process_creator_studio when both Fansly and Creator studios exist."""
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -101,7 +103,8 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_create_new(
-        self, studio_mixin, mock_account, mock_performer, mock_studio    ):
+        self, studio_mixin, mock_account, mock_performer, mock_studio
+    ):
         """Test process_creator_studio when Creator studio doesn't exist and needs to be created."""
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -165,7 +168,8 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_fansly_not_found(
-        self, studio_mixin, mock_account, mock_performer    ):
+        self, studio_mixin, mock_account, mock_performer
+    ):
         """Test process_creator_studio when Fansly studio doesn't exist."""
         # Create empty response
         empty_result = create_find_studios_result(count=0, studios=[])
@@ -186,8 +190,8 @@ class TestStudioProcessingMixin:
 
         # Call process_creator_studio and expect error
         with pytest.raises(
-            ValueError
-        ) as excinfo:  # noqa: PT011 - message validated by assertion below
+            ValueError, match=r"Studio.*not found for account"
+        ) as excinfo:
             await studio_mixin.process_creator_studio(
                 account=mock_account, performer=mock_performer
             )
@@ -198,7 +202,8 @@ class TestStudioProcessingMixin:
     @pytest.mark.asyncio
     @respx.mock
     async def test_process_creator_studio_creation_fails_then_retry(
-        self, studio_mixin, mock_account, mock_performer    ):
+        self, studio_mixin, mock_account, mock_performer
+    ):
         """Test process_creator_studio when creation fails, then succeeds on retry."""
         # Create responses
         fansly_studio_dict = create_studio_dict(

@@ -33,6 +33,7 @@ from .metadata_fixtures import (
     test_posts,
 )
 
+
 # Alias GroupFactory to avoid collision with Stash GroupFactory
 MetadataGroupFactory = GroupFactory
 
@@ -44,12 +45,12 @@ __all__ = [
     "AttachmentFactory",
     "BaseFactory",
     "GroupFactory",
-    "MetadataGroupFactory",
     "HashtagFactory",
     "MediaFactory",
     "MediaLocationFactory",
     "MediaStoryStateFactory",
     "MessageFactory",
+    "MetadataGroupFactory",
     "PostFactory",
     "StoryFactory",
     "StubTrackerFactory",

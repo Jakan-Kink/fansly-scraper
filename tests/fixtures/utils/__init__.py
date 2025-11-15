@@ -9,6 +9,7 @@ from .cleanup_fixtures import (
     cleanup_unawaited_coroutines,
 )
 
+
 __all__ = [
     "cleanup_global_config_state",
     "cleanup_http_sessions",

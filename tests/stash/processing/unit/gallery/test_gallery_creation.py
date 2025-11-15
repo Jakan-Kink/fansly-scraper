@@ -37,6 +37,7 @@ class TestGalleryCreation:
         # Query fresh from async session
         result = await session.execute(select(Post).where(Post.id == 12345))
         post_item = result.unique().scalar_one()
+        await gallery_mixin.context.get_client()
 
         # Call method - no external API calls in _create_new_gallery
         gallery = await gallery_mixin._create_new_gallery(post_item, "Test Title")
@@ -75,6 +76,7 @@ class TestGalleryCreation:
 
         # Call method - let real _generate_title_from_content run
         url_pattern = "https://test.com/{username}/post/{id}"
+        await gallery_mixin.context.get_client()
         username, title, url = await gallery_mixin._get_gallery_metadata(
             post_obj, account_obj, url_pattern
         )
@@ -129,6 +131,7 @@ class TestGalleryCreation:
             "name": "mention1",
             "urls": ["https://fansly.com/mention1"],
         }
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_performer = AsyncMock(
             return_value=mention_performer_dict
         )
@@ -227,6 +230,7 @@ class TestGalleryCreation:
 
         # Setup
         url_pattern = "https://test.com/{username}/post/{id}"
+        await gallery_mixin.context.get_client()
 
         # Mock _has_media_content to return True
         gallery_mixin._has_media_content = AsyncMock(return_value=True)

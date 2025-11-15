@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+
 # plyvel is optional - skip tests if not available
 try:
     import plyvel

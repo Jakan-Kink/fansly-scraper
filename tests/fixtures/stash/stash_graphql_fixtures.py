@@ -39,7 +39,9 @@ Usage:
 from typing import Any
 
 
-def create_graphql_response(operation: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+def create_graphql_response(
+    operation: str, data: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Create a GraphQL response envelope.
 
     GraphQL responses have the format: {"data": {operationName: resultData}}
@@ -64,7 +66,9 @@ def create_graphql_response(operation: str, data: dict[str, Any] | None = None) 
     return {"data": {operation: data}}
 
 
-def create_find_tags_result(count: int = 0, tags: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def create_find_tags_result(
+    count: int = 0, tags: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Create a findTags query result matching FindTagsResultType.
 
     Args:
@@ -145,7 +149,9 @@ def create_tag_create_result(tag: dict[str, Any]) -> dict[str, Any]:
     return tag
 
 
-def create_find_performers_result(count: int = 0, performers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def create_find_performers_result(
+    count: int = 0, performers: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Create a findPerformers query result matching FindPerformersResultType.
 
     Args:
@@ -199,7 +205,9 @@ def create_performer_dict(
     return base
 
 
-def create_find_studios_result(count: int = 0, studios: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def create_find_studios_result(
+    count: int = 0, studios: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Create a findStudios query result matching FindStudiosResultType.
 
     Args:
@@ -252,7 +260,9 @@ def create_studio_dict(
     }
 
 
-def create_find_scenes_result(count: int = 0, scenes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def create_find_scenes_result(
+    count: int = 0, scenes: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Create a findScenes query result matching FindScenesResultType.
 
     Args:

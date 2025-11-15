@@ -26,12 +26,59 @@ from stash.processing import StashProcessing
 from stash.types import FindStudiosResultType, StashID, Studio
 
 
-# Import REAL database fixtures (UUID-isolated PostgreSQL)
-# Import aliases from Stash API fixtures for backwards compatibility
+# ============================================================================
+# Cache Management Helpers
+# ============================================================================
 
 
-# NOTE: This file should ONLY export fixtures defined in this file.
-# All fixture aggregation is handled by tests/fixtures/__init__.py
+def _clear_stash_client_caches(client):
+    """Clear all LRU caches from StashClient to prevent test pollution.
+
+    The StashClient uses @async_lru_cache decorators on all find_* methods.
+    These caches persist between sequential tests, causing stale data issues.
+    This function clears all known caches.
+    """
+    # Performer caches
+    if hasattr(client, "find_performer"):
+        client.find_performer.cache_clear()
+    if hasattr(client, "find_performers"):
+        client.find_performers.cache_clear()
+
+    # Studio caches
+    if hasattr(client, "find_studio"):
+        client.find_studio.cache_clear()
+    if hasattr(client, "find_studios"):
+        client.find_studios.cache_clear()
+
+    # Scene caches
+    if hasattr(client, "find_scene"):
+        client.find_scene.cache_clear()
+    if hasattr(client, "find_scenes"):
+        client.find_scenes.cache_clear()
+
+    # Image caches
+    if hasattr(client, "find_image"):
+        client.find_image.cache_clear()
+    if hasattr(client, "find_images"):
+        client.find_images.cache_clear()
+
+    # Gallery caches
+    if hasattr(client, "find_gallery"):
+        client.find_gallery.cache_clear()
+    if hasattr(client, "find_galleries"):
+        client.find_galleries.cache_clear()
+
+    # Tag caches
+    if hasattr(client, "find_tag"):
+        client.find_tag.cache_clear()
+    if hasattr(client, "find_tags"):
+        client.find_tags.cache_clear()
+
+    # Marker caches
+    if hasattr(client, "find_marker"):
+        client.find_marker.cache_clear()
+    if hasattr(client, "find_markers"):
+        client.find_markers.cache_clear()
 
 
 # ============================================================================
@@ -170,7 +217,8 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
     ):
         processor = StashProcessing.from_config(config, test_state)
         yield processor
-        # Cleanup happens via fixtures
+        # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
+        _clear_stash_client_caches(processor.context.client)
 
 
 @pytest_asyncio.fixture
@@ -220,7 +268,11 @@ async def respx_stash_processor(config, test_database_sync, test_state, stash_co
         ):
             processor = StashProcessing.from_config(config, test_state)
             yield processor
-            # Cleanup happens via fixtures
+            # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
+            # All find_* methods use @async_lru_cache which persists between tests
+            _clear_stash_client_caches(processor.context.client)
+            # Reset respx to prevent route pollution
+            respx.reset()
 
 
 @pytest.fixture

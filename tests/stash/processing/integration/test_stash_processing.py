@@ -14,13 +14,17 @@ class TestStashProcessingIntegration:
     """Integration tests for StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_initialization(self, factory_session, real_stash_processor, test_state):
+    async def test_initialization(
+        self, factory_session, real_stash_processor, test_state
+    ):
         """Test StashProcessing initialization with real database."""
         # Verify the processor was properly initialized with real dependencies
         assert real_stash_processor.config is not None
         assert real_stash_processor.state.creator_id == test_state.creator_id
         assert real_stash_processor.state.creator_name == test_state.creator_name
-        assert real_stash_processor.state.messages_enabled == test_state.messages_enabled
+        assert (
+            real_stash_processor.state.messages_enabled == test_state.messages_enabled
+        )
         assert real_stash_processor.context is not None
         assert real_stash_processor.database is not None
 
@@ -225,7 +229,9 @@ class TestStashProcessingIntegration:
         real_stash_processor.context.client.create_studio = AsyncMock(
             return_value=expected_studio
         )
-        real_stash_processor.context.client.find_performer = AsyncMock(return_value=None)
+        real_stash_processor.context.client.find_performer = AsyncMock(
+            return_value=None
+        )
 
         # Test finding/creating studio
         studio = await real_stash_processor._find_existing_studio(account)

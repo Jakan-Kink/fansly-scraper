@@ -6,7 +6,11 @@ import pytest
 from sqlalchemy import select
 
 from metadata import ContentType, Post
-from tests.fixtures.metadata.metadata_factories import AccountFactory, AttachmentFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    AttachmentFactory,
+    PostFactory,
+)
 
 
 class TestMediaDetection:

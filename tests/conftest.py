@@ -24,9 +24,9 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter, sleep, time
+
 # Removed: from unittest.mock import MagicMock
 # Now using real factories from tests.fixtures instead of MagicMock
-
 import psutil
 import pytest
 import pytest_asyncio

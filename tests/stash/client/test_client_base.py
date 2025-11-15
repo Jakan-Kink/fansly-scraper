@@ -15,10 +15,8 @@ from stash.types import (
     ConfigDefaultSettingsResult,
     GenerateMetadataInput,
     GenerateMetadataOptions,
-    GeneratePreviewOptions,
     Job,
     JobStatus,
-    PreviewPreset,
     ScanMetadataInput,
     ScanMetadataOptions,
 )
@@ -380,9 +378,7 @@ async def test_metadata_generate() -> None:
 
     # Test with minimal options
     graphql_route.mock(
-        return_value=httpx.Response(
-            200, json={"data": {"metadataGenerate": "123"}}
-        )
+        return_value=httpx.Response(200, json={"data": {"metadataGenerate": "123"}})
     )
     job_id = await client.metadata_generate()
     assert isinstance(job_id, str)
@@ -424,9 +420,7 @@ async def test_metadata_generate() -> None:
     )
 
     graphql_route.mock(
-        return_value=httpx.Response(
-            200, json={"data": {"metadataGenerate": "123"}}
-        )
+        return_value=httpx.Response(200, json={"data": {"metadataGenerate": "123"}})
     )
     job_id = await client.metadata_generate(options=options, input_data=input_data)
     assert job_id == "123"
@@ -438,10 +432,8 @@ async def test_metadata_generate() -> None:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return httpx.Response(
-                200, json={"data": {"metadataGenerate": "123"}}
-            )
-        elif call_count == 2:
+            return httpx.Response(200, json={"data": {"metadataGenerate": "123"}})
+        if call_count == 2:
             return httpx.Response(
                 200,
                 json={
@@ -458,23 +450,22 @@ async def test_metadata_generate() -> None:
                     }
                 },
             )
-        else:
-            return httpx.Response(
-                200,
-                json={
-                    "data": {
-                        "findJob": {
-                            "id": "123",
-                            "status": "FINISHED",
-                            "description": "Metadata generation complete",
-                            "progress": 100,
-                            "error": None,
-                            "addTime": "2024-04-06T00:00:00Z",
-                            "subTasks": [],
-                        }
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "findJob": {
+                        "id": "123",
+                        "status": "FINISHED",
+                        "description": "Metadata generation complete",
+                        "progress": 100,
+                        "error": None,
+                        "addTime": "2024-04-06T00:00:00Z",
+                        "subTasks": [],
                     }
-                },
-            )
+                }
+            },
+        )
 
     graphql_route.mock(side_effect=mock_response)
 
@@ -490,16 +481,12 @@ async def test_metadata_generate() -> None:
 
     # Test network error
     graphql_route.mock(side_effect=httpx.NetworkError("Connection failed"))
-    with pytest.raises(
-        StashConnectionError, match="Failed to connect"
-    ):
+    with pytest.raises(StashConnectionError, match="Failed to connect"):
         await client.metadata_generate()
 
     # Test invalid options
     graphql_route.mock(
-        return_value=httpx.Response(
-            200, json={"data": {"metadataGenerate": "123"}}
-        )
+        return_value=httpx.Response(200, json={"data": {"metadataGenerate": "123"}})
     )
     with pytest.raises(TypeError):
         await client.metadata_generate(options="invalid")

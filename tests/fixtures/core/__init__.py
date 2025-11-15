@@ -9,6 +9,7 @@ from .config_fixtures import (
     valid_api_config,
 )
 
+
 __all__ = [
     "FanslyConfigFactory",
     "config_parser",

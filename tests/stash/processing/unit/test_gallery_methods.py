@@ -42,6 +42,7 @@ class TestGalleryMethods:
             code="12345",
             date="2024-04-01",
         )
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_gallery = AsyncMock(return_value=mock_gallery)
 
         # Call method - real implementation runs
@@ -57,6 +58,7 @@ class TestGalleryMethods:
         """Test _get_gallery_by_stash_id when gallery not found."""
         # Set stash_id on item
         mock_item.stash_id = 999
+        await gallery_mixin.context.get_client()
 
         # Mock external API call - gallery not found
         gallery_mixin.context.client.find_gallery = AsyncMock(return_value=None)
@@ -75,6 +77,7 @@ class TestGalleryMethods:
 
         # Mock external API call - no galleries found
         empty_result = FindGalleriesResultType(count=0, galleries=[])
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=empty_result
         )
@@ -104,6 +107,7 @@ class TestGalleryMethods:
         galleries_result = FindGalleriesResultType(
             count=1, galleries=[found_gallery_dict]
         )
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=galleries_result
         )
@@ -125,6 +129,7 @@ class TestGalleryMethods:
         """Test _get_gallery_by_code when no galleries match."""
         # Mock external API call - no galleries found
         empty_result = FindGalleriesResultType(count=0, galleries=[])
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=empty_result
         )
@@ -148,6 +153,7 @@ class TestGalleryMethods:
         galleries_result = FindGalleriesResultType(
             count=1, galleries=[found_gallery_dict]
         )
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=galleries_result
         )
@@ -175,6 +181,7 @@ class TestGalleryMethods:
         galleries_result = FindGalleriesResultType(
             count=1, galleries=[found_gallery_dict]
         )
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=galleries_result
         )
@@ -183,6 +190,7 @@ class TestGalleryMethods:
 
         # Call method - signature is (item, url)
         url = "https://example.com/gallery/123"
+        await gallery_mixin.context.get_client()
         result = await gallery_mixin._get_gallery_by_url(mock_item, url)
 
         # Verify RESULTS
@@ -203,6 +211,7 @@ class TestGalleryMethods:
         galleries_result = FindGalleriesResultType(
             count=1, galleries=[found_gallery_dict]
         )
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=galleries_result
         )
@@ -224,6 +233,7 @@ class TestGalleryMethods:
 
         # Call method - signature is (item, url)
         url = "https://example.com/gallery/456"
+        await gallery_mixin.context.get_client()
         result = await gallery_mixin._get_gallery_by_url(mock_item, url)
 
         # Verify RESULTS
@@ -238,6 +248,8 @@ class TestGalleryMethods:
     async def test_create_new_gallery(self, gallery_mixin, mock_item):
         """Test _create_new_gallery creates gallery with correct attributes."""
         title = "New Test Gallery"
+
+        await gallery_mixin.context.get_client()
 
         # Mock external API call for save()
         gallery_mixin.context.client.execute = AsyncMock(
@@ -281,6 +293,7 @@ class TestGalleryMethods:
         tag2_result = FindTagsResultType(
             count=1, tags=[{"id": "tag_2", "name": "test2"}]
         )
+        await gallery_mixin.context.get_client()
 
         gallery_mixin.context.client.find_tags = AsyncMock(
             side_effect=[tag1_result, tag2_result]
@@ -304,6 +317,8 @@ class TestGalleryMethods:
         # Mock external API calls - tag doesn't exist
         from stash.types import FindTagsResultType
 
+        await gallery_mixin.context.get_client()
+
         empty_result = FindTagsResultType(count=0, tags=[])
         gallery_mixin.context.client.find_tags = AsyncMock(return_value=empty_result)
 
@@ -325,6 +340,7 @@ class TestGalleryMethods:
         content = "Short content"
         username = "test_user"
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+        await gallery_mixin.context.get_client()
 
         # Call method directly (not async, doesn't need external calls)
         result = gallery_mixin._generate_title_from_content(
@@ -340,6 +356,7 @@ class TestGalleryMethods:
         content = "A" * 200  # Very long content
         username = "test_user"
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+        await gallery_mixin.context.get_client()
 
         # Call method
         result = gallery_mixin._generate_title_from_content(
@@ -356,6 +373,7 @@ class TestGalleryMethods:
         content = "First line\nSecond line\nThird line"
         username = "test_user"
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+        await gallery_mixin.context.get_client()
 
         # Call method
         result = gallery_mixin._generate_title_from_content(
@@ -370,6 +388,7 @@ class TestGalleryMethods:
         """Test _generate_title_from_content with no content."""
         username = "test_user"
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+        await gallery_mixin.context.get_client()
 
         # Call method with None content
         result = gallery_mixin._generate_title_from_content(None, username, created_at)
@@ -383,6 +402,7 @@ class TestGalleryMethods:
         content = "Short content"
         username = "test_user"
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
+        await gallery_mixin.context.get_client()
 
         # Call method with position (uses current_pos and total_media params)
         result = gallery_mixin._generate_title_from_content(

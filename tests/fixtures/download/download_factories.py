@@ -19,7 +19,8 @@ Usage:
 
 from pathlib import Path
 
-from factory import Factory, LazyFunction, Sequence
+from factory.base import Factory
+from factory.declarations import LazyFunction, Sequence
 
 from download.core import DownloadState, GlobalState
 from download.downloadstate import DownloadType
@@ -61,8 +62,8 @@ class DownloadStateFactory(Factory):
     subscribed = False
 
     # Paths
-    base_path = None
-    download_path = None
+    base_path: Path | None = None
+    download_path: Path | None = None
     fetched_timeline_duplication = False
 
     # History tracking - use LazyFunction to create new sets for each instance
@@ -93,16 +94,17 @@ class DownloadStateFactoryWithCreator(DownloadStateFactory):
     This is a specialized factory for creating states with creator information.
 
     Example:
-        state = DownloadStateFactoryWithCreator(creator_name="alice")
-        # Automatically gets creator_id and paths set up
+        state = DownloadStateFactoryWithCreator(
+            creator_name="alice",
+            base_path=tmp_path / "downloads",
+            download_path=tmp_path / "downloads/alice"
+        )
     """
 
     creator_name = Sequence(lambda n: f"creator_{n}")
     creator_id = Sequence(lambda n: str(100000000000000000 + n))
-    base_path = LazyFunction(lambda: Path("/tmp/test_downloads"))
-    download_path = LazyFunction(
-        lambda: Path("/tmp/test_downloads/creator")
-    )  # Will be updated based on creator_name in practice
+    base_path: Path | None = None
+    download_path: Path | None = None
 
 
 class GlobalStateFactory(Factory):

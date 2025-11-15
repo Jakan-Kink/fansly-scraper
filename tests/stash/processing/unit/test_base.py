@@ -9,7 +9,6 @@ import pytest
 
 from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
-from tests.fixtures.core import FanslyConfigFactory
 from tests.fixtures.download import DownloadStateFactory
 
 

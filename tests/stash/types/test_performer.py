@@ -499,9 +499,7 @@ def test_performer_from_account_method() -> None:
 
     # Create account using factory with realistic data
     account = AccountFactory.build(
-        displayName="Display Name",
-        username="username",
-        about="Test bio"
+        displayName="Display Name", username="username", about="Test bio"
     )
 
     performer = Performer.from_account(account)
@@ -531,9 +529,7 @@ def test_performer_from_account_fallback_names() -> None:
 
     # Test with only username
     account = AccountFactory.build(
-        displayName=None,
-        username="username_only",
-        about=None
+        displayName=None, username="username_only", about=None
     )
 
     performer = Performer.from_account(account)
@@ -544,9 +540,7 @@ def test_performer_from_account_fallback_names() -> None:
 
     # Test with username and about but no displayName
     account2 = AccountFactory.build(
-        displayName=None,
-        username="user_with_bio",
-        about="Bio text"
+        displayName=None, username="user_with_bio", about="Bio text"
     )
 
     performer2 = Performer.from_account(account2)
@@ -556,11 +550,7 @@ def test_performer_from_account_fallback_names() -> None:
     assert performer2.details == "Bio text"
 
     # Test with all names None - should fallback to "Unknown"
-    account3 = AccountFactory.build(
-        displayName=None,
-        username=None,
-        about=None
-    )
+    account3 = AccountFactory.build(displayName=None, username=None, about=None)
 
     performer3 = Performer.from_account(account3)
 
@@ -579,7 +569,7 @@ def test_performer_from_account_alias_case_sensitivity() -> None:
     account = AccountFactory.build(
         displayName="SameUser",
         username="sameuser",  # Different case
-        about=None
+        about=None,
     )
 
     performer = Performer.from_account(account)

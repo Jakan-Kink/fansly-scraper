@@ -224,12 +224,8 @@ class TestFanslyApi:
         test_params = {"test": "param"}
 
         # Mock OPTIONS and GET requests at edge
-        options_route = respx.options(test_url).mock(
-            return_value=httpx.Response(200)
-        )
-        get_route = respx.get(test_url).mock(
-            return_value=httpx.Response(200)
-        )
+        options_route = respx.options(test_url).mock(return_value=httpx.Response(200))
+        get_route = respx.get(test_url).mock(return_value=httpx.Response(200))
 
         fansly_api.get_with_ngsw(
             url=test_url, params=test_params, add_fansly_headers=True
@@ -321,10 +317,12 @@ class TestFanslyApi:
     def test_get_media_collections(self, fansly_api):
         """Test get_media_collections request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for media collections (OPTIONS + GET)
-        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/media/orders/.*").mock(
-            return_value=httpx.Response(200)
-        )
-        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/media/orders/.*").mock(
+        respx.options(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/account/media/orders/.*"
+        ).mock(return_value=httpx.Response(200))
+        route = respx.get(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/account/media/orders/.*"
+        ).mock(
             return_value=httpx.Response(200, json={"success": "true", "response": []})
         )
 
@@ -339,10 +337,12 @@ class TestFanslyApi:
     def test_get_following_list(self, fansly_api):
         """Test get_following_list with default parameters - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for following list (OPTIONS + GET)
-        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
-            return_value=httpx.Response(200)
-        )
-        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
+        respx.options(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following"
+        ).mock(return_value=httpx.Response(200))
+        route = respx.get(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following"
+        ).mock(
             return_value=httpx.Response(200, json={"success": "true", "response": []})
         )
 
@@ -359,10 +359,12 @@ class TestFanslyApi:
     def test_get_following_list_with_params(self, fansly_api):
         """Test get_following_list with custom parameters - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for following list (OPTIONS + GET)
-        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
-            return_value=httpx.Response(200)
-        )
-        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following").mock(
+        respx.options(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following"
+        ).mock(return_value=httpx.Response(200))
+        route = respx.get(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/account/.*/following"
+        ).mock(
             return_value=httpx.Response(200, json={"success": "true", "response": []})
         )
 
@@ -416,10 +418,12 @@ class TestFanslyApi:
     def test_get_timeline(self, fansly_api):
         """Test get_timeline request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for timeline (OPTIONS + GET)
-        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
-            return_value=httpx.Response(200)
-        )
-        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
+        respx.options(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*"
+        ).mock(return_value=httpx.Response(200))
+        route = respx.get(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*"
+        ).mock(
             return_value=httpx.Response(200, json={"success": "true", "response": []})
         )
 
@@ -436,10 +440,12 @@ class TestFanslyApi:
     def test_get_wall_posts(self, fansly_api):
         """Test get_wall_posts request - mocks HTTP at edge"""
         # Mock the Fansly API endpoint for wall posts (OPTIONS + GET)
-        respx.options(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
-            return_value=httpx.Response(200)
-        )
-        route = respx.get(url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*").mock(
+        respx.options(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*"
+        ).mock(return_value=httpx.Response(200))
+        route = respx.get(
+            url__regex=r"https://apiv3\.fansly\.com/api/v1/timelinenew/.*"
+        ).mock(
             return_value=httpx.Response(200, json={"success": "true", "response": []})
         )
 
@@ -499,7 +505,7 @@ class TestFanslyApi:
                 json={
                     "success": "true",
                     "response": "test_device_id",
-                }
+                },
             )
         )
 
@@ -528,7 +534,7 @@ class TestFanslyApi:
                 json={
                     "success": "true",
                     "response": "new_device_id",
-                }
+                },
             )
         )
 

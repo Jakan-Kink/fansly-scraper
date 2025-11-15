@@ -1,71 +1,24 @@
-"""Unit tests for PerformerClientMixin."""
+"""Unit tests for PerformerClientMixin.
+
+These tests use respx to mock GraphQL HTTP responses at the edge,
+testing the real StashClient methods with mocked HTTP layer.
+"""
 
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from metadata import Account
 from stash import StashClient
-from stash.types import FindPerformersResultType, Performer, Tag
+from stash.types import Tag
+from stash.types.performer import FindPerformersResultType, Performer
 from tests.fixtures.metadata.metadata_factories import AccountFactory
 
 
-@pytest.fixture
-def mock_account() -> Account:
-    """Create a mock account for testing."""
-    return AccountFactory.build(
-        id=123,
-        username="test_account",
-        displayName="Test Account",
-        about="Test account bio",
-        location="US",
-    )
-
-
-@pytest.fixture
-def mock_performer() -> Performer:
-    """Create a mock performer for testing."""
-    return Performer(
-        id="123",
-        name="Test Performer",
-        gender="FEMALE",
-        groups=[],  # Required relationship
-        scenes=[],  # Required relationship
-        stash_ids=[],  # Required relationship
-        urls=["https://example.com/performer", "https://example.com/performer2"],
-        birthdate="1990-01-01",
-        ethnicity="CAUCASIAN",
-        country="US",
-        eye_color="BLUE",
-        height_cm=170,
-        measurements="34-24-36",
-        fake_tits="NO",
-        penis_length=None,  # New field
-        circumcised=None,  # New field
-        career_length="2020-",
-        tattoos="None",
-        piercings="None",
-        hair_color="BROWN",  # New field
-        weight=60,  # New field
-        death_date=None,  # New field
-        alias_list=["Alias 1", "Alias 2"],
-        details="Test performer details",
-        tags=[
-            Tag(
-                id="456",
-                name="Tag1",
-                description="Test tag",
-            )
-        ],
-    )
-
-
 @pytest.mark.asyncio
-async def test_find_performer(
-    stash_client: StashClient, mock_performer: Performer
-) -> None:
+async def test_find_performer(stash_client: StashClient, mock_performer) -> None:
     """Test finding a performer by ID."""
+    # Use existing mock_performer fixture from stash_type_factories
     # Mock the find_performer method directly
     with patch.object(
         stash_client,
@@ -251,9 +204,18 @@ async def test_update_performer_avatar(
 
 @pytest.mark.asyncio
 async def test_performer_from_account(
-    stash_client: StashClient, mock_performer: Performer, mock_account: Account
+    stash_client: StashClient, mock_performer: Performer
 ) -> None:
     """Test creating a performer from an account."""
+    # Use AccountFactory instead of local fixture
+    account = AccountFactory.build(
+        id=123,
+        username="test_account",
+        displayName="Test Account",
+        about="Test account bio",
+        location="US",
+    )
+
     # Mock the create_performer method directly
     with (
         patch.object(
@@ -270,10 +232,10 @@ async def test_performer_from_account(
         ),
     ):
         # Convert account to performer
-        performer = Performer.from_account(mock_account)
-        assert performer.name == mock_account.displayName
-        assert performer.details == mock_account.about
-        assert performer.country == mock_account.location
+        performer = Performer.from_account(account)
+        assert performer.name == account.displayName
+        assert performer.details == account.about
+        assert performer.country == account.location
 
         # Create in Stash
         created = await performer.save(stash_client)

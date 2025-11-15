@@ -9,6 +9,7 @@ from .api_fixtures import (
     mock_fansly_timeline_response,
 )
 
+
 __all__ = [
     "create_mock_json_response",
     "fansly_api",
