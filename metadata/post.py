@@ -17,7 +17,6 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     bindparam,
-    or_,
     select,
     update,
 )
@@ -342,15 +341,16 @@ async def _process_post_mentions(
     post_obj: Post,
     mentions: list[dict[str, any]],
 ) -> None:
-    """Process mentions for a post.
+    """Process mentions for a post using PostgreSQL upsert.
 
     Args:
         session: SQLAlchemy async session
         post_obj: Post instance
         mentions: List of mention data dictionaries
     """
-    # Collect all valid mentions first
-    mentions_data = []
+    # Collect and deduplicate mentions by (postId, handle)
+    # Use a dict to keep only the first occurrence of each unique key
+    mentions_dict = {}
     for mention in mentions:
         handle = mention.get("handle", "").strip()
         account_id = mention.get("accountId", None)
@@ -364,13 +364,21 @@ async def _process_post_mentions(
             )
             continue
 
-        mentions_data.append(
-            {
-                "postId": post_obj.id,
-                "accountId": account_id,
-                "handle": handle,
-            }
-        )
+        # Use (postId, handle) as key for deduplication (matches primary key)
+        key = (post_obj.id, handle)
+        if key in mentions_dict:
+            json_output(
+                2,
+                "meta/post - _p_t_p - duplicate mention in API data",
+                {"postId": post_obj.id, "handle": handle, "accountId": account_id},
+            )
+            continue
+
+        mentions_dict[key] = {
+            "postId": post_obj.id,
+            "accountId": account_id,
+            "handle": handle,
+        }
 
         # Log if we're storing a mention without an accountId
         if account_id is None:
@@ -380,123 +388,24 @@ async def _process_post_mentions(
                 {"postId": post_obj.id, "handle": handle},
             )
 
-    if not mentions_data:
+    if not mentions_dict:
         return
 
-    # Get all existing mentions in one query
-    account_ids = [m["accountId"] for m in mentions_data if m["accountId"] is not None]
-    handles = [m["handle"] for m in mentions_data]
+    # Use PostgreSQL upsert to handle inserts and updates in one operation
+    # ON CONFLICT on primary key (postId, handle), update accountId if provided
+    stmt = insert(post_mentions).values(list(mentions_dict.values()))
 
-    result = await session.execute(
-        select(post_mentions).where(
-            and_(
-                post_mentions.c.postId == post_obj.id,
-                or_(
-                    (
-                        post_mentions.c.accountId.in_(account_ids)
-                        if account_ids
-                        else False
-                    ),
-                    post_mentions.c.handle.in_(handles) if handles else False,
-                ),
-            )
-        )
+    # On conflict, update accountId only if the new value is not NULL
+    # This allows us to fill in accountId when we initially only had a handle
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["postId", "handle"],
+        set_={
+            "accountId": stmt.excluded.accountId,
+        },
+        where=stmt.excluded.accountId.isnot(None),
     )
-    existing_rows = result.fetchall()
 
-    # Create multiple lookup indexes for efficient matching
-    existing_by_account = {
-        r.accountId: r for r in existing_rows if r.accountId is not None
-    }
-    existing_by_handle = {r.handle: r for r in existing_rows}
-    existing_exact = {(r.accountId, r.handle): r for r in existing_rows}
-
-    # Process mentions in batches
-    to_update_handle = []  # Update handle where accountId matches
-    to_update_account = []  # Update accountId where handle matches
-    to_insert = []
-
-    for mention in mentions_data:
-        # Check if exact match exists (both accountId and handle)
-        exact_key = (mention["accountId"], mention["handle"])
-        if exact_key in existing_exact:
-            # Already exists with exact match, nothing to do
-            continue
-
-        # Try by accountId first
-        if (
-            mention["accountId"] is not None
-            and mention["accountId"] in existing_by_account
-        ):
-            existing_row = existing_by_account[mention["accountId"]]
-            # Update handle if it changed
-            if existing_row.handle != mention["handle"]:
-                to_update_handle.append(mention)
-            continue
-
-        # Then try by handle
-        if mention["handle"] in existing_by_handle:
-            existing_row = existing_by_handle[mention["handle"]]
-            # Update accountId if we have one and it's not set
-            if mention["accountId"] is not None and existing_row.accountId is None:
-                to_update_account.append(mention)
-            continue
-
-        # If no match found, insert new one
-        to_insert.append(mention)
-
-    # Batch update handles
-    if to_update_handle:
-        # Transform keys to use b_ prefix for bind parameters
-        update_handle_params = [
-            {
-                "b_postId": m["postId"],
-                "b_accountId": m["accountId"],
-                "b_handle": m["handle"],
-            }
-            for m in to_update_handle
-        ]
-        await session.execute(
-            post_mentions.update()
-            .where(
-                and_(
-                    post_mentions.c.postId == bindparam("b_postId"),
-                    post_mentions.c.accountId == bindparam("b_accountId"),
-                )
-            )
-            .values(handle=bindparam("b_handle")),
-            update_handle_params,
-        )
-
-    # Batch update accountIds
-    if to_update_account:
-        # Transform keys to use b_ prefix for bind parameters
-        update_account_params = [
-            {
-                "b_postId": m["postId"],
-                "b_handle": m["handle"],
-                "b_accountId": m["accountId"],
-            }
-            for m in to_update_account
-        ]
-        await session.execute(
-            post_mentions.update()
-            .where(
-                and_(
-                    post_mentions.c.postId == bindparam("b_postId"),
-                    post_mentions.c.handle == bindparam("b_handle"),
-                )
-            )
-            .values(accountId=bindparam("b_accountId")),
-            update_account_params,
-        )
-
-    # Batch insert new mentions
-    if to_insert:
-        await session.execute(
-            post_mentions.insert(),
-            to_insert,
-        )
+    await session.execute(stmt)
 
 
 async def _process_post_attachments(
