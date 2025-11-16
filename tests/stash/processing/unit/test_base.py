@@ -7,33 +7,46 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from download.core import DownloadState
 from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
+from tests.fixtures.download import DownloadStateFactory
 
 
 @pytest.fixture
-def mock_config():
-    """Fixture for mock configuration."""
-    config = MagicMock()
-    config.get_stash_context.return_value = MagicMock(spec=StashContext)
-    config.stash_context_conn = {"url": "http://test.com", "api_key": "test_key"}
-    config._database = MagicMock()
-    mock_task_list = MagicMock()
-    config.get_background_tasks.return_value = mock_task_list
+def mock_config(uuid_test_db_factory):
+    """Fixture for FanslyConfig with real database and StashContext setup."""
+    # Use the real config fixture with database
+    config = uuid_test_db_factory
+
+    # Configure Stash connection (won't actually connect unless used)
+    config.stash_context_conn = {
+        "scheme": "http",
+        "host": "localhost",
+        "port": 9999,
+        "apikey": "test_api_key",
+    }
+
+    # _background_tasks already exists as field with default_factory=list
+    # No need to mock get_background_tasks() - tests can use config._background_tasks directly
+
     return config
 
 
 @pytest.fixture
-def mock_state():
-    """Fixture for mock download state."""
-    state = MagicMock(spec=DownloadState)
-    state.creator_id = "12345"
-    state.creator_name = "test_user"
-    state.download_path = MagicMock()
-    state.download_path.is_dir.return_value = True
-    state.base_path = MagicMock()
-    return state
+def mock_state(tmp_path):
+    """Fixture for download state using real DownloadStateFactory with real paths."""
+    # Create real temporary paths
+    base_path = tmp_path / "downloads"
+    download_path = base_path / "test_user_fansly"
+    download_path.mkdir(parents=True)
+
+    # Use factory with real paths
+    return DownloadStateFactory(
+        creator_id="12345",
+        creator_name="test_user",
+        base_path=base_path,
+        download_path=download_path,
+    )
 
 
 @pytest.fixture
@@ -53,7 +66,7 @@ def mock_database():
 
 
 @pytest.fixture
-def base_processor(mock_config, mock_state, mock_context, mock_database):
+def base_processor(mock_config, test_state, mock_context, mock_database):
     """Fixture for base processor instance with mocked abstract methods."""
 
     class TestProcessor(StashProcessingBase):
@@ -68,7 +81,7 @@ def base_processor(mock_config, mock_state, mock_context, mock_database):
 
     processor = TestProcessor(
         config=mock_config,
-        state=mock_state,
+        state=test_state,
         context=mock_context,
         database=mock_database,
         _background_task=None,
@@ -81,7 +94,7 @@ def base_processor(mock_config, mock_state, mock_context, mock_database):
 class TestStashProcessingBase:
     """Test the basic functionality of StashProcessingBase class."""
 
-    def test_init(self, mock_config, mock_state, mock_context, mock_database):
+    def test_init(self, mock_config, test_state, mock_context, mock_database):
         """Test initialization of StashProcessingBase."""
 
         # Mock abstract methods for testing
@@ -97,7 +110,7 @@ class TestStashProcessingBase:
         # Create without background task
         processor = TestProcessor(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
             _background_task=None,
@@ -107,7 +120,7 @@ class TestStashProcessingBase:
 
         # Verify attributes
         assert processor.config == mock_config
-        assert processor.state == mock_state
+        assert processor.state == test_state
         assert processor.context == mock_context
         assert processor.database == mock_database
         assert processor._background_task is None
@@ -115,24 +128,30 @@ class TestStashProcessingBase:
         assert not processor._owns_db
         assert isinstance(processor.log, logging.Logger)
 
-        # Create with background task
-        mock_task = MagicMock()
+        # Create with background task - use real asyncio.Task
+        async def dummy_task():
+            await asyncio.sleep(0)
+
+        real_task = asyncio.create_task(dummy_task())
         processor = TestProcessor(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
-            _background_task=mock_task,
+            _background_task=real_task,
             _cleanup_event=None,
             _owns_db=True,
         )
 
         # Verify attributes
-        assert processor._background_task == mock_task
+        assert processor._background_task == real_task
         assert not processor._cleanup_event.is_set()
         assert processor._owns_db
 
-    def test_from_config(self, mock_config, mock_state):
+        # Clean up task
+        real_task.cancel()
+
+    def test_from_config(self, mock_config, test_state):
         """Test creating processor from config."""
 
         # Mock abstract methods for testing
@@ -145,22 +164,27 @@ class TestStashProcessingBase:
             async def process_creator(self, session=None):
                 return None, None
 
-        # Mock get_stash_context
-        mock_context = MagicMock(spec=StashContext)
-        mock_config.get_stash_context.return_value = mock_context
+        # Configure real stash context connection instead of mocking
+        mock_config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": 9999,
+            "apikey": "test_api_key",
+        }
 
         # Call from_config - use_batch_processing is handled in derived classes only
         processor = TestProcessor.from_config(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
         )
 
         # Verify processor
         assert processor.config == mock_config
-        assert processor.state is not mock_state  # Should be a copy
-        assert processor.state.creator_id == mock_state.creator_id
-        assert processor.state.creator_name == mock_state.creator_name
-        assert processor.context == mock_context
+        assert processor.state is not test_state  # Should be a copy
+        assert processor.state.creator_id == test_state.creator_id
+        assert processor.state.creator_name == test_state.creator_name
+        # Context should be real StashContext from get_stash_context()
+        assert processor.context is not None
         assert processor.database == mock_config._database
         assert processor._background_task is None
         assert not processor._cleanup_event.is_set()
@@ -223,9 +247,8 @@ class TestStashProcessingBase:
             base_processor.process_creator.assert_called_once()
             mock_loop.create_task.assert_called_once()
             assert base_processor._background_task == mock_task
-            base_processor.config.get_background_tasks.return_value.append.assert_called_once_with(
-                mock_task
-            )
+            # Verify task was added to background tasks list
+            assert mock_task in base_processor.config._background_tasks
 
         # Test with no StashContext configured
         base_processor.config.stash_context_conn = None

@@ -10,6 +10,7 @@ from time import sleep
 
 import psutil
 
+
 # Optional dependency for browser auth
 try:
     import plyvel

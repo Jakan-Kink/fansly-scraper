@@ -7,7 +7,6 @@ StashObject implementations and GraphQL operations.
 
 import gc
 from typing import Any, ClassVar
-from unittest.mock import AsyncMock, Mock
 
 import pytest
 import strawberry
@@ -266,65 +265,41 @@ def mock_tags() -> list[MockTag]:
     ]
 
 
-@pytest.fixture
-def mock_stash_client_with_responses() -> Mock:
-    """Create a mock Stash client with predefined responses."""
-    client = Mock()
-
-    # Mock successful responses
-    client.execute = AsyncMock()
-
-    # Set up different responses for different operations
-    def mock_execute(
-        query: str, variables: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        """Mock execute method with different responses based on query."""
-        variables = variables or {}
-
-        # Find operation response
-        if "findTestStash" in query:
-            if variables.get("id") == "existing_123":
-                return {
-                    "findTestStash": {
-                        "id": "existing_123",
-                        "name": "Existing Object",
-                        "description": "Existing description",
-                        "tags": [
-                            {"id": "existing_tag", "name": "Existing Tag"}
-                        ],  # Return Tag objects
-                    }
-                }
-            return {"findTestStash": None}
-
-        # Create operation response
-        if "createTestStash" in query or "testStashCreate" in query:
-            return {
-                "testStashCreate": {
-                    "id": "created_456",
-                }
-            }
-
-        # Update operation response
-        if "updateTestStash" in query or "testStashUpdate" in query:
-            return {
-                "testStashUpdate": {
-                    "id": variables.get("input", {}).get("id", "updated_789"),
-                }
-            }
-
-        # Default empty response
-        return {}
-
-    client.execute.side_effect = mock_execute
-    return client
-
-
-@pytest.fixture
-def mock_stash_client_with_errors() -> Mock:
-    """Create a mock Stash client that raises errors."""
-    client = Mock()
-    client.execute = AsyncMock(side_effect=Exception("GraphQL error"))
-    return client
+# REMOVED: mock_stash_client_with_responses, mock_stash_client_with_errors
+# These mocked INTERNAL StashClient.execute() method.
+# This violates edge-mocking principles - we should NOT mock internal boundaries.
+#
+# ✅ Replacement: Use @respx.mock to mock HTTP responses at the edge:
+#    @respx.mock
+#    async def test_find_by_id_success():
+#        respx.post("http://localhost:9999/graphql").mock(
+#            return_value=httpx.Response(200, json={
+#                "data": {
+#                    "findTestStash": {
+#                        "id": "existing_123",
+#                        "name": "Existing Object",
+#                        "description": "Existing description",
+#                        "tags": [{"id": "existing_tag", "name": "Existing Tag"}]
+#                    }
+#                }
+#            })
+#        )
+#        client = await StashClient.create(conn={})
+#        result = await TestStashObject.find_by_id(client, "existing_123")
+#        assert result.id == "existing_123"
+#
+# For error testing:
+#    @respx.mock
+#    async def test_graphql_error():
+#        respx.post("http://localhost:9999/graphql").mock(
+#            return_value=httpx.Response(200, json={
+#                "errors": [{"message": "GraphQL error"}],
+#                "data": None
+#            })
+#        )
+#        # Test will see real error handling through StashClient
+#
+# See /tmp/mock_to_respx_migration_guide.md for detailed migration examples.
 
 
 # =============================================================================
@@ -488,9 +463,6 @@ __all__ = [
     # Data generators
     "generate_stash_object_data",
     "large_stash_object_data",
-    "mock_stash_client_with_errors",
-    # Client fixtures
-    "mock_stash_client_with_responses",
     "mock_tags",
     # Test isolation
     "reset_stash_field_names_cache",

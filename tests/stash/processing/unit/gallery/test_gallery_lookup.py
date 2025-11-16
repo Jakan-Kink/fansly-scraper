@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy import select
 
 from metadata import Post
-from tests.fixtures import AccountFactory, PostFactory
-from tests.fixtures.stash_type_factories import GalleryFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
+from tests.fixtures.stash.stash_type_factories import GalleryFactory
 
 
 @pytest.fixture
@@ -40,6 +40,7 @@ class TestGalleryLookup:
         post_obj.stash_id = 123
 
         mock_gallery = GalleryFactory(id="123", title="Test Gallery")
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_gallery = AsyncMock(return_value=mock_gallery)
 
         gallery = await gallery_mixin._get_gallery_by_stash_id(post_obj)
@@ -98,6 +99,7 @@ class TestGalleryLookup:
                 "studio": {"id": "123"},  # Must match gallery_mock_studio.id
             }
         ]
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=mock_results
         )
@@ -236,6 +238,7 @@ class TestGalleryLookup:
         mock_results = MagicMock()
         mock_results.count = 1
         mock_results.galleries = [{"id": "200", "code": "67890"}]
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=mock_results
         )
@@ -296,6 +299,7 @@ class TestGalleryLookup:
         mock_results.galleries = [
             {"id": "300", "urls": ["https://test.com/post/67890"]}
         ]
+        await gallery_mixin.context.get_client()
         gallery_mixin.context.client.find_galleries = AsyncMock(
             return_value=mock_results
         )
@@ -386,6 +390,7 @@ async def test_get_gallery_by_title_matching_studio(
             "studio": {"id": "123"},  # Must match gallery_mock_studio.id
         }
     ]
+    await gallery_mixin.context.get_client()
 
     gallery_mixin.context.client.find_galleries = AsyncMock(
         return_value=mock_galleries_result

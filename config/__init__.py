@@ -1,5 +1,8 @@
 """Configuration File Manipulation"""
 
+from typing import Any
+
+
 from .config import (  # isort:skip
     parse_items_from_line,
     sanitize_creator_names,
@@ -10,6 +13,7 @@ from .config import (  # isort:skip
     load_config,
 )
 from .fanslyconfig import FanslyConfig  # isort:skip
+
 # Browser imports are lazy-loaded via __getattr__ to avoid requiring plyvel
 from .logging import (
     db_logger,
@@ -75,7 +79,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy-load browser functions to avoid requiring optional plyvel dependency."""
     if name in _BROWSER_FUNCTIONS:
         from . import browser

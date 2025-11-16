@@ -451,6 +451,7 @@ async def test_gallery_cover(
 @pytest.mark.asyncio
 async def test_gallery_chapters(
     stash_client: StashClient,
+    stash_cleanup_tracker,
     mock_gallery: Gallery,
     mock_chapter: GalleryChapter,
 ) -> None:
@@ -541,7 +542,7 @@ async def test_gallery_chapters(
 
 @pytest.mark.asyncio
 async def test_gallery_from_content(
-    stash_client: StashClient, mock_gallery: Gallery
+    stash_client: StashClient, stash_cleanup_tracker, mock_gallery: Gallery
 ) -> None:
     """Test creating a gallery from content."""
     # Create mock post

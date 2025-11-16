@@ -249,10 +249,10 @@ async def test_sql_operations(
 ) -> None:
     """Test that SQL operations raise NotImplementedError."""
     with pytest.raises(NotImplementedError, match="SQL queries not implemented"):
-        await not_implemented_client.querySQL("SELECT 1")
+        await not_implemented_client.query_sql("SELECT 1")
 
     with pytest.raises(NotImplementedError, match="SQL execution not implemented"):
-        await not_implemented_client.execSQL("INSERT INTO table VALUES (1)")
+        await not_implemented_client.exec_sql("INSERT INTO table VALUES (1)")
 
 
 @pytest.mark.asyncio
@@ -263,7 +263,7 @@ async def test_stashbox_operations(
     with pytest.raises(
         NotImplementedError, match="Stash-box validation not implemented"
     ):
-        await not_implemented_client.validateStashBoxCredentials({})
+        await not_implemented_client.validate_stashbox_credentials({})
 
 
 @pytest.mark.asyncio
@@ -272,7 +272,7 @@ async def test_dlna_operations(
 ) -> None:
     """Test that DLNA operations raise NotImplementedError."""
     with pytest.raises(NotImplementedError, match="DLNA not implemented"):
-        await not_implemented_client.dlnaStatus()
+        await not_implemented_client.dlna_status()
 
 
 @pytest.mark.asyncio
@@ -281,7 +281,7 @@ async def test_job_operations(
 ) -> None:
     """Test that job operations raise NotImplementedError."""
     with pytest.raises(NotImplementedError, match="Job subscription not implemented"):
-        await not_implemented_client.jobsSubscribe()
+        await not_implemented_client.jobs_subscribe()
 
 
 @pytest.mark.asyncio
@@ -295,4 +295,4 @@ async def test_version_operations(
     with pytest.raises(
         NotImplementedError, match="Latest version info not implemented"
     ):
-        await not_implemented_client.latestversion()
+        await not_implemented_client.latest_version()

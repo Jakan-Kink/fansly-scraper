@@ -13,6 +13,7 @@ import sys
 import time
 from pathlib import Path
 
+
 # Optional GUI dependency
 try:
     from tkinter import Tk, filedialog
@@ -55,8 +56,7 @@ def ask_correct_dir() -> Path:
     # Fallback to text-based input if interactive
     if sys.stdin and sys.stdin.isatty():
         textio_logger.opt(depth=1).log(
-            "INFO",
-            "tkinter not available - using text-based input"
+            "INFO", "tkinter not available - using text-based input"
         )
 
         while True:

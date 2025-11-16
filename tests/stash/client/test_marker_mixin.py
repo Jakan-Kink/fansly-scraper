@@ -236,7 +236,10 @@ async def test_find_markers_error(
 
 @pytest.mark.asyncio
 async def test_create_marker(
-    stash_client: StashClient, mock_marker: SceneMarker, mock_scene
+    stash_client: StashClient,
+    stash_cleanup_tracker,
+    mock_marker: SceneMarker,
+    mock_scene,
 ) -> None:
     """Test creating a scene marker."""
     with patch.object(
@@ -274,7 +277,7 @@ async def test_create_marker(
 
 @pytest.mark.asyncio
 async def test_create_marker_error(
-    stash_client: StashClient, mock_marker: SceneMarker
+    stash_client: StashClient, stash_cleanup_tracker, mock_marker: SceneMarker
 ) -> None:
     """Test handling errors when creating a scene marker."""
     with (
@@ -357,7 +360,10 @@ async def test_scene_marker_tags_error(
 
 @pytest.mark.asyncio
 async def test_update_marker(
-    stash_client: StashClient, mock_marker: SceneMarker, mock_scene
+    stash_client: StashClient,
+    stash_cleanup_tracker,
+    mock_marker: SceneMarker,
+    mock_scene,
 ) -> None:
     """Test updating a scene marker."""
     # Create updated versions of the mock marker for each test case
@@ -436,7 +442,7 @@ async def test_update_marker(
 
 @pytest.mark.asyncio
 async def test_update_marker_error(
-    stash_client: StashClient, mock_marker: SceneMarker
+    stash_client: StashClient, stash_cleanup_tracker, mock_marker: SceneMarker
 ) -> None:
     """Test handling errors when updating a scene marker."""
     with (

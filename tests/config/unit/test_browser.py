@@ -4,8 +4,17 @@ import os
 import sqlite3
 from unittest.mock import MagicMock, patch
 
-import plyvel
 import pytest
+
+
+# plyvel is optional - skip tests if not available
+try:
+    import plyvel
+
+    HAS_PLYVEL = True
+except ImportError:
+    HAS_PLYVEL = False
+    plyvel = None  # type: ignore[assignment]
 
 from config.browser import (
     close_browser_by_name,
@@ -418,6 +427,7 @@ def test_close_browser_by_name_no_process(
     mock_print.assert_not_called()  # No success message since no process was closed
 
 
+@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
 def test_get_auth_token_from_leveldb_success(mock_db_class):
     """Test successfully getting auth token from LevelDB."""
@@ -431,6 +441,7 @@ def test_get_auth_token_from_leveldb_success(mock_db_class):
     mock_db.close.assert_called_once()
 
 
+@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
 def test_get_auth_token_from_leveldb_no_token(mock_db_class):
     """Test when no token is found in LevelDB."""
@@ -444,6 +455,7 @@ def test_get_auth_token_from_leveldb_no_token(mock_db_class):
     mock_db.close.assert_called_once()
 
 
+@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
 def test_get_auth_token_from_leveldb_browser_locked(mock_db_class):
     """Test handling browser lock error in LevelDB access."""
@@ -456,6 +468,7 @@ def test_get_auth_token_from_leveldb_browser_locked(mock_db_class):
     assert result is None
 
 
+@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
 @patch("plyvel.DB")
 @patch("builtins.input", return_value="")
 @patch("config.browser.close_browser_by_name")

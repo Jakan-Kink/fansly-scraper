@@ -26,6 +26,7 @@ from factory.declarations import LazyFunction, Sequence
 
 from stash.types import Gallery, Group, Image, Performer, Scene, Studio, Tag
 from stash.types.files import Fingerprint, ImageFile, VideoFile
+from stash.types.job import Job, JobStatus
 
 
 class PerformerFactory(Factory):
@@ -423,6 +424,44 @@ class VideoFileFactory(Factory):
     bit_rate = 5000000  # 5 Mbps
 
 
+class JobFactory(Factory):
+    """Factory for Job Stash API type.
+
+    Creates Job instances representing Stash background jobs, with realistic
+    defaults for testing job operations without needing a real Stash server.
+
+    Based on GraphQL schema: schema/types/job.graphql (Job type)
+
+    Example:
+        # Create a finished job
+        job = JobFactory(status=JobStatus.FINISHED)
+
+        # Create a running job with progress
+        job = JobFactory(
+            id="job_123",
+            status=JobStatus.RUNNING,
+            progress=50.0,
+            description="Scanning metadata"
+        )
+    """
+
+    class Meta:
+        model = Job
+
+    # Required fields
+    id = Sequence(lambda n: f"job_{n}")
+    status = JobStatus.FINISHED
+    subTasks = LazyFunction(list)
+    description = Sequence(lambda n: f"Job_{n}")
+    addTime = LazyFunction(lambda: datetime.now(UTC))
+
+    # Optional fields
+    progress = None
+    startTime = None
+    endTime = None
+    error = None
+
+
 # ============================================================================
 # Pytest Fixtures for Stash API Types
 # ============================================================================
@@ -574,6 +613,7 @@ __all__ = [
     "GroupFactory",
     "ImageFactory",
     "ImageFileFactory",
+    "JobFactory",
     "PerformerFactory",
     "SceneFactory",
     "StudioFactory",

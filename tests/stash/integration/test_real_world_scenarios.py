@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from metadata import Account, Media, Post
+from metadata import Account, Post
 from stash import StashClient
 from stash.types import (
     GenerateMetadataInput,
@@ -74,23 +74,11 @@ def mock_post() -> Post:
     )
 
 
-@pytest.fixture
-def mock_media() -> Media:
-    """Create a mock media for testing."""
-    return Media(
-        id=789,
-        accountId=123,
-        local_filename="test_video.mp4",
-        createdAt=datetime.now(UTC),
-    )
-
-
 @pytest.mark.asyncio
 async def test_content_import_workflow(
     stash_client: StashClient,
     mock_account: Account,
     mock_post: Post,
-    mock_media: Media,
     stash_cleanup_tracker,
     enable_scene_creation,
 ) -> None:

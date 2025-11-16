@@ -31,6 +31,9 @@ def mock_config():
     config.check_key = "test_check_key"
     config.download_directory = Path.cwd()
     config.download_mode = DownloadMode.TIMELINE
+    # Ensure username/password are None (not MagicMock) to prevent early return
+    config.username = None
+    config.password = None
     # Make validation functions return True
     config.token_is_valid.return_value = True
     config.useragent_is_valid.return_value = True
@@ -142,7 +145,7 @@ def test_validate_adjust_token_valid(mock_find_spec, mock_config):
     mock_config.token_is_valid.return_value = True
 
     # Add mock to prevent actual validation code from running
-    with patch("config.validation.print_info"):
+    with patch("config.validation.textio_logger"):
         validate_adjust_token(mock_config)
         assert (
             mock_config.token_is_valid.call_count == 2
@@ -174,7 +177,7 @@ def test_validate_adjust_user_agent_valid(mock_config):
     mock_config.useragent_is_valid.assert_called_once()
 
 
-@patch("requests.get")
+@patch("httpx.get")
 def test_validate_adjust_user_agent_invalid(mock_get, mock_config):
     """Test user agent validation with invalid agent"""
     # Set up the mock to return invalid user agent and then get a new one
@@ -200,7 +203,7 @@ def test_validate_adjust_check_key_guessed(mock_config):
     with (
         patch("config.validation.guess_check_key", return_value="guessed_key"),
         patch("config.validation.save_config_or_raise"),
-        patch("config.validation.print_config"),
+        patch("config.validation.textio_logger"),
     ):
         validate_adjust_check_key(mock_config)
         assert mock_config.check_key == "guessed_key"
@@ -221,8 +224,7 @@ def test_validate_adjust_check_key_interactive_change(mock_config, monkeypatch):
     with (
         patch("config.validation.guess_check_key", return_value=None),
         patch("config.validation.save_config_or_raise"),
-        patch("config.validation.print_warning"),
-        patch("config.validation.print_info"),
+        patch("config.validation.textio_logger"),
     ):
         validate_adjust_check_key(mock_config)
         assert mock_config.check_key == "new_key"
@@ -233,7 +235,7 @@ def test_validate_adjust_download_directory_local(mock_config):
     mock_config.download_directory = Path("local_dir")
 
     # Add mocks to prevent actual file system operations
-    with patch("config.validation.print_info"):
+    with patch("config.validation.textio_logger"):
         validate_adjust_download_directory(mock_config)
         assert mock_config.download_directory == Path.cwd()
 
@@ -245,7 +247,7 @@ def test_validate_adjust_download_directory_custom_valid(mock_config):
     mock_config.download_directory = mock_dir
 
     # Add mocks to prevent actual file system operations
-    with patch("config.validation.print_info"):
+    with patch("config.validation.textio_logger"):
         validate_adjust_download_directory(mock_config)
         assert mock_config.download_directory == mock_dir
 
@@ -257,7 +259,7 @@ def test_validate_adjust_download_directory_create_temp(mock_config):
     mock_config.temp_folder = mock_path
 
     # Add mocks to prevent actual file system operations
-    with patch("config.validation.print_info"):
+    with patch("config.validation.textio_logger"):
         validate_adjust_download_directory(mock_config)
         mock_path.mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
@@ -270,10 +272,7 @@ def test_validate_adjust_download_directory_temp_error(mock_config):
     mock_config.temp_folder = mock_path
 
     # Add mocks to prevent actual file system operations
-    with (
-        patch("config.validation.print_info"),
-        patch("config.validation.print_warning"),
-    ):
+    with patch("config.validation.textio_logger"):
         validate_adjust_download_directory(mock_config)
         assert mock_config.temp_folder is None  # Should fall back to system default
 
@@ -288,7 +287,7 @@ def test_validate_adjust_download_directory_invalid(mock_config):
     # Add mocks to prevent actual file system operations and UI dialogs
     with (
         patch("config.validation.ask_correct_dir", return_value=mock_ask_dir),
-        patch("config.validation.print_warning"),
+        patch("config.validation.textio_logger"),
         patch(
             "config.validation.sleep"
         ),  # Prevent the sleep() call that slows down the test

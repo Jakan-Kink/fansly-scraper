@@ -81,9 +81,13 @@ class AccountProcessingMixin:
                     f"(ID: {self.state.creator_id})"
                 )
 
+            logger.debug(f"Processing creator: {account.username}")
             # Get or create performer using intelligent fuzzy search
             performer = Performer.from_account(account)
+            logger.debug(f"Created performer from account: {performer}")
             performer = await self.context.client.get_or_create_performer(performer)
+            logger.debug(f"Obtained performer in Stash: {performer}")
+            logger.debug(f"Context client (in process_creator): {self.context}")
 
             debug_print(
                 {

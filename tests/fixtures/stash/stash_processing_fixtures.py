@@ -3,39 +3,20 @@
 NOTE: AwaitableAttrsMock-based fixtures have been removed as they were masking
 real async relationship loading issues. Use real database fixtures from
 tests/fixtures/metadata_fixtures.py instead.
-"""
 
-from unittest.mock import AsyncMock
+REMOVED: AsyncMock monkey-patching has been removed. Tests should NOT mock
+internal async methods. Use @respx.mock to intercept HTTP calls at the edge instead.
+"""
 
 from stash.types import Image, Scene, SceneMarker, Studio, Tag
 
 # Import fixtures from stash_api_fixtures
-from tests.fixtures.stash_api_fixtures import (
+from tests.fixtures.stash.stash_api_fixtures import (
     stash_cleanup_tracker,
     stash_client,
     stash_context,
     test_query,
 )
-
-
-# Monkey patch AsyncMock to be properly awaitable
-original_asyncmock_init = AsyncMock.__init__
-
-
-def patched_asyncmock_init(self, *args, **kwargs):
-    """Initialize AsyncMock and make it awaitable."""
-    original_asyncmock_init(self, *args, **kwargs)
-    # Add __await__ method if it doesn't exist
-    if not hasattr(self, "__await__"):
-
-        async def _awaitable():
-            return self.return_value
-
-        self.__await__ = lambda: _awaitable().__await__()
-
-
-# Apply the patch
-AsyncMock.__init__ = patched_asyncmock_init
 
 
 # Helper function to sanitize model creation

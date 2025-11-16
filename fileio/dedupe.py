@@ -1088,7 +1088,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     existing_by_id.content_hash = file_hash
                 session.add(existing_by_id)
                 await session.flush()
-                return True
+                return False
 
             # Handle path normalization
             if (

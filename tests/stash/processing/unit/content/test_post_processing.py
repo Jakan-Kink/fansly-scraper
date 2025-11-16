@@ -10,7 +10,11 @@ from sqlalchemy.orm import selectinload
 from metadata import Account, Post
 from metadata.attachment import ContentType
 from stash.types import Performer, Studio
-from tests.fixtures import AccountFactory, AttachmentFactory, PostFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    AttachmentFactory,
+    PostFactory,
+)
 
 
 class TestPostProcessing:

@@ -186,7 +186,13 @@ def test_post(session_sync, test_account, test_attachment):
     session_sync.add(test_attachment)
     session_sync.commit()
 
+    # Expire the attachments relationship to force reload
+    session_sync.expire(post, ["attachments"])
     session_sync.refresh(post)
+
+    # Explicitly access attachments to force eager loading
+    _ = post.attachments
+
     return post
 
 
@@ -243,9 +249,11 @@ def test_posts(session_sync, test_account):
     # Commit all at once
     session_sync.commit()
 
-    # Refresh all objects
+    # Refresh all objects and force-load attachments
     for post in posts:
+        session_sync.expire(post, ["attachments"])
         session_sync.refresh(post)
+        _ = post.attachments  # Force eager loading
 
     return posts
 
@@ -273,12 +281,17 @@ def test_message(session_sync, test_group, test_account, test_attachment):
     session_sync.commit()
 
     # Update attachment to link to this message
-    test_attachment.contentId = message.id
-    test_attachment.contentType = ContentType.ACCOUNT_MEDIA
+    test_attachment.messageId = message.id
     session_sync.add(test_attachment)
     session_sync.commit()
 
+    # Expire the attachments relationship to force reload
+    session_sync.expire(message, ["attachments"])
     session_sync.refresh(message)
+
+    # Explicitly access attachments to force eager loading
+    _ = message.attachments
+
     return message
 
 

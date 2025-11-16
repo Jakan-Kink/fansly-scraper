@@ -19,35 +19,17 @@ from datetime import UTC, datetime
 
 import pytest
 
-from stash.processing.mixins.media import MediaProcessingMixin
-from stash.types import Scene
-from tests.fixtures.metadata_factories import AccountFactory, PostFactory
+from stash.client.utils import sanitize_model_data
+from stash.types import Image, Scene
+from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 
 
-class TestMediaMixin(MediaProcessingMixin):
-    """Test class that implements MediaProcessingMixin for integration testing."""
-
-    def __init__(self, context, database):
-        """Initialize test mixin with real context and database."""
-        self.context = context
-        self.database = database
-        self.log = None  # Not used in integration tests
-
-
-@pytest.mark.skip(
-    reason="Requires real Docker Stash instance - run manually when Stash is available"
-)
 class TestMetadataUpdateIntegration:
     """Integration tests for _update_stash_metadata with real infrastructure."""
 
-    @pytest.fixture
-    def media_mixin(self, stash_context, test_database_sync):
-        """Create media mixin with real Stash context and database."""
-        return TestMediaMixin(context=stash_context, database=test_database_sync)
-
     @pytest.mark.asyncio
     async def test_update_stash_metadata_find_existing_image(
-        self, media_mixin, session_sync, factory_session, stash_client
+        self, media_mixin, factory_session, stash_client, stash_cleanup_tracker
     ):
         """Test _update_stash_metadata with existing Image from Stash.
 
@@ -60,26 +42,31 @@ class TestMetadataUpdateIntegration:
         3. Updates the Image metadata using _update_stash_metadata
         4. Verifies the Image was updated in Stash
         5. Restores original metadata
+
+        Note: stash_cleanup_tracker is included to satisfy the enforcement hook in conftest.py,
+        even though this test doesn't create new objects (only modifies existing ones).
         """
-        # Create real account in database
-        account = AccountFactory(username="integration_test_user")
-        session_sync.commit()
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create real account in database
+            account = AccountFactory(username="integration_test_user")
 
-        # Create real post in database
-        post = PostFactory(
-            accountId=account.id,
-            content="Integration test post #test #integration",
-        )
-        session_sync.commit()
+            # Create real post in database
+            post = PostFactory(
+                accountId=account.id,
+                content="Integration test post #test #integration",
+            )
 
-        try:
             # Try to find an existing image in Stash
             results = await stash_client.find_images(filter_={"per_page": 1})
 
             if not results or results.count == 0:
                 pytest.skip("No images found in Stash - cannot test Image update")
 
-            image = results.images[0]
+            # NOTE: Strawberry doesn't properly deserialize nested objects,
+            # so results.images is a list of dicts, not Image objects.
+            # Need to manually convert to Image object.
+            image_dict = results.images[0]
+            image = Image(**sanitize_model_data(image_dict))
 
             # Save original metadata for restoration
             original_title = image.title
@@ -89,6 +76,7 @@ class TestMetadataUpdateIntegration:
             original_urls = image.urls.copy() if image.urls else []
 
             # Call the method under test
+            # NOTE: This will create a Studio via process_creator_studio()
             await media_mixin._update_stash_metadata(
                 stash_obj=image,
                 item=post,
@@ -96,6 +84,16 @@ class TestMetadataUpdateIntegration:
                 media_id="media_12345",
                 is_preview=False,
             )
+
+            # Track the created studio for cleanup
+            studio_name = f"{account.username} (Fansly)"
+            studio_results = await stash_client.find_studios(q=studio_name)
+            if studio_results.count > 0:
+                studio_dict = studio_results.studios[0]
+                from stash.types import Studio
+
+                studio = Studio(**sanitize_model_data(studio_dict))
+                cleanup["studios"].append(studio.id)
 
             # Verify metadata was set correctly
             assert image.title is not None
@@ -112,11 +110,7 @@ class TestMetadataUpdateIntegration:
             image.urls = original_urls
             await image.save(stash_client)
 
-        finally:
-            # Cleanup: Delete test objects from database
-            session_sync.delete(post)
-            session_sync.delete(account)
-            session_sync.commit()
+            # Automatic cleanup of studio happens when exiting context
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_real_scene(
@@ -125,16 +119,17 @@ class TestMetadataUpdateIntegration:
         session_sync,
         factory_session,
         stash_client,
+        stash_cleanup_tracker,
         enable_scene_creation,
     ):
         """Test _update_stash_metadata with real Scene object created in Stash.
 
         This test:
-        1. Creates a real Account and Post in PostgreSQL
+        1. Creates a real Account and Post in PostgreSQL (using UUID DB session for cleanup)
         2. Creates a real Scene in Stash via API
         3. Updates the Scene metadata using _update_stash_metadata
         4. Verifies the Scene was updated in Stash
-        5. Cleans up by deleting the Scene from Stash
+        5. Cleans up by deleting the Scene from Stash (automatic via cleanup tracker)
         """
         # Create real account in database
         account = AccountFactory(username="integration_scene_user")
@@ -147,21 +142,22 @@ class TestMetadataUpdateIntegration:
         )
         session_sync.commit()
 
-        scene_id = None
-        try:
+        async with stash_cleanup_tracker(stash_client) as cleanup:
             # Create a real Scene in Stash via API
             scene = Scene(
+                id="new",  # Signal to to_input() this is a new object
                 title="Test Scene Before Update",
                 urls=["https://example.com/original_scene"],
                 organized=False,
             )
             created_scene = await stash_client.create_scene(scene)
-            scene_id = created_scene.id
+            cleanup["scenes"].append(created_scene.id)
 
             # Fetch the scene to ensure we have the full object
-            scene = await stash_client.find_scene(scene_id)
+            scene = await stash_client.find_scene(created_scene.id)
 
             # Call the method under test
+            # NOTE: This will create a Studio via process_creator_studio()
             await media_mixin._update_stash_metadata(
                 stash_obj=scene,
                 item=post,
@@ -169,6 +165,16 @@ class TestMetadataUpdateIntegration:
                 media_id="media_67890",
                 is_preview=False,
             )
+
+            # Track the created studio for cleanup
+            studio_name = f"{account.username} (Fansly)"
+            studio_results = await stash_client.find_studios(q=studio_name)
+            if studio_results.count > 0:
+                studio_dict = studio_results.studios[0]
+                from stash.types import Studio
+
+                studio = Studio(**sanitize_model_data(studio_dict))
+                cleanup["studios"].append(studio.id)
 
             # Verify metadata was set correctly
             assert scene.title is not None
@@ -179,26 +185,11 @@ class TestMetadataUpdateIntegration:
 
             # Verify the changes were persisted to Stash
             # (the save() call happens inside _update_stash_metadata)
-            fetched_scene = await stash_client.find_scene(scene_id)
+            fetched_scene = await stash_client.find_scene(created_scene.id)
             assert fetched_scene.code == "media_67890"
             assert fetched_scene.details == post.content
 
-        finally:
-            # Cleanup: Delete scene from Stash
-            if scene_id:
-                await stash_client.execute(
-                    """
-                    mutation DeleteScene($id: ID!) {
-                        sceneDestroy(input: { id: $id })
-                    }
-                    """,
-                    {"id": scene_id},
-                )
-
-            # Cleanup: Delete test objects from database
-            session_sync.delete(post)
-            session_sync.delete(account)
-            session_sync.commit()
+            # Automatic cleanup of scene happens when exiting context
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_preserves_earliest_date(
@@ -207,6 +198,7 @@ class TestMetadataUpdateIntegration:
         session_sync,
         factory_session,
         stash_client,
+        stash_cleanup_tracker,
         enable_scene_creation,
     ):
         """Test that _update_stash_metadata preserves the earliest date.
@@ -235,10 +227,10 @@ class TestMetadataUpdateIntegration:
         )
         session_sync.commit()
 
-        scene_id = None
-        try:
+        async with stash_cleanup_tracker(stash_client) as cleanup:
             # Create scene with earlier date in Stash
             scene = Scene(
+                id="new",  # Signal to to_input() this is a new object
                 title="Original Title",
                 date="2024-01-01",  # Earlier date
                 code="original_code",
@@ -246,10 +238,10 @@ class TestMetadataUpdateIntegration:
                 urls=["https://example.com/original"],
             )
             created_scene = await stash_client.create_scene(scene)
-            scene_id = created_scene.id
+            cleanup["scenes"].append(created_scene.id)
 
             # Fetch the scene
-            scene = await stash_client.find_scene(scene_id)
+            scene = await stash_client.find_scene(created_scene.id)
 
             # Try to update with later post - should NOT update
             await media_mixin._update_stash_metadata(
@@ -270,7 +262,7 @@ class TestMetadataUpdateIntegration:
             await scene.save(stash_client)
 
             # Fetch updated scene
-            scene = await stash_client.find_scene(scene_id)
+            scene = await stash_client.find_scene(created_scene.id)
 
             # Update with earlier post - should UPDATE
             await media_mixin._update_stash_metadata(
@@ -286,23 +278,18 @@ class TestMetadataUpdateIntegration:
             assert scene.date == "2024-01-01"  # Updated to earlier date
             assert scene.code == "media_earlier"  # Updated code
 
-        finally:
-            # Cleanup: Delete scene from Stash
-            if scene_id:
-                await stash_client.execute(
-                    """
-                    mutation DeleteScene($id: ID!) {
-                        sceneDestroy(input: { id: $id })
-                    }
-                    """,
-                    {"id": scene_id},
-                )
+            # Track the created studio for cleanup
+            # NOTE: Studio may have been created on first or second _update_stash_metadata call
+            studio_name = f"{account.username} (Fansly)"
+            studio_results = await stash_client.find_studios(q=studio_name)
+            if studio_results.count > 0:
+                studio_dict = studio_results.studios[0]
+                from stash.types import Studio
 
-            # Cleanup
-            session_sync.delete(earlier_post)
-            session_sync.delete(later_post)
-            session_sync.delete(account)
-            session_sync.commit()
+                studio = Studio(**sanitize_model_data(studio_dict))
+                cleanup["studios"].append(studio.id)
+
+            # Automatic cleanup of scene happens when exiting context
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_skips_organized(
@@ -311,6 +298,7 @@ class TestMetadataUpdateIntegration:
         session_sync,
         factory_session,
         stash_client,
+        stash_cleanup_tracker,
         enable_scene_creation,
     ):
         """Test that _update_stash_metadata skips organized objects.
@@ -322,10 +310,10 @@ class TestMetadataUpdateIntegration:
         post = PostFactory(accountId=account.id, content="Test post")
         session_sync.commit()
 
-        scene_id = None
-        try:
+        async with stash_cleanup_tracker(stash_client) as cleanup:
             # Create organized scene in Stash
             scene = Scene(
+                id="new",  # Signal to to_input() this is a new object
                 title="Original Organized Title",
                 date="2024-03-01",
                 code="organized_code",
@@ -333,10 +321,10 @@ class TestMetadataUpdateIntegration:
                 urls=["https://example.com/organized"],
             )
             created_scene = await stash_client.create_scene(scene)
-            scene_id = created_scene.id
+            cleanup["scenes"].append(created_scene.id)
 
             # Fetch the scene
-            scene = await stash_client.find_scene(scene_id)
+            scene = await stash_client.find_scene(created_scene.id)
 
             # Try to update - should be skipped
             await media_mixin._update_stash_metadata(
@@ -347,28 +335,21 @@ class TestMetadataUpdateIntegration:
                 is_preview=False,
             )
 
+            # Track the created studio for cleanup
+            studio_name = f"{account.username} (Fansly)"
+            studio_results = await stash_client.find_studios(q=studio_name)
+            if studio_results.count > 0:
+                studio_dict = studio_results.studios[0]
+                from stash.types import Studio
+
+                studio = Studio(**sanitize_model_data(studio_dict))
+                cleanup["studios"].append(studio.id)
+
             # Verify metadata was NOT changed
             assert scene.title == "Original Organized Title"
             assert scene.code == "organized_code"
 
             # Verify nothing was saved (scene.save was not called)
-            fetched_scene = await stash_client.find_scene(scene_id)
+            fetched_scene = await stash_client.find_scene(created_scene.id)
             assert fetched_scene.title == "Original Organized Title"
             assert fetched_scene.code == "organized_code"
-
-        finally:
-            # Cleanup: Delete scene from Stash
-            if scene_id:
-                await stash_client.execute(
-                    """
-                    mutation DeleteScene($id: ID!) {
-                        sceneDestroy(input: { id: $id })
-                    }
-                    """,
-                    {"id": scene_id},
-                )
-
-            # Cleanup
-            session_sync.delete(post)
-            session_sync.delete(account)
-            session_sync.commit()

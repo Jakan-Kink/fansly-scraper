@@ -282,7 +282,10 @@ async def test_find_scene(
 
 @pytest.mark.asyncio
 async def test_find_scenes(
-    stash_client: StashClient, mock_scene: Scene, mock_result: FindScenesResultType
+    stash_client: StashClient,
+    stash_cleanup_tracker,
+    mock_scene: Scene,
+    mock_result: FindScenesResultType,
 ) -> None:
     """Test finding scenes with filters."""
     # Clean the data to prevent _dirty_attrs errors
@@ -464,7 +467,7 @@ async def test_update_scene(
 
 @pytest.mark.asyncio
 async def test_scene_generate_screenshot(
-    stash_client: StashClient, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
 ) -> None:
     """Test generating a scene screenshot."""
     # Set up a proper mock path
@@ -503,7 +506,7 @@ async def test_scene_generate_screenshot(
 
 @pytest.mark.asyncio
 async def test_scene_generate_screenshot_error(
-    stash_client: StashClient, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
 ) -> None:
     """Test handling errors when generating a scene screenshot."""
     # Test GraphQL error
@@ -520,7 +523,7 @@ async def test_scene_generate_screenshot_error(
 
 @pytest.mark.asyncio
 async def test_find_duplicate_scenes(
-    stash_client: StashClient, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
 ) -> None:
     """Test finding duplicate scenes."""
     mock_result = [[mock_scene, mock_scene]]

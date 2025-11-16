@@ -494,14 +494,15 @@ def test_performer_from_dict_strawberry_definition_fallback() -> None:
 @pytest.mark.unit
 def test_performer_from_account_method() -> None:
     """Test Performer.from_account method creates performer from account."""
-    # Create mock account with full data
-    mock_account = Mock()
-    mock_account.display_name = "Display Name"
-    mock_account.username = "username"
-    mock_account.screen_name = "Screen Name"
-    mock_account.bio = "Test bio"
+    # Import AccountFactory for use
+    from tests.fixtures.metadata.metadata_factories import AccountFactory
 
-    performer = Performer.from_account(mock_account)
+    # Create account using factory with realistic data
+    account = AccountFactory.build(
+        displayName="Display Name", username="username", about="Test bio"
+    )
+
+    performer = Performer.from_account(account)
 
     # Verify basic fields
     assert performer.id == "new"
@@ -523,40 +524,35 @@ def test_performer_from_account_method() -> None:
 @pytest.mark.unit
 def test_performer_from_account_fallback_names() -> None:
     """Test Performer.from_account handles missing name fields."""
-    # Test with only username
-    mock_account = Mock()
-    mock_account.display_name = None
-    mock_account.username = "username_only"
-    mock_account.screen_name = None
-    mock_account.bio = None
+    # Import AccountFactory for use
+    from tests.fixtures.metadata.metadata_factories import AccountFactory
 
-    performer = Performer.from_account(mock_account)
+    # Test with only username
+    account = AccountFactory.build(
+        displayName=None, username="username_only", about=None
+    )
+
+    performer = Performer.from_account(account)
 
     assert performer.name == "username_only"
     assert performer.alias_list == []  # No alias since using username as name
-    assert performer.details == ""  # Empty string for None bio
+    assert performer.details == ""  # Empty string for None about
 
-    # Test with only screen_name
-    mock_account2 = Mock()
-    mock_account2.display_name = None
-    mock_account2.username = None
-    mock_account2.screen_name = "screen_only"
-    mock_account2.bio = "Bio text"
+    # Test with username and about but no displayName
+    account2 = AccountFactory.build(
+        displayName=None, username="user_with_bio", about="Bio text"
+    )
 
-    performer2 = Performer.from_account(mock_account2)
+    performer2 = Performer.from_account(account2)
 
-    assert performer2.name == "screen_only"
-    assert performer2.urls == []  # No URL without username
+    assert performer2.name == "user_with_bio"
+    assert performer2.urls == ["https://fansly.com/user_with_bio/posts"]
     assert performer2.details == "Bio text"
 
     # Test with all names None - should fallback to "Unknown"
-    mock_account3 = Mock()
-    mock_account3.display_name = None
-    mock_account3.username = None
-    mock_account3.screen_name = None
-    mock_account3.bio = None
+    account3 = AccountFactory.build(displayName=None, username=None, about=None)
 
-    performer3 = Performer.from_account(mock_account3)
+    performer3 = Performer.from_account(account3)
 
     assert performer3.name == "Unknown"
     assert performer3.alias_list == []
@@ -566,15 +562,18 @@ def test_performer_from_account_fallback_names() -> None:
 @pytest.mark.unit
 def test_performer_from_account_alias_case_sensitivity() -> None:
     """Test Performer.from_account handles alias case sensitivity correctly."""
-    # Test case where display_name and username are same (case-insensitive)
-    mock_account = Mock()
-    mock_account.display_name = "SameUser"
-    mock_account.username = "sameuser"  # Different case
-    mock_account.screen_name = None
-    mock_account.bio = None
+    # Import AccountFactory for use
+    from tests.fixtures.metadata.metadata_factories import AccountFactory
 
-    performer = Performer.from_account(mock_account)
+    # Test case where displayName and username are same (case-insensitive)
+    account = AccountFactory.build(
+        displayName="SameUser",
+        username="sameuser",  # Different case
+        about=None,
+    )
 
-    # Should not add username as alias since it's same as display_name (case-insensitive)
+    performer = Performer.from_account(account)
+
+    # Should not add username as alias since it's same as displayName (case-insensitive)
     assert performer.name == "SameUser"
     assert performer.alias_list == []

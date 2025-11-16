@@ -142,7 +142,7 @@ async def test_find_tags_error_alternative(
 
 @pytest.mark.asyncio
 async def test_merge_tags_error_alternative(
-    stash_client: StashClient, mock_tag: Tag
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
 ) -> None:
     """Test handling errors when merging tags."""
     # Mock execute to raise a test error
@@ -170,7 +170,7 @@ async def test_merge_tags_error_alternative(
 
 @pytest.mark.asyncio
 async def test_bulk_tag_update_error_alternative(
-    stash_client: StashClient, mock_tag: Tag
+    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
 ) -> None:
     """Test handling errors when bulk updating tags."""
     # Mock execute to raise a test error

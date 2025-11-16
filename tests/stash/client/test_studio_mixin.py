@@ -184,7 +184,7 @@ async def test_create_studio(
 
 @pytest.mark.asyncio
 async def test_create_studio_error(
-    stash_client: StashClient, mock_studio: Studio
+    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
 ) -> None:
     """Test handling errors when creating a studio."""
     with (
@@ -288,7 +288,7 @@ async def test_update_studio(
 
 @pytest.mark.asyncio
 async def test_update_studio_error(
-    stash_client: StashClient, mock_studio: Studio
+    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
 ) -> None:
     """Test handling errors when updating a studio."""
     with (

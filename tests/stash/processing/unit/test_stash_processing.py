@@ -10,18 +10,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from stash.context import StashContext
 from stash.processing import StashProcessing
 from stash.types import Image
-from tests.fixtures import AccountFactory, PerformerFactory
+from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.stash.stash_type_factories import PerformerFactory
 
 
 # Most fixtures are imported from tests.fixtures via conftest.py:
-# - mock_config, mock_state, mock_context, mock_database (from stash_integration_fixtures)
+# - mock_config, test_state (from stash_integration_fixtures)
 # - stash_processor (for integration tests)
 #
-# For unit tests, we define a simple processor fixture below that uses mocked dependencies
+# For unit tests, we define mock_context and mock_database fixtures locally
 
 
 @pytest.fixture
-def processor(mock_config, mock_state, mock_context, mock_database):
+def mock_context():
+    """Fixture for mock stash context."""
+    context = MagicMock(spec=StashContext)
+    context.client = MagicMock()
+    context.get_client = AsyncMock()
+    return context
+
+
+@pytest.fixture
+def mock_database():
+    """Fixture for mock database."""
+    database = MagicMock()
+    return database
+
+
+@pytest.fixture
+def processor(mock_config, test_state, mock_context, mock_database):
     """Fixture for stash processor instance for unit testing.
 
     This creates a StashProcessing instance with all dependencies mocked.
@@ -29,7 +46,7 @@ def processor(mock_config, mock_state, mock_context, mock_database):
     """
     processor = StashProcessing(
         config=mock_config,
-        state=mock_state,
+        state=test_state,
         context=mock_context,
         database=mock_database,
         _background_task=None,
@@ -42,12 +59,12 @@ def processor(mock_config, mock_state, mock_context, mock_database):
 class TestStashProcessingBasics:
     """Test the basic functionality of StashProcessing class."""
 
-    def test_init(self, mock_config, mock_state, mock_context, mock_database):
+    def test_init(self, mock_config, test_state, mock_context, mock_database):
         """Test initialization of StashProcessing."""
         # Create without background task
         processor = StashProcessing(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
             _background_task=None,
@@ -57,7 +74,7 @@ class TestStashProcessingBasics:
 
         # Verify attributes
         assert processor.config == mock_config
-        assert processor.state == mock_state
+        assert processor.state == test_state
         assert processor.context == mock_context
         assert processor.database == mock_database
         assert processor._background_task is None
@@ -65,46 +82,56 @@ class TestStashProcessingBasics:
         assert not processor._owns_db
         assert isinstance(processor.log, logging.Logger)
 
-        # Create with background task
-        mock_task = MagicMock()
+        # Create with background task - use real asyncio.Task
+        async def dummy_task():
+            await asyncio.sleep(0)
+
+        real_task = asyncio.create_task(dummy_task())
         processor = StashProcessing(
             config=mock_config,
-            state=mock_state,
+            state=test_state,
             context=mock_context,
             database=mock_database,
-            _background_task=mock_task,
+            _background_task=real_task,
             _cleanup_event=None,
             _owns_db=True,
         )
 
         # Verify attributes
-        assert processor._background_task == mock_task
+        assert processor._background_task == real_task
         assert not processor._cleanup_event.is_set()
         assert processor._owns_db
 
-    def test_from_config(self, mock_config, mock_state):
+        # Clean up task
+        real_task.cancel()
+
+    def test_from_config(self, mock_config, test_state):
         """Test creating processor from config."""
-        # Mock get_stash_context
-        mock_context = MagicMock(spec=StashContext)
+        # Configure real stash context connection instead of mocking
+        mock_config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": 9999,
+            "apikey": "test_api_key",
+        }
 
-        # Use patch to mock the method
-        with patch.object(mock_config, "get_stash_context", return_value=mock_context):
-            # Call from_config
-            processor = StashProcessing.from_config(
-                config=mock_config,
-                state=mock_state,
-            )
+        # Call from_config
+        processor = StashProcessing.from_config(
+            config=mock_config,
+            state=test_state,
+        )
 
-            # Verify processor
-            assert processor.config == mock_config
-            assert processor.state is not mock_state  # Should be a copy
-            assert processor.state.creator_id == mock_state.creator_id
-            assert processor.state.creator_name == mock_state.creator_name
-            assert processor.context == mock_context
-            assert processor.database == mock_config._database
-            assert processor._background_task is None
-            assert not processor._cleanup_event.is_set()
-            assert not processor._owns_db
+        # Verify processor
+        assert processor.config == mock_config
+        assert processor.state is not test_state  # Should be a copy
+        assert processor.state.creator_id == test_state.creator_id
+        assert processor.state.creator_name == test_state.creator_name
+        # Context should be real StashContext from get_stash_context()
+        assert processor.context is not None
+        assert processor.database == mock_config._database
+        assert processor._background_task is None
+        assert not processor._cleanup_event.is_set()
+        assert not processor._owns_db
 
 
 class TestStashProcessingAccount:

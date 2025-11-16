@@ -32,8 +32,7 @@ from urllib.parse import quote_plus
 
 import pytest
 import pytest_asyncio
-from alembic.config import Config as AlembicConfig
-from sqlalchemy import create_engine, event, inspect, select, text
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import Connection, ExecutionContext
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -56,8 +55,23 @@ from metadata import (
     Wall,
     account_media_bundle_media,
 )
-from tests.fixtures import metadata_factories
-from tests.fixtures.metadata_factories import AccountFactory
+from tests.fixtures.metadata.metadata_factories import (
+    AccountFactory,
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
+    AttachmentFactory,
+    GroupFactory,
+    HashtagFactory,
+    MediaFactory,
+    MediaLocationFactory,
+    MediaStoryStateFactory,
+    MessageFactory,
+    PostFactory,
+    StoryFactory,
+    StubTrackerFactory,
+    TimelineStatsFactory,
+    WallFactory,
+)
 
 
 T = TypeVar("T")
@@ -65,6 +79,7 @@ T = TypeVar("T")
 # Export all fixtures for wildcard import
 __all__ = [
     "config",
+    "config_with_database",
     "conversation_data",
     "factory_async_session",
     "factory_session",
@@ -173,7 +188,16 @@ def uuid_test_db_factory(request: Any) -> Generator[FanslyConfig, None, None]:
 
 
 class TestDatabase(Database):
-    """Enhanced database class for testing with PostgreSQL."""
+    """Enhanced database class for testing with PostgreSQL.
+
+    Extends base Database class with:
+    - Configurable isolation level (default: SERIALIZABLE)
+    - Query performance monitoring (logs queries > 100ms)
+    - Test-specific event listeners
+
+    Does NOT create tables - that's the responsibility of the test_engine fixture
+    or the base Database class migrations.
+    """
 
     def __init__(
         self,
@@ -181,36 +205,29 @@ class TestDatabase(Database):
         isolation_level: str = "SERIALIZABLE",
         skip_migrations: bool = False,
     ):
-        """Initialize test database with configurable isolation level."""
-        self.skip_migrations = skip_migrations
+        """Initialize test database with configurable isolation level.
+
+        Args:
+            config: FanslyConfig instance
+            isolation_level: PostgreSQL isolation level (default: SERIALIZABLE)
+            skip_migrations: Skip running Alembic migrations
+        """
         self.isolation_level = isolation_level
+
+        # Call parent init - this creates engines WITH timezone listeners
         super().__init__(config, skip_migrations=skip_migrations)
-        self._setup_engine()
 
-    def _verify_tables_created(self, inspector: Any) -> None:
-        """Verify that database tables were created successfully."""
-        table_names = inspector.get_table_names()
-        if not table_names:
-            raise RuntimeError("Failed to create database tables")
-        # Log created tables for debugging
-        print(f"Created tables: {', '.join(sorted(table_names))}")
+        # Add test-specific enhancements WITHOUT recreating engines
+        self._setup_test_enhancements()
 
-    def _setup_engine(self) -> None:
-        """Set up database engine with enhanced test configuration for PostgreSQL."""
-        # Build PostgreSQL connection URL
-        pg_password = self.config.pg_password or os.getenv("FANSLY_PG_PASSWORD", "")
-        db_url = f"postgresql://{self.config.pg_user}:{pg_password}@{self.config.pg_host}:{self.config.pg_port}/{self.config.pg_database}"
+    def _setup_test_enhancements(self) -> None:
+        """Add test-specific event listeners and configure isolation level.
 
-        # Create sync engine for PostgreSQL
-        self._sync_engine = create_engine(
-            db_url,
-            isolation_level=self.isolation_level,
-            echo=False,
-            pool_pre_ping=True,
-            pool_recycle=3600,
-        )
-
-        # Add event listeners for debugging and monitoring
+        This method:
+        1. Adds query timing listeners for performance monitoring
+        2. Sets isolation level using execution_options() (preserves parent's listeners)
+        """
+        # Add test-specific event listeners for debugging and monitoring
         event.listen(
             self._sync_engine, "before_cursor_execute", self._before_cursor_execute
         )
@@ -218,35 +235,42 @@ class TestDatabase(Database):
             self._sync_engine, "after_cursor_execute", self._after_cursor_execute
         )
 
-        # Create all tables in dependency order
-        try:
-            with self._sync_engine.connect() as conn:
-                if not self.skip_migrations:
-                    Base.metadata.create_all(bind=conn, checkfirst=True)
+        # Set isolation level using execution_options (creates derived engine)
+        # This preserves all event listeners from parent Database class
+        if self.isolation_level != "READ COMMITTED":  # PostgreSQL default
+            self._sync_engine = self._sync_engine.execution_options(
+                isolation_level=self.isolation_level
+            )
 
-                    # Verify tables were created
-                    inspector = inspect(self._sync_engine)
-                    self._verify_tables_created(inspector)
+        # For async engine, isolation level must be set at creation time
+        # The parent Database class already created it, so we need to recreate
+        # only if we need a different isolation level
+        if self.isolation_level != "READ COMMITTED":
+            # Get connection URL from existing engine
+            pg_password = self.config.pg_password or os.getenv("FANSLY_PG_PASSWORD", "")
+            async_url = f"postgresql+asyncpg://{self.config.pg_user}:{pg_password}@{self.config.pg_host}:{self.config.pg_port}/{self.config.pg_database}"
 
-                conn.commit()
-        except Exception as e:
-            # Ignore "already exists" errors that can occur with parallel test execution
-            if "already exists" not in str(e).lower():
-                raise
+            # Dispose old async engine
+            if hasattr(self, "_async_engine") and self._async_engine is not None:
+                # Note: Can't await in __init__, so this is sync dispose
+                # The engine will be properly disposed in async cleanup
+                pass
 
-        # Create async engine and session factory for PostgreSQL
-        async_url = f"postgresql+asyncpg://{self.config.pg_user}:{pg_password}@{self.config.pg_host}:{self.config.pg_port}/{self.config.pg_database}"
-        self._async_engine = create_async_engine(
-            async_url,
-            isolation_level=self.isolation_level,
-            echo=False,
-            pool_pre_ping=True,
-        )
-        self._async_session_factory = async_sessionmaker(
-            bind=self._async_engine,
-            expire_on_commit=False,
-            class_=AsyncSession,
-        )
+            # Create new async engine with SERIALIZABLE isolation
+            self._async_engine = create_async_engine(
+                async_url,
+                isolation_level=self.isolation_level,
+                echo=False,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+            )
+
+            # Recreate session factory with new engine
+            self._async_session_factory = async_sessionmaker(
+                bind=self._async_engine,
+                expire_on_commit=False,
+                class_=AsyncSession,
+            )
 
     @property
     def async_session_factory(self) -> async_sessionmaker[AsyncSession]:
@@ -350,37 +374,40 @@ class TestDatabase(Database):
             await session.rollback()
             raise
 
-    def _run_migrations_if_needed(self, alembic_cfg: AlembicConfig) -> None:
-        """Override to optionally skip migrations."""
-        if self.skip_migrations:
-            return
-        super()._run_migrations_if_needed(alembic_cfg)  # type: ignore[attr-defined]
-
 
 @pytest.fixture(scope="session")
 def test_data_dir() -> str:
     """Get the directory containing test data files."""
-    return str(Path(__file__).parent.parent / "json")
+    return str(Path(__file__).parent.parent.parent / "json")
 
 
 @pytest.fixture(scope="session")
 def timeline_data(test_data_dir: str) -> dict[str, Any]:
     """Load timeline test data."""
-    with (Path(test_data_dir) / "timeline-sample-account.json").open() as f:
+    json_file = Path(test_data_dir) / "timeline-sample-account.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
 def json_conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load conversation test data."""
-    with (Path(test_data_dir) / "conversation-sample-account.json").open() as f:
+    json_file = Path(test_data_dir) / "conversation-sample-account.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="session")
 def conversation_data(test_data_dir: str) -> dict[str, Any]:
     """Load test message variants data for testing media variants and bundles."""
-    with (Path(test_data_dir) / "test_message_variants.json").open() as f:
+    json_file = Path(test_data_dir) / "test_message_variants.json"
+    if not json_file.exists():
+        pytest.skip(f"Test data file not found: {json_file}")
+    with json_file.open() as f:
         return json.load(f)  # type: ignore[no-any-return]
 
 
@@ -511,6 +538,32 @@ def config(uuid_test_db_factory) -> FanslyConfig:
     config.db_sync_min_size = 50
     config.db_sync_commits = 1000
     config.db_sync_seconds = 60
+
+    return config
+
+
+@pytest.fixture
+def config_with_database(uuid_test_db_factory) -> FanslyConfig:
+    """Create a test configuration with initialized database.
+
+    This follows the uuid_test_db_factory usage pattern:
+        config = uuid_test_db_factory()
+        database = Database(config)
+
+    The database is initialized with skip_migrations=True since test_engine
+    fixture already creates tables.
+
+    Returns:
+        FanslyConfig with _database initialized and ready to use
+    """
+    config = uuid_test_db_factory
+    # Database sync settings (deprecated for PostgreSQL but kept for compatibility)
+    config.db_sync_min_size = 50
+    config.db_sync_commits = 1000
+    config.db_sync_seconds = 60
+
+    # Initialize database with migrations skipped (tables created by test_engine)
+    config._database = Database(config, skip_migrations=True)
 
     return config
 
@@ -683,9 +736,8 @@ async def test_media(session: AsyncSession, test_account: Account) -> Media:
             width=1920,
             height=1080,
             duration=30.5,
-            size=1024 * 1024,  # 1MB
-            hash="test_hash",
-            url="https://example.com/test.mp4",
+            content_hash="test_hash",  # Use content_hash instead of hash
+            location="https://example.com/test.mp4",  # Use location instead of url
             createdAt=datetime.now(UTC),
         )
 
@@ -711,11 +763,8 @@ async def test_account_media(
             accountId=test_account.id,
             mediaId=test_media.id,
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            status="active",
-            type="video",
-            title="Test Media Title",
-            description="Test media description",
+            deleted=False,
+            access=True,
         )
 
     return await create_test_entity(
@@ -736,13 +785,7 @@ async def test_post(session: AsyncSession, test_account: Account) -> Post:
             accountId=test_account.id,
             content="Test post content",
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            type="text",
-            status="published",
-            title="Test Post Title",
-            description="Test post description",
-            likes=0,
-            comments=0,
+            fypFlag=0,
         )
 
     return await create_test_entity(
@@ -765,10 +808,6 @@ async def test_wall(session: AsyncSession, test_account: Account) -> Wall:
             description="Test wall description",
             pos=1,
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            status="active",
-            type="default",
-            postCount=0,
         )
 
     return await create_test_entity(
@@ -789,12 +828,7 @@ async def test_message(session: AsyncSession, test_account: Account) -> Message:
             senderId=test_account.id,
             content="Test message content",
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            type="text",
-            status="sent",
-            isEdited=False,
-            isDeleted=False,
-            hasAttachments=False,
+            deleted=False,
         )
 
     return await create_test_entity(
@@ -820,12 +854,10 @@ async def test_bundle(
             id=unique_id,
             accountId=test_account.id,
             createdAt=datetime.now(UTC),
-            updatedAt=datetime.now(UTC),
-            name=f"Test Bundle {unique_id}",
-            description="Test bundle description",
-            status="active",
-            type="collection",
-            mediaCount=1,
+            deleted=False,
+            access=True,
+            purchased=False,
+            whitelisted=False,
         )
         session.add(bundle)
         await session.flush()
@@ -890,21 +922,21 @@ def factory_session(test_database_sync: Database):
 
     # Get all factory classes (BaseFactory and all subclasses)
     factory_classes = [
-        metadata_factories.AccountFactory,
-        metadata_factories.MediaFactory,
-        metadata_factories.MediaLocationFactory,
-        metadata_factories.PostFactory,
-        metadata_factories.GroupFactory,
-        metadata_factories.MessageFactory,
-        metadata_factories.AttachmentFactory,
-        metadata_factories.AccountMediaFactory,
-        metadata_factories.AccountMediaBundleFactory,
-        metadata_factories.HashtagFactory,
-        metadata_factories.StoryFactory,
-        metadata_factories.WallFactory,
-        metadata_factories.MediaStoryStateFactory,
-        metadata_factories.TimelineStatsFactory,
-        metadata_factories.StubTrackerFactory,
+        AccountFactory,
+        MediaFactory,
+        MediaLocationFactory,
+        PostFactory,
+        GroupFactory,
+        MessageFactory,
+        AttachmentFactory,
+        AccountMediaFactory,
+        AccountMediaBundleFactory,
+        HashtagFactory,
+        StoryFactory,
+        WallFactory,
+        MediaStoryStateFactory,
+        TimelineStatsFactory,
+        StubTrackerFactory,
     ]
 
     # Configure all factory classes to use this direct session
@@ -961,21 +993,21 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
 
     # Get all factory classes
     factory_classes = [
-        metadata_factories.AccountFactory,
-        metadata_factories.MediaFactory,
-        metadata_factories.MediaLocationFactory,
-        metadata_factories.PostFactory,
-        metadata_factories.GroupFactory,
-        metadata_factories.MessageFactory,
-        metadata_factories.AttachmentFactory,
-        metadata_factories.AccountMediaFactory,
-        metadata_factories.AccountMediaBundleFactory,
-        metadata_factories.HashtagFactory,
-        metadata_factories.StoryFactory,
-        metadata_factories.WallFactory,
-        metadata_factories.MediaStoryStateFactory,
-        metadata_factories.TimelineStatsFactory,
-        metadata_factories.StubTrackerFactory,
+        AccountFactory,
+        MediaFactory,
+        MediaLocationFactory,
+        PostFactory,
+        GroupFactory,
+        MessageFactory,
+        AttachmentFactory,
+        AccountMediaFactory,
+        AccountMediaBundleFactory,
+        HashtagFactory,
+        StoryFactory,
+        WallFactory,
+        MediaStoryStateFactory,
+        TimelineStatsFactory,
+        StubTrackerFactory,
     ]
 
     # Configure all factory classes to use the sync session

@@ -1,10 +1,7 @@
 """Test media filtering functionality."""
 
-from contextlib import asynccontextmanager
-
 import pytest
 
-from config import FanslyConfig
 from download.common import process_download_accessible_media
 from download.downloadstate import DownloadState
 from download.types import DownloadType
@@ -105,53 +102,12 @@ def create_media_info(
 
 
 @pytest.fixture
-async def test_config_factory(tmp_path, mocker):
-    """Create a test configuration with mocked database."""
-    config = FanslyConfig(program_version="1.0.0")
+async def test_config_factory(tmp_path, uuid_test_db_factory):
+    """Create a test configuration with real database."""
+    config = uuid_test_db_factory
     config.download_media_previews = True
     config.interactive = False
     config.download_directory = tmp_path
-
-    # Create a mock query result that always indicates media is not yet downloaded
-    mock_result = mocker.Mock()
-    mock_result.scalars = lambda: mock_result
-    mock_result.all = list  # No existing media
-    mock_result.scalar_one_or_none = lambda: None  # No existing media
-
-    # Create a mock Media object that always indicates not downloaded
-    mock_media = mocker.Mock()
-    mock_media.is_downloaded = False
-    mock_media.id = None  # New media item
-
-    # Create a mock session that returns our mock media
-    mock_session = mocker.AsyncMock()
-    mock_session.execute.return_value = mock_result
-    mock_session.in_transaction.return_value = False
-
-    # session.add() is synchronous in SQLAlchemy, so use a regular Mock
-    mock_session.add = mocker.Mock()
-
-    # Mock get to return our mock media object
-    mock_session.get = mocker.AsyncMock(return_value=mock_media)
-
-    # Create async context manager for nested transactions
-    nested_ctx = mocker.AsyncMock()
-    nested_ctx.__aenter__.return_value = nested_ctx
-    mock_session.begin_nested.return_value = nested_ctx
-
-    # Create a proper async context manager for the database
-    @asynccontextmanager
-    async def mock_session_scope():
-        try:
-            yield mock_session
-        finally:
-            await mock_session.close()
-
-    # Create a mock database with async session scope
-    mock_db = mocker.AsyncMock()
-    mock_db.async_session_scope = mock_session_scope
-
-    config._database = mock_db
     return config
 
 
@@ -334,14 +290,16 @@ def media_infos():
 @pytest.fixture
 def mock_process_media_download(mocker):
     """Create a mock for process_media_download that simulates database interaction."""
+    from tests.fixtures.metadata import MediaFactory
 
     async def mock_process_download(config, state, media_item):
-        # Always return a new media record
-        mock_media = mocker.Mock()
-        mock_media.is_downloaded = False  # Never mark as downloaded
-        mock_media.id = media_item.media_id
-        mock_media.content_hash = None  # No existing hash
-        return mock_media
+        # Always return a new media record using MediaFactory
+        media = MediaFactory.build(
+            id=media_item.media_id,
+            is_downloaded=False,
+            content_hash=None,
+        )
+        return media
 
     return mocker.patch(
         "metadata.process_media_download", side_effect=mock_process_download

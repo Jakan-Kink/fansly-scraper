@@ -323,12 +323,16 @@ class HashtagFactory(BaseFactory):
 
     Example:
         hashtag = HashtagFactory(value="test")
+
+    Note:
+        ID is NOT set by factory - Hashtag uses autoincrement Integer (32-bit).
+        Hashtags are extracted from post content using # symbols, not from Fansly API.
     """
 
     class Meta:
         model = Hashtag
 
-    id = Sequence(lambda n: HASHTAG_ID_BASE + n)
+    # ID is autoincrement - do not set it
     value = Sequence(lambda n: f"tag_{n}")
     stash_id = None
 

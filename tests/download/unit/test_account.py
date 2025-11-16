@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-import requests
+import respx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.modes import DownloadMode
@@ -20,7 +20,9 @@ from download.account import (
 )
 from download.downloadstate import DownloadState
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
-from tests.fixtures import create_mock_response
+
+
+# Removed create_mock_response - all tests now use respx for edge mocking
 
 
 @pytest.fixture
@@ -85,77 +87,83 @@ class TestGetAccountResponse:
     """Tests for the _get_account_response function."""
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_get_client_account_info(self, mock_config_with_api, fansly_api):
         """Test getting client account info."""
         state = DownloadState()
         state.creator_name = None  # Client account
 
-        # Mock API response
-        mock_response = MagicMock(spec=requests.Response)
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"response": {"account": {"id": "client123"}}}
+        # Mock CORS preflight OPTIONS request
+        respx.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(200)
+        )
 
-        # Mock _make_rate_limited_request
-        with patch(
-            "download.account._make_rate_limited_request",
-            AsyncMock(return_value=mock_response),
-        ) as mock_rate_limited:
-            response = await _get_account_response(mock_config_with_api, state)
-
-            # Verify response and API call
-            assert response == mock_response
-            mock_rate_limited.assert_called_once_with(
-                fansly_api.get_client_account_info, rate_limit_delay=30.0
+        # Mock HTTP response at the edge (Fansly API endpoint)
+        respx.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+            return_value=httpx.Response(
+                200,
+                json={"response": {"account": {"id": "client123"}}},
             )
+        )
+
+        # Call real code path - will hit mocked HTTP endpoint
+        response = await _get_account_response(mock_config_with_api, state)
+
+        # Verify response
+        assert response.status_code == 200
+        assert response.json() == {"response": {"account": {"id": "client123"}}}
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_get_creator_account_info(self, mock_config_with_api, fansly_api):
         """Test getting creator account info."""
         state = DownloadState()
         state.creator_name = "testcreator"  # Creator account
 
-        # Mock API response
-        mock_response = MagicMock(spec=requests.Response)
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"response": [{"id": "creator123"}]}
+        # Mock CORS preflight OPTIONS request
+        respx.options(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
+        ).mock(return_value=httpx.Response(200))
 
-        # Mock _make_rate_limited_request
-        with patch(
-            "download.account._make_rate_limited_request",
-            AsyncMock(return_value=mock_response),
-        ) as mock_rate_limited:
-            response = await _get_account_response(mock_config_with_api, state)
-
-            # Verify response and API call
-            assert response == mock_response
-            mock_rate_limited.assert_called_once_with(
-                fansly_api.get_creator_account_info,
-                state.creator_name,
-                rate_limit_delay=30.0,
+        # Mock HTTP response at the edge (Fansly API endpoint) - includes ngsw-bypass param
+        respx.get(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={"response": [{"id": "creator123"}]},
             )
+        )
+
+        # Call real code path - will hit mocked HTTP endpoint
+        response = await _get_account_response(mock_config_with_api, state)
+
+        # Verify response
+        assert response.status_code == 200
+        assert response.json() == {"response": [{"id": "creator123"}]}
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_get_account_error_response(self, mock_config_with_api):
         """Test handling error response."""
         state = DownloadState()
         state.creator_name = "testcreator"
 
-        # Mock API response with error
-        mock_response = MagicMock(spec=requests.Response)
-        mock_response.status_code = 400
-        mock_response.text = "Bad Request"
+        # Mock CORS preflight OPTIONS request
+        respx.options(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
+        ).mock(return_value=httpx.Response(200))
 
-        # Mock _make_rate_limited_request
-        with patch(
-            "download.account._make_rate_limited_request",
-            AsyncMock(return_value=mock_response),
-        ) as mock_rate_limited:
-            # Should raise ApiAccountInfoError
-            with pytest.raises(ApiAccountInfoError) as excinfo:
-                await _get_account_response(mock_config_with_api, state)
+        # Mock HTTP response at the edge with error status - includes ngsw-bypass param
+        respx.get(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+        ).mock(return_value=httpx.Response(400, text="Bad Request"))
 
-            assert "API returned status code 400" in str(excinfo.value)
-            mock_rate_limited.assert_called_once()
+        # Should raise ApiError when HTTP returns 400 (wrapped HTTPStatusError)
+        with pytest.raises(ApiError) as excinfo:
+            await _get_account_response(mock_config_with_api, state)
+
+        assert "Error getting account info from fansly API" in str(excinfo.value)
 
     @pytest.mark.asyncio
     async def test_get_account_request_exception(self, mock_config_with_api):
@@ -184,7 +192,7 @@ class TestExtractAccountData:
     def test_extract_client_account_data(self, mock_config_with_api, fansly_api):
         """Test extracting client account data."""
         # Mock response with client account data
-        mock_response = MagicMock(spec=requests.Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "response": {
@@ -218,7 +226,7 @@ class TestExtractAccountData:
     def test_extract_creator_account_data(self, mock_config_with_api, fansly_api):
         """Test extracting creator account data."""
         # Mock response with creator account data
-        mock_response = MagicMock(spec=requests.Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "response": [
@@ -267,9 +275,9 @@ class TestExtractAccountData:
 
     def test_extract_unauthorized_error(self, mock_config_with_api, fansly_api):
         """Test handling of unauthorized error."""
-        # Mock response with 401 error - use centralized utility
-        mock_response = create_mock_response(
-            status_code=401, json_data={"error": "Unauthorized"}, text="Unauthorized"
+        # Create proper httpx.Response for 401 error
+        mock_response = httpx.Response(
+            status_code=401, json={"error": "Unauthorized"}, text="Unauthorized"
         )
 
         mock_config_with_api.token = "invalid_token"
@@ -290,7 +298,7 @@ class TestExtractAccountData:
     def test_extract_missing_creator_error(self, mock_config_with_api, fansly_api):
         """Test handling of missing creator error."""
         # Mock response with empty list (creator not found)
-        mock_response = MagicMock(spec=requests.Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.json.return_value = {"response": []}
         mock_response.text = '{"response": []}'
@@ -308,7 +316,7 @@ class TestExtractAccountData:
     def test_extract_malformed_response(self, mock_config_with_api, fansly_api):
         """Test handling of malformed response - returns non-standard data structure."""
         # Mock response with malformed data that isn't a list or dict with 'account'
-        mock_response = MagicMock(spec=requests.Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_response.reason_phrase = "OK"
         mock_response.json.return_value = {"invalid": "data"}
@@ -418,7 +426,7 @@ class TestMakeRateLimitedRequest:
         """Test successful API request."""
         # Mock request function
         mock_request_func = MagicMock()
-        mock_response = MagicMock(spec=requests.Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 200
         mock_request_func.return_value = mock_response
 
@@ -440,21 +448,23 @@ class TestMakeRateLimitedRequest:
         # Mock request function
         mock_request_func = MagicMock()
 
-        # First response is rate limited - use centralized utility
-        error_response = create_mock_response(
-            status_code=429, json_data={"error": "Rate limited"}, text="Rate limited"
+        # Create httpx.Request for error construction
+        request = httpx.Request("GET", "https://example.com")
+
+        # First response is rate limited
+        error_response = httpx.Response(
+            status_code=429, json={"error": "Rate limited"}, request=request
         )
 
         # Create httpx.HTTPStatusError for rate limit
-        request = httpx.Request("GET", "https://example.com")
         error_exception = httpx.HTTPStatusError(
             "Rate limited", request=request, response=error_response
         )
         error_response.raise_for_status = MagicMock(side_effect=error_exception)
 
-        # Second response is success - use centralized utility
-        success_response = create_mock_response(
-            status_code=200, json_data={"response": "success"}
+        # Second response is success
+        success_response = httpx.Response(
+            status_code=200, json={"response": "success"}, request=request
         )
 
         mock_request_func.side_effect = [error_response, success_response]
@@ -477,13 +487,15 @@ class TestMakeRateLimitedRequest:
         # Mock request function
         mock_request_func = MagicMock()
 
-        # Response with 404 error - use centralized utility
-        error_response = create_mock_response(
-            status_code=404, json_data={"error": "Not Found"}, text="Not Found"
+        # Create httpx.Request for error construction
+        request = httpx.Request("GET", "https://example.com")
+
+        # Response with 404 error
+        error_response = httpx.Response(
+            status_code=404, json={"error": "Not Found"}, request=request
         )
 
         # Create httpx.HTTPStatusError for 404
-        request = httpx.Request("GET", "https://example.com")
         error_exception = httpx.HTTPStatusError(
             "Not Found", request=request, response=error_response
         )
@@ -526,7 +538,7 @@ class TestGetCreatorAccountInfo:
         state.creator_name = "testcreator"
 
         # Mock response
-        mock_response = MagicMock(spec=requests.Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_response.json.return_value = {"response": [{"id": "creator123"}]}
         mock_get_response.return_value = mock_response
 
@@ -572,7 +584,7 @@ class TestGetCreatorAccountInfo:
         session = MagicMock(spec=AsyncSession)
 
         # Mock response
-        mock_response = MagicMock(spec=requests.Response)
+        mock_response = MagicMock(spec=httpx.Response)
         mock_account_data = {
             "id": "creator123",
             "timelineStats": {
@@ -625,33 +637,36 @@ class TestGetFollowingAccounts:
         # Setup mocks
         mock_config_with_api.separate_metadata = False  # Process accounts in main DB
 
-        # Mock database session
-        mock_session = MagicMock(spec=AsyncSession)
-        mock_session.flush = AsyncMock()
-        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = mock_session
-
         state = DownloadState()
         state.creator_id = "client123"
 
-        # Mock following list response - use centralized utility
-        following_list_response = create_mock_response(
+        # Create mock session to track calls
+        mock_session = AsyncMock(spec=AsyncSession)
+
+        # Create httpx.Request for response construction
+        request = httpx.Request("GET", "https://example.com")
+
+        # Mock following list response
+        following_list_response = httpx.Response(
             status_code=200,
-            json_data={
+            json={
                 "success": "true",
                 "response": [{"accountId": "creator1"}, {"accountId": "creator2"}],
             },
+            request=request,
         )
 
-        # Mock account details response - use centralized utility
-        account_details_response = create_mock_response(
+        # Mock account details response
+        account_details_response = httpx.Response(
             status_code=200,
-            json_data={
+            json={
                 "success": "true",
                 "response": [
                     {"id": "creator1", "username": "creator1user"},
                     {"id": "creator2", "username": "creator2user"},
                 ],
             },
+            request=request,
         )
 
         # Configure _make_rate_limited_request to return our mock responses
@@ -660,10 +675,18 @@ class TestGetFollowingAccounts:
             account_details_response,  # Second call - account details
         ]
 
-        # Mock process_account_data
-        with patch(
-            "download.account.process_account_data", AsyncMock()
-        ) as mock_process:
+        # Mock database async_session_scope to yield our mock session
+        with (
+            patch.object(
+                mock_config_with_api._database,
+                "async_session_scope",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(),
+                ),
+            ),
+            patch("download.account.process_account_data", AsyncMock()) as mock_process,
+        ):
             # Call function
             result = await get_following_accounts(mock_config_with_api, state)
 
@@ -698,9 +721,12 @@ class TestGetFollowingAccounts:
         state = DownloadState()
         state.creator_id = "client123"
 
-        # Mock empty following list response - use centralized utility
-        following_list_response = create_mock_response(
-            status_code=200, json_data={"success": "true", "response": []}
+        # Create httpx.Request for response construction
+        request = httpx.Request("GET", "https://example.com")
+
+        # Mock empty following list response
+        following_list_response = httpx.Response(
+            status_code=200, json={"success": "true", "response": []}, request=request
         )
 
         # Configure _make_rate_limited_request to return our mock response
@@ -739,13 +765,15 @@ class TestGetFollowingAccounts:
         state = DownloadState()
         state.creator_id = "client123"
 
-        # Mock unauthorized error - use centralized utility
-        error_response = create_mock_response(
-            status_code=401, json_data={"error": "Unauthorized"}, text="Unauthorized"
+        # Create httpx.Request for error construction
+        request = httpx.Request("GET", "https://example.com")
+
+        # Mock unauthorized error
+        error_response = httpx.Response(
+            status_code=401, json={"error": "Unauthorized"}, request=request
         )
 
         # Make the request raise httpx.HTTPStatusError with this response
-        request = httpx.Request("GET", "https://example.com")
         error = httpx.HTTPStatusError(
             "Unauthorized", request=request, response=error_response
         )
@@ -793,9 +821,11 @@ class TestGetFollowingAccounts:
         state = DownloadState()
         state.creator_id = "client123"
 
-        # Mock session for async context manager
-        mock_session = MagicMock()
-        mock_config_with_api._database.async_session_scope.return_value.__aenter__.return_value = mock_session
+        # Create mock session to track calls
+        mock_session = AsyncMock(spec=AsyncSession)
+
+        # Create httpx.Request for response construction
+        request = httpx.Request("GET", "https://example.com")
 
         # Mock following list responses - use enough items to trigger pagination
         # Page size is 50, so first page needs to have exactly 50 items to continue
@@ -814,25 +844,29 @@ class TestGetFollowingAccounts:
             {"id": f"creator{i}", "username": f"creator{i}user"} for i in range(51, 53)
         ]
 
-        following_list_response1 = create_mock_response(
+        following_list_response1 = httpx.Response(
             status_code=200,
-            json_data={"success": "true", "response": first_page_accounts},
+            json={"success": "true", "response": first_page_accounts},
+            request=request,
         )
 
-        following_list_response2 = create_mock_response(
+        following_list_response2 = httpx.Response(
             status_code=200,
-            json_data={"success": "true", "response": second_page_accounts},
+            json={"success": "true", "response": second_page_accounts},
+            request=request,
         )
 
-        # Mock account details responses - use centralized utility
-        account_details_response1 = create_mock_response(
+        # Mock account details responses
+        account_details_response1 = httpx.Response(
             status_code=200,
-            json_data={"success": "true", "response": first_page_details},
+            json={"success": "true", "response": first_page_details},
+            request=request,
         )
 
-        account_details_response2 = create_mock_response(
+        account_details_response2 = httpx.Response(
             status_code=200,
-            json_data={"success": "true", "response": second_page_details},
+            json={"success": "true", "response": second_page_details},
+            request=request,
         )
 
         # Configure _make_rate_limited_request to return our mock responses in sequence
@@ -844,13 +878,23 @@ class TestGetFollowingAccounts:
             account_details_response2,  # Account details for second page
         ]
 
-        # Mock asyncio.sleep to speed up test
-        with patch("asyncio.sleep", AsyncMock()):
+        # Mock database async_session_scope to yield our mock session
+        with (
+            patch.object(
+                mock_config_with_api._database,
+                "async_session_scope",
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=mock_session),
+                    __aexit__=AsyncMock(),
+                ),
+            ),
+            patch("asyncio.sleep", AsyncMock()),
+        ):
             # Call function
             result = await get_following_accounts(mock_config_with_api, state)
 
-            # Verify result - all usernames from both pages (52 total)
-            expected_usernames = {f"creator{i}user" for i in range(1, 53)}
-            assert result == expected_usernames
-            # Should make 4 calls total
-            assert mock_make_request.call_count == 4
+        # Verify result - all usernames from both pages (52 total)
+        expected_usernames = {f"creator{i}user" for i in range(1, 53)}
+        assert result == expected_usernames
+        # Should make 4 calls total
+        assert mock_make_request.call_count == 4

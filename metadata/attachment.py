@@ -87,7 +87,7 @@ class Attachment(Base):
 
     __tablename__ = "attachments"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     postId: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("posts.id"), nullable=True
     )

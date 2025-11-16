@@ -14,7 +14,11 @@ from tests.fixtures import (
     MediaFactory,
     PostFactory,
 )
-from tests.fixtures.stash_type_factories import ImageFactory, SceneFactory, TagFactory
+from tests.fixtures.stash.stash_type_factories import (
+    ImageFactory,
+    SceneFactory,
+    TagFactory,
+)
 
 
 class TestProcessItemGallery:
@@ -47,6 +51,7 @@ class TestProcessItemGallery:
 
         # Call method
         url_pattern = "https://test.com/{username}/post/{id}"
+        await gallery_mixin.context.get_client()
         await gallery_mixin._process_item_gallery(
             post_obj,
             account_obj,
@@ -122,6 +127,7 @@ class TestProcessItemGallery:
 
         # Mock gallery.save method (real Gallery objects have real async save methods)
         mock_gallery.save = AsyncMock()
+        await gallery_mixin.context.get_client()
 
         # Patch delegate methods at module level, verify they're called, control return
         with (

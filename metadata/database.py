@@ -164,6 +164,21 @@ class Database:
             echo=False,
         )
 
+        # Set PostgreSQL session timezone to UTC for both engines
+        # Without this, TIMESTAMP WITH TIME ZONE columns return timestamps
+        # converted to the server's timezone (e.g., America/New_York)
+        @event.listens_for(self._sync_engine, "connect")
+        def set_sync_timezone(dbapi_conn: Any, _connection_record: Any) -> None:
+            cursor = dbapi_conn.cursor()
+            cursor.execute("SET timezone='UTC'")
+            cursor.close()
+
+        @event.listens_for(self._async_engine.sync_engine, "connect")
+        def set_async_timezone(dbapi_conn: Any, _connection_record: Any) -> None:
+            cursor = dbapi_conn.cursor()
+            cursor.execute("SET timezone='UTC'")
+            cursor.close()
+
         # Set up logging for engines
         db_logger_monitor = get_db_logger()
         db_logger_monitor.log_level = config.log_levels.get("sqlalchemy", "INFO")

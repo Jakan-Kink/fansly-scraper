@@ -3,8 +3,6 @@
 Tests studio types including Studio, StudioCreateInput, StudioUpdateInput and related types.
 """
 
-from unittest.mock import Mock
-
 import pytest
 from strawberry import ID
 
@@ -273,15 +271,18 @@ def test_studio_stash_id_relationship() -> None:
 @pytest.mark.unit
 async def test_studio_from_account_method() -> None:
     """Test Studio.from_account method creates studio from account."""
+    # Import AccountFactory for use
+    from tests.fixtures.metadata.metadata_factories import AccountFactory
 
-    # Create mock account
-    mock_account = Mock()
-    mock_account.displayName = "Test Display Name"
-    mock_account.username = "testuser"
-    mock_account.about = "Test bio description"
+    # Create account using factory
+    account = AccountFactory.build(
+        displayName="Test Display Name",
+        username="testuser",
+        about="Test bio description",
+    )
 
     # Call the method
-    studio = await Studio.from_account(mock_account)
+    studio = await Studio.from_account(account)
 
     # Verify the result
     assert studio.id == "new"
@@ -293,22 +294,23 @@ async def test_studio_from_account_method() -> None:
 @pytest.mark.unit
 async def test_studio_from_account_fallback_name() -> None:
     """Test Studio.from_account handles missing display_name."""
+    # Import AccountFactory for use
+    from tests.fixtures.metadata.metadata_factories import AccountFactory
 
-    # Create mock account with no display_name
-    mock_account = Mock()
-    mock_account.displayName = None
-    mock_account.username = "testuser"
-    mock_account.about = "Test bio"
+    # Create account with no displayName
+    account = AccountFactory.build(
+        displayName=None, username="testuser", about="Test bio"
+    )
 
     # Call the method
-    studio = await Studio.from_account(mock_account)
+    studio = await Studio.from_account(account)
 
     # Should fallback to username
     assert studio.name == "testuser"
 
     # Test with no username either
-    mock_account.username = None
-    studio = await Studio.from_account(mock_account)
+    account2 = AccountFactory.build(displayName=None, username=None, about="Test bio")
+    studio2 = await Studio.from_account(account2)
 
     # Should fallback to "Unknown"
-    assert studio.name == "Unknown"
+    assert studio2.name == "Unknown"
