@@ -50,11 +50,15 @@ from tests.fixtures import *  # noqa: F403
 def pytest_collection_modifyitems(config, items):
     """Hook to validate fixture usage and add markers.
 
-    Ensures that any test using stash_client also uses stash_cleanup_tracker
+    Ensures that any test using Stash fixtures also uses stash_cleanup_tracker
     for proper test isolation and cleanup.
 
-    This enforcement applies to ALL tests using stash_client, not just integration tests.
-    Even if a test mocks the client, if the mock is incorrectly configured, it could
+    This enforcement applies to:
+    - stash_client: Direct access to StashClient
+    - real_stash_processor: StashProcessing with real Docker Stash
+    - stash_context: StashContext that creates stash_client internally
+
+    Even if a test mocks methods, if the mock is incorrectly configured, it could
     make real connections to the Stash server and leave behind objects.
 
     Tests that violate this requirement are marked with xfail(strict=True),
@@ -62,20 +66,43 @@ def pytest_collection_modifyitems(config, items):
     - If the test would pass, it fails (enforcement)
     - If the test would fail naturally, it fails (expected)
     - If Stash is unavailable and test skips, it skips (expected)
+
+    EXCEPTIONS:
+    - respx_stash_processor: Uses respx to mock HTTP, no cleanup needed
+    - Tests in tests/stash/types/: Unit tests for data conversion only
     """
     for item in items:
-        if (
-            hasattr(item, "fixturenames")
-            and "stash_client" in item.fixturenames
-            and "stash_cleanup_tracker" not in item.fixturenames
-        ):
-            item.add_marker(
-                pytest.mark.xfail(
-                    reason="Tests using stash_client MUST also use stash_cleanup_tracker "
-                    "for test isolation and cleanup. See tests/stash/CLEANUP_ENFORCEMENT_SUMMARY.md",
-                    strict=True,
-                )
+        if hasattr(item, "fixturenames"):
+            # Check if test uses any Stash fixture that requires cleanup
+            uses_stash_fixture = (
+                "stash_client" in item.fixturenames
+                or "real_stash_processor" in item.fixturenames
+                or "stash_context" in item.fixturenames
             )
+
+            # Exception: respx_stash_processor uses HTTP mocking, no real Stash
+            uses_respx = "respx_stash_processor" in item.fixturenames
+
+            # Exception: tests/stash/types/ are unit tests for data models
+            is_types_test = "tests/stash/types/" in str(item.fspath)
+
+            has_cleanup = "stash_cleanup_tracker" in item.fixturenames
+
+            # Enforce cleanup requirement
+            if (
+                uses_stash_fixture
+                and not uses_respx
+                and not is_types_test
+                and not has_cleanup
+            ):
+                item.add_marker(
+                    pytest.mark.xfail(
+                        reason="Tests using Stash fixtures (stash_client, real_stash_processor, "
+                        "stash_context) MUST also use stash_cleanup_tracker for test isolation "
+                        "and cleanup. See tests/stash/CLEANUP_ENFORCEMENT_SUMMARY.md",
+                        strict=True,
+                    )
+                )
 
 
 # ============================================================================

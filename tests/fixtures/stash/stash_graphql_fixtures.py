@@ -261,13 +261,18 @@ def create_studio_dict(
 
 
 def create_find_scenes_result(
-    count: int = 0, scenes: list[dict[str, Any]] | None = None
+    count: int = 0,
+    scenes: list[dict[str, Any]] | None = None,
+    duration: float = 0.0,
+    filesize: float = 0.0,
 ) -> dict[str, Any]:
     """Create a findScenes query result matching FindScenesResultType.
 
     Args:
         count: Total number of scenes
         scenes: List of scene dicts
+        duration: Total duration of all scenes in seconds
+        filesize: Total file size of all scenes in bytes
 
     Returns:
         Dict matching FindScenesResultType schema
@@ -275,7 +280,12 @@ def create_find_scenes_result(
     if scenes is None:
         scenes = []
 
-    return {"count": count, "scenes": scenes}
+    return {
+        "count": count,
+        "scenes": scenes,
+        "duration": duration,
+        "filesize": filesize,
+    }
 
 
 def create_scene_dict(
@@ -319,12 +329,79 @@ def create_scene_dict(
     return base
 
 
+def create_find_images_result(
+    count: int = 0,
+    images: list[dict[str, Any]] | None = None,
+    megapixels: float = 0.0,
+    filesize: float = 0.0,
+) -> dict[str, Any]:
+    """Create a findImages query result matching FindImagesResultType.
+
+    Args:
+        count: Total number of images
+        images: List of image dicts
+        megapixels: Total megapixels of all images
+        filesize: Total file size of all images in bytes
+
+    Returns:
+        Dict matching FindImagesResultType schema
+    """
+    if images is None:
+        images = []
+
+    return {
+        "count": count,
+        "images": images,
+        "megapixels": megapixels,
+        "filesize": filesize,
+    }
+
+
+def create_image_dict(
+    id: str,
+    title: str | None = None,
+    studio: dict | None = None,
+    performers: list[dict] | None = None,
+    tags: list[dict] | None = None,
+    **kwargs,
+) -> dict[str, Any]:
+    """Create an Image dict matching the Image type schema.
+
+    Args:
+        id: Image ID
+        title: Image title
+        studio: Studio dict
+        performers: List of performer dicts
+        tags: List of tag dicts
+        **kwargs: Additional image fields
+
+    Returns:
+        Dict matching Image type
+    """
+    base = {
+        "id": id,
+        "title": title,
+        "studio": studio,
+        "performers": performers or [],
+        "tags": tags or [],
+        "files": [],
+        "visual_files": [],
+        "urls": [],
+        "galleries": [],
+        "organized": False,
+    }
+    base.update(kwargs)
+    return base
+
+
 __all__ = [
+    "create_find_images_result",
     "create_find_performers_result",
     "create_find_scenes_result",
     "create_find_studios_result",
     "create_find_tags_result",
     "create_graphql_response",
+    "create_image_dict",
     "create_performer_dict",
     "create_scene_dict",
     "create_studio_dict",

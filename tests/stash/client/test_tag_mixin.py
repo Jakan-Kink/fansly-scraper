@@ -205,7 +205,10 @@ async def test_find_tag(
 
 @pytest.mark.asyncio
 async def test_find_tags(
-    stash_client: StashClient, mock_tag: Tag, mock_result: FindTagsResultType
+    stash_client: StashClient,
+    stash_cleanup_tracker,
+    mock_tag: Tag,
+    mock_result: FindTagsResultType,
 ) -> None:
     """Test finding tags with filters."""
     # Set up the execute mock to return the proper data structure

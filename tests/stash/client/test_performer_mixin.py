@@ -48,7 +48,7 @@ async def test_find_performer(stash_client: StashClient, mock_performer) -> None
 
 @pytest.mark.asyncio
 async def test_find_performers(
-    stash_client: StashClient, mock_performer: Performer
+    stash_client: StashClient, stash_cleanup_tracker, mock_performer: Performer
 ) -> None:
     """Test finding performers with filters."""
     mock_result = FindPerformersResultType(
@@ -130,7 +130,7 @@ async def test_create_performer(
 
 @pytest.mark.asyncio
 async def test_update_performer(
-    stash_client: StashClient, mock_performer: Performer
+    stash_client: StashClient, stash_cleanup_tracker, mock_performer: Performer
 ) -> None:
     """Test updating a performer."""
     # Mock the update_performer method directly

@@ -9,10 +9,14 @@ For new tests, prefer:
 - See /tmp/mock_to_respx_migration_guide.md for examples
 """
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
 
+from config.fanslyconfig import FanslyConfig
+from download.downloadstate import DownloadState
+from metadata.database import Database
 from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
 from stash.processing.mixins.account import AccountProcessingMixin
@@ -63,7 +67,16 @@ class TestMixinBase(
     access to all methods, just like the real StashProcessing class does.
     """
 
-    def __init__(self, database=None, log=None):
+    def __init__(
+        self,
+        config: FanslyConfig,
+        state: DownloadState,
+        context: StashContext,
+        database: Database,
+        _background_task: asyncio.Task | None = None,
+        _cleanup_event: asyncio.Event | None = None,
+        _owns_db: bool = False,
+    ) -> None:
         """Initialize test class with real StashContext.
 
         Args:
@@ -71,37 +84,20 @@ class TestMixinBase(
             log: Optional Logger instance (defaults to None for tests that don't use it)
         """
         # Real StashContext with minimal test config
-        self.context = StashContext(
-            conn={"Scheme": "http", "Host": "localhost", "Port": 9999, "ApiKey": "test"}
+        super().__init__(
+            config, state, context, database, _background_task, _cleanup_event, _owns_db
         )
-        # REMOVED: self.context._client = MagicMock()
-        # This mocked INTERNAL StashClient.execute() which violates edge-mocking.
-        # Tests should use @respx.mock to intercept HTTP calls instead.
-        # The _client will be None until StashContext.initialize() is called,
-        # which tests should do (and use respx to mock the HTTP responses).
-
-        # Database attribute (from StashProcessingBase)
-        # Tests can pass in real database fixtures via the fixture
-        self.database = database
-
-        # Log attribute (from StashProcessingBase)
-        # Tests can pass in real logger or leave as None
-        self.log = log
+        AccountProcessingMixin.__init__(self)
+        StudioProcessingMixin.__init__(self)
+        GalleryProcessingMixin.__init__(self)
+        MediaProcessingMixin.__init__(self)
+        ContentProcessingMixin.__init__(self)
+        BatchProcessingMixin.__init__(self)
+        TagProcessingMixin.__init__(self)
 
 
 class TestAccountMixin(TestMixinBase):
     """Test class focused on AccountProcessingMixin testing."""
-
-    def __init__(self):
-        """Initialize with account-specific state."""
-        super().__init__()
-        # Import TestState from stash_integration_fixtures
-        from tests.fixtures.stash.stash_integration_fixtures import TestState
-
-        # Use REAL TestState instead of MagicMock
-        self.state = TestState()
-        self.state.creator_id = "12345"
-        self.state.creator_name = "test_user"
 
 
 class TestBatchMixin(TestMixinBase):
@@ -134,57 +130,64 @@ class TestTagMixin(TestMixinBase):
 
 
 @pytest.fixture
-def account_mixin():
+async def account_mixin(config, test_state, stash_context, test_database_sync):
     """Fixture for account mixin test class."""
-    return TestAccountMixin()
-
-
-@pytest.fixture
-def batch_mixin():
-    """Fixture for batch mixin test class."""
-    return TestBatchMixin()
-
-
-@pytest.fixture
-def content_mixin():
-    """Fixture for content mixin test class."""
-    return TestContentMixin()
-
-
-@pytest.fixture
-def gallery_mixin():
-    """Fixture for gallery mixin test class."""
-    return TestGalleryMixin()
-
-
-@pytest.fixture
-async def media_mixin(stash_context, test_database_sync):
-    """Fixture for media mixin test class with initialized client and database.
-
-    For unit tests, we provide a StashContext with a real client instance
-    so tests can mock individual client methods (find_performer, find_studios, etc.)
-    without mocking the entire client.
-    """
-    mixin = TestMediaMixin()
-    # Replace the test context with one that has an initialized client
-    mixin.context = stash_context
-    # Set the database so @with_session decorators work
-    mixin.database = test_database_sync
-    # Initialize the client so tests can mock its methods
+    mixin = TestAccountMixin(config, test_state, stash_context, test_database_sync)
     await stash_context.get_client()
     return mixin
 
 
 @pytest.fixture
-def studio_mixin():
-    """Fixture for studio mixin test class."""
-    return TestStudioMixin()
+async def batch_mixin(config, test_state, stash_context, test_database_sync):
+    """Fixture for batch mixin test class."""
+    mixin = TestBatchMixin(config, test_state, stash_context, test_database_sync)
+    await stash_context.get_client()
+    return mixin
 
 
 @pytest.fixture
-def tag_mixin():
+async def content_mixin(config, test_state, stash_context, test_database_sync):
+    """Fixture for content mixin test class."""
+    mixin = TestContentMixin(config, test_state, stash_context, test_database_sync)
+    await stash_context.get_client()
+    return mixin
+
+
+@pytest.fixture
+async def gallery_mixin(config, test_state, stash_context, test_database_sync):
+    """Fixture for gallery mixin test class."""
+    mixin = TestGalleryMixin(config, test_state, stash_context, test_database_sync)
+    await stash_context.get_client()
+    return mixin
+
+
+@pytest.fixture
+async def media_mixin(config, test_state, stash_context, test_database_sync):
+    """Fixture for media mixin test class with initialized client and database."""
+    mixin = TestMediaMixin(
+        config=config,
+        state=test_state,
+        context=stash_context,
+        database=test_database_sync,
+    )
+    await stash_context.get_client()
+    return mixin
+
+
+@pytest.fixture
+async def studio_mixin(config, test_state, stash_context, test_database_sync):
+    """Fixture for studio mixin test class."""
+    mixin = TestStudioMixin(config, test_state, stash_context, test_database_sync)
+    await stash_context.get_client()
+    return mixin
+
+
+@pytest.fixture
+async def tag_mixin(config, test_state, stash_context, test_database_sync):
     """Fixture for TagProcessingMixin instance."""
-    return TestTagMixin()
+    mixin = TestTagMixin(config, test_state, stash_context, test_database_sync)
+    await stash_context.get_client()
+    return mixin
 
 
 # ============================================================================

@@ -378,7 +378,7 @@ class TestDatabase(Database):
 @pytest.fixture(scope="session")
 def test_data_dir() -> str:
     """Get the directory containing test data files."""
-    return str(Path(__file__).parent.parent / "json")
+    return str(Path(__file__).parent.parent.parent / "json")
 
 
 @pytest.fixture(scope="session")
