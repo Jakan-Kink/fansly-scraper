@@ -310,7 +310,7 @@ async def test_query_errors() -> None:
     graphql_route.mock(return_value=httpx.Response(200, json=error_data))
 
     # Test syntax error
-    with pytest.raises(ValueError) as exc_info:  # noqa: PT011 - message validated by assertions below
+    with pytest.raises(ValueError) as exc_info:
         await client.execute("query {", {})  # Intentionally malformed query
 
     error_msg = str(exc_info.value)

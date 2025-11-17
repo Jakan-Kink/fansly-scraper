@@ -268,7 +268,7 @@ def test_scene_relationships() -> None:
 @pytest.mark.unit
 def test_from_dict_missing_id_raises() -> None:
     """Test that Scene.from_dict raises when ID is missing."""
-    with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
+    with pytest.raises(ValueError) as excinfo:
         Scene.from_dict({})
     assert "ID field" in str(excinfo.value)
 

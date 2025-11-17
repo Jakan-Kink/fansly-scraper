@@ -805,7 +805,7 @@ async def test_parse_scene_filename(scene_mixin_client: StashClient) -> None:
     ]
 
     for invalid_filename in invalid_cases:
-        with pytest.raises(ValueError):  # noqa: PT011 - testing filename parsing validation
+        with pytest.raises(ValueError):
             scene_mixin_client.parse_scene_filename(invalid_filename)
 
 

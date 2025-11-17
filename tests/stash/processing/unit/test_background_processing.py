@@ -1,117 +1,208 @@
 """Unit tests for background processing methods.
 
-Uses real database and factory objects, mocks only Stash API calls.
+Uses real database and factory objects, mocks only Stash API calls via respx.
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
-from unittest.mock import AsyncMock, Mock, patch
+import json
+from contextlib import asynccontextmanager
+from unittest.mock import patch
 
+import httpx
 import pytest
+import respx
 from sqlalchemy import select
 
-from config.fanslyconfig import FanslyConfig
-from download.downloadstate import DownloadState
 from metadata import Account
-from stash.context import StashContext
-from stash.processing import StashProcessing
 from tests.fixtures.metadata.metadata_factories import AccountFactory
-from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
-
-
-@pytest.fixture
-async def processor(
-    config: FanslyConfig,
-    download_state: DownloadState,
-) -> AsyncGenerator[StashProcessing, None]:
-    """Create StashProcessing with REAL database, mock Stash API only."""
-    # Configure with real database
-    context = StashContext()
-    context._client = AsyncMock()  # Mock Stash API client
-    config.get_stash_context = Mock(return_value=context)
-
-    with (
-        patch("stash.processing.base.print_info"),
-        patch("stash.processing.base.print_warning"),
-    ):
-        processor = StashProcessing.from_config(config, download_state)
-        processor.context = context
-        # Ensure database is set from config (needed for _update_account_stash_id)
-        processor.database = config._database
-        yield processor
-        await processor.cleanup()
+from tests.fixtures.stash import (
+    create_find_studios_result,
+    create_graphql_response,
+    create_studio_dict,
+)
 
 
 class TestBackgroundProcessing:
     """Test the background processing methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_safe_background_processing(
-        self, processor, mock_account, mock_performer, session
+    async def test_safe_background_processing_success(
+        self, respx_stash_processor, factory_async_session, mock_performer, session
     ):
-        processor.continue_stash_processing = AsyncMock()
-        """Test _safe_background_processing method."""
-        # Case 1: Successful processing
-        await processor._safe_background_processing(mock_account, mock_performer)
+        """Test _safe_background_processing succeeds with real DB queries and sets cleanup event.
 
-        # Verify methods were called
-        processor.continue_stash_processing.assert_called_once_with(
-            mock_account, mock_performer
+        Mocks only GraphQL HTTP calls, lets real database queries execute.
+        """
+        # Create real account in database
+        account = AccountFactory(id=12345, username="test_user", stash_id=123)
+        factory_async_session.commit()
+
+        # Query fresh account from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
+
+        # Mock GraphQL HTTP responses for complete process_creator_studio flow
+        # 1. Find Fansly parent studio
+        fansly_studio = create_studio_dict(
+            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
         )
-        assert processor._cleanup_event.is_set()
+        fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Case 2: Cancelled
-        processor.continue_stash_processing.reset_mock()
-        processor._cleanup_event.clear()
-        processor.continue_stash_processing.side_effect = asyncio.CancelledError()
+        # 2. Creator studio not found initially
+        empty_studios = create_find_studios_result(count=0, studios=[])
 
-        # Call _safe_background_processing and expect CancelledError
+        # 3. Create creator studio with Fansly as parent
+        creator_studio = create_studio_dict(
+            id="123",
+            name="test_user (Fansly)",
+            url="https://fansly.com/test_user",
+            parent_studio=fansly_studio,
+        )
+
+        # 4. Empty galleries result (process_creator_posts checks for existing galleries)
+        empty_galleries = {"count": 0, "galleries": []}
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # process_creator_studio: find Fansly parent
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                # process_creator_studio: creator studio not found
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", empty_studios)
+                ),
+                # process_creator_studio: create creator studio
+                httpx.Response(
+                    200, json=create_graphql_response("studioCreate", creator_studio)
+                ),
+                # process_creator_posts: check for existing galleries
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+                # process_creator_messages: check for existing galleries
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+            ]
+        )
+
+        # Act - let real flow execute with real database queries
+        await respx_stash_processor._safe_background_processing(account, mock_performer)
+
+        # Assert - verify cleanup event set and real database was queried
+        assert respx_stash_processor._cleanup_event.is_set()
+
+        # Verify account still exists in database (real query executed)
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        assert result.scalar_one() is not None
+
+        # Verify GraphQL call sequence (permanent assertion)
+        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
+        calls = graphql_route.calls
+
+        # Verify query types in order
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+        assert "findGalleries" in json.loads(calls[3].request.content)["query"]
+        assert "findGalleries" in json.loads(calls[4].request.content)["query"]
+
+    @pytest.mark.asyncio
+    async def test_safe_background_processing_cancelled(
+        self, respx_stash_processor, factory_async_session, mock_performer, session
+    ):
+        """Test _safe_background_processing handles CancelledError with real DB queries.
+
+        Simulates task cancellation during GraphQL call by patching at continue_stash_processing level.
+        """
+        # Create real account
+        account = AccountFactory(id=12346, username="test_cancel", stash_id=124)
+        factory_async_session.commit()
+
+        result = await session.execute(select(Account).where(Account.id == 12346))
+        account = result.scalar_one()
+
+        # Patch continue_stash_processing to raise CancelledError (simulates task cancellation)
+        # This is acceptable because we're testing _safe_background_processing's error handling,
+        # not the continue_stash_processing flow itself
         with (
+            patch.object(
+                respx_stash_processor,
+                "continue_stash_processing",
+                side_effect=asyncio.CancelledError(),
+            ),
             pytest.raises(asyncio.CancelledError),
             patch("stash.processing.base.logger.debug") as mock_logger_debug,
             patch("stash.processing.base.debug_print") as mock_debug_print,
         ):
-            await processor._safe_background_processing(mock_account, mock_performer)
+            await respx_stash_processor._safe_background_processing(
+                account, mock_performer
+            )
 
-        # Verify logging
+        # Verify logging and cleanup
         mock_logger_debug.assert_called_once()
-        assert "cancelled" in str(mock_logger_debug.call_args)
+        assert "cancelled" in str(mock_logger_debug.call_args).lower()
         mock_debug_print.assert_called_once()
         assert "background_task_cancelled" in str(mock_debug_print.call_args)
-        assert processor._cleanup_event.is_set()
+        assert respx_stash_processor._cleanup_event.is_set()
 
-        # Case 3: Other exception
-        processor.continue_stash_processing.reset_mock()
-        processor._cleanup_event.clear()
-        processor.continue_stash_processing.side_effect = Exception("Test error")
+    @pytest.mark.asyncio
+    async def test_safe_background_processing_exception(
+        self, respx_stash_processor, factory_async_session, mock_performer, session
+    ):
+        """Test _safe_background_processing handles exceptions with real DB queries.
 
-        # Call _safe_background_processing and expect Exception
+        Simulates processing error by patching at continue_stash_processing level.
+        """
+        # Create real account
+        account = AccountFactory(id=12347, username="test_error", stash_id=125)
+        factory_async_session.commit()
+
+        result = await session.execute(select(Account).where(Account.id == 12347))
+        account = result.scalar_one()
+
+        # Patch continue_stash_processing to raise error (simulates processing failure)
+        # This is acceptable because we're testing _safe_background_processing's error handling,
+        # not the continue_stash_processing flow itself
         with (
-            pytest.raises(Exception),  # noqa: PT011, B017
+            patch.object(
+                respx_stash_processor,
+                "continue_stash_processing",
+                side_effect=Exception("Test error"),
+            ),
+            pytest.raises(Exception, match="Test error"),
             patch("stash.processing.base.logger.exception") as mock_logger_exception,
             patch("stash.processing.base.debug_print") as mock_debug_print,
         ):
-            await processor._safe_background_processing(mock_account, mock_performer)
+            await respx_stash_processor._safe_background_processing(
+                account, mock_performer
+            )
 
-        # Verify logging
+        # Verify logging and cleanup
         mock_logger_exception.assert_called_once()
         assert "Background task failed" in str(mock_logger_exception.call_args)
         mock_debug_print.assert_called_once()
         assert "background_task_failed" in str(mock_debug_print.call_args)
-        assert processor._cleanup_event.is_set()
+        assert respx_stash_processor._cleanup_event.is_set()
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing(
-        self, factory_async_session, processor, mock_performer, session
+        self, factory_async_session, respx_stash_processor, mock_performer, session
     ):
-        """Test continue_stash_processing orchestration with real DB, mock Stash API."""
-        # Create real account using factory and persist to database
-        # Set stash_id to match mock_performer.id (must be int, not str)
+        """Test continue_stash_processing orchestration with real DB and respx GraphQL mocking.
+
+        Verifies:
+        1. Real orchestration flow executes (process_creator_studio → posts → messages)
+        2. Correct GraphQL requests sent to Stash with right variables
+        3. Real database queries execute
+        """
+        # Create real account
         account = AccountFactory(
             id=12345,
             username="test_user",
             displayName="Test User",
-            stash_id=123,  # Must be int, not str
+            stash_id=123,
         )
         factory_async_session.commit()
 
@@ -119,99 +210,292 @@ class TestBackgroundProcessing:
         result = await session.execute(select(Account).where(Account.id == 12345))
         account = result.scalar_one()
 
-        # Explicitly set mock_performer.id to match account.stash_id to avoid update
-        mock_performer.id = account.stash_id
+        # Set mock_performer.id to match account.stash_id (avoids _update_account_stash_id)
+        mock_performer.id = str(account.stash_id)
 
-        # Mock only external Stash API calls
-        from stash.types import FindStudiosResultType
+        # Mock complete GraphQL flow
+        fansly_studio = create_studio_dict(
+            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+        )
+        fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
+        empty_studios = create_find_studios_result(count=0, studios=[])
+        creator_studio = create_studio_dict(
+            id="123",
+            name="test_user (Fansly)",
+            url="https://fansly.com/test_user",
+            parent_studio=fansly_studio,
+        )
+        empty_galleries = {"count": 0, "galleries": []}
 
-        processor.context.client.find_studios = AsyncMock(
-            return_value=FindStudiosResultType(count=0, studios=[])
-        )
-        processor.context.client.create_studio = AsyncMock(
-            return_value=StudioFactory(id="123", name="Test Studio")
-        )
-        processor.context.client.find_galleries = AsyncMock(
-            return_value={"count": 0, "galleries": []}
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # process_creator_studio: find Fansly parent
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                # process_creator_studio: creator studio not found
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", empty_studios)
+                ),
+                # process_creator_studio: create creator studio
+                httpx.Response(
+                    200, json=create_graphql_response("studioCreate", creator_studio)
+                ),
+                # process_creator_posts: check for existing galleries
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+                # process_creator_messages: check for existing galleries
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+            ]
         )
 
-        # Mock the processing methods to test orchestration
-        processor.process_creator_studio = AsyncMock(
-            return_value=StudioFactory(id="studio_123", name="Test Studio")
-        )
-        processor.process_creator_posts = AsyncMock()
-        processor.process_creator_messages = AsyncMock()
-
-        # Case 1: Successful processing
-        await processor.continue_stash_processing(
+        # Act - let real orchestration flow execute
+        await respx_stash_processor.continue_stash_processing(
             account, mock_performer, session=session
         )
 
-        # Verify orchestration methods were called
-        processor.process_creator_studio.assert_called_once_with(
-            account=account,
-            performer=mock_performer,
-            session=session,
+        # Assert - verify correct GraphQL requests were sent
+        # Note: Only 3 calls because account has no posts/messages in database
+        # (process_creator_posts/messages only call findGalleries if there's content)
+        assert len(graphql_route.calls) == 3
+
+        # Verify GraphQL call sequence (permanent assertion)
+        calls = graphql_route.calls
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+
+        # Verify studioCreate request has correct variables
+        studio_create_request = json.loads(graphql_route.calls[2].request.content)
+        assert "studioCreate" in studio_create_request.get("query", "")
+        studio_vars = studio_create_request.get("variables", {}).get("input", {})
+        assert studio_vars["name"] == "test_user (Fansly)"
+        assert studio_vars["url"] == "https://fansly.com/test_user"
+
+    @pytest.mark.asyncio
+    async def test_continue_stash_processing_stash_id_update(
+        self, factory_async_session, respx_stash_processor, mock_performer, session
+    ):
+        """Test continue_stash_processing updates stash_id when mismatched.
+
+        Verifies real database UPDATE executes and stash_id is persisted.
+
+        Note: Patches async_session_scope to return the existing session instead of
+        creating a new one. This is necessary because:
+        1. Tests use SERIALIZABLE isolation (snapshot at transaction start)
+        2. Production code doesn't pass session to _update_account_stash_id
+        3. Without patch, decorator creates NEW session, commits there
+        4. Test session (SERIALIZABLE) can't see changes from other transactions
+
+        This patch simulates what would happen under READ COMMITTED isolation
+        where session reuse is less critical.
+        """
+        # Create account with no stash_id
+        account = AccountFactory(id=12346, username="test_user2", stash_id=None)
+        factory_async_session.commit()
+
+        result = await session.execute(select(Account).where(Account.id == 12346))
+        account = result.scalar_one()
+
+        # Performer has stash_id
+        mock_performer.id = "456"
+
+        # Mock GraphQL responses
+        fansly_studio = create_studio_dict(
+            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
         )
-        processor.process_creator_posts.assert_called_once()
-        processor.process_creator_messages.assert_called_once()
+        fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
+        empty_studios = create_find_studios_result(count=0, studios=[])
+        creator_studio = create_studio_dict(
+            id="456",
+            name="test_user2 (Fansly)",
+            url="https://fansly.com/test_user2",
+            parent_studio=fansly_studio,
+        )
+        empty_galleries = {"count": 0, "galleries": []}
 
-        # Case 2: Different stash_ids - should call _update_account_stash_id
-        processor.process_creator_studio.reset_mock()
-        processor.process_creator_posts.reset_mock()
-        processor.process_creator_messages.reset_mock()
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", empty_studios)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("studioCreate", creator_studio)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+            ]
+        )
 
-        account.stash_id = None
-        mock_performer.id = "123"
+        # Patch async_session_scope to return existing session
+        # This simulates session reuse that would happen naturally under READ COMMITTED
+        @asynccontextmanager
+        async def mock_session_scope():
+            yield session
 
-        # Mock _update_account_stash_id to verify it's called
-        with patch.object(processor, "_update_account_stash_id", AsyncMock()):
-            await processor.continue_stash_processing(
+        with patch.object(
+            respx_stash_processor.database, "async_session_scope", mock_session_scope
+        ):
+            # Act
+            await respx_stash_processor.continue_stash_processing(
                 account, mock_performer, session=session
             )
 
-            # Verify _update_account_stash_id was called
-            processor._update_account_stash_id.assert_called_once()
+        # Refresh the account object to see changes made during processing
+        await session.refresh(account)
 
-        # Case 3: No account or performer
-        # Note: raises AttributeError in finally block when performer is None
-        with pytest.raises(AttributeError):
-            await processor.continue_stash_processing(None, None, session=session)
+        # Assert - verify real database UPDATE executed
+        assert account.stash_id == 456  # int, not str
 
-        # Case 4: performer as dict
-        processor.process_creator_studio.reset_mock()
-        processor.process_creator_posts.reset_mock()
-        processor.process_creator_messages.reset_mock()
+        # Verify GraphQL call sequence (permanent assertion)
+        assert len(graphql_route.calls) == 3, "Expected exactly 3 GraphQL calls"
+        calls = graphql_route.calls
 
-        # Reset account.stash_id to match performer (was set to None in Case 2)
-        account.stash_id = 123
+        # Verify query types in order
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
 
-        performer_dict = {"id": 123, "name": "test_user"}
-        performer_from_dict = PerformerFactory(id=123, name="test_user")
+        # Verify studioCreate request has correct variables
+        studio_create_request = json.loads(calls[2].request.content)
+        assert "studioCreate" in studio_create_request.get("query", "")
+        studio_vars = studio_create_request.get("variables", {}).get("input", {})
+        assert studio_vars["name"] == "test_user2 (Fansly)"
+        assert studio_vars["url"] == "https://fansly.com/test_user2"
 
-        with patch(
-            "stash.types.Performer.from_dict", return_value=performer_from_dict
-        ) as mock_from_dict:
-            await processor.continue_stash_processing(
-                account, performer_dict, session=session
+    @pytest.mark.asyncio
+    async def test_continue_stash_processing_missing_inputs(
+        self, respx_stash_processor, session
+    ):
+        """Test continue_stash_processing raises errors for missing account/performer.
+
+        Note: finally block tries to access performer.name, so AttributeError raised
+        instead of the initial ValueError.
+        """
+        # Case 1: Missing both
+        with pytest.raises(AttributeError):  # from finally block: performer.name
+            await respx_stash_processor.continue_stash_processing(
+                None, None, session=session
             )
 
-            # Verify Performer.from_dict was called
-            mock_from_dict.assert_called_once_with(performer_dict)
-            # Verify processing continued with converted performer
-            processor.process_creator_studio.assert_called_once()
+        # Case 2: Missing performer
+        account = Account(id=1, username="test")
+        with pytest.raises(AttributeError):  # from finally block: performer.name
+            await respx_stash_processor.continue_stash_processing(
+                account, None, session=session
+            )
 
-        # Case 5: Invalid performer type
-        # Note: raises TypeError but then AttributeError in finally block
-        with pytest.raises(AttributeError):
-            await processor.continue_stash_processing(
+    @pytest.mark.asyncio
+    async def test_continue_stash_processing_performer_dict(
+        self, factory_async_session, respx_stash_processor, session
+    ):
+        """Test continue_stash_processing converts dict performer to Performer object."""
+        # Create account
+        account = AccountFactory(id=12347, username="test_user3", stash_id=789)
+        factory_async_session.commit()
+
+        result = await session.execute(select(Account).where(Account.id == 12347))
+        account = result.scalar_one()
+
+        # Provide performer as dict
+        performer_dict = {"id": "789", "name": "test_user3"}
+
+        # Mock GraphQL responses
+        fansly_studio = create_studio_dict(
+            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+        )
+        fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
+        empty_studios = create_find_studios_result(count=0, studios=[])
+        creator_studio = create_studio_dict(
+            id="789",
+            name="test_user3 (Fansly)",
+            url="https://fansly.com/test_user3",
+            parent_studio=fansly_studio,
+        )
+        empty_galleries = {"count": 0, "galleries": []}
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", empty_studios)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("studioCreate", creator_studio)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                ),
+            ]
+        )
+
+        # Act - dict should be converted internally via Performer.from_dict
+        await respx_stash_processor.continue_stash_processing(
+            account, performer_dict, session=session
+        )
+
+        # Assert - if we got here, dict was successfully converted and processing completed
+        assert True
+
+        # Verify GraphQL call sequence (permanent assertion)
+        assert len(graphql_route.calls) == 3, "Expected exactly 3 GraphQL calls"
+        calls = graphql_route.calls
+
+        # Verify query types in order
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+
+        # Verify studioCreate request has correct variables
+        studio_create_request = json.loads(calls[2].request.content)
+        assert "studioCreate" in studio_create_request.get("query", "")
+        studio_vars = studio_create_request.get("variables", {}).get("input", {})
+        assert studio_vars["name"] == "test_user3 (Fansly)"
+        assert studio_vars["url"] == "https://fansly.com/test_user3"
+
+    @pytest.mark.asyncio
+    async def test_continue_stash_processing_invalid_performer_type(
+        self, factory_async_session, respx_stash_processor, session
+    ):
+        """Test continue_stash_processing raises error for invalid performer type.
+
+        Note: finally block tries to access performer.name, so AttributeError raised
+        instead of the initial TypeError.
+        """
+        account = AccountFactory(id=12348, username="test_user4", stash_id=123)
+        factory_async_session.commit()
+
+        result = await session.execute(select(Account).where(Account.id == 12348))
+        account = result.scalar_one()
+
+        # Invalid performer type (string instead of Performer or dict)
+        with pytest.raises(AttributeError):  # from finally block: "invalid".name
+            await respx_stash_processor.continue_stash_processing(
                 account, "invalid", session=session
             )
 
-        # Case 6: Invalid account type
-        # Note: raises AttributeError when accessing account.id
+    @pytest.mark.asyncio
+    async def test_continue_stash_processing_invalid_account_type(
+        self, respx_stash_processor, mock_performer, session
+    ):
+        """Test continue_stash_processing raises AttributeError for invalid account type."""
+        # Invalid account type (string instead of Account object)
         with pytest.raises(AttributeError):
-            # Pass a string instead of Account object
-            await processor.continue_stash_processing(
+            await respx_stash_processor.continue_stash_processing(
                 "invalid", mock_performer, session=session
             )

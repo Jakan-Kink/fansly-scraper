@@ -1,562 +1,528 @@
-"""Unit tests for TagClientMixin."""
+"""TRUE integration tests for TagClientMixin.
 
-from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
+These tests make REAL GraphQL calls to the Docker Stash instance and verify actual API behavior.
+Uses capture_graphql_calls to validate request sequences.
+"""
 
 import pytest
 
-from errors import StashGraphQLError
 from stash import StashClient
-from stash.client.mixins.tag import TagClientMixin
-from stash.client_helpers import async_lru_cache
-from stash.types import FindTagsResultType, Tag
-from tests.stash.client.client_test_helpers import create_base_mock_client
+from stash.types import Tag
+from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
 
 
-def create_mock_client() -> StashClient:
-    """Create a base mock StashClient for testing."""
-    # Use the helper to create a base client
-    client = create_base_mock_client()
+class TestTagClientMixin:
+    """TRUE integration tests for TagClientMixin - makes real API calls to Stash."""
 
-    # Add cache attributes specific to tag mixin
-    client._find_tag_cache = {}
-    client._find_tags_cache = {}
+    @pytest.mark.asyncio
+    async def test_find_tag(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test finding a tag by ID - TRUE INTEGRATION TEST.
 
-    return client
-
-
-def add_tag_find_methods(client: StashClient) -> None:
-    """Add tag find methods to a mock client."""
-
-    # Create decorated mocks for finding tags
-    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
-    async def mock_find_tag(id: str) -> Tag:
-        result = await client.execute({"findTag": None})
-        if result and result.get("findTag"):
-            # Filter out problematic fields before creating the tag
-            clean_data = {
-                k: v
-                for k, v in result["findTag"].items()
-                if not k.startswith("_") and k != "client_mutation_id"
-            }
-            return Tag(**clean_data)
-        return None
-
-    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
-    async def mock_find_tags(filter_=None, tag_filter=None) -> FindTagsResultType:
-        result = await client.execute({"findTags": None})
-        if result and result.get("findTags"):
-            # Create Tag objects directly
-            clean_tags = []
-            for tag_data in result["findTags"]["tags"]:
-                # Filter problematic fields
-                clean_data = {
-                    k: v
-                    for k, v in vars(tag_data).items()
-                    if not k.startswith("_") and k != "client_mutation_id"
-                }
-                clean_tags.append(Tag(**clean_data))
-            return FindTagsResultType(count=len(clean_tags), tags=clean_tags)
-        return FindTagsResultType(count=0, tags=[])
-
-    # Attach the mocks to the client
-    client.find_tag = mock_find_tag
-    client.find_tags = mock_find_tags
-
-
-def add_tag_modification_methods(client: StashClient) -> None:
-    """Add tag modification methods to a mock client."""
-
-    # Create mocks for tag operations
-    async def mock_create_tag(tag: Tag) -> Tag:
-        result = await client.execute({"tagCreate": None})
-        if result and result.get("tagCreate"):
-            clean_data = {
-                k: v
-                for k, v in result["tagCreate"].items()
-                if not k.startswith("_") and k != "client_mutation_id"
-            }
-            return Tag(**clean_data)
-        return tag
-
-    async def mock_update_tag(tag: Tag) -> Tag:
-        result = await client.execute({"tagUpdate": None})
-        if result and result.get("tagUpdate"):
-            clean_data = {
-                k: v
-                for k, v in result["tagUpdate"].items()
-                if not k.startswith("_") and k != "client_mutation_id"
-            }
-            return Tag(**clean_data)
-        return tag
-
-    async def mock_tags_merge(source: list[str], destination: str) -> Tag:
-        result = await client.execute({"tagsMerge": None})
-        if result and result.get("tagsMerge"):
-            clean_data = {
-                k: v
-                for k, v in result["tagsMerge"].items()
-                if not k.startswith("_") and k != "client_mutation_id"
-            }
-            return Tag(**clean_data)
-        return None
-
-    async def mock_bulk_tag_update(ids: list[str], **kwargs) -> list[Tag]:
-        result = await client.execute({"bulkTagUpdate": None})
-        if result and result.get("bulkTagUpdate"):
-            clean_tags = []
-            for tag_data in result["bulkTagUpdate"]:
-                clean_data = {
-                    k: v
-                    for k, v in tag_data.items()
-                    if not k.startswith("_") and k != "client_mutation_id"
-                }
-                clean_tags.append(Tag(**clean_data))
-            return clean_tags
-        return []
-
-    # Attach the mocks to the client
-    client.create_tag = mock_create_tag
-    client.update_tag = mock_update_tag
-    client.tags_merge = mock_tags_merge
-    client.bulk_tag_update = mock_bulk_tag_update
-
-
-@pytest.fixture
-def tag_mixin_client() -> StashClient:
-    """Create a mock StashClient with TagClientMixin methods for testing.
-
-    This fixture creates a mock StashClient with all the necessary methods
-    for testing the TagClientMixin, breaking down the complex setup into
-    smaller, more manageable helper functions.
-    """
-    # Create base client
-    client = create_mock_client()
-
-    # Add specific tag methods
-    add_tag_find_methods(client)
-    add_tag_modification_methods(client)
-
-    return client
-
-
-# Keep the old fixture name for backward compatibility with existing tests
-@pytest.fixture
-def stash_client(tag_mixin_client: StashClient) -> StashClient:
-    """Create a mock StashClient for testing (alias for tag_mixin_client)."""
-    return tag_mixin_client  # Return the fixture directly instead of calling it
-
-
-@pytest.fixture
-def mock_tag() -> Tag:
-    """Create a mock tag for testing."""
-    return Tag(
-        id="123",
-        name="Test Tag",
-        description="Test tag description",
-        aliases=["alias1", "alias2"],
-        image_path="/path/to/image.jpg",
-        parents=[
-            Tag(
-                id="456",
-                name="Parent Tag",
-                aliases=[],
-                image_path=None,
-                parents=[],
-                children=[],
+        Creates a real tag in Stash, then verifies find_tag can retrieve it.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create a real tag in Stash
+            test_tag = Tag(
+                id="new",
+                name="Test Find Tag",
+                description="Test tag for find_tag test",
+                aliases=["findtag_alias1", "findtag_alias2"],
             )
-        ],
-        children=[
-            Tag(
-                id="789",
-                name="Child Tag",
-                aliases=[],
-                image_path=None,
-                parents=[],
-                children=[],
+
+            with capture_graphql_calls(stash_client) as calls:
+                created_tag = await stash_client.create_tag(test_tag)
+                cleanup["tags"].append(created_tag.id)
+
+            # Verify tagCreate call
+            assert len(calls) == 1, "Expected 1 GraphQL call for create"
+            assert "tagCreate" in calls[0]["query"]
+
+            # Test finding by ID - makes real GraphQL call
+            with capture_graphql_calls(stash_client) as calls:
+                found_tag = await stash_client.find_tag(created_tag.id)
+
+            # Verify findTag call
+            assert len(calls) == 1, "Expected 1 GraphQL call for find"
+            assert "findTag" in calls[0]["query"]
+            assert calls[0]["variables"]["id"] == created_tag.id
+
+            # Verify result
+            assert found_tag is not None
+            assert found_tag.id == created_tag.id
+            assert found_tag.name == "Test Find Tag"
+            assert found_tag.description == "Test tag for find_tag test"
+            assert len(found_tag.aliases) == 2
+            assert "findtag_alias1" in found_tag.aliases
+            assert "findtag_alias2" in found_tag.aliases
+
+    @pytest.mark.asyncio
+    async def test_find_tags(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test finding tags with filters - TRUE INTEGRATION TEST.
+
+        Creates multiple real tags in Stash, then tests various filter combinations.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create multiple real tags in Stash
+            tag1 = Tag(
+                id="new",
+                name="Filter Test Alpha",
+                description="First test tag",
+                aliases=["alpha"],
             )
-        ],
-    )
+            tag2 = Tag(
+                id="new",
+                name="Filter Test Beta",
+                description="Second test tag",
+                aliases=["beta"],
+            )
+            tag3 = Tag(
+                id="new",
+                name="Filter Test Gamma",
+                description="Third test tag",
+                aliases=["gamma"],
+            )
 
+            created1 = await stash_client.create_tag(tag1)
+            created2 = await stash_client.create_tag(tag2)
+            created3 = await stash_client.create_tag(tag3)
 
-@pytest.fixture
-def mock_result(mock_tag: Tag) -> FindTagsResultType:
-    """Create a mock result for testing."""
-    return FindTagsResultType(count=1, tags=[mock_tag])
+            cleanup["tags"].extend([created1.id, created2.id, created3.id])
 
+            # Test 1: Find all tags with name containing "Filter Test"
+            with capture_graphql_calls(stash_client) as calls:
+                result = await stash_client.find_tags(
+                    tag_filter={
+                        "name": {"value": "Filter Test", "modifier": "INCLUDES"}
+                    }
+                )
 
-@pytest.mark.asyncio
-async def test_find_tag(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test finding a tag by ID."""
-    # Set up the execute mock to return the proper data structure
-    stash_client.execute.return_value = {"findTag": mock_tag.__dict__}
+            # Verify GraphQL call
+            assert len(calls) == 1, "Expected 1 GraphQL call for find_tags"
+            assert "findTags" in calls[0]["query"]
+            assert "Filter Test" in str(calls[0]["variables"])
 
-    tag = await stash_client.find_tag("123")
-    assert isinstance(tag, Tag)
-    assert tag.id == mock_tag.id
-    assert tag.name == mock_tag.name
-    assert tag.aliases == mock_tag.aliases
-    assert len(tag.parents) == 1
-    assert len(tag.children) == 1
-    assert tag.parents[0].id == mock_tag.parents[0].id
-    assert tag.children[0].id == mock_tag.children[0].id
+            assert result.count >= 3  # At least our 3 tags
+            # Tags may be dict or Tag objects depending on deserialization
+            tag_names = [
+                t.name if hasattr(t, "name") else t["name"] for t in result.tags
+            ]
+            assert "Filter Test Alpha" in tag_names
+            assert "Filter Test Beta" in tag_names
+            assert "Filter Test Gamma" in tag_names
 
+            # Test 2: Find specific tag by exact name
+            with capture_graphql_calls(stash_client) as calls:
+                result = await stash_client.find_tags(
+                    tag_filter={
+                        "name": {"value": "Filter Test Alpha", "modifier": "EQUALS"}
+                    }
+                )
 
-@pytest.mark.asyncio
-async def test_find_tags(
-    stash_client: StashClient,
-    stash_cleanup_tracker,
-    mock_tag: Tag,
-    mock_result: FindTagsResultType,
-) -> None:
-    """Test finding tags with filters."""
-    # Set up the execute mock to return the proper data structure
-    # Note: The tags should be Tag objects, not dictionaries
-    stash_client.execute.return_value = {"findTags": {"count": 1, "tags": [mock_tag]}}
+            assert len(calls) == 1
+            assert "findTags" in calls[0]["query"]
+            assert result.count == 1
+            # Handle both dict and Tag object
+            tag_name = (
+                result.tags[0].name
+                if hasattr(result.tags[0], "name")
+                else result.tags[0]["name"]
+            )
+            assert tag_name == "Filter Test Alpha"
 
-    # Test with tag filter
-    result = await stash_client.find_tags(
-        tag_filter={"name": {"value": "Test Tag", "modifier": "EQUALS"}}
-    )
-    assert isinstance(result, FindTagsResultType)
-    assert result.count == 1
-    assert len(result.tags) == 1
-    assert isinstance(result.tags[0], Tag)
-    assert result.tags[0].id == mock_tag.id
+            # Test 3: Test pagination with filter
+            with capture_graphql_calls(stash_client) as calls:
+                result = await stash_client.find_tags(
+                    filter_={
+                        "page": 1,
+                        "per_page": 2,
+                        "sort": "name",
+                        "direction": "ASC",
+                    },
+                    tag_filter={
+                        "name": {"value": "Filter Test", "modifier": "INCLUDES"}
+                    },
+                )
 
-    # Test with general filter
-    result = await stash_client.find_tags(
-        filter_={
-            "page": 1,
-            "per_page": 10,
-            "sort": "name",
-            "direction": "ASC",
-        }
-    )
-    assert isinstance(result, FindTagsResultType)
-    assert result.count == 1
-    assert len(result.tags) == 1
-    assert isinstance(result.tags[0], Tag)
+            assert len(calls) == 1
+            assert "findTags" in calls[0]["query"]
+            assert len(result.tags) <= 2  # Respects per_page limit
 
+    @pytest.mark.asyncio
+    async def test_create_tag(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test creating a tag - TRUE INTEGRATION TEST.
 
-@pytest.mark.asyncio
-async def test_create_tag(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test creating a tag."""
-    # Set up the execute mock to return a proper Tag
-    stash_client.execute.return_value = {"tagCreate": mock_tag.__dict__}
+        Creates a real tag in Stash and verifies all fields are set correctly.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create a real tag with all fields
+            test_tag = Tag(
+                id="new",
+                name="Created Tag Test",
+                description="Tag created during test",
+                aliases=["create_alias1", "create_alias2"],
+            )
 
-    # Create with minimum fields
-    tag = Tag(
-        id="new",
-        name="New Tag",
-        aliases=[],
-        image_path=None,
-        parents=[],
-        children=[],
-    )
+            with capture_graphql_calls(stash_client) as calls:
+                created = await stash_client.create_tag(test_tag)
+                cleanup["tags"].append(created.id)
 
-    # Mock the to_input method
-    tag.to_input = AsyncMock(return_value={})
+            # Verify GraphQL call sequence
+            assert len(calls) == 1, "Expected 1 GraphQL call"
+            assert "tagCreate" in calls[0]["query"]
 
-    created = await stash_client.create_tag(tag)
-    assert isinstance(created, Tag)
-    assert created.id == mock_tag.id
-    assert created.name == mock_tag.name
+            # Verify variables sent
+            variables = calls[0]["variables"]
+            assert "input" in variables
+            assert variables["input"]["name"] == "Created Tag Test"
+            assert variables["input"]["description"] == "Tag created during test"
 
+            # Verify tag was created with all fields
+            assert created is not None
+            assert created.id != "new"  # Should have real ID from Stash
+            assert created.name == "Created Tag Test"
+            assert created.description == "Tag created during test"
+            assert len(created.aliases) == 2
 
-@pytest.mark.asyncio
-async def test_create_tag_duplicate(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test handling duplicate tag creation."""
+            # Verify we can find it again
+            found = await stash_client.find_tag(created.id)
+            assert found is not None
+            assert found.name == created.name
 
-    # Create a test tag with the same name as mock_tag
-    test_tag = Tag(
-        id="new",
-        name=mock_tag.name,  # Same name to trigger duplicate error
-        aliases=[],
-        image_path=None,
-        parents=[],
-        children=[],
-    )
+    @pytest.mark.asyncio
+    async def test_create_tag_duplicate(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test creating a duplicate tag - TRUE INTEGRATION TEST.
 
-    # Create a new client with customized behavior
-    client = create_autospec(StashClient, instance=True)
-    client.log = AsyncMock()
+        Verifies that attempting to create a tag with an existing name
+        returns the existing tag instead of creating a duplicate.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create the first tag
+            tag1 = Tag(
+                id="new",
+                name="Duplicate Tag Test",
+                description="Original tag",
+                aliases=[],
+            )
+            created1 = await stash_client.create_tag(tag1)
+            cleanup["tags"].append(created1.id)
 
-    # Set up execute to raise the duplicate error
-    error_text = f"tag with name '{mock_tag.name}' already exists"
-    client.execute = AsyncMock(side_effect=StashGraphQLError(error_text))
+            # Attempt to create a tag with the same name
+            tag2 = Tag(
+                id="new",
+                name="Duplicate Tag Test",  # Same name!
+                description="Duplicate attempt",
+                aliases=[],
+            )
 
-    # Set up find_tags to return the existing tag
-    client.find_tags = AsyncMock(
-        return_value=FindTagsResultType(count=1, tags=[mock_tag])
-    )
+            with capture_graphql_calls(stash_client) as calls:
+                created2 = await stash_client.create_tag(tag2)
 
-    # Set up the cache objects
-    client._find_tag_cache = MagicMock()
-    client._find_tag_cache.cache_clear = MagicMock()
-    client._find_tags_cache = MagicMock()
-    client._find_tags_cache.cache_clear = MagicMock()
+            # Verify GraphQL sequence: should try tagCreate, get error, then findTags
+            assert len(calls) >= 1, "Expected at least 1 GraphQL call"
+            # First call is tagCreate attempt
+            assert "tagCreate" in calls[0]["query"] or "findTags" in calls[0]["query"]
 
-    # Set up a custom create_tag function that returns the mock_tag
-    # This is the key to fixing the test
-    async def mock_create_tag(tag):
-        try:
-            # This will raise the StashGraphQLError we configured
-            await client.execute({"tagCreate": None})
-        except StashGraphQLError as e:
-            if "already exists" in str(e):
-                # Clear caches
-                client._find_tag_cache.cache_clear()
-                client._find_tags_cache.cache_clear()
-                # Return the existing tag from find_tags
-                # Filter out problematic fields
-                clean_data = {
-                    k: v
-                    for k, v in vars(mock_tag).items()
-                    if not k.startswith("_") and k != "client_mutation_id"
-                }
-                return Tag(**clean_data)
-            raise
-        else:
-            return tag
+            # Should return existing tag, not create new one
+            assert created2.id == created1.id  # Same ID means same tag
+            assert created2.name == "Duplicate Tag Test"
 
-    # Replace the mocked create_tag with our custom function
-    client.create_tag = mock_create_tag
+    @pytest.mark.asyncio
+    async def test_find_tags_error(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test error handling when finding tags with invalid filters - TRUE INTEGRATION TEST.
 
-    # Test the create_tag function directly
-    with patch.object(test_tag, "to_input", AsyncMock(return_value={})):
-        created = await client.create_tag(test_tag)
+        Tests that invalid filter combinations are handled gracefully.
+        """
+        # Test with empty filter - should return all tags (or error gracefully)
+        with capture_graphql_calls(stash_client) as calls:
+            result = await stash_client.find_tags()
 
-    # Verify we got a proper Tag object
-    assert isinstance(created, Tag)
-    assert created.id == mock_tag.id
-    assert created.name == mock_tag.name
+        # Verify GraphQL call was made
+        assert len(calls) == 1
+        assert "findTags" in calls[0]["query"]
 
-    # Verify the caches were cleared
-    client._find_tag_cache.cache_clear.assert_called_once()
-    client._find_tags_cache.cache_clear.assert_called_once()
+        # Should return result (even if empty), not crash
+        assert result is not None
+        assert hasattr(result, "count")
+        assert hasattr(result, "tags")
 
+    @pytest.mark.asyncio
+    async def test_update_tag(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test updating a tag - TRUE INTEGRATION TEST.
 
-@pytest.mark.asyncio
-async def test_find_tags_error(
-    stash_client: StashClient, stash_cleanup_tracker
-) -> None:
-    """Test handling errors when finding tags."""
-    # Create a completely new client that we have full control of
-    client = create_autospec(StashClient, instance=True)
-    client.log = MagicMock()  # Use MagicMock instead of AsyncMock for log
+        Creates a real tag, updates it, and verifies the changes were persisted.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create a real tag
+            original_tag = Tag(
+                id="new",
+                name="Update Test Tag",
+                description="Original description",
+                aliases=["original_alias"],
+            )
+            created = await stash_client.create_tag(original_tag)
+            cleanup["tags"].append(created.id)
 
-    # Set up execute to raise an exception
-    client.execute = AsyncMock(side_effect=Exception("Test error"))
+            # Update the tag
+            created.description = "Updated description"
+            created.aliases = ["updated_alias1", "updated_alias2"]
 
-    # Call the TagClientMixin's find_tags method directly
-    result = await TagClientMixin.find_tags(client)
+            with capture_graphql_calls(stash_client) as calls:
+                updated = await stash_client.update_tag(created)
 
-    # Verify we get a proper FindTagsResultType with empty results
-    assert isinstance(result, FindTagsResultType)
-    assert result.count == 0
-    assert len(result.tags) == 0
+            # Verify GraphQL call
+            assert len(calls) == 1, "Expected 1 GraphQL call"
+            assert "tagUpdate" in calls[0]["query"]
+            assert calls[0]["variables"]["input"]["id"] == created.id
 
+            # Verify updates were applied
+            assert updated.id == created.id
+            assert updated.description == "Updated description"
+            assert len(updated.aliases) == 2
+            assert "updated_alias1" in updated.aliases
+            assert "updated_alias2" in updated.aliases
 
-@pytest.mark.asyncio
-async def test_update_tag(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test updating a tag."""
-    # Create updated version of mock tag
-    updated_tag = Tag(
-        id=mock_tag.id,
-        name="Updated Name",
-        aliases=["new_alias1", "new_alias2"],
-        description="Updated description",
-        image_path=mock_tag.image_path,
-        parents=mock_tag.parents,
-        children=mock_tag.children,
-    )
+            # Verify updates were persisted by fetching again
+            refetched = await stash_client.find_tag(created.id)
+            assert refetched.description == "Updated description"
+            assert len(refetched.aliases) == 2
 
-    stash_client.execute.return_value = {"tagUpdate": updated_tag.__dict__}
+    @pytest.mark.asyncio
+    async def test_merge_tags(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test merging tags - TRUE INTEGRATION TEST.
 
-    # Update the tag
-    tag = Tag(
-        id=mock_tag.id,
-        name="Updated Name",
-        aliases=["new_alias1", "new_alias2"],
-        description="Updated description",
-        image_path=mock_tag.image_path,
-        parents=mock_tag.parents,
-        children=mock_tag.children,
-    )
-    tag.to_input = AsyncMock(return_value={})
+        Creates multiple tags, merges them, and verifies the merge worked correctly.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create destination tag
+            dest_tag = Tag(
+                id="new",
+                name="Merge Destination",
+                description="Destination for merge",
+                aliases=[],
+            )
+            destination = await stash_client.create_tag(dest_tag)
+            cleanup["tags"].append(destination.id)
 
-    updated = await stash_client.update_tag(tag)
-    assert isinstance(updated, Tag)
-    assert updated.id == mock_tag.id
-    assert updated.name == "Updated Name"
-    assert updated.aliases == ["new_alias1", "new_alias2"]
-    assert updated.description == "Updated description"
+            # Create source tags to merge
+            source1_tag = Tag(
+                id="new",
+                name="Merge Source 1",
+                description="First source",
+                aliases=[],
+            )
+            source2_tag = Tag(
+                id="new",
+                name="Merge Source 2",
+                description="Second source",
+                aliases=[],
+            )
+            source1 = await stash_client.create_tag(source1_tag)
+            source2 = await stash_client.create_tag(source2_tag)
+            # Don't add sources to cleanup - they'll be deleted by merge
 
+            # Perform merge - merges source tags into destination
+            with capture_graphql_calls(stash_client) as calls:
+                merged = await stash_client.tags_merge(
+                    source=[source1.id, source2.id], destination=destination.id
+                )
 
-@pytest.mark.asyncio
-async def test_merge_tags(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test merging tags."""
-    source_tags = [
-        Tag(
-            id="456",
-            name="Source Tag 1",
+            # Verify GraphQL call
+            assert len(calls) == 1, "Expected 1 GraphQL call"
+            assert "tagsMerge" in calls[0]["query"]
+            # Verify variables were sent (structure may vary)
+            variables_str = str(calls[0]["variables"])
+            assert destination.id in variables_str
+            assert source1.id in variables_str
+            assert source2.id in variables_str
+
+            # Verify merge result
+            assert merged.id == destination.id
+            assert merged.name == "Merge Destination"
+
+            # Verify source tags were deleted (merged into destination)
+            source1_after = await stash_client.find_tag(source1.id)
+            assert source1_after is None  # Should be deleted after merge
+
+    @pytest.mark.asyncio
+    async def test_merge_tags_error(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test error handling when merging with invalid tag IDs - TRUE INTEGRATION TEST.
+
+        Attempts to merge non-existent tags to verify proper error handling.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create a valid destination tag
+            dest_tag = Tag(
+                id="new",
+                name="Valid Destination",
+                description="Valid destination tag",
+                aliases=[],
+            )
+            destination = await stash_client.create_tag(dest_tag)
+            cleanup["tags"].append(destination.id)
+
+            # Attempt to merge with non-existent source tags
+            with (
+                capture_graphql_calls(stash_client) as calls,
+                pytest.raises(Exception),  # Should raise error for invalid IDs
+            ):
+                await stash_client.tags_merge(
+                    source=["99999", "88888"],  # Non-existent IDs
+                    destination=destination.id,
+                )
+
+            # Verify GraphQL call was attempted
+            assert len(calls) == 1
+            assert "tagsMerge" in calls[0]["query"]
+
+    @pytest.mark.asyncio
+    async def test_bulk_tag_update(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test bulk tag update - TRUE INTEGRATION TEST.
+
+        Creates multiple tags and performs bulk updates on them.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create multiple tags
+            tag1 = Tag(id="new", name="Bulk Update 1", aliases=[])
+            tag2 = Tag(id="new", name="Bulk Update 2", aliases=[])
+            tag3 = Tag(id="new", name="Bulk Update 3", aliases=[])
+
+            created1 = await stash_client.create_tag(tag1)
+            created2 = await stash_client.create_tag(tag2)
+            created3 = await stash_client.create_tag(tag3)
+
+            cleanup["tags"].extend([created1.id, created2.id, created3.id])
+
+            # Perform bulk update (add common description to all)
+            with capture_graphql_calls(stash_client) as calls:
+                updated_tags = await stash_client.bulk_tag_update(
+                    ids=[created1.id, created2.id, created3.id],
+                    description="Bulk updated description",
+                )
+
+            # Verify GraphQL call
+            assert len(calls) == 1, "Expected 1 GraphQL call"
+            assert "bulkTagUpdate" in calls[0]["query"]
+            # Verify IDs were sent (structure may vary)
+            variables_str = str(calls[0]["variables"])
+            assert created1.id in variables_str
+            assert created2.id in variables_str
+            assert created3.id in variables_str
+
+            # Verify all tags were updated
+            assert len(updated_tags) == 3
+            for tag in updated_tags:
+                assert tag.description == "Bulk updated description"
+
+    @pytest.mark.asyncio
+    async def test_bulk_tag_update_error(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test bulk tag update with invalid IDs - TRUE INTEGRATION TEST.
+
+        Attempts bulk update with non-existent tag IDs to verify error handling.
+        """
+        # Attempt bulk update with non-existent IDs
+        with (
+            capture_graphql_calls(stash_client) as calls,
+            pytest.raises(Exception),  # Should raise error for invalid IDs
+        ):
+            await stash_client.bulk_tag_update(
+                ids=["99999", "88888"],  # Non-existent IDs
+                description="Should fail",
+            )
+
+        # Verify GraphQL call was attempted
+        assert len(calls) == 1
+        assert "bulkTagUpdate" in calls[0]["query"]
+
+    @pytest.mark.asyncio
+    async def test_create_tag_error(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test error handling when creating invalid tags - TRUE INTEGRATION TEST.
+
+        Tests various error scenarios with real API calls.
+        """
+        # Test: Create tag with empty name (should fail)
+        invalid_tag = Tag(
+            id="new",
+            name="",  # Empty name - invalid!
             aliases=[],
-            parents=[],
-            children=[],
-        ),
-        Tag(
-            id="789",
-            name="Source Tag 2",
-            aliases=[],
-            parents=[],
-            children=[],
-        ),
-    ]
-
-    stash_client.execute.return_value = {"tagsMerge": mock_tag.__dict__}
-
-    # Merge tags
-    merged = await stash_client.tags_merge(
-        source=[t.id for t in source_tags],
-        destination=mock_tag.id,
-    )
-    assert isinstance(merged, Tag)
-    assert merged.id == mock_tag.id
-    assert merged.name == mock_tag.name
-
-
-@pytest.mark.asyncio
-async def test_merge_tags_error(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test handling errors when merging tags."""
-    source_tags = ["456", "789"]
-
-    # Set up execute to raise an exception
-    stash_client.execute.side_effect = Exception("Test error")
-
-    # Call tags_merge which should propagate the exception
-    with pytest.raises(Exception, match="Test error"):
-        await stash_client.tags_merge(
-            source=source_tags,
-            destination=mock_tag.id,
         )
+        with (
+            capture_graphql_calls(stash_client) as calls,
+            pytest.raises(Exception),
+        ):
+            await stash_client.create_tag(invalid_tag)
 
+        # Verify GraphQL call was attempted
+        assert len(calls) >= 1
 
-@pytest.mark.asyncio
-async def test_bulk_tag_update(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test bulk updating tags."""
-    mock_result = [mock_tag.__dict__, mock_tag.__dict__]  # Two tags with same data
-    stash_client.execute.return_value = {"bulkTagUpdate": mock_result}
+    @pytest.mark.asyncio
+    async def test_tag_hierarchy(
+        self, stash_client: StashClient, stash_cleanup_tracker
+    ) -> None:
+        """Test tag parent/child hierarchy - TRUE INTEGRATION TEST.
 
-    # Update multiple tags
-    updated = await stash_client.bulk_tag_update(
-        ids=["123", "456"],
-        description="Updated description",
-        aliases=["new_alias1", "new_alias2"],
-    )
-    assert len(updated) == 2
-    assert all(isinstance(tag, Tag) for tag in updated)
-    assert all(tag.id == mock_tag.id for tag in updated)
+        Creates tags with parent/child relationships and verifies the hierarchy works.
+        """
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            # Create parent tag
+            parent_tag = Tag(
+                id="new",
+                name="Parent Tag Hierarchy",
+                description="Parent in hierarchy",
+                aliases=[],
+            )
 
+            with capture_graphql_calls(stash_client) as calls:
+                parent = await stash_client.create_tag(parent_tag)
+                cleanup["tags"].append(parent.id)
 
-@pytest.mark.asyncio
-async def test_bulk_tag_update_error(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test handling errors when bulk updating tags."""
-    stash_client.execute.side_effect = Exception("Test error")
+            assert len(calls) == 1
+            assert "tagCreate" in calls[0]["query"]
 
-    with pytest.raises(Exception, match="Test error"):
-        await stash_client.bulk_tag_update(
-            ids=[mock_tag.id],
-            description="Updated description",
-            aliases=["new_alias"],
-        )
+            # Create child tag with parent relationship
+            child_tag = Tag(
+                id="new",
+                name="Child Tag Hierarchy",
+                description="Child in hierarchy",
+                aliases=[],
+                parents=[parent],  # Set parent relationship
+            )
 
+            with capture_graphql_calls(stash_client) as calls:
+                child = await stash_client.create_tag(child_tag)
+                cleanup["tags"].append(child.id)
 
-@pytest.mark.asyncio
-async def test_create_tag_error(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test handling errors when creating a tag."""
-    # Set up execute to raise an exception
-    stash_client.execute.side_effect = Exception("Test error")
+            assert len(calls) == 1
+            assert "tagCreate" in calls[0]["query"]
+            # Verify parent_ids were included in request
+            assert parent.id in str(calls[0]["variables"])
 
-    # Create a tag
-    tag = Tag(
-        id="new",
-        name="New Tag",
-        aliases=[],
-        image_path=None,
-        parents=[],
-        children=[],
-    )
+            # Verify hierarchy by fetching parent
+            refetched_parent = await stash_client.find_tag(parent.id)
+            assert refetched_parent is not None
 
-    # Mock the to_input method
-    with (
-        patch.object(tag, "to_input", AsyncMock(return_value={})),
-        pytest.raises(Exception, match="Test error"),
-    ):
-        await stash_client.create_tag(tag)
-
-
-@pytest.mark.asyncio
-async def test_tag_hierarchy(
-    stash_client: StashClient, stash_cleanup_tracker, mock_tag: Tag
-) -> None:
-    """Test tag hierarchy operations."""
-    # Create test tags
-    parent_tag = Tag(
-        id="456",
-        name="Parent Tag",
-        aliases=[],
-        parents=[],
-        children=[],
-    )
-    child_tag = Tag(
-        id="789",
-        name="Child Tag",
-        aliases=[],
-        parents=[],
-        children=[],
-    )
-
-    # Set up mock return value
-    mock_tag.parents = [parent_tag]
-    mock_tag.children = [child_tag]
-    # Fix for TypeError: Tag.__init__() got an unexpected keyword argument '_dirty_attrs' and similar
-    # Create a clean dict without any problematic fields
-    tag_dict = {
-        k: v
-        for k, v in mock_tag.__dict__.items()
-        if not k.startswith("_") and k not in {"client_mutation_id", "to_input"}
-    }
-    stash_client.execute.return_value = {"tagUpdate": tag_dict}
-
-    # Update tag with parent and child
-    tag = mock_tag
-    # Patch the to_input method instead of adding it directly
-    with patch.object(tag, "to_input", AsyncMock(return_value={})):
-        updated = await stash_client.update_tag(tag)
-
-    # Verify the result
-    assert isinstance(updated, Tag)
-    assert updated.id == mock_tag.id
-    assert updated.name == mock_tag.name
-    assert len(updated.parents) == 1
-    assert len(updated.children) == 1
-    assert updated.parents[0].id == parent_tag.id
-    assert updated.children[0].id == child_tag.id
+            # Verify child relationship
+            refetched_child = await stash_client.find_tag(child.id)
+            assert refetched_child is not None
+            assert refetched_child.name == "Child Tag Hierarchy"

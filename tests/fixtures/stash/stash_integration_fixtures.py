@@ -15,6 +15,7 @@ Philosophy:
 - Use factories for test data creation
 """
 
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import httpx
@@ -336,3 +337,60 @@ def mock_studio_finder(fansly_network_studio):
         )
 
     return mock_find_studios_fn, create_creator_studio
+
+
+# ============================================================================
+# GraphQL Call Inspection Fixtures
+# ============================================================================
+
+
+@contextmanager
+def capture_graphql_calls(stash_client):
+    """Context manager to capture GraphQL calls made to Stash in integration tests.
+
+    This patches stash_client.execute to intercept and record all GraphQL queries,
+    variables, and responses while still making the real calls to Stash.
+
+    Args:
+        stash_client: The StashClient instance to monitor
+
+    Yields:
+        list: List of dicts with 'query', 'variables', and 'result' for each call
+
+    Example:
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            with capture_graphql_calls(stash_client) as calls:
+                # Make real calls to Stash
+                studio = await real_stash_processor._find_existing_studio(account)
+
+                # Verify call sequence (permanent assertion)
+                assert len(calls) == 3, "Expected 3 GraphQL calls"
+                assert "findStudios" in calls[0]["query"]
+                assert "findStudios" in calls[1]["query"]
+                assert "studioCreate" in calls[2]["query"]
+    """
+    calls = []
+    original_execute = stash_client.execute
+
+    async def capture_execute(query, variables=None):
+        """Capture the call details and execute the real query.
+
+        Uses try/finally to ensure call is logged even if exception is raised.
+        """
+        try:
+            result = await original_execute(query, variables)
+            return result
+        finally:
+            # Always log the call, even if it raised an exception
+            # (result will be None if exception occurred)
+            calls.append(
+                {
+                    "query": query,
+                    "variables": variables,
+                    "result": result if "result" in locals() else None,
+                }
+            )
+
+    # Patch the execute method
+    with patch.object(stash_client, "execute", side_effect=capture_execute):
+        yield calls

@@ -273,7 +273,7 @@ async def test_create_image_error(
             side_effect=Exception("Test error"),
         ),
         patch.object(mock_image, "to_input", new_callable=AsyncMock, return_value={}),
-        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
+        pytest.raises(Exception),
     ):
         await stash_client.create_image(mock_image)
 
@@ -382,6 +382,6 @@ async def test_update_image_error(
             side_effect=Exception("Test error"),
         ),
         patch.object(mock_image, "to_input", new_callable=AsyncMock, return_value={}),
-        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
+        pytest.raises(Exception),
     ):
         await stash_client.update_image(mock_image)
