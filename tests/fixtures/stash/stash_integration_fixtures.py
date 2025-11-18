@@ -15,6 +15,7 @@ Philosophy:
 - Use factories for test data creation
 """
 
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import httpx
@@ -86,24 +87,25 @@ def _clear_stash_client_caches(client):
 # ============================================================================
 
 
-class TestState:
-    """Real download state for testing."""
-
-    def __init__(self):
-        """Initialize test state with default values."""
-        self.creator_id = "12345"
-        self.creator_name = "test_user"
-        self.messages_enabled = True
-        self.verbose_logs = False  # Keep logs quiet in tests
-
-
 @pytest.fixture
-def test_state():
-    """Fixture for test download state (renamed from mock_state for clarity).
+def test_state(tmp_path):
+    """Fixture for test download state using DownloadStateFactory.
 
-    This is a REAL TestState object, not a mock.
+    This creates a REAL DownloadState object with all required attributes.
     """
-    return TestState()
+    from tests.fixtures.download import DownloadStateFactory
+
+    # Create real paths
+    base_path = tmp_path / "downloads"
+    download_path = base_path / "test_user"
+    download_path.mkdir(parents=True, exist_ok=True)
+
+    return DownloadStateFactory(
+        creator_id="12345",
+        creator_name="test_user",
+        base_path=base_path,
+        download_path=download_path,
+    )
 
 
 # REMOVED: mock_stash_context, mock_context
@@ -218,7 +220,9 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
         processor = StashProcessing.from_config(config, test_state)
         yield processor
         # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
-        _clear_stash_client_caches(processor.context.client)
+        # Only clear if client is still initialized (some tests call cleanup() which closes client)
+        if processor.context._client is not None:
+            _clear_stash_client_caches(processor.context.client)
 
 
 @pytest_asyncio.fixture
@@ -336,3 +340,75 @@ def mock_studio_finder(fansly_network_studio):
         )
 
     return mock_find_studios_fn, create_creator_studio
+
+
+# ============================================================================
+# GraphQL Call Inspection Fixtures
+# ============================================================================
+
+
+@contextmanager
+def capture_graphql_calls(stash_client):
+    """Context manager to capture GraphQL calls made to Stash in integration tests.
+
+    This patches stash_client._session.execute to intercept and record all GraphQL
+    operations, variables, and raw responses from the gql library while still making
+    real calls to Stash. Captures at the gql boundary BEFORE StashClient error handling.
+
+    Args:
+        stash_client: The StashClient instance to monitor
+
+    Yields:
+        list: List of dicts with 'query', 'variables', 'result', and 'exception' for each call
+
+    Example:
+        async with stash_cleanup_tracker(stash_client) as cleanup:
+            with capture_graphql_calls(stash_client) as calls:
+                # Make real calls to Stash
+                studio = await real_stash_processor._find_existing_studio(account)
+
+                # Verify call sequence (permanent assertion)
+                assert len(calls) == 3, "Expected 3 GraphQL calls"
+                assert "findStudios" in calls[0]["query"]
+                assert "findStudios" in calls[1]["query"]
+                assert "studioCreate" in calls[2]["query"]
+
+                # Check for errors
+                if calls[0]["exception"]:
+                    assert "GRAPHQL_VALIDATION_FAILED" in str(calls[0]["exception"])
+    """
+    calls = []
+    original_session_execute = stash_client._session.execute
+
+    async def capture_session_execute(operation, variable_values=None):
+        """Capture the call details at the gql boundary.
+
+        Captures raw gql operations and responses before StashClient error handling.
+        """
+        result = None
+        exception = None
+        try:
+            result = await original_session_execute(
+                operation, variable_values=variable_values
+            )
+        except Exception as e:
+            exception = e
+            raise
+        else:
+            return result
+        finally:
+            # Always log the call with raw gql result or exception
+            calls.append(
+                {
+                    "query": str(operation),  # Convert gql DocumentNode to string
+                    "variables": variable_values,
+                    "result": dict(result) if result else None,
+                    "exception": exception,
+                }
+            )
+
+    # Patch the _session.execute method at the gql boundary
+    with patch.object(
+        stash_client._session, "execute", side_effect=capture_session_execute
+    ):
+        yield calls

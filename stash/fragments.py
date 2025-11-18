@@ -281,10 +281,29 @@ query FindDuplicateScenes($distance: Int, $duration_diff: Float) {{
 }}
 """
 
-PARSE_SCENE_FILENAMES_QUERY = """
-query ParseSceneFilenames($filter: FindFilterType, $config: SceneParserInput!) {
-    parseSceneFilenames(filter: $filter, config: $config)
-}
+PARSE_SCENE_FILENAMES_QUERY = f"""
+{SCENE_QUERY_FRAGMENTS}
+query ParseSceneFilenames($filter: FindFilterType, $config: SceneParserInput!) {{
+    parseSceneFilenames(filter: $filter, config: $config) {{
+        count
+        results {{
+            scene {{
+                ...SceneFragment
+            }}
+            title
+            code
+            details
+            director
+            url
+            date
+            rating100
+            studio_id
+            gallery_ids
+            performer_ids
+            tag_ids
+        }}
+    }}
+}}
 """
 
 SCENE_WALL_QUERY = f"""

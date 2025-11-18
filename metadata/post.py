@@ -146,7 +146,7 @@ async def process_pinned_posts(
     posts: list[dict[str, any]],
     session: AsyncSession | None = None,
 ) -> None:
-    """Process pinned posts.
+    """Process pinned posts using batch operations.
 
     Args:
         config: FanslyConfig instance
@@ -157,17 +157,24 @@ async def process_pinned_posts(
     posts = copy.deepcopy(posts)
     json_output(1, "meta/post - p_p_p - posts", posts)
 
+    if not posts:
+        return
+
+    # Batch check if posts exist in the database
+    post_ids = [post["postId"] for post in posts]
+    result = await session.execute(select(Post.id).where(Post.id.in_(post_ids)))
+    existing_post_ids = {row[0] for row in result.fetchall()}
+
+    # Collect values for batch upsert
+    values_to_upsert = []
     for post in posts:
-        # Check if the post exists in the database
-        # Note: IDs are already converted to int by FanslyApi.convert_ids_to_int()
-        result = await session.execute(select(Post).where(Post.id == post["postId"]))
-        post_exists = result.unique().scalar_one_or_none() is not None
-        if not post_exists:
+        post_id = post["postId"]
+        if post_id not in existing_post_ids:
             json_output(
                 1,
                 "meta/post - p_p_p - skipping_missing_post",
                 {
-                    "postId": post["postId"],
+                    "postId": post_id,
                     "accountId": account.id,
                     "reason": "Post does not exist in database",
                 },
@@ -177,21 +184,28 @@ async def process_pinned_posts(
         # Convert timestamp once to avoid repeated conversions
         created_at = datetime.fromtimestamp((post["createdAt"] / 1000), UTC)
 
-        insert_stmt = insert(pinned_posts).values(
-            postId=post["postId"],
-            accountId=account.id,
-            pos=post["pos"],
-            createdAt=created_at,
-        )
-        update_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["postId", "accountId"],
-            set_={
+        values_to_upsert.append(
+            {
+                "postId": post_id,
+                "accountId": account.id,
                 "pos": post["pos"],
                 "createdAt": created_at,
-            },
+            }
         )
-        await session.execute(update_stmt)
-        await session.flush()
+
+    if not values_to_upsert:
+        return
+
+    # Batch upsert all pinned posts in one operation
+    stmt = insert(pinned_posts).values(values_to_upsert)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["postId", "accountId"],
+        set_={
+            "pos": stmt.excluded.pos,
+            "createdAt": stmt.excluded.createdAt,
+        },
+    )
+    await session.execute(stmt)
 
 
 @require_database_config
@@ -406,6 +420,7 @@ async def _process_post_mentions(
     )
 
     await session.execute(stmt)
+    await session.commit()
 
 
 async def _process_post_attachments(

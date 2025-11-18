@@ -158,7 +158,7 @@ class TestImageHashIntegration:
         """Test get_hash_for_image with a non-existent file."""
         # Try to get the hash of a non-existent file
         nonexistent_file = temp_dir / "nonexistent.jpg"
-        with pytest.raises(Exception):  # noqa: PT011, B017 - testing error handling for missing file
+        with pytest.raises(Exception):
             get_hash_for_image(nonexistent_file)
 
 
