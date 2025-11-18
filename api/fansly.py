@@ -442,7 +442,7 @@ class FanslyApi:
         if self._websocket_client is not None and self._websocket_client.connected:
             if self._websocket_client.session_id:
                 logger.info(
-                    "Reusing existing WebSocket session: %s",
+                    "Reusing existing WebSocket session: {}",
                     self._websocket_client.session_id,
                 )
                 return self._websocket_client.session_id
@@ -484,7 +484,7 @@ class FanslyApi:
                     "WebSocket authentication failed - no session ID received"
                 )
         except Exception as e:
-            logger.error("Failed to establish WebSocket session: %s", e)
+            logger.error("Failed to establish WebSocket session: {}", e)
             # Clean up on failure
             if self._websocket_client:
                 await self._websocket_client.stop()
@@ -492,7 +492,7 @@ class FanslyApi:
             raise RuntimeError(f"WebSocket session setup failed: {e}")
         else:
             logger.info(
-                "WebSocket session established: %s", self._websocket_client.session_id
+                "WebSocket session established: {}", self._websocket_client.session_id
             )
             return self._websocket_client.session_id
 
@@ -991,7 +991,7 @@ class FanslyApi:
             try:
                 await self._websocket_client.stop()
             except Exception as e:
-                logger.warning("Error stopping WebSocket: %s", e)
+                logger.warning("Error stopping WebSocket: {}", e)
             finally:
                 self._websocket_client = None
 
