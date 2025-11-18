@@ -14,7 +14,14 @@ import respx
 from sqlalchemy import select
 
 from metadata import Account
-from tests.fixtures.metadata.metadata_factories import AccountFactory
+from metadata.attachment import ContentType
+from tests.fixtures import (
+    AccountMediaFactory,
+    MediaFactory,
+    MediaLocationFactory,
+    PostFactory,
+)
+from tests.fixtures.metadata.metadata_factories import AccountFactory, AttachmentFactory
 from tests.fixtures.stash import (
     create_find_studios_result,
     create_graphql_response,
@@ -35,6 +42,35 @@ class TestBackgroundProcessing:
         """
         # Create real account in database
         account = AccountFactory(id=12345, username="test_user", stash_id=123)
+        factory_async_session.commit()
+
+        # Create a post with attachments so process_creator_posts has data to process
+        post = PostFactory(accountId=12345)
+        factory_async_session.commit()
+
+        # Create media for the post
+        media = MediaFactory(
+            id=99999, accountId=12345, mimetype="image/jpeg", is_downloaded=True
+        )
+        factory_async_session.commit()
+
+        # Create media location
+        media_location = MediaLocationFactory(
+            mediaId=99999, locationId=1, location="https://example.com/image.jpg"
+        )
+        factory_async_session.commit()
+
+        # Create AccountMedia as attachment content
+        account_media = AccountMediaFactory(accountId=12345, mediaId=99999)
+        factory_async_session.commit()
+
+        # Create Attachment linking the post to the media
+        attachment = AttachmentFactory(
+            postId=post.id,
+            contentId=account_media.id,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
         factory_async_session.commit()
 
         # Query fresh account from async session
@@ -76,11 +112,7 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # process_creator_posts: check for existing galleries
-                httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
-                ),
-                # process_creator_messages: check for existing galleries
+                # process_creator_posts: check for existing galleries (has 1 post with attachment)
                 httpx.Response(
                     200, json=create_graphql_response("findGalleries", empty_galleries)
                 ),
@@ -98,7 +130,8 @@ class TestBackgroundProcessing:
         assert result.scalar_one() is not None
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
+        # 4 calls: 3 for studio setup + 1 for post processing (no messages in this test)
+        assert len(graphql_route.calls) == 4, "Expected exactly 4 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
@@ -106,7 +139,6 @@ class TestBackgroundProcessing:
         assert "findStudios" in json.loads(calls[1].request.content)["query"]
         assert "studioCreate" in json.loads(calls[2].request.content)["query"]
         assert "findGalleries" in json.loads(calls[3].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[4].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_cancelled(

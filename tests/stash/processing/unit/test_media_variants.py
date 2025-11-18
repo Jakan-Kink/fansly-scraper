@@ -631,14 +631,16 @@ async def test_process_bundle_ordering(
         count=1, studios=[creator_studio_dict]
     )
 
-    # Build the full response sequence
-    # Hypothesis: Maybe metadata lookup (findPerformers/findStudios) happens once, then 3x imageUpdate?
+    # findPerformers call 1: by name (not found)
+    empty_performers_result = create_find_performers_result(count=0, performers=[])
+
+    # Build the full response sequence (no findScenes - bundle has only images)
     responses = [
         httpx.Response(
             200, json=create_graphql_response("findImages", find_images_data)
         ),
         httpx.Response(
-            200, json=create_graphql_response("findScenes", empty_scenes_result)
+            200, json=create_graphql_response("findPerformers", empty_performers_result)
         ),
         httpx.Response(
             200, json=create_graphql_response("findPerformers", find_performers_data)
@@ -688,8 +690,8 @@ async def test_process_bundle_ordering(
 
     # Verify query types in order
     assert "findImages" in json.loads(calls[0].request.content)["query"]
-    assert "findScenes" in json.loads(calls[1].request.content)["query"]
-    assert "findPerformers" in json.loads(calls[2].request.content)["query"]
+    assert "findPerformers" in json.loads(calls[1].request.content)["query"]  # By name
+    assert "findPerformers" in json.loads(calls[2].request.content)["query"]  # By alias
     assert "findStudios" in json.loads(calls[3].request.content)["query"]
     assert "findStudios" in json.loads(calls[4].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
@@ -753,7 +755,14 @@ async def test_process_bundle_with_preview(
     await session.refresh(test_media_bundle, attribute_names=["preview"])
 
     # Mock Stash GraphQL HTTP responses
-    # Bundle with preview: findImages (for preview), findScenes (empty), findPerformers, 2x findStudios, imageUpdate
+    # Bundle with preview (IMAGE only, NO videos):
+    # 1. findImages (for preview image)
+    # 2. findPerformers by name (empty - not found by exact name match)
+    # 3. findPerformers by alias (returns performer - found by alias)
+    # 4. findStudios (Fansly network)
+    # 5. findStudios (creator studio)
+    # 6. imageUpdate (save metadata)
+    # NOTE: No findScenes call because bundle has no video files
 
     image_data = create_image_dict(
         id="image_preview",
@@ -774,8 +783,10 @@ async def test_process_bundle_with_preview(
     )
     find_images_data = create_find_images_result(count=1, images=[image_data])
 
-    empty_scenes_result = create_find_scenes_result(count=0, scenes=[])
+    # findPerformers call 1: by name (not found)
+    empty_performers_result = create_find_performers_result(count=0, performers=[])
 
+    # findPerformers call 2: by alias (found)
     performer_dict = strawberry.asdict(mock_performer)
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
@@ -801,7 +812,8 @@ async def test_process_bundle_with_preview(
                 200, json=create_graphql_response("findImages", find_images_data)
             ),
             httpx.Response(
-                200, json=create_graphql_response("findScenes", empty_scenes_result)
+                200,
+                json=create_graphql_response("findPerformers", empty_performers_result),
             ),
             httpx.Response(
                 200,
@@ -837,8 +849,8 @@ async def test_process_bundle_with_preview(
 
     # Verify query types in order
     assert "findImages" in json.loads(calls[0].request.content)["query"]
-    assert "findScenes" in json.loads(calls[1].request.content)["query"]
-    assert "findPerformers" in json.loads(calls[2].request.content)["query"]
+    assert "findPerformers" in json.loads(calls[1].request.content)["query"]  # By name
+    assert "findPerformers" in json.loads(calls[2].request.content)["query"]  # By alias
     assert "findStudios" in json.loads(calls[3].request.content)["query"]
     assert "findStudios" in json.loads(calls[4].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
@@ -951,8 +963,10 @@ async def test_bundle_permission_inheritance(
 
     find_images_data = create_find_images_result(count=2, images=images_data)
 
-    empty_scenes_result = create_find_scenes_result(count=0, scenes=[])
+    # findPerformers call 1: by name (not found)
+    empty_performers_result = create_find_performers_result(count=0, performers=[])
 
+    # findPerformers call 2: by alias (found)
     performer_dict = strawberry.asdict(mock_performer)
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
@@ -972,13 +986,13 @@ async def test_bundle_permission_inheritance(
         count=1, studios=[creator_studio_dict]
     )
 
-    # Build response sequence
+    # Build response sequence (no findScenes - bundle has only images)
     responses = [
         httpx.Response(
             200, json=create_graphql_response("findImages", find_images_data)
         ),
         httpx.Response(
-            200, json=create_graphql_response("findScenes", empty_scenes_result)
+            200, json=create_graphql_response("findPerformers", empty_performers_result)
         ),
         httpx.Response(
             200, json=create_graphql_response("findPerformers", find_performers_data)
@@ -1028,8 +1042,8 @@ async def test_bundle_permission_inheritance(
 
     # Verify query types in order
     assert "findImages" in json.loads(calls[0].request.content)["query"]
-    assert "findScenes" in json.loads(calls[1].request.content)["query"]
-    assert "findPerformers" in json.loads(calls[2].request.content)["query"]
+    assert "findPerformers" in json.loads(calls[1].request.content)["query"]  # By name
+    assert "findPerformers" in json.loads(calls[2].request.content)["query"]  # By alias
     assert "findStudios" in json.loads(calls[3].request.content)["query"]
     assert "findStudios" in json.loads(calls[4].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]

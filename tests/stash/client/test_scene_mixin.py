@@ -1,1131 +1,1151 @@
-"""Unit tests for SceneClientMixin."""
+"""TRUE integration tests for SceneClientMixin.
 
-import re
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
+These tests make REAL GraphQL calls to the Docker Stash instance and verify actual API behavior.
+Uses capture_graphql_calls to validate request sequences.
+
+NOTE: Tests are being migrated incrementally from mock-based to TRUE integration.
+Some tests may still use old patterns - migration in progress.
+"""
 
 import pytest
 
 from stash import StashClient
-from stash.client.mixins.scene import SceneClientMixin
-from stash.client_helpers import async_lru_cache
-from stash.types import FindScenesResultType, Scene, VideoFile
-from tests.stash.client.client_test_helpers import create_base_mock_client
-
-
-def create_mock_client() -> StashClient:
-    """Create a base mock StashClient for testing."""
-    # Use the helper to create a base client
-    client = create_base_mock_client()
-
-    # Add cache attributes specific to scene mixin
-    client._find_scene_cache = {}
-    client._find_scenes_cache = {}
-    client.scene_cache = {}
-
-    return client
-
-
-def add_scene_find_methods(client: StashClient) -> None:
-    """Add scene find methods to a mock client."""
-
-    # Create decorated mocks for finding scenes
-    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
-    async def mock_find_scene(id: str) -> Scene:
-        # Check for invalid scene IDs
-        if not id:
-            raise ValueError("Scene ID cannot be empty")
-
-        result = await client.execute({"findScene": None})
-        if result and result.get("findScene"):
-            return Scene(**clean_scene_dict(result["findScene"]))
-        return None
-
-    @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])
-    async def mock_find_scenes(
-        filter_=None,
-        scene_filter=None,
-    ) -> FindScenesResultType:
-        result = await client.execute({"findScenes": None})
-        if result and result.get("findScenes"):
-            scenes = [
-                Scene(**clean_scene_dict(s))
-                for s in result["findScenes"].get("scenes", [])
-            ]
-            return FindScenesResultType(
-                count=result["findScenes"].get("count", 0),
-                duration=result["findScenes"].get("duration", 0),
-                filesize=result["findScenes"].get("filesize", 0),
-                scenes=scenes,
-            )
-        return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
-
-    # Attach the mocks to the client
-    client.find_scene = mock_find_scene
-    client.find_scenes = mock_find_scenes
-
-
-def add_scene_update_methods(client: StashClient) -> None:
-    """Add scene update methods to a mock client."""
-
-    # Create mocks for scene operations
-    async def mock_scene_generate_screenshot(
-        scene_id: str, at: float | None = None
-    ) -> str:
-        result = await client.execute({"sceneGenerateScreenshot": None})
-        if result and result.get("sceneGenerateScreenshot"):
-            return result["sceneGenerateScreenshot"]
-        return ""
-
-    async def mock_scenes_update(input_: list[Scene]) -> list[Scene]:
-        result = await client.execute({"scenesUpdate": None})
-        if result and result.get("scenesUpdate"):
-            return [
-                Scene(**clean_scene_dict(scene_data))
-                for scene_data in result["scenesUpdate"]
-            ]
-        return []
-
-    async def mock_bulk_scene_update(scenes: list[dict]) -> list[str]:
-        """Mock bulk scene update operation."""
-        result = await client.execute({"bulkSceneUpdate": None})
-        if result and result.get("bulkSceneUpdate"):
-            # Clear cache for updated scenes
-            for scene in scenes:
-                if scene.get("id") and scene["id"] in client.scene_cache:
-                    del client.scene_cache[scene["id"]]
-            return result["bulkSceneUpdate"]["id"]
-        return []
-
-    async def mock_update_scene(scene):
-        """Mock scene update operation."""
-        result = await client.execute({"sceneUpdate": None})
-        # Handle Scene objects properly, not as dictionaries
-        if hasattr(scene, "id") and scene.id in client.scene_cache:
-            del client.scene_cache[scene.id]
-        return result.get("sceneUpdate") if result else None
-
-    # Attach the mocks to the client
-    client.scene_generate_screenshot = mock_scene_generate_screenshot
-    client.scenes_update = mock_scenes_update
-    client.bulk_scene_update = mock_bulk_scene_update
-    client.update_scene = mock_update_scene
-
-
-def add_scene_filename_methods(client: StashClient) -> None:
-    """Add scene filename validation methods to a mock client."""
-
-    # Add methods for scene filename validations
-    async def mock_find_duplicate_scenes(
-        distance: float = 0.0,
-        duration_diff: float = 0.0,
-        exclude_ids: list | None = None,
-    ) -> list[list[Scene]]:
-        """Mock finding duplicate scenes."""
-        result = await client.execute({"findDuplicateScenes": None})
-        if result and result.get("findDuplicateScenes"):
-            return [
-                [Scene(**clean_scene_dict(scene_data)) for scene_data in group]
-                for group in result["findDuplicateScenes"]
-            ]
-        return []
-
-    def is_valid_scene_filename(filename: str) -> bool:
-        """Check if a filename is a valid scene filename."""
-        # Matches format: anything_YYYY-MM-DD_ID.extension
-        pattern = r".*_\d{4}-\d{2}-\d{2}_\w+\.[^\.]+$"
-        return bool(re.match(pattern, filename))
-
-    def parse_scene_filename(filename: str) -> tuple[str, str]:
-        """Parse a scene filename to extract date and ID."""
-        match = re.match(r".*_(\d{4}-\d{2}-\d{2})_(\w+)\.[^\.]+$", filename)
-        if not match:
-            raise ValueError(f"Invalid scene filename: {filename}")
-        date_str, scene_id = match.groups()
-        # Validate date
-        try:
-            datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC)
-        except ValueError:
-            raise ValueError(f"Invalid date format in filename: {date_str}")
-        return date_str, scene_id
-
-    # Attach the mocks to the client
-    client.find_duplicate_scenes = mock_find_duplicate_scenes
-    client.is_valid_scene_filename = is_valid_scene_filename
-    client.parse_scene_filename = parse_scene_filename
-
-
-def clean_scene_dict(scene_data):
-    """Remove private/internal keys from scene dicts before passing to Scene constructor."""
-    return {
-        k: v
-        for k, v in scene_data.items()
-        if not k.startswith("_") and k != "client_mutation_id"
-    }
+from stash.types import Scene
+from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
+from tests.fixtures.stash.stash_type_factories import SceneFactory
 
 
 @pytest.fixture
-def scene_mixin_client() -> StashClient:
-    """Create a mock StashClient with SceneClientMixin methods for testing.
-
-    This fixture creates a mock StashClient with all the necessary methods
-    for testing the SceneClientMixin, breaking down the complex setup into
-    smaller, more manageable helper functions.
-    """
-    # Create base client
-    client = create_mock_client()
-
-    # Add specific scene methods
-    add_scene_find_methods(client)
-    add_scene_update_methods(client)
-    add_scene_filename_methods(client)
-
-    return client
-
-
-# Keep the old fixture name for backward compatibility with existing tests
-@pytest.fixture
-def stash_client(scene_mixin_client: StashClient) -> StashClient:
-    """Create a mock StashClient for testing (alias for scene_mixin_client)."""
-    return scene_mixin_client  # Return the fixture directly instead of calling it
-
-
-@pytest.fixture
-def mock_scene() -> Scene:
-    """Create a mock scene for testing."""
-    return Scene(
-        id="123",  # Required field
+def mock_scene():
+    """Create a test scene using SceneFactory."""
+    return SceneFactory.build(
+        id="123",
         title="Test Scene",
         details="Test scene details",
         date="2024-01-01",
         urls=["https://example.com/scene"],
         organized=True,
-        files=[
-            VideoFile(
-                id="456",
-                path="/path/to/video.mp4",
-                basename="video.mp4",
-                size=1024,
-                format="mp4",
-                width=1920,
-                height=1080,
-                duration=60.0,
-                video_codec="h264",
-                audio_codec="aac",
-                frame_rate=30.0,
-                bit_rate=5000000,
-                parent_folder_id="789",
-                mod_time=datetime.now(UTC),
-                fingerprints=[],
-            )
-        ],
-        # Required fields with empty defaults
-        scene_markers=[],
-        galleries=[],
-        groups=[],
-        tags=[],
-        performers=[],
-        stash_ids=[],
-        sceneStreams=[],
-        captions=[],
     )
-
-
-@pytest.fixture
-def mock_result(mock_scene: Scene) -> FindScenesResultType:
-    """Create a mock result for testing."""
-    return FindScenesResultType(
-        count=1, duration=60.0, filesize=1024, scenes=[mock_scene]
-    )
-
-
-@pytest.fixture
-def mock_graphql():
-    """Create a mock GraphQL client for testing.
-
-    This fixture allows setting the response value for each test case.
-    """
-
-    class MockGraphQL:
-        def __init__(self):
-            self.response = None
-            self.called_with = None
-
-        async def execute(self, query, variables=None):
-            self.called_with = (query, variables)
-            return self.response
-
-    return MockGraphQL()
 
 
 @pytest.mark.asyncio
 async def test_find_scene(
-    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
 ) -> None:
-    """Test finding a scene by ID."""
-    # Clean the data to prevent _dirty_attrs errors
-    clean_data = clean_scene_dict(mock_scene.__dict__)
+    """Test finding a scene by ID - TRUE INTEGRATION TEST.
 
-    stash_client.execute.return_value = {"findScene": clean_data}
+    Creates a real scene in Stash, then verifies find_scene can retrieve it.
+    Uses enable_scene_creation fixture to allow direct scene creation.
+    """
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        # Create a real scene in Stash using SceneFactory data
+        test_scene = SceneFactory.build(
+            id="new",
+            title="Test Find Scene",
+            details="Test scene for find_scene test",
+            date="2024-01-01",
+            urls=["https://example.com/scene/find"],
+            organized=False,
+        )
 
-    scene = await stash_client.find_scene("123")
-    assert isinstance(scene, Scene)
-    assert scene.id == mock_scene.id
-    assert scene.title == mock_scene.title
-    assert scene.details == mock_scene.details
-    assert scene.date == mock_scene.date
-    assert scene.urls == mock_scene.urls
-    assert scene.organized == mock_scene.organized
-    assert len(scene.files) == 1
-    assert scene.files[0].path == mock_scene.files[0].path
+        with capture_graphql_calls(stash_client) as calls:
+            created_scene = await stash_client.create_scene(test_scene)
+            cleanup["scenes"].append(created_scene.id)
+
+        # Verify sceneCreate call
+        assert len(calls) == 1, "Expected 1 GraphQL call for create"
+        assert "sceneCreate" in calls[0]["query"]
+
+        # Test finding by ID - makes real GraphQL call
+        with capture_graphql_calls(stash_client) as calls:
+            found_scene = await stash_client.find_scene(created_scene.id)
+
+        # Verify findScene call
+        assert len(calls) == 1, "Expected 1 GraphQL call for find"
+        assert "findScene" in calls[0]["query"]
+        assert calls[0]["variables"]["id"] == created_scene.id
+
+        # Verify result
+        assert found_scene is not None
+        assert found_scene.id == created_scene.id
+        assert found_scene.title == "Test Find Scene"
+        assert found_scene.details == "Test scene for find_scene test"
+        assert found_scene.date == "2024-01-01"
+        assert "https://example.com/scene/find" in found_scene.urls
+        assert found_scene.organized is False
 
 
 @pytest.mark.asyncio
 async def test_find_scenes(
     stash_client: StashClient,
     stash_cleanup_tracker,
-    mock_scene: Scene,
-    mock_result: FindScenesResultType,
+    enable_scene_creation,
 ) -> None:
-    """Test finding scenes with filters."""
-    # Clean the data to prevent _dirty_attrs errors
-    clean_data = clean_scene_dict(mock_scene.__dict__)
+    """Test finding scenes with filters - TRUE INTEGRATION TEST.
 
-    stash_client.execute.return_value = {
-        "findScenes": {
-            "count": 1,
-            "duration": 60.0,
-            "filesize": 1024,
-            "scenes": [clean_data],
-        }
-    }
+    Creates multiple real scenes in Stash, then tests filter functionality.
+    Uses enable_scene_creation fixture to allow direct scene creation.
+    """
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        # Create multiple real scenes with different attributes
+        scene1 = SceneFactory.build(
+            id="new",
+            title="Filter Test Alpha",
+            details="First test scene",
+            organized=True,
+            urls=["https://example.com/scene/alpha"],
+        )
+        scene2 = SceneFactory.build(
+            id="new",
+            title="Filter Test Beta",
+            details="Second test scene",
+            organized=False,
+            urls=["https://example.com/scene/beta"],
+        )
 
-    # Test with scene filter
-    result = await stash_client.find_scenes(
-        scene_filter={
-            "path": {"modifier": "INCLUDES", "value": "test"},
-            "organized": True,
-        }
-    )
-    assert isinstance(result, FindScenesResultType)
-    assert result.count == 1
-    assert result.duration == 60.0
-    assert result.filesize == 1024
-    assert len(result.scenes) == 1
-    assert isinstance(result.scenes[0], Scene)
-    assert result.scenes[0].id == mock_scene.id
+        created1 = await stash_client.create_scene(scene1)
+        created2 = await stash_client.create_scene(scene2)
 
-    # Test with general filter
-    result = await stash_client.find_scenes(
-        filter_={
-            "page": 1,
-            "per_page": 10,
-            "sort": "title",
-            "direction": "ASC",
-        }
-    )
-    assert isinstance(result, FindScenesResultType)
-    assert result.count == 1
-    assert len(result.scenes) == 1
+        cleanup["scenes"].extend([created1.id, created2.id])
+
+        # Test finding all scenes with name containing "Filter Test"
+        with capture_graphql_calls(stash_client) as calls:
+            result = await stash_client.find_scenes(
+                scene_filter={"title": {"value": "Filter Test", "modifier": "INCLUDES"}}
+            )
+
+        # Verify findScenes call
+        assert len(calls) == 1, "Expected 1 GraphQL call for find_scenes"
+        assert "findScenes" in calls[0]["query"]
+        assert calls[0]["variables"]["scene_filter"]["title"]["value"] == "Filter Test"
+
+        # Verify results - should find both scenes
+        # Note: result.scenes contains dicts, not Scene objects (Strawberry doesn't deserialize)
+        assert result.count >= 2
+        assert len(result.scenes) >= 2
+        scene_titles = [s["title"] for s in result.scenes]
+        assert "Filter Test Alpha" in scene_titles
+        assert "Filter Test Beta" in scene_titles
+
+        # Test with organized filter - should only find scene1
+        with capture_graphql_calls(stash_client) as calls:
+            result = await stash_client.find_scenes(scene_filter={"organized": True})
+
+        # Verify call
+        assert len(calls) == 1
+        assert "findScenes" in calls[0]["query"]
+
+        # Verify result - should include our organized scene
+        # Note: result.scenes contains dicts, not Scene objects
+        assert result.count >= 1
+        organized_scenes = [s for s in result.scenes if s["id"] == created1.id]
+        assert len(organized_scenes) == 1
+        assert organized_scenes[0]["organized"] is True
 
 
 @pytest.mark.asyncio
 async def test_find_scenes_error(
     stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test handling errors when finding scenes."""
+    """Test handling errors when finding scenes - TRUE INTEGRATION TEST.
 
-    # Create a test class to better control error handling
-    class TestSceneClientMixin(SceneClientMixin):
-        async def find_scenes(self, filter_=None, scene_filter=None):
-            try:
-                # This will throw the exception
-                result = await self.execute({"findScenes": None})
-                if result and result.get("findScenes"):
-                    return FindScenesResultType(**result["findScenes"])
-                return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
-            except Exception as e:
-                # Properly handle the exception
-                self.log.exception("Error finding scenes")
-                return FindScenesResultType(count=0, scenes=[], duration=0, filesize=0)
+    Tests that find_scenes handles server-side GraphQL validation errors gracefully:
+    1. Invalid field types trigger GRAPHQL_VALIDATION_FAILED at gql layer
+    2. Nonexistent fields trigger GRAPHQL_VALIDATION_FAILED at gql layer
+    3. Both are caught by find_scenes and return empty results
 
-    # Create our test instance
-    test_mixin = TestSceneClientMixin()
+    This verifies the entire error flow from gql → StashClient → find_scenes.
+    """
+    # Test 1: Invalid field type - rating100 expects IntCriterionInput, send string
+    with capture_graphql_calls(stash_client) as calls:
+        result = await stash_client.find_scenes(
+            scene_filter={"rating100": "invalid_string_instead_of_int"}
+        )
 
-    # Set up the execute method to raise an exception
-    test_mixin.execute = AsyncMock(side_effect=Exception("Test error"))
-    test_mixin.log = MagicMock()  # Use MagicMock instead of AsyncMock for log
+    # Verify the invalid parameter was sent to gql
+    assert len(calls) == 1
+    assert "findScenes" in calls[0]["query"]
+    assert (
+        calls[0]["variables"]["scene_filter"]["rating100"]
+        == "invalid_string_instead_of_int"
+    )
 
-    # Call the method that should handle the exception
-    result = await test_mixin.find_scenes()
+    # Verify gql raised TransportQueryError with GRAPHQL_VALIDATION_FAILED
+    assert calls[0]["exception"] is not None
+    assert calls[0]["exception"].__class__.__name__ == "TransportQueryError"
+    assert (
+        calls[0]["exception"].errors[0]["extensions"]["code"]
+        == "GRAPHQL_VALIDATION_FAILED"
+    )
+    assert "IntCriterionInput" in calls[0]["exception"].errors[0]["message"]
 
-    # Verify we got empty results
+    # Verify result was None from gql (error occurred)
+    assert calls[0]["result"] is None
+
+    # Verify find_scenes handled the error and returned empty results
     assert result.count == 0
     assert len(result.scenes) == 0
     assert result.duration == 0
     assert result.filesize == 0
 
-    # Verify the log was called with the error
-    test_mixin.log.error.assert_called_once()
+    # Test 2: Nonexistent field - invalid structure
+    with capture_graphql_calls(stash_client) as calls:
+        result = await stash_client.find_scenes(
+            scene_filter={"nonexistent_field": {"invalid": "structure"}}
+        )
+
+    # Verify the invalid parameter was sent to gql
+    assert len(calls) == 1
+    assert "findScenes" in calls[0]["query"]
+    assert "nonexistent_field" in calls[0]["variables"]["scene_filter"]
+
+    # Verify gql raised TransportQueryError with GRAPHQL_VALIDATION_FAILED
+    assert calls[0]["exception"] is not None
+    assert calls[0]["exception"].__class__.__name__ == "TransportQueryError"
+    assert (
+        calls[0]["exception"].errors[0]["extensions"]["code"]
+        == "GRAPHQL_VALIDATION_FAILED"
+    )
+    assert "unknown field" in calls[0]["exception"].errors[0]["message"]
+
+    # Verify result was None from gql (error occurred)
+    assert calls[0]["result"] is None
+
+    # Verify find_scenes handled the error and returned empty results
+    assert result.count == 0
+    assert len(result.scenes) == 0
+    assert result.duration == 0
+    assert result.filesize == 0
 
 
 @pytest.mark.asyncio
 async def test_create_scene(
-    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
 ) -> None:
-    """Test creating a scene."""
-    with patch.object(
-        stash_client,
-        "create_scene",
-        new_callable=AsyncMock,
-        return_value=mock_scene,
-    ):
-        # Create with minimum fields
-        scene = Scene(
-            id="new",  # Required field for initialization
-            title="New Scene",
-            urls=["https://example.com/new"],
-            organized=False,
-            # Required fields with empty defaults
-            files=[],
-            scene_markers=[],
-            galleries=[],
-            groups=[],
-            tags=[],
-            performers=[],
-            stash_ids=[],
-            sceneStreams=[],
-            captions=[],
-        )
-        created = await stash_client.create_scene(scene)
-        assert created.id == mock_scene.id
-        assert created.title == mock_scene.title
+    """Test creating a scene - TRUE INTEGRATION TEST.
 
-        # Create with all fields
-        scene = mock_scene
-        scene.id = "new"  # Force create
-        created = await stash_client.create_scene(scene)
-        assert created.id == mock_scene.id
-        assert created.title == mock_scene.title
-        assert created.details == mock_scene.details
-        assert created.date == mock_scene.date
-        assert created.urls == mock_scene.urls
-        assert created.organized == mock_scene.organized
+    Creates real scenes with varying field sets to verify the API.
+    Uses enable_scene_creation fixture to allow direct scene creation.
+    """
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        # Test creating scene with minimal fields
+        minimal_scene = SceneFactory.build(
+            id="new",
+            title="Minimal Scene Test",
+            urls=["https://example.com/scene/minimal"],
+            organized=False,
+        )
+
+        with capture_graphql_calls(stash_client) as calls:
+            created1 = await stash_client.create_scene(minimal_scene)
+            cleanup["scenes"].append(created1.id)
+
+        # Verify sceneCreate call
+        assert len(calls) == 1, "Expected 1 GraphQL call for minimal create"
+        assert "sceneCreate" in calls[0]["query"]
+        assert calls[0]["variables"]["input"]["title"] == "Minimal Scene Test"
+
+        # Verify created scene
+        assert created1 is not None
+        assert created1.title == "Minimal Scene Test"
+        assert "https://example.com/scene/minimal" in created1.urls
+        assert created1.organized is False
+
+        # Test creating scene with all fields populated
+        full_scene = SceneFactory.build(
+            id="new",
+            title="Full Scene Test",
+            details="Complete scene with all fields",
+            date="2024-02-15",
+            urls=["https://example.com/scene/full"],
+            organized=True,
+        )
+
+        with capture_graphql_calls(stash_client) as calls:
+            created2 = await stash_client.create_scene(full_scene)
+            cleanup["scenes"].append(created2.id)
+
+        # Verify sceneCreate call
+        assert len(calls) == 1, "Expected 1 GraphQL call for full create"
+        assert "sceneCreate" in calls[0]["query"]
+        assert calls[0]["variables"]["input"]["title"] == "Full Scene Test"
+        assert (
+            calls[0]["variables"]["input"]["details"]
+            == "Complete scene with all fields"
+        )
+
+        # Verify created scene
+        assert created2 is not None
+        assert created2.title == "Full Scene Test"
+        assert created2.details == "Complete scene with all fields"
+        assert created2.date == "2024-02-15"
+        assert created2.organized is True
 
 
 @pytest.mark.asyncio
 async def test_update_scene(
-    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
 ) -> None:
-    """Test updating a scene."""
-    # Update mock_scene with new title - create from dict without _dirty_attrs
-    scene_dict = clean_scene_dict(mock_scene.__dict__)
-    updated_scene = Scene(**{**scene_dict, "title": "Updated Title"})
+    """Test updating a scene - TRUE INTEGRATION TEST.
 
-    # Set up the execute mock to return a Scene instance instead of a dict
-    stash_client.execute.return_value = {"sceneUpdate": updated_scene}
+    Creates a real scene, then updates it with different field values.
+    Uses enable_scene_creation fixture to allow direct scene creation.
+    """
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        # Create initial scene
+        initial_scene = SceneFactory.build(
+            id="new",
+            title="Original Title",
+            details="Original details",
+            organized=False,
+            urls=["https://example.com/scene/update"],
+        )
 
-    # Mock the mock_update_scene method to return a proper Scene object
-    async def modified_update_scene(scene):
-        # Just return the updated scene object directly
-        return updated_scene
+        created_scene = await stash_client.create_scene(initial_scene)
+        cleanup["scenes"].append(created_scene.id)
 
-    stash_client.update_scene = modified_update_scene
+        # Update single field - title
+        created_scene.title = "Updated Title"
 
-    # Create a scene for updating - without _dirty_attrs
-    scene_dict = clean_scene_dict(mock_scene.__dict__)
-    scene = Scene(**scene_dict)
-    scene.title = "Updated Title"
+        with capture_graphql_calls(stash_client) as calls:
+            updated1 = await stash_client.update_scene(created_scene)
 
-    # Update the scene
-    updated = await stash_client.update_scene(scene)
+        # Verify sceneUpdate call
+        assert len(calls) == 1, "Expected 1 GraphQL call for update"
+        assert "sceneUpdate" in calls[0]["query"]
+        assert calls[0]["variables"]["input"]["id"] == created_scene.id
+        assert calls[0]["variables"]["input"]["title"] == "Updated Title"
 
-    assert isinstance(updated, Scene)  # Ensure it's a Scene object, not a dict
-    assert updated.id == mock_scene.id
-    assert updated.title == "Updated Title"
+        # Verify updated scene
+        assert updated1.id == created_scene.id
+        assert updated1.title == "Updated Title"
 
-    # Update multiple fields
-    updated_scene.details = "Updated details"
-    updated_scene.organized = False
-    stash_client.execute.return_value = {
-        "sceneUpdate": clean_scene_dict(updated_scene.__dict__)
-    }
+        # Update multiple fields
+        updated1.details = "Updated details"
+        updated1.organized = True
 
-    # Create a new scene with multiple updates - without _dirty_attrs
-    scene_dict = clean_scene_dict(mock_scene.__dict__)
-    scene = Scene(**scene_dict)
-    scene.details = "Updated details"
-    scene.organized = False
+        with capture_graphql_calls(stash_client) as calls:
+            updated2 = await stash_client.update_scene(updated1)
 
-    # Perform the update
-    updated = await stash_client.update_scene(scene)
-    assert isinstance(updated, Scene)
-    assert updated.id == mock_scene.id
-    assert updated.details == "Updated details"
-    assert updated.organized is False
+        # Verify sceneUpdate call
+        assert len(calls) == 1, "Expected 1 GraphQL call for multi-field update"
+        assert "sceneUpdate" in calls[0]["query"]
+        assert calls[0]["variables"]["input"]["details"] == "Updated details"
+        assert calls[0]["variables"]["input"]["organized"] is True
+
+        # Verify final state
+        assert updated2.details == "Updated details"
+        assert updated2.organized is True
 
 
 @pytest.mark.asyncio
 async def test_scene_generate_screenshot(
-    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test generating a scene screenshot."""
-    # Set up a proper mock path
-    mock_path = "/path/to/screenshot.jpg"
+    """Test generating a scene screenshot - TRUE INTEGRATION TEST.
 
-    # Create a custom implementation that avoids multiple calls
-    stash_client.execute = AsyncMock(
-        return_value={"sceneGenerateScreenshot": mock_path}
-    )
+    Uses a real scene from Docker Stash if available, otherwise skips.
+    Makes REAL GraphQL calls to generate screenshots from actual video files.
+    Calculates safe timestamps based on the scene's actual duration.
+    """
+    # Check if Stash has any scenes available
+    scenes_result = await stash_client.find_scenes()
 
-    # Call the function once - this will use our mocked execute
-    path = await stash_client.scene_generate_screenshot(mock_scene.id, at=30.0)
+    if scenes_result.count == 0:
+        pytest.skip("No scenes available in Stash for screenshot testing")
 
-    # Verify results
-    assert path == mock_path
-    stash_client.execute.assert_called_once()
+    # Use the first available scene and get its duration
+    real_scene = scenes_result.scenes[0]
+    scene_id = real_scene["id"]
 
-    # Reset the mock for the next test
-    stash_client.execute.reset_mock()
+    # Get file info to check duration
+    files = real_scene.get("files", [])
+    if not files:
+        pytest.skip("Scene has no files, cannot generate screenshots")
 
-    # Set up a different return path for the second test
-    stash_client.execute.return_value = {
-        "sceneGenerateScreenshot": "/different/path.jpg"
-    }
+    duration = files[0].get("duration")
+    if not duration or duration <= 0:
+        pytest.skip("Scene has no valid duration, cannot generate screenshots")
 
-    # Test different timestamp gets a different result
-    different_path = await stash_client.scene_generate_screenshot(
-        mock_scene.id, at=45.0
-    )
+    # Calculate safe timestamps (25% and 75% of duration)
+    timestamp1 = duration * 0.25
+    timestamp2 = duration * 0.75
 
-    # Verify we got different results
-    assert different_path == "/different/path.jpg"
-    assert different_path != mock_path
-    stash_client.execute.assert_called_once()
+    # Test generating screenshot at first timestamp
+    with capture_graphql_calls(stash_client) as calls:
+        path1 = await stash_client.scene_generate_screenshot(scene_id, at=timestamp1)
+
+    # Verify GraphQL call was made correctly
+    assert len(calls) == 1, "Expected 1 GraphQL call for screenshot generation"
+    assert "sceneGenerateScreenshot" in calls[0]["query"]
+    assert calls[0]["variables"]["id"] == scene_id
+    assert calls[0]["variables"]["at"] == timestamp1
+    assert calls[0]["exception"] is None, "GraphQL call should not raise exception"
+
+    # Verify GraphQL response structure
+    assert calls[0]["result"] is not None
+    assert "sceneGenerateScreenshot" in calls[0]["result"]
+
+    # Verify we got a valid path back (Stash returns "todo" for failed operations)
+    assert isinstance(path1, str)
+    assert path1 != "", "Should return a path or 'todo', not empty string"
+    # Print for inspection
+    print(f"\nScreenshot path 1: {path1!r}")
+
+    # Test generating screenshot at second timestamp
+    with capture_graphql_calls(stash_client) as calls:
+        path2 = await stash_client.scene_generate_screenshot(scene_id, at=timestamp2)
+
+    # Verify GraphQL call
+    assert len(calls) == 1, "Expected 1 GraphQL call for second screenshot"
+    assert "sceneGenerateScreenshot" in calls[0]["query"]
+    assert calls[0]["variables"]["at"] == timestamp2
+
+    # Verify we got a path back
+    assert isinstance(path2, str)
 
 
 @pytest.mark.asyncio
 async def test_scene_generate_screenshot_error(
-    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test handling errors when generating a scene screenshot."""
-    # Test GraphQL error
-    stash_client.execute.side_effect = Exception("GraphQL error")
-    with pytest.raises(Exception, match="GraphQL error"):
-        await stash_client.scene_generate_screenshot(mock_scene.id)
+    """Test handling errors when generating a scene screenshot - TRUE INTEGRATION TEST.
 
-    # Test empty response
-    stash_client.execute.side_effect = None
-    stash_client.execute.return_value = {"sceneGenerateScreenshot": None}
-    result = await stash_client.scene_generate_screenshot(mock_scene.id)
-    assert result == ""
+    Tests behavior with invalid scene IDs by making REAL calls.
+    Stash returns "todo" for both invalid scenes and scenes where screenshot generation fails.
+    """
+    # Test with nonexistent scene ID
+    with capture_graphql_calls(stash_client) as calls:
+        result = await stash_client.scene_generate_screenshot("99999999", at=0.0)
+
+    # Verify GraphQL request was constructed correctly
+    assert len(calls) == 1, "Expected 1 GraphQL call"
+    assert "sceneGenerateScreenshot" in calls[0]["query"]
+    assert calls[0]["variables"]["id"] == "99999999"
+    assert calls[0]["variables"]["at"] == 0.0
+
+    # Verify no exception was raised (Stash doesn't error on invalid IDs)
+    assert calls[0]["exception"] is None, "GraphQL call should succeed"
+
+    # Verify GraphQL response structure
+    assert calls[0]["result"] is not None, "Should receive a response"
+    assert "sceneGenerateScreenshot" in calls[0]["result"], (
+        "Response should contain sceneGenerateScreenshot field"
+    )
+
+    # Stash returns "todo" for scenes that don't exist or can't generate screenshots
+    assert result == "todo", "Invalid scene ID should return 'todo'"
+    assert calls[0]["result"]["sceneGenerateScreenshot"] == "todo"
 
 
 @pytest.mark.asyncio
 async def test_find_duplicate_scenes(
-    stash_client: StashClient, stash_cleanup_tracker, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test finding duplicate scenes."""
-    mock_result = [[mock_scene, mock_scene]]
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        return_value={
-            "findDuplicateScenes": [
-                [clean_scene_dict(s.__dict__) for s in group] for group in mock_result
-            ]
-        },
-    ):
-        # Find with default settings
-        duplicates = await stash_client.find_duplicate_scenes()
-        assert len(duplicates) == 1
-        assert len(duplicates[0]) == 2
-        assert duplicates[0][0].id == mock_scene.id
-        assert duplicates[0][1].id == mock_scene.id
+    """Test finding duplicate scenes - TRUE INTEGRATION TEST.
 
-        # Find with custom settings
-        duplicates = await stash_client.find_duplicate_scenes(
+    Makes REAL GraphQL calls to Stash to find duplicate scenes.
+    The test verifies the API works correctly regardless of whether
+    duplicates exist in the Stash instance.
+    """
+    # Make REAL call with default settings
+    with capture_graphql_calls(stash_client) as calls:
+        duplicates = await stash_client.find_duplicate_scenes()
+
+    # Verify GraphQL request was constructed correctly
+    assert len(calls) == 1, "Expected 1 GraphQL call"
+    assert "findDuplicateScenes" in calls[0]["query"]
+    assert calls[0]["exception"] is None, "GraphQL call should not raise exception"
+
+    # Verify GraphQL response structure
+    assert calls[0]["result"] is not None, "Should receive a response"
+    assert "findDuplicateScenes" in calls[0]["result"]
+
+    # Print verbose output showing what was returned
+    print("\n=== Default Duplicate Detection ===")
+    print("GraphQL query contains: findDuplicateScenes")
+    print(f"GraphQL response: {calls[0]['result']['findDuplicateScenes']}")
+    print(f"Number of duplicate groups found: {len(duplicates)}")
+    if duplicates:
+        print(f"First group has {len(duplicates[0])} scenes")
+        for idx, scene in enumerate(duplicates[0][:2]):  # Show first 2
+            print(f"  Scene {idx + 1}: ID={scene.id}, Title={scene.title}")
+    else:
+        print("No duplicates found in Stash instance")
+    print("===================================\n")
+
+    # Verify result structure (may be empty list if no duplicates exist)
+    assert isinstance(duplicates, list)
+    if duplicates:
+        # If duplicates exist, verify structure
+        assert isinstance(duplicates[0], list), "Each duplicate group should be a list"
+        assert len(duplicates[0]) >= 2, "Duplicate groups should have at least 2 scenes"
+        # Verify each scene in the group is a Scene object
+        for scene in duplicates[0]:
+            assert isinstance(scene, Scene)
+            assert hasattr(scene, "id")
+            assert hasattr(scene, "title")
+
+    # Test with custom settings (distance and duration_diff)
+    with capture_graphql_calls(stash_client) as calls:
+        duplicates_custom = await stash_client.find_duplicate_scenes(
             distance=100,
             duration_diff=1.0,
         )
-        assert len(duplicates) == 1
-        assert len(duplicates[0]) == 2
+
+    # Verify GraphQL request included custom parameters
+    assert len(calls) == 1, "Expected 1 GraphQL call"
+    assert "findDuplicateScenes" in calls[0]["query"]
+    assert calls[0]["variables"]["distance"] == 100
+    assert calls[0]["variables"]["duration_diff"] == 1.0
+    assert calls[0]["exception"] is None
+
+    # Verify GraphQL response structure
+    assert calls[0]["result"] is not None
+    assert "findDuplicateScenes" in calls[0]["result"]
+
+    # Verify result structure
+    assert isinstance(duplicates_custom, list)
 
 
 @pytest.mark.asyncio
 async def test_find_duplicate_scenes_error(
     stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test handling errors when finding duplicate scenes."""
-    # Create a new client with proper mocking and behavior
-    client = create_autospec(StashClient, instance=True)
-    client.log = MagicMock()  # Use MagicMock instead of AsyncMock for log
+    """Test handling errors when finding duplicate scenes - TRUE INTEGRATION TEST.
 
-    # Set execute to throw an exception
-    client.execute = AsyncMock(side_effect=Exception("Test error"))
+    Tests that find_duplicate_scenes handles invalid parameters gracefully.
+    Uses REAL GraphQL calls with invalid parameter types to trigger validation errors.
+    """
+    # Test with invalid distance parameter type (expects int, send string)
+    with capture_graphql_calls(stash_client) as calls:
+        result = await stash_client.find_duplicate_scenes(
+            distance="invalid_string_not_int"
+        )
 
-    # Call the method directly through the mixin
-    result = await SceneClientMixin.find_duplicate_scenes(client)
+    # Verify the invalid parameter was sent to gql
+    assert len(calls) == 1, "Expected 1 GraphQL call"
+    assert "findDuplicateScenes" in calls[0]["query"]
+    assert calls[0]["variables"]["distance"] == "invalid_string_not_int"
+
+    # Verify gql raised TransportQueryError with GRAPHQL_VALIDATION_FAILED
+    assert calls[0]["exception"] is not None
+    assert calls[0]["exception"].__class__.__name__ == "TransportQueryError"
+    assert (
+        calls[0]["exception"].errors[0]["extensions"]["code"]
+        == "GRAPHQL_VALIDATION_FAILED"
+    )
+    assert "Int" in calls[0]["exception"].errors[0]["message"]
+
+    # Verify result was None from gql (error occurred)
+    assert calls[0]["result"] is None
+
+    # Verify find_duplicate_scenes handled the error and returned empty list
     assert isinstance(result, list)
     assert len(result) == 0
 
 
 @pytest.mark.asyncio
 async def test_parse_scene_filenames(
-    scene_mixin_client: StashClient, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test parsing scene filenames."""
-    # Create a mock result that matches the expected return type (dictionary)
-    mock_result = {
-        "count": 1,
-        "results": [
-            {
-                "scene": mock_scene.__dict__,
-                "title": "Parsed Title",
-                "code": "ABC123",
-                "details": "Parsed details",
-                "director": "Director Name",
-                "url": "https://example.com/parsed",
-                "date": "2024-02-01",
-                "rating100": 85,
+    """Test parsing scene filenames - TRUE INTEGRATION TEST.
+
+    Makes REAL GraphQL calls to Stash's filename parser.
+
+    Skips on Stash v0.29.3 (build hash 7716c4dd) which crashes with:
+    "invalid memory address or nil pointer dereference"
+    """
+    # Check Stash version - skip if it's the broken version
+    from gql import gql
+
+    version_query = gql("""
+        query {
+            version {
+                version
+                hash
             }
-        ],
-    }
+        }
+    """)
 
-    with patch.object(
-        scene_mixin_client,
-        "parse_scene_filenames",
-        new_callable=AsyncMock,
-        return_value=mock_result,
-    ):
-        # Parse with default settings
-        result = await scene_mixin_client.parse_scene_filenames()
-        assert result["count"] == 1
-        assert len(result["results"]) == 1
-        assert result["results"][0]["scene"]["id"] == mock_scene.id
-        assert result["results"][0]["title"] == "Parsed Title"
-        assert result["results"][0]["code"] == "ABC123"
+    version_result = await stash_client._session.execute(version_query)
+    stash_version = version_result.get("version", {})
+    build_hash = stash_version.get("hash", "")
+    version_string = stash_version.get("version", "")
 
-        # Parse with custom settings
-        result = await scene_mixin_client.parse_scene_filenames(
+    # Skip if Stash v0.29.3 build 7716c4dd (has nil pointer bug)
+    if build_hash == "7716c4dd":
+        pytest.skip(
+            f"parseSceneFilenames crashes on Stash {version_string} "
+            f"(build hash {build_hash}) with nil pointer dereference"
+        )
+
+    # Make REAL call with minimal config
+    with capture_graphql_calls(stash_client) as calls:
+        result = await stash_client.parse_scene_filenames(
+            config={"capitalizeTitle": False}
+        )
+
+    # Verify GraphQL request was constructed correctly
+    assert len(calls) == 1, "Expected 1 GraphQL call"
+    assert "parseSceneFilenames" in calls[0]["query"]
+    assert calls[0]["exception"] is None, "GraphQL call should not raise exception"
+
+    # Verify GraphQL response structure
+    assert calls[0]["result"] is not None, "Should receive a response"
+    assert "parseSceneFilenames" in calls[0]["result"]
+
+    # Print verbose output showing what was returned
+    print("\n=== Parse Scene Filenames (Default) ===")
+    print(
+        f"GraphQL response keys: {list(calls[0]['result']['parseSceneFilenames'].keys())}"
+    )
+    if result and isinstance(result, dict):
+        print(f"Result keys: {list(result.keys())}")
+        if "count" in result:
+            print(f"Scenes parsed: {result.get('count', 0)}")
+        if result.get("results"):
+            print(f"First result keys: {list(result['results'][0].keys())}")
+    print("======================================\n")
+
+    # Verify result structure (may be empty if no scenes to parse)
+    assert isinstance(result, dict)
+    if result and "results" in result:
+        assert isinstance(result["results"], list)
+        if result["results"]:
+            # Verify structure of first result
+            assert "scene" in result["results"][0]
+
+    # Test with custom settings
+    with capture_graphql_calls(stash_client) as calls:
+        result_custom = await stash_client.parse_scene_filenames(
             filter_={"q": "test"},
             config={
                 "whitespace": True,
                 "field": "title",
             },
         )
-        assert result["count"] == 1
-        assert len(result["results"]) == 1
+
+    # Verify GraphQL request included custom parameters
+    assert len(calls) == 1, "Expected 1 GraphQL call"
+    assert "parseSceneFilenames" in calls[0]["query"]
+    assert calls[0]["variables"]["filter"] == {"q": "test"}
+    assert calls[0]["variables"]["config"]["whitespace"] is True
+    assert calls[0]["variables"]["config"]["field"] == "title"
+    assert calls[0]["exception"] is None
+
+    # Verify GraphQL response structure
+    assert calls[0]["result"] is not None
+    assert "parseSceneFilenames" in calls[0]["result"]
+
+    # Verify result structure
+    assert isinstance(result_custom, dict)
 
 
 @pytest.mark.asyncio
-async def test_parse_scene_filenames_error(scene_mixin_client: StashClient) -> None:
-    """Test handling errors when parsing scene filenames."""
-    # Instead of patching execute, we'll directly test the method that should be called
-    # Setup the parse_scene_filenames method to return a consistent empty dict
-    scene_mixin_client.parse_scene_filenames = AsyncMock(return_value={})
+async def test_parse_scene_filenames_error(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test handling errors when parsing scene filenames - TRUE INTEGRATION TEST.
 
-    # Now test it
-    result = await scene_mixin_client.parse_scene_filenames()
+    Tests that parse_scene_filenames handles invalid parameters gracefully.
+    Uses REAL GraphQL calls with invalid parameter types to trigger validation errors.
+    """
+    # Test with invalid config parameter type (expects dict/object, send string)
+    with capture_graphql_calls(stash_client) as calls:
+        result = await stash_client.parse_scene_filenames(
+            config="invalid_string_not_object"
+        )
+
+    # Verify the invalid parameter was sent to gql
+    assert len(calls) == 1, "Expected 1 GraphQL call"
+    assert "parseSceneFilenames" in calls[0]["query"]
+    assert calls[0]["variables"]["config"] == "invalid_string_not_object"
+
+    # Verify gql raised TransportQueryError with GRAPHQL_VALIDATION_FAILED
+    assert calls[0]["exception"] is not None
+    assert calls[0]["exception"].__class__.__name__ == "TransportQueryError"
+    assert (
+        calls[0]["exception"].errors[0]["extensions"]["code"]
+        == "GRAPHQL_VALIDATION_FAILED"
+    )
+
+    # Verify result was None from gql (error occurred)
+    assert calls[0]["result"] is None
+
+    # Verify parse_scene_filenames handled the error and returned empty dict
+    assert isinstance(result, dict)
     assert result == {}
-    # Verify method was called
-    scene_mixin_client.parse_scene_filenames.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_scenes_update(
-    scene_mixin_client: StashClient, mock_scene: Scene
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
 ) -> None:
-    """Test updating multiple scenes."""
-    # Create two different scenes
-    # Filter out any private attributes (like _dirty_attrs)
-    scene_dict = clean_scene_dict(mock_scene.__dict__)
-    scene1 = Scene(**scene_dict)
-    scene2 = Scene(**{**scene_dict, "id": "456", "title": "Second Scene"})
+    """Test updating multiple scenes - TRUE INTEGRATION TEST.
 
-    scenes = [scene1, scene2]
+    Creates real scenes in Docker Stash, updates them via scenes_update mutation,
+    and verifies the GraphQL mutation was constructed correctly.
+    """
+    # Create two real scenes in Stash
+    scene1 = SceneFactory.build(
+        id="new",
+        title="First Test Scene",
+        urls=["https://example.com/scene1"],
+        organized=False,
+    )
+    scene2 = SceneFactory.build(
+        id="new",
+        title="Second Test Scene",
+        urls=["https://example.com/scene2"],
+        organized=False,
+    )
 
-    # Mock the response with updated scenes
-    updated_scene1 = Scene(**{**scene_dict, "title": "Updated First"})
-    updated_scene2 = Scene(**{**scene_dict, "id": "456", "title": "Updated Second"})
+    created1 = await stash_client.create_scene(scene1)
+    created2 = await stash_client.create_scene(scene2)
 
-    # Configure our mocks for caching and find_scene
-    scene_mixin_client.execute = AsyncMock()
-    scene_mixin_client.execute.return_value = {
-        "scenesUpdate": [updated_scene1.__dict__, updated_scene2.__dict__]
-    }
+    # Track for cleanup
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        cleanup["scenes"].extend([created1.id, created2.id])
+        # Update both scenes with new data
+        created1.title = "Updated First Scene"
+        created1.organized = True
+        created2.title = "Updated Second Scene"
+        created2.organized = True
 
-    # Create a fresh scene_cache for testing
-    scene_mixin_client.scene_cache = {}
-    scene_mixin_client.scene_cache[scene1.id] = scene1
+        scenes_to_update = [created1, created2]
 
-    # Store the original find_scene method to restore it later
-    original_find_scene = scene_mixin_client.find_scene
+        # Make REAL bulk update call with GraphQL capture
+        with capture_graphql_calls(stash_client) as calls:
+            updated_scenes = await stash_client.scenes_update(scenes_to_update)
 
-    # Override find_scene to directly return from cache without using execute
-    async def custom_find_scene(id):
-        return scene_mixin_client.scene_cache.get(id)
+        # Verify GraphQL mutation was constructed correctly
+        assert len(calls) == 1, "Expected 1 GraphQL call for scenes_update"
+        assert "scenesUpdate" in calls[0]["query"]
+        assert calls[0]["exception"] is None, "GraphQL call should not raise exception"
 
-    scene_mixin_client.find_scene = custom_find_scene
+        # Verify GraphQL response structure
+        assert calls[0]["result"] is not None
+        assert "scenesUpdate" in calls[0]["result"]
 
-    # First, verify cache state before update by calling find_scene
-    # This should return the cached value without hitting the API
-    cached_scene = await scene_mixin_client.find_scene(scene1.id)
-    assert cached_scene is not None
-    assert cached_scene.id == scene1.id
+        # Verify input array structure in variables
+        input_data = calls[0]["variables"]["input"]
+        assert isinstance(input_data, list), "Input should be a list"
+        assert len(input_data) == 2, "Should have 2 scene inputs"
 
-    # Create a custom scenes_update that properly clears the cache
-    async def custom_scenes_update(scenes_list):
-        result = await scene_mixin_client.execute({"scenesUpdate": None})
-        # Manually clear the cache for each scene
-        for scene in scenes_list:
-            if hasattr(scene, "id") and scene.id in scene_mixin_client.scene_cache:
-                del scene_mixin_client.scene_cache[scene.id]
-        if result and result.get("scenesUpdate"):
-            return [
-                Scene(**clean_scene_dict(scene_data))
-                for scene_data in result["scenesUpdate"]
-            ]
-        return []
+        # Verify each input has required fields
+        for scene_input in input_data:
+            assert "id" in scene_input, "Each scene input must have an ID"
+            assert "title" in scene_input, "Title should be included in update"
+            assert "organized" in scene_input, "Organized should be included in update"
 
-    # Temporarily replace the scenes_update method
-    original_scenes_update = scene_mixin_client.scenes_update
-    scene_mixin_client.scenes_update = custom_scenes_update
+        # Verify both scenes were updated correctly
+        assert len(updated_scenes) == 2
+        assert all(isinstance(scene, Scene) for scene in updated_scenes)
 
-    # Now update the scenes
-    updated = await scene_mixin_client.scenes_update(scenes)
+        # Verify scene 1 updates
+        assert updated_scenes[0].id == created1.id
+        assert updated_scenes[0].title == "Updated First Scene"
+        assert updated_scenes[0].organized is True
 
-    # Verify both scenes were updated correctly
-    assert len(updated) == 2
-    assert all(isinstance(scene, Scene) for scene in updated)
-    assert updated[0].id == scene1.id
-    assert updated[0].title == "Updated First"
-    assert updated[1].id == scene2.id
-    assert updated[1].title == "Updated Second"
+        # Verify scene 2 updates
+        assert updated_scenes[1].id == created2.id
+        assert updated_scenes[1].title == "Updated Second Scene"
+        assert updated_scenes[1].organized is True
 
-    # Verify scene was removed from cache
-    assert scene1.id not in scene_mixin_client.scene_cache
-
-    # Add something to the cache for the next test
-    scene_mixin_client.scene_cache[scene1.id] = None
-
-    # Verify scene is in the cache but with None value
-    assert scene_mixin_client.scene_cache.get(scene1.id) is None
-
-    # Restore the original methods
-    scene_mixin_client.find_scene = original_find_scene
-    scene_mixin_client.scenes_update = original_scenes_update
+        # Print verbose output
+        print("\n=== Bulk Scene Update ===")
+        print(f"Updated {len(updated_scenes)} scenes via scenesUpdate mutation")
+        print(f"Scene 1: ID={updated_scenes[0].id}, Title='{updated_scenes[0].title}'")
+        print(f"Scene 2: ID={updated_scenes[1].id}, Title='{updated_scenes[1].title}'")
+        print("========================\n")
 
 
 @pytest.mark.asyncio
 async def test_scenes_update_error(
-    scene_mixin_client: StashClient,
-    mock_scene: Scene,
+    stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test handling errors when updating multiple scenes."""
+    """Test error handling when updating multiple scenes - TRUE INTEGRATION TEST.
 
-    # Create a test class to better control error handling
-    class TestSceneClientMixin(SceneClientMixin):
-        async def scenes_update(self, scenes: list[Scene]) -> list[Scene]:
-            # Empty list should return empty list
-            if not scenes:
-                return []
+    Tests various error conditions with REAL GraphQL calls:
+    1. Empty list (should return empty list)
+    2. Scene with invalid ID (Stash should reject)
+    3. Scene missing ID (should fail during to_input())
+    """
+    # No scenes created in this test, but stash_cleanup_tracker is required for enforcement
+    async with stash_cleanup_tracker(stash_client):
+        # Test 1: Empty list should return empty list without making GraphQL call
+        with capture_graphql_calls(stash_client) as calls:
+            result = await stash_client.scenes_update([])
 
-            # Otherwise call execute
-            result = await self.execute({"scenesUpdate": None})
+        assert result == [], "Empty list should return empty list"
+        assert len(calls) == 0, "Empty list should not make GraphQL call"
 
-            # Check for missing or None result and raise appropriate error
-            if not result or not result.get("scenesUpdate"):
-                raise Exception("Failed to update scenes")  # noqa: TRY002
+        print("\n=== Test 1: Empty List ===")
+        print("Empty list correctly returned without GraphQL call")
+        print("==========================\n")
 
-            # Process results normally
-            return [
-                Scene(**clean_scene_dict(scene_data))
-                for scene_data in result["scenesUpdate"]
-            ]
+        # Test 2: Scene with invalid ID should raise exception from Stash
+        invalid_scene = SceneFactory.build(
+            id="99999999",  # ID that doesn't exist in Stash
+            title="Invalid Scene",
+            urls=["https://example.com/invalid"],
+            organized=False,
+        )
 
-    # Create a list of scenes to update
-    scenes = [mock_scene]
+        with capture_graphql_calls(stash_client) as calls, pytest.raises(Exception):
+            await stash_client.scenes_update([invalid_scene])
 
-    # Create our test instance
-    test_mixin = TestSceneClientMixin()
+        # Verify GraphQL call was attempted
+        assert len(calls) == 1, "Should have attempted GraphQL call"
+        assert "scenesUpdate" in calls[0]["query"]
 
-    # Set up the execute method to raise an exception
-    test_mixin.execute = AsyncMock(side_effect=Exception("GraphQL error"))
-    test_mixin.log = AsyncMock()
+        # Verify exception was raised (could be from Stash or from processing response)
+        # The exception could be at GraphQL level or during result processing
+        print("\n=== Test 2: Invalid Scene ID ===")
+        print(f"GraphQL call attempted for invalid scene ID: {invalid_scene.id}")
+        if calls[0]["exception"]:
+            print(f"GraphQL exception: {type(calls[0]['exception']).__name__}")
+        else:
+            print("GraphQL succeeded but processing failed (scene not found)")
+        print("================================\n")
 
-    # Test for explicit exception
-    with pytest.raises(Exception, match="GraphQL error"):
-        await test_mixin.scenes_update(scenes)
+        # Test 3: Scene with None ID should fail during to_input()
+        # Scene.to_input() should raise if ID is None for updates
+        scene_no_id = SceneFactory.build(
+            id=None,  # None ID should fail
+            title="Scene Without ID",
+            urls=["https://example.com/noid"],
+            organized=False,
+        )
 
-    # Set up a separate test for empty result
-    test_mixin2 = TestSceneClientMixin()
-    test_mixin2.execute = AsyncMock(return_value={"otherKey": "some value"})
-    test_mixin2.log = AsyncMock()
+        # This should fail during to_input() because update requires an ID
+        with capture_graphql_calls(stash_client) as calls, pytest.raises(Exception):
+            await stash_client.scenes_update([scene_no_id])
 
-    # Test for missing scenesUpdate key
-    with pytest.raises(Exception, match="Failed to update scenes"):
-        await test_mixin2.scenes_update(scenes)
-
-    # Set up a separate test for empty list
-    test_mixin3 = TestSceneClientMixin()
-    test_mixin3.execute = AsyncMock()
-    test_mixin3.log = AsyncMock()
-
-    # Empty list should not call execute
-    result = await test_mixin3.scenes_update([])
-    assert result == []
-    test_mixin3.execute.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_parse_scene_filename(scene_mixin_client: StashClient) -> None:
-    """Test parsing various scene filename formats."""
-    # Test valid filename formats
-    valid_cases = [
-        ("scene_2024-01-01_123.mp4", "2024-01-01", "123"),
-        ("my_scene_2024-12-31_456.mp4", "2024-12-31", "456"),
-        ("prefix_2025-06-15_789_suffix.mp4", "2025-06-15", "789_suffix"),
-    ]
-
-    for filename, expected_date, expected_id in valid_cases:
-        date_str, scene_id = scene_mixin_client.parse_scene_filename(filename)
-        assert date_str == expected_date
-        assert scene_id == expected_id
-
-    # Test invalid filename formats
-    invalid_cases = [
-        "invalid.mp4",
-        "scene_2024-13-01_123.mp4",  # Invalid month
-        "scene_2024-12-32_123.mp4",  # Invalid day
-        "scene_2024-12-01.mp4",  # Missing ID
-        "scene__123.mp4",  # Missing date
-        "scene_not_a_date_123.mp4",  # Invalid date format
-    ]
-
-    for invalid_filename in invalid_cases:
-        with pytest.raises(ValueError):
-            scene_mixin_client.parse_scene_filename(invalid_filename)
-
-
-@pytest.mark.asyncio
-async def test_scene_filename_validation(scene_mixin_client: StashClient) -> None:
-    """Test scene filename validation with various formats."""
-    # Test valid filenames
-    assert (
-        scene_mixin_client.is_valid_scene_filename("scene_2024-01-01_123.mp4") is True
-    )
-    assert (
-        scene_mixin_client.is_valid_scene_filename("my_scene_2024-12-31_456.mp4")
-        is True
-    )
-
-    # Test invalid filenames
-    assert scene_mixin_client.is_valid_scene_filename("invalid.mp4") is False
-    # The validation regex doesn't actually check for valid dates, just the pattern
-    # Since we're mocking the function to always return True in test setup,
-    # we should expect that here
-    assert (
-        scene_mixin_client.is_valid_scene_filename("scene_2024-13-01_123.mp4") is True
-    )
-    assert (
-        scene_mixin_client.is_valid_scene_filename("scene_2024-12-32_123.mp4") is True
-    )
-    assert (
-        scene_mixin_client.is_valid_scene_filename("scene_not_a_date_123.mp4") is False
-    )
+        # Should not make GraphQL call because to_input() should fail first
+        # (or it might make the call and Stash rejects it - either is valid)
+        print("\n=== Test 3: Scene Missing ID ===")
+        print("Attempted to update scene without ID")
+        print(f"GraphQL calls made: {len(calls)}")
+        if calls:
+            if calls[0]["exception"]:
+                print(
+                    f"Exception during GraphQL: {type(calls[0]['exception']).__name__}"
+                )
+            else:
+                print("GraphQL call made but failed during processing")
+        else:
+            print("Failed before GraphQL call (during to_input())")
+        print("================================\n")
 
 
 @pytest.mark.asyncio
 async def test_bulk_scene_operations(
-    scene_mixin_client: StashClient, mock_graphql
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
 ) -> None:
-    """Test bulk scene operations and cache invalidation."""
-    # Setup mock scenes
-    scenes = [
-        {"id": "1", "title": "Scene 1", "details": "Original details 1"},
-        {"id": "2", "title": "Scene 2", "details": "Original details 2"},
-        {"id": "3", "title": "Scene 3", "details": "Original details 3"},
-    ]
+    """Test bulk scene operations - TRUE INTEGRATION TEST.
 
-    # Setup cache with initial scenes
-    for scene in scenes:
-        scene_mixin_client.scene_cache[scene["id"]] = scene
+    Creates real scenes, performs bulk update (same changes to all scenes),
+    and verifies GraphQL mutation was constructed correctly.
+    """
+    # Create three real scenes in Stash
+    scene1 = SceneFactory.build(
+        id="new",
+        title="Bulk Test Scene 1",
+        urls=["https://example.com/bulk1"],
+        organized=False,
+        details="Original details 1",
+    )
+    scene2 = SceneFactory.build(
+        id="new",
+        title="Bulk Test Scene 2",
+        urls=["https://example.com/bulk2"],
+        organized=False,
+        details="Original details 2",
+    )
+    scene3 = SceneFactory.build(
+        id="new",
+        title="Bulk Test Scene 3",
+        urls=["https://example.com/bulk3"],
+        organized=False,
+        details="Original details 3",
+    )
 
-    # Setup mock response for bulk update
-    scene_mixin_client.execute.return_value = {"bulkSceneUpdate": {"id": ["1", "2"]}}
+    created1 = await stash_client.create_scene(scene1)
+    created2 = await stash_client.create_scene(scene2)
+    created3 = await stash_client.create_scene(scene3)
 
-    # Test bulk scene update
-    updated_scenes = [
-        {"id": "1", "details": "Updated details 1"},
-        {"id": "2", "details": "Updated details 2"},
-    ]
+    # Track all for cleanup
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        cleanup["scenes"].extend([created1.id, created2.id, created3.id])
+        # Bulk update only scenes 1 and 2 (same changes to both)
+        bulk_input = {
+            "ids": [created1.id, created2.id],
+            "organized": True,  # Apply this change to all specified scenes
+        }
 
-    await scene_mixin_client.bulk_scene_update(updated_scenes)
+        # Make REAL bulk update call with GraphQL capture
+        with capture_graphql_calls(stash_client) as calls:
+            updated_scenes = await stash_client.bulk_scene_update(bulk_input)
 
-    # Verify cache invalidation
-    assert scene_mixin_client.scene_cache.get("1") is None
-    assert scene_mixin_client.scene_cache.get("2") is None
-    assert (
-        scene_mixin_client.scene_cache.get("3") is not None
-    )  # Unchanged scene should remain in cache
+        # Verify GraphQL mutation was constructed correctly
+        assert len(calls) == 1, "Expected 1 GraphQL call for bulk_scene_update"
+        assert "bulkSceneUpdate" in calls[0]["query"]
+        assert calls[0]["exception"] is None, "GraphQL call should not raise exception"
+
+        # Verify GraphQL response structure
+        assert calls[0]["result"] is not None
+        assert "bulkSceneUpdate" in calls[0]["result"]
+
+        # Verify input structure
+        input_data = calls[0]["variables"]["input"]
+        assert "ids" in input_data
+        assert len(input_data["ids"]) == 2
+        assert created1.id in input_data["ids"]
+        assert created2.id in input_data["ids"]
+        assert input_data["organized"] is True
+
+        # Verify both scenes were updated
+        assert len(updated_scenes) == 2
+        assert all(isinstance(scene, Scene) for scene in updated_scenes)
+        assert all(scene.organized is True for scene in updated_scenes)
+
+        # Print verbose output
+        print("\n=== Bulk Scene Update ===")
+        print(f"Updated {len(updated_scenes)} scenes with bulk operation")
+        print(
+            f"Scene 1: ID={updated_scenes[0].id}, Organized={updated_scenes[0].organized}"
+        )
+        print(
+            f"Scene 2: ID={updated_scenes[1].id}, Organized={updated_scenes[1].organized}"
+        )
+        print("=========================\n")
 
 
 @pytest.mark.asyncio
 async def test_scene_cache_operations(
-    scene_mixin_client: StashClient, mock_graphql
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
 ) -> None:
-    """Test scene cache operations during various scene actions."""
-    # Setup initial scene
-    scene = {"id": "1", "title": "Test Scene", "details": "Original details"}
+    """Test scene cache operations - TRUE INTEGRATION TEST.
 
-    # Test scene retrieval and caching
-    scene_mixin_client.execute.return_value = {"findScene": scene}
-    result = await scene_mixin_client.find_scene("1")
-    assert result is not None
-
-    # Manually add to cache since our mock doesn't do this automatically
-    scene_mixin_client.scene_cache["1"] = scene
-
-    # Test cache hit (no need to setup mock again)
-    cached_result = await scene_mixin_client.find_scene("1")
-    assert cached_result is not None
-    assert scene_mixin_client.scene_cache["1"] == scene
-
-    # Test cache invalidation on update - use a Scene object instead of dict
-    updated_scene_obj = Scene(
-        id="1",
-        title="Test Scene",
-        details="Updated details",
-        # Include required fields
-        urls=[],
+    Tests LRU cache behavior with REAL GraphQL calls:
+    1. Find scene (makes GraphQL call)
+    2. Find same scene again (cache hit - no GraphQL call)
+    3. Update scene (clears cache)
+    4. Find scene again (makes GraphQL call - cache was cleared)
+    """
+    # Create a real scene in Stash
+    scene = SceneFactory.build(
+        id="new",
+        title="Cache Test Scene",
+        urls=["https://example.com/cache"],
         organized=False,
-        files=[],
-        scene_markers=[],
-        galleries=[],
-        groups=[],
-        tags=[],
-        performers=[],
-        stash_ids=[],
-        sceneStreams=[],
-        captions=[],
+        details="Original details",
     )
-    scene_mixin_client.execute.return_value = {
-        "sceneUpdate": updated_scene_obj.__dict__
-    }
-    await scene_mixin_client.update_scene(updated_scene_obj)
-    assert scene_mixin_client.scene_cache.get("1") is None
 
-    # Test cache rebuild after update
-    scene_mixin_client.execute.return_value = {"findScene": updated_scene_obj.__dict__}
-    new_result = await scene_mixin_client.find_scene("1")
-    assert new_result is not None
+    created = await stash_client.create_scene(scene)
 
-    # Manually add updated scene to cache
-    scene_mixin_client.scene_cache["1"] = updated_scene_obj.__dict__
-    assert scene_mixin_client.scene_cache["1"] == updated_scene_obj.__dict__
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        cleanup["scenes"].append(created.id)
+
+        # Test 1: Find scene (should make GraphQL call)
+        with capture_graphql_calls(stash_client) as calls:
+            result1 = await stash_client.find_scene(created.id)
+
+        assert result1 is not None
+        assert len(calls) == 1, "First find should make GraphQL call"
+        assert "findScene" in calls[0]["query"]
+
+        print("\n=== Cache Test 1: Initial Find ===")
+        print(f"Found scene ID={result1.id}, made 1 GraphQL call (cache miss)")
+        print("==================================\n")
+
+        # Test 2: Find same scene again (should hit cache - no GraphQL call)
+        with capture_graphql_calls(stash_client) as calls:
+            result2 = await stash_client.find_scene(created.id)
+
+        assert result2 is not None
+        assert len(calls) == 0, "Second find should hit cache (no GraphQL call)"
+
+        print("=== Cache Test 2: Cache Hit ===")
+        print(f"Found scene ID={result2.id}, made 0 GraphQL calls (cache hit)")
+        print("================================\n")
+
+        # Test 3: Update scene (should clear cache)
+        created.details = "Updated details"
+
+        with capture_graphql_calls(stash_client) as calls:
+            updated = await stash_client.update_scene(created)
+
+        assert updated is not None
+        assert updated.details == "Updated details"
+        assert len(calls) == 1, "Update should make GraphQL call"
+        assert "sceneUpdate" in calls[0]["query"]
+
+        print("=== Cache Test 3: Update (Clears Cache) ===")
+        print(f"Updated scene ID={updated.id}, made 1 GraphQL call")
+        print("Cache was cleared by update operation")
+        print("============================================\n")
+
+        # Test 4: Find scene again (cache was cleared, should make GraphQL call)
+        with capture_graphql_calls(stash_client) as calls:
+            result3 = await stash_client.find_scene(created.id)
+
+        assert result3 is not None
+        assert result3.details == "Updated details", "Should get updated data"
+        assert len(calls) == 1, (
+            "Find after update should make GraphQL call (cache was cleared)"
+        )
+        assert "findScene" in calls[0]["query"]
+
+        print("=== Cache Test 4: Find After Update ===")
+        print(f"Found scene ID={result3.id}, made 1 GraphQL call (cache was cleared)")
+        print(f"Details: '{result3.details}'")
+        print("========================================\n")
 
 
 @pytest.mark.asyncio
 async def test_scene_metadata_handling(
-    scene_mixin_client: StashClient, mock_graphql
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
 ) -> None:
-    """Test handling of complex scene metadata."""
-    # Create a clean Scene object directly
-    full_scene = Scene(
-        id="1",
-        title="Complex Scene",
-        details="Test details",
-        urls=["https://test.com/scene1"],
+    """Test handling of complex scene metadata - TRUE INTEGRATION TEST.
+
+    Creates a scene with complex metadata (date, details, code, URLs),
+    then performs partial updates to verify only changed fields are updated.
+    """
+    # Create a scene with complex metadata
+    complex_scene = SceneFactory.build(
+        id="new",
+        title="Complex Metadata Scene",
+        details="Original detailed description of this scene",
+        code="SCENE-001",
         date="2025-04-13",
-        # No rating field - use rating100 instead which is supported by the API
-        # rating100 is not in __init__, it's set after creation
-        organized=True,
-        files=[
-            VideoFile(
-                id="file1",
-                path="/test/path/video.mp4",
-                basename="video.mp4",
-                size=1024,
-                format="mp4",
-                width=1920,
-                height=1080,
-                duration=60.0,
-                video_codec="h264",
-                audio_codec="aac",
-                frame_rate=30.0,
-                bit_rate=5000000,
-                parent_folder_id="folder1",
-                mod_time=datetime.now(UTC),
-                fingerprints=[],
-            )
+        urls=[
+            "https://example.com/scene1",
+            "https://example.com/scene1-alt",
         ],
-        # Required fields with empty defaults
-        scene_markers=[],
-        galleries=[],
-        groups=[],
-        tags=[],
-        performers=[],
-        stash_ids=[],
-        sceneStreams=[],
-        captions=[],
+        organized=True,
     )
 
-    # Create a clean dict from the Scene object
-    scene_dict = {
-        "id": full_scene.id,
-        "title": full_scene.title,
-        "details": full_scene.details,
-        "urls": full_scene.urls,
-        "date": full_scene.date,
-        "organized": full_scene.organized,
-        "files": [{"path": file.path} for file in full_scene.files],
-        "scene_markers": [],
-        "galleries": [],
-        "groups": [],
-        "tags": [],
-        "performers": [],
-        "stash_ids": [],
-        "sceneStreams": [],
-        "captions": [],
-    }
+    created = await stash_client.create_scene(complex_scene)
 
-    # Setup the find scene response with the clean dict
-    scene_mixin_client.execute.return_value = {"findScene": scene_dict}
-    result = await scene_mixin_client.find_scene("1")
-    assert result is not None
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        cleanup["scenes"].append(created.id)
 
-    # Test partial metadata update
-    partial_update = Scene(
-        id="1",
-        organized=False,
-        # Include required fields
-        urls=[],
-        files=[],
-        scene_markers=[],
-        galleries=[],
-        groups=[],
-        tags=[],
-        performers=[],
-        stash_ids=[],
-        sceneStreams=[],
-        captions=[],
-    )
+        # Verify all metadata was created correctly
+        assert created.title == "Complex Metadata Scene"
+        assert created.details == "Original detailed description of this scene"
+        assert created.code == "SCENE-001"
+        assert created.date == "2025-04-13"
+        assert len(created.urls) == 2
+        assert created.organized is True
 
-    # Setup the update scene response
-    updated_dict = scene_dict.copy()
-    updated_dict["organized"] = False
-    scene_mixin_client.execute.return_value = {"sceneUpdate": updated_dict}
-    await scene_mixin_client.update_scene(partial_update)
+        print("\n=== Complex Metadata Creation ===")
+        print("Created scene with:")
+        print(f"  Title: '{created.title}'")
+        print(f"  Code: '{created.code}'")
+        print(f"  Date: '{created.date}'")
+        print(f"  URLs: {len(created.urls)} URLs")
+        print(f"  Organized: {created.organized}")
+        print("=================================\n")
 
-    # Manually set and test the cache
-    scene_mixin_client.scene_cache["1"] = scene_dict
-    assert scene_mixin_client.scene_cache["1"] is not None
+        # Test partial update - only change organized flag and details
+        created.organized = False
+        created.details = "Updated description"
 
-    # Update should clear the cache
-    await scene_mixin_client.update_scene(partial_update)
-    assert (
-        scene_mixin_client.scene_cache.get("1") is None
-    )  # Cache should be invalidated
+        with capture_graphql_calls(stash_client) as calls:
+            updated = await stash_client.update_scene(created)
+
+        # Verify GraphQL mutation
+        assert len(calls) == 1, "Expected 1 GraphQL call for update"
+        assert "sceneUpdate" in calls[0]["query"]
+        assert calls[0]["exception"] is None
+
+        # Verify only the changed fields were updated
+        assert updated.title == "Complex Metadata Scene"  # Unchanged
+        assert updated.code == "SCENE-001"  # Unchanged
+        assert updated.date == "2025-04-13"  # Unchanged
+        assert updated.details == "Updated description"  # Changed
+        assert updated.organized is False  # Changed
+
+        print("=== Partial Metadata Update ===")
+        print("Updated fields:")
+        print(f"  Details: '{created.details}' -> '{updated.details}'")
+        print(f"  Organized: {created.organized} -> {updated.organized}")
+        print("Unchanged fields:")
+        print(f"  Title: '{updated.title}'")
+        print(f"  Code: '{updated.code}'")
+        print(f"  Date: '{updated.date}'")
+        print("================================\n")
 
 
 @pytest.mark.asyncio
-async def test_scene_edge_cases(scene_mixin_client: StashClient) -> None:
-    """Test edge cases in scene operations."""
-    # Test scene with missing optional fields but with required fields
-    minimal_scene = {
-        "id": "1",
-        "files": [{"path": "/test/path/video.mp4"}],
-        # Required fields for Scene class
-        "urls": [],
-        "organized": False,
-        "scene_markers": [],
-        "galleries": [],
-        "groups": [],
-        "tags": [],
-        "performers": [],
-        "stash_ids": [],
-        "sceneStreams": [],
-        "captions": [],
-    }
+async def test_scene_edge_cases(
+    stash_client: StashClient, stash_cleanup_tracker, enable_scene_creation
+) -> None:
+    """Test edge cases in scene operations - TRUE INTEGRATION TEST.
 
-    # Create a client dedicated to the first scene test
-    client1 = create_autospec(StashClient, instance=True)
-    client1.log = AsyncMock()
-    client1.execute = AsyncMock(return_value={"findScene": minimal_scene})
+    Tests various edge cases with REAL GraphQL calls:
+    1. Scene with minimal required fields only
+    2. Non-existent scene ID (should return None)
+    3. Empty string ID (should raise ValueError)
+    4. None ID (should raise ValueError)
+    """
+    # Test 1: Create scene with minimal required fields
+    minimal_scene = SceneFactory.build(
+        id="new",
+        title="Minimal Scene",  # Only title is truly required
+        urls=[],  # Empty URLs
+        organized=False,
+    )
 
-    # Set up a different find_scene function for client1
-    async def find_scene1(id: str):
-        # Provide the ID to ensure it's passed to the mock function
-        result = await client1.execute({"findScene": None})
-        if result and result.get("findScene"):
-            return Scene(**result["findScene"])
-        return None
+    created = await stash_client.create_scene(minimal_scene)
 
-    client1.find_scene = find_scene1
+    async with stash_cleanup_tracker(stash_client) as cleanup:
+        cleanup["scenes"].append(created.id)
 
-    # Call the method on the first client
-    result = await client1.find_scene("1")
-    assert result is not None
-    assert result.id == "1"
+        # Verify scene was created with minimal data
+        assert created.title == "Minimal Scene"
+        assert created.urls == []
+        assert created.organized is False
+        assert created.details is None or created.details == ""
+        assert created.code is None or created.code == ""
 
-    # Setup the mock response for second scene
-    # Add all required fields that Scene expects
-    empty_collections_scene = {
-        "id": "2",
-        "files": [{"path": "/test/path/video2.mp4"}],
-        "performers": [],
-        "tags": [],
-        "studio": None,
-        "urls": [],  # Required
-        "organized": False,  # Required
-        "scene_markers": [],  # Required
-        "galleries": [],  # Required
-        "groups": [],  # Required
-        "stash_ids": [],  # Required
-        "sceneStreams": [],  # Required
-        "captions": [],  # Required
-    }
+        print("\n=== Edge Case 1: Minimal Scene ===")
+        print(f"Created minimal scene with ID={created.id}")
+        print(f"  Title: '{created.title}'")
+        print(f"  URLs: {created.urls}")
+        print(f"  Organized: {created.organized}")
+        print("==================================\n")
 
-    # Create a second client for the second scene test
-    client2 = create_autospec(StashClient, instance=True)
-    client2.log = AsyncMock()
-    client2.execute = AsyncMock(return_value={"findScene": empty_collections_scene})
+    # Test 2: Try to find non-existent scene (should return None)
+    with capture_graphql_calls(stash_client) as calls:
+        result = await stash_client.find_scene("99999999")
 
-    # Set up a different find_scene function for client2
-    async def find_scene2(id: str):
-        # Provide the ID to ensure it's passed to the mock function
-        result = await client2.execute({"findScene": None})
-        if result and result.get("findScene"):
-            return Scene(**result["findScene"])
-        return None
+    assert result is None, "Non-existent scene should return None"
+    assert len(calls) == 1, "Should make GraphQL call for non-existent scene"
+    assert "findScene" in calls[0]["query"]
 
-    client2.find_scene = find_scene2
+    print("=== Edge Case 2: Non-Existent Scene ===")
+    print("Attempted to find scene ID=99999999")
+    print("Result: None (as expected)")
+    print("========================================\n")
 
-    # Call the method on the second client
-    result = await client2.find_scene("2")
-    assert result is not None
-    assert result.id == "2"
-
-    # Create a custom find_scene that validates the ID and raises correct exceptions
-    async def custom_find_scene(id):
-        if not id:  # Empty string or None
-            raise ValueError("Scene ID cannot be empty")
-        # Otherwise return None for non-existent scenes
-
-    # Replace the find_scene method with our custom implementation
-    scene_mixin_client.find_scene = custom_find_scene
-
-    # Test non-existent scene - using scene_mixin_client instead of stash_client
-    scene_mixin_client.execute = AsyncMock(return_value={"findScene": None})
-    result = await scene_mixin_client.find_scene("999")
-    assert result is None
-
-    # Test invalid scene ID - should raise ValueError
+    # Test 3: Try to find with empty string ID (should raise ValueError)
     with pytest.raises(ValueError, match="Scene ID cannot be empty"):
-        await scene_mixin_client.find_scene("")
+        await stash_client.find_scene("")
 
-    # Test None ID - should also raise ValueError
+    print("=== Edge Case 3: Empty String ID ===")
+    print("Attempted to find scene with empty string ID")
+    print("Result: ValueError raised (as expected)")
+    print("=====================================\n")
+
+    # Test 4: Try to find with None ID (should raise ValueError)
     with pytest.raises(ValueError, match="Scene ID cannot be empty"):
-        await scene_mixin_client.find_scene(None)
+        await stash_client.find_scene(None)
+
+    print("=== Edge Case 4: None ID ===")
+    print("Attempted to find scene with None ID")
+    print("Result: ValueError raised (as expected)")
+    print("=============================\n")

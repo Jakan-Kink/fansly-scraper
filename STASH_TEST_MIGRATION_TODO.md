@@ -561,25 +561,11 @@ The greenlet error was HIDDEN by mocks because they never executed the real rela
 
 ### High-Risk Local Fixtures (Create StashClient/Context)
 
-#### File 1: `tests/stash/client/test_tag_mixin_new.py`
+#### File 1: `tests/stash/client/test_tag_mixin_new.py` ✅
 
-- [ ] **Line 14-31**: Remove local `stash_client()` fixture
-  - Action: Use global `stash_client` from `tests/fixtures/stash/stash_api_fixtures.py`
-  - Update: Add `stash_cleanup_tracker` to all test signatures
+#### File 2: `tests/stash/client/test_tag_mixin.py` ✅
 
-#### File 2: `tests/stash/client/test_tag_mixin.py`
-
-- [ ] **Line 15-121**: Remove helper functions `create_mock_client()`, `add_tag_find_methods()`, `add_tag_modification_methods()`
-- [ ] **Line 124-146**: Remove local `tag_mixin_client()` and `stash_client()` fixtures
-  - Action: Use global `stash_client` + `stash_cleanup_tracker`
-  - OR: Use `respx_stash_processor` if tests are unit tests
-
-#### File 3: `tests/stash/client/test_scene_mixin.py`
-
-- [ ] **Line 16-155**: Remove helper functions `create_mock_client()`, `add_scene_find_methods()`, `add_scene_update_methods()`, `add_scene_filename_methods()`
-- [ ] **Line 167-190**: Remove local `scene_mixin_client()` and `stash_client()` fixtures
-  - Action: Use global `stash_client` + `stash_cleanup_tracker`
-  - OR: Use `respx_stash_processor` if tests are unit tests
+#### File 3: `tests/stash/client/test_scene_mixin.py` ✅
 
 #### File 4: `tests/stash/processing/unit/test_stash_processing.py`
 
