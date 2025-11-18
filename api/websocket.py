@@ -146,7 +146,7 @@ class FanslyWebSocket:
             client.register_handler(2, handle_notification)
         """
         self._event_handlers[message_type] = handler
-        logger.info("Registered custom handler for message type: %d", message_type)
+        logger.info("Registered custom handler for message type: {}", message_type)
 
     async def _handle_message(self, message: str | bytes) -> None:
         """Handle incoming WebSocket message.
@@ -165,7 +165,7 @@ class FanslyWebSocket:
 
             if self.enable_logging:
                 logger.debug(
-                    "Received WebSocket message - type: %s, data: %s",
+                    "Received WebSocket message - type: {}, data: {}",
                     message_type,
                     message_data,
                 )
@@ -176,7 +176,7 @@ class FanslyWebSocket:
             # Handle ping response (type 2) - contains lastPing timestamp
             elif message_type == 2:
                 if self.enable_logging:
-                    logger.debug("Received ping response: %s", message_data)
+                    logger.debug("Received ping response: {}", message_data)
             # Handle error events (check for error code in message data)
             elif isinstance(message_data, dict) and "code" in message_data:
                 await self._handle_error_event(message_data)
@@ -190,14 +190,14 @@ class FanslyWebSocket:
             # Silently discard unknown message types (anti-detection)
             elif self.enable_logging:
                 logger.debug(
-                    "Received unhandled message type %s (discarded)",
+                    "Received unhandled message type {} (discarded)",
                     message_type,
                 )
 
         except json.JSONDecodeError as e:
-            logger.error("Failed to decode WebSocket message: %s", e)
+            logger.error("Failed to decode WebSocket message: {}", e)
         except Exception as e:
-            logger.error("Error handling WebSocket message: %s", e)
+            logger.error("Error handling WebSocket message: {}", e)
 
     async def _handle_error_event(self, error_data: dict[str, Any]) -> None:
         """Handle error events from WebSocket.
@@ -237,7 +237,7 @@ class FanslyWebSocket:
                 else:
                     self.on_rate_limited()
         else:
-            logger.warning("WebSocket received error code: %s", error_code)
+            logger.warning("WebSocket received error code: {}", error_code)
 
     async def _handle_auth_response(self, data: str) -> None:
         """Handle authentication response from WebSocket.
@@ -268,7 +268,7 @@ class FanslyWebSocket:
 
             if self.session_id:
                 logger.info(
-                    "WebSocket authenticated - session: %s, ws_session: %s, account: %s",
+                    "WebSocket authenticated - session: {}, ws_session: {}, account: {}",
                     self.session_id,
                     self.websocket_session_id,
                     self.account_id,
@@ -277,7 +277,7 @@ class FanslyWebSocket:
                 logger.warning("Authentication response missing session ID")
 
         except json.JSONDecodeError as e:
-            logger.error("Failed to decode auth response: %s", e)
+            logger.error("Failed to decode auth response: {}", e)
 
     async def connect(self) -> None:
         """Connect to Fansly WebSocket server.
@@ -295,7 +295,7 @@ class FanslyWebSocket:
 
         # Build connection URL with version parameter
         connection_url = f"{self.base_url}/?v={self.WEBSOCKET_VERSION}"
-        logger.info("Connecting to WebSocket: %s", connection_url)
+        logger.info("Connecting to WebSocket: {}", connection_url)
 
         try:
             ssl_context = self._create_ssl_context()
@@ -344,7 +344,7 @@ class FanslyWebSocket:
 
         except Exception as e:
             self.connected = False
-            logger.error("Failed to connect to WebSocket: %s", e)
+            logger.error("Failed to connect to WebSocket: {}", e)
             raise
 
     async def disconnect(self) -> None:
@@ -364,7 +364,7 @@ class FanslyWebSocket:
         try:
             await self.websocket.close()
         except Exception as e:
-            logger.error("Error during WebSocket disconnect: %s", e)
+            logger.error("Error during WebSocket disconnect: {}", e)
         finally:
             self.connected = False
             self.websocket = None
@@ -400,14 +400,14 @@ class FanslyWebSocket:
                         await self.websocket.send("p")
 
                         if self.enable_logging:
-                            logger.debug("Sent ping (next in %.1fs)", ping_interval)
+                            logger.debug("Sent ping (next in {:.1f}s)", ping_interval)
 
                     except WebSocketException as e:
-                        logger.error("Error sending ping: %s", e)
+                        logger.error("Error sending ping: {}", e)
                         self.connected = False
                         break
                     except Exception as e:
-                        logger.error("Unexpected error in ping loop: %s", e)
+                        logger.error("Unexpected error in ping loop: {}", e)
                         break
 
             except asyncio.CancelledError:
@@ -448,14 +448,14 @@ class FanslyWebSocket:
                         logger.debug("WebSocket listen timeout - continuing")
                     continue
                 except WebSocketException as e:
-                    logger.error("WebSocket error in listen loop: %s", e)
+                    logger.error("WebSocket error in listen loop: {}", e)
                     self.connected = False
                     break
 
         except asyncio.CancelledError:
             logger.info("WebSocket listen loop cancelled")
         except Exception as e:
-            logger.error("Unexpected error in listen loop: %s", e)
+            logger.error("Unexpected error in listen loop: {}", e)
             self.connected = False
 
     async def _maintain_connection(self) -> None:
@@ -465,14 +465,14 @@ class FanslyWebSocket:
                 if not self.connected:
                     if self._reconnect_attempts >= self._max_reconnect_attempts:
                         logger.error(
-                            "Max reconnection attempts reached (%d)",
+                            "Max reconnection attempts reached ({})",
                             self._max_reconnect_attempts,
                         )
                         break
 
                     if self._reconnect_attempts > 0:
                         delay = self._reconnect_delay * (2**self._reconnect_attempts)
-                        logger.info("Reconnecting in %.1f seconds...", delay)
+                        logger.info("Reconnecting in {:.1f} seconds...", delay)
                         await asyncio.sleep(delay)
 
                     self._reconnect_attempts += 1
@@ -490,7 +490,7 @@ class FanslyWebSocket:
                 logger.info("Connection maintenance cancelled")
                 break
             except Exception as e:
-                logger.error("Error in connection maintenance: %s", e)
+                logger.error("Error in connection maintenance: {}", e)
                 await asyncio.sleep(self._reconnect_delay)
 
     async def start_background(self) -> None:
@@ -566,7 +566,7 @@ class FanslyWebSocket:
         await self.websocket.send(json.dumps(message))
 
         if self.enable_logging:
-            logger.debug("Sent WebSocket message - type: %d", message_type)
+            logger.debug("Sent WebSocket message - type: {}", message_type)
 
     async def __aenter__(self) -> FanslyWebSocket:
         """Async context manager entry."""
