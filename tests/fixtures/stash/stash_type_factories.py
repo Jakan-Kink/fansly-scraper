@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 
 import pytest
 from factory.base import Factory
-from factory.declarations import LazyFunction, Sequence
+from factory.declarations import LazyAttribute, LazyFunction, Sequence
 
 from stash.types import Gallery, Group, Image, Performer, Scene, Studio, Tag
 from stash.types.files import Fingerprint, ImageFile, VideoFile
@@ -99,7 +99,7 @@ class StudioFactory(Factory):
         studio = StudioFactory(
             id="456",
             name="Test Studio",
-            url="https://example.com/studio"
+            urls=["https://example.com/studio"]
         )
     """
 
@@ -110,10 +110,14 @@ class StudioFactory(Factory):
     id = Sequence(lambda n: str(200 + n))
     name = Sequence(lambda n: f"Studio_{n}")
 
-    # Optional fields
-    url = None
+    # Optional fields with defaults
+    urls = LazyAttribute(lambda _: [])
+    aliases = LazyAttribute(lambda _: [])
+    tags = LazyAttribute(lambda _: [])
+    stash_ids = LazyAttribute(lambda _: [])
     parent_studio = None
-    # Add other Studio fields as needed
+    details = None
+    image_path = None
 
 
 class TagFactory(Factory):

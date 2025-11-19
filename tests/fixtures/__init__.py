@@ -166,6 +166,7 @@ from .stash import (
     mock_video_file,
     real_stash_processor,
     reset_stash_field_names_cache,
+    respx_stash_client,
     respx_stash_processor,
     safe_image_create,
     safe_scene_create,
@@ -377,6 +378,7 @@ mod_stash_processing_fixtures = [
 mod_stash_api_fixtures = [
     "stash_context",
     "stash_client",
+    "respx_stash_client",
     "enable_scene_creation",
     "stash_cleanup_tracker",
     "test_query",
