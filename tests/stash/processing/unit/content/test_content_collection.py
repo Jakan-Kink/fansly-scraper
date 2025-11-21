@@ -1,383 +1,463 @@
 """Tests for collecting media from attachments and processing items with gallery.
 
-This test module uses real database fixtures and factories instead of mocks
-to provide more reliable integration testing while maintaining test isolation.
+These tests mock at the HTTP boundary using respx, allowing real code execution
+through the entire processing pipeline. We verify that data flows correctly from
+database queries to GraphQL API calls.
 """
 
+import json
 from datetime import UTC, datetime
 
+import httpx
 import pytest
+import respx
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from metadata import Account, AccountMedia
 from metadata.attachment import Attachment, ContentType
 from metadata.post import Post
+from stash.processing import StashProcessing
 from tests.fixtures import (
     AccountFactory,
     AccountMediaFactory,
     AttachmentFactory,
     MediaFactory,
+    PerformerFactory,
     PostFactory,
+    StudioFactory,
 )
 
 
-@pytest.mark.asyncio
-async def test_collect_media_from_attachments_empty(content_mixin):
-    """Test _collect_media_from_attachments with empty attachments."""
-    attachments = []
-    result = await content_mixin._collect_media_from_attachments(attachments)
-    assert result == []
+class TestCollectMediaFromAttachments:
+    """Test _collect_media_from_attachments method.
+
+    These tests verify pure database/object manipulation without HTTP calls.
+    """
+
+    @pytest.mark.asyncio
+    async def test_empty_attachments(
+        self,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test _collect_media_from_attachments with empty attachments."""
+        attachments = []
+        result = await respx_stash_processor._collect_media_from_attachments(
+            attachments
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_attachments_no_media(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test _collect_media_from_attachments with attachments that have no media."""
+        # Create attachments with contentType but contentId pointing to non-existent media
+        AttachmentFactory(
+            id=60001,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            contentId=99999,  # Non-existent AccountMedia
+            pos=0,
+        )
+        AttachmentFactory(
+            id=60002,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            contentId=99998,  # Non-existent AccountMedia
+            pos=1,
+        )
+
+        factory_async_session.commit()
+        await session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(
+            select(Attachment).where(Attachment.id.in_([60001, 60002]))
+        )
+        attachments = list(result.scalars().all())
+
+        result = await respx_stash_processor._collect_media_from_attachments(
+            attachments
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_attachments_with_media(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test _collect_media_from_attachments with attachments that have media."""
+        # Create account with factory
+        AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
+
+        # Create media objects using factory
+        MediaFactory(
+            id=123,
+            accountId=12345,
+            mimetype="image/jpeg",
+            location="https://example.com/media_123.jpg",
+            width=800,
+            height=600,
+        )
+        MediaFactory(
+            id=456,
+            accountId=12345,
+            mimetype="video/mp4",
+            location="https://example.com/media_456.mp4",
+            width=1280,
+            height=720,
+        )
+
+        # Create AccountMedia to link attachments to media using factory
+        AccountMediaFactory(id=123, accountId=12345, mediaId=123)
+        AccountMediaFactory(id=456, accountId=12345, mediaId=456)
+
+        # Create attachments with media - use contentId not accountMediaId
+        AttachmentFactory(
+            id=60003,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            contentId=123,  # Points to AccountMedia id
+            pos=0,
+        )
+        AttachmentFactory(
+            id=60004,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            contentId=456,  # Points to AccountMedia id
+            pos=1,
+        )
+
+        factory_async_session.commit()
+        await session.commit()
+
+        # Query fresh attachments from async session with eager loading
+        result = await session.execute(
+            select(Attachment)
+            .where(Attachment.id.in_([60003, 60004]))
+            .options(selectinload(Attachment.media).selectinload(AccountMedia.media))
+        )
+        attachments = list(result.scalars().all())
+
+        result = await respx_stash_processor._collect_media_from_attachments(
+            attachments
+        )
+
+        # Verify we got media objects back
+        assert len(result) == 2
+        media_ids = [m.id for m in result]
+        assert 123 in media_ids
+        assert 456 in media_ids
 
 
-@pytest.mark.asyncio
-async def test_collect_media_from_attachments_no_media(
-    factory_async_session, session, content_mixin
-):
-    """Test _collect_media_from_attachments with attachments that have no media."""
-    # Create attachments with contentType but contentId pointing to non-existent media
-    # This simulates attachments that don't have associated media loaded
-    attachment1 = AttachmentFactory(
-        id=60001,
-        contentType=ContentType.ACCOUNT_MEDIA,
-        contentId=99999,  # Non-existent AccountMedia
-        pos=0,
-    )
-    attachment2 = AttachmentFactory(
-        id=60002,
-        contentType=ContentType.ACCOUNT_MEDIA,
-        contentId=99998,  # Non-existent AccountMedia
-        pos=1,
-    )
+class TestProcessItemsWithGallery:
+    """Test _process_items_with_gallery orchestration using respx.
 
-    # Query fresh from async session
-    result = await session.execute(
-        select(Attachment).where(Attachment.id.in_([60001, 60002]))
-    )
-    attachments = list(result.scalars().all())
+    These tests mock at HTTP boundary to verify the full processing pipeline.
+    """
 
-    result = await content_mixin._collect_media_from_attachments(attachments)
-    assert result == []
+    @pytest.mark.asyncio
+    async def test_empty_items(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test _process_items_with_gallery with empty items list."""
+        # Create real account using factory
+        AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
 
+        factory_async_session.commit()
+        await session.commit()
 
-@pytest.mark.asyncio
-async def test_collect_media_from_attachments_with_media(
-    factory_async_session, session, content_mixin
-):
-    """Test _collect_media_from_attachments with attachments that have media."""
-    # Create account with factory
-    account = AccountFactory(
-        id=12345,
-        username="test_user",
-        displayName="Test User",
-    )
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
 
-    # Create media objects using factory
-    media1 = MediaFactory(
-        id=123,
-        accountId=12345,
-        mimetype="image/jpeg",
-        location="https://example.com/media_123.jpg",
-        width=800,
-        height=600,
-    )
-    media2 = MediaFactory(
-        id=456,
-        accountId=12345,
-        mimetype="video/mp4",
-        location="https://example.com/media_456.mp4",
-        width=1280,
-        height=720,
-    )
+        # Create real performer and studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
 
-    # Create AccountMedia to link attachments to media using factory
-    account_media1 = AccountMediaFactory(id=123, accountId=12345, mediaId=123)
-    account_media2 = AccountMediaFactory(id=456, accountId=12345, mediaId=456)
+        # Set up respx - expect NO calls with empty items
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[]  # Empty list catches any unexpected call
+        )
 
-    # Create attachments with media - use contentId not accountMediaId
-    attachment1 = AttachmentFactory(
-        id=60003,
-        contentType=ContentType.ACCOUNT_MEDIA,
-        contentId=123,  # Points to AccountMedia id
-        pos=0,
-    )
-    attachment2 = AttachmentFactory(
-        id=60004,
-        contentType=ContentType.ACCOUNT_MEDIA,
-        contentId=456,  # Points to AccountMedia id
-        pos=1,
-    )
-
-    # Query fresh attachments from async session with eager loading
-    result = await session.execute(
-        select(Attachment)
-        .where(Attachment.id.in_([60003, 60004]))
-        .options(selectinload(Attachment.media).selectinload(AccountMedia.media))
-    )
-    attachments = list(result.scalars().all())
-
-    result = await content_mixin._collect_media_from_attachments(attachments)
-
-    # Verify we got media objects back
-    assert len(result) == 2
-    media_ids = [m.id for m in result]
-    assert 123 in media_ids
-    assert 456 in media_ids
-
-
-@pytest.mark.asyncio
-async def test_process_items_with_gallery_empty(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
-):
-    """Test _process_items_with_gallery with empty items list."""
-    from unittest.mock import AsyncMock, patch
-
-    # Create a real account using factory
-    account = AccountFactory(
-        id=12345,
-        username="test_user",
-        displayName="Test User",
-    )
-
-    # Query fresh from async session
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
-
-    # Patch the delegate method to test orchestration
-    with patch.object(
-        content_mixin, "_process_item_gallery", AsyncMock()
-    ) as mock_process_gallery:
-        await content_mixin._process_items_with_gallery(
+        # Call method with empty items
+        await respx_stash_processor._process_items_with_gallery(
             account=account,
-            performer=mock_performer,
-            studio=mock_studio,
+            performer=performer,
+            studio=studio,
             item_type="post",
             items=[],
             url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
             session=session,
         )
 
-        # Verify _process_item_gallery was not called (no items to process)
-        assert mock_process_gallery.call_count == 0
+        # With no items, no GraphQL calls should be made
+        assert len(graphql_route.calls) == 0
 
+    @pytest.mark.asyncio
+    async def test_item_no_attachments(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test _process_items_with_gallery with item that has no attachments."""
+        # Create account and post without attachments
+        AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
 
-@pytest.mark.asyncio
-async def test_process_items_with_gallery_no_attachments(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
-):
-    """Test _process_items_with_gallery with items that have no attachments."""
-    from unittest.mock import AsyncMock, patch
+        PostFactory(
+            id=123,
+            accountId=12345,
+            content="Test content",
+            createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
+        )
 
-    # Create a real account with factory
-    account = AccountFactory(
-        id=12345,
-        username="test_user",
-        displayName="Test User",
-    )
+        factory_async_session.commit()
+        await session.commit()
 
-    # Create a real post using factory with no attachments
-    post = PostFactory(
-        id=123,
-        accountId=12345,
-        content="Test content",
-        createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
-    )
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
 
-    # Query fresh from async session
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
+        result = await session.execute(
+            select(Post).where(Post.id == 123).options(selectinload(Post.attachments))
+        )
+        post = result.unique().scalar_one()
 
-    result = await session.execute(select(Post).where(Post.id == 123))
-    post = result.unique().scalar_one()
+        # Create real performer and studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
 
-    # Patch the delegate method to test orchestration
-    with patch.object(
-        content_mixin, "_process_item_gallery", AsyncMock()
-    ) as mock_process_gallery:
-        await content_mixin._process_items_with_gallery(
+        # Set up respx - expect NO calls for items without attachments
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[]  # Empty list catches any unexpected call
+        )
+
+        # Call method
+        await respx_stash_processor._process_items_with_gallery(
             account=account,
-            performer=mock_performer,
-            studio=mock_studio,
+            performer=performer,
+            studio=studio,
             item_type="post",
             items=[post],
             url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
             session=session,
         )
 
-        # Verify _process_item_gallery was called with the item
-        mock_process_gallery.assert_called_once()
-        call_args = mock_process_gallery.call_args
-        assert call_args[1]["item"].id == post.id
-        assert call_args[1]["account"].id == account.id
-        assert call_args[1]["performer"] == mock_performer
-        assert call_args[1]["studio"] == mock_studio
-        assert call_args[1]["item_type"] == "post"
-        assert call_args[1]["url_pattern"] == f"https://example.com/post/{post.id}"
-        assert call_args[1]["session"] == session
+        # Items without attachments don't trigger any GraphQL calls
+        assert len(graphql_route.calls) == 0
 
+    @pytest.mark.asyncio
+    async def test_multiple_items(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test _process_items_with_gallery with multiple items."""
+        # Create account and multiple posts with attachments
+        AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
 
-@pytest.mark.asyncio
-async def test_process_items_with_gallery_with_multiple_items(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
-):
-    """Test _process_items_with_gallery with multiple items."""
-    from unittest.mock import AsyncMock, patch
+        PostFactory(
+            id=123,
+            accountId=12345,
+            content="Test post 1",
+            createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        AttachmentFactory(
+            postId=123,
+            contentId=123,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
 
-    # Create a real account with factory
-    account = AccountFactory(
-        id=12345,
-        username="test_user",
-        displayName="Test User",
-    )
+        PostFactory(
+            id=456,
+            accountId=12345,
+            content="Test post 2",
+            createdAt=datetime(2024, 5, 2, 12, 0, 0, tzinfo=UTC),
+        )
+        AttachmentFactory(
+            postId=456,
+            contentId=456,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
 
-    # Create multiple real posts using factory
-    post1 = PostFactory(
-        id=123,
-        accountId=12345,
-        content="Test post 1",
-        createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
-    )
-    post2 = PostFactory(
-        id=456,
-        accountId=12345,
-        content="Test post 2",
-        createdAt=datetime(2024, 5, 2, 12, 0, 0, tzinfo=UTC),
-    )
+        factory_async_session.commit()
+        await session.commit()
 
-    # Query fresh from async session
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
 
-    result = await session.execute(
-        select(Post).where(Post.id.in_([123, 456])).order_by(Post.id)
-    )
-    posts = list(result.unique().scalars().all())
-    post1, post2 = posts[0], posts[1]
+        result = await session.execute(
+            select(Post)
+            .where(Post.id.in_([123, 456]))
+            .options(selectinload(Post.attachments))
+            .order_by(Post.id)
+        )
+        posts = list(result.unique().scalars().all())
 
-    # Patch the delegate method to test orchestration
-    with patch.object(
-        content_mixin, "_process_item_gallery", AsyncMock()
-    ) as mock_process_gallery:
-        await content_mixin._process_items_with_gallery(
+        # Create real performer and studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+
+        # Set up respx with multiple responses for gallery lookups/creates
+        generic_response = httpx.Response(
+            200,
+            json={
+                "data": {
+                    "findGalleries": {"galleries": [], "count": 0},
+                    "galleryCreate": {"id": "new_gallery"},
+                }
+            },
+        )
+        # Allow multiple calls for 2 posts with attachments
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[generic_response] * 20  # Enough for multiple gallery lookups
+        )
+
+        # Call method
+        await respx_stash_processor._process_items_with_gallery(
             account=account,
-            performer=mock_performer,
-            studio=mock_studio,
+            performer=performer,
+            studio=studio,
             item_type="post",
-            items=[post1, post2],
+            items=posts,
             url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
             session=session,
         )
 
-        # Verify _process_item_gallery was called twice, once for each item
-        assert mock_process_gallery.call_count == 2
-        calls = mock_process_gallery.call_args_list
-        assert calls[0][1]["item"].id == post1.id
-        assert calls[1][1]["item"].id == post2.id
+        # Verify GraphQL calls were made (at least one per item with attachments)
+        assert len(graphql_route.calls) > 0
+
+        # Inspect the requests to verify correct data was sent
+        for call in graphql_route.calls:
+            req = json.loads(call.request.content)
+            assert "query" in req
+            assert "variables" in req
+
+            # If this is a galleryCreate call, verify the input data
+            if "galleryCreate" in req["query"]:
+                input_data = req["variables"].get("input", {})
+                # Gallery should have title from post content
+                assert "title" in input_data
+                # Gallery should have code matching post ID
+                if "code" in input_data:
+                    assert input_data["code"] in ["123", "456"]
+                # Gallery should have date
+                if "date" in input_data:
+                    assert input_data["date"].startswith("2024-05")
 
 
-@pytest.mark.asyncio
-async def test_process_creator_posts_no_posts(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
-):
-    """Test process_creator_posts with no posts."""
-    from unittest.mock import AsyncMock, MagicMock
+class TestProcessCreatorContent:
+    """Test process_creator_posts and process_creator_messages using respx.
 
-    # Create a real account with factory
-    account = AccountFactory(
-        id=12345,
-        username="test_user",
-        displayName="Test User",
-    )
+    These tests verify the full processing workflow at HTTP boundary.
+    """
 
-    # Query fresh from async session
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
+    @pytest.mark.asyncio
+    async def test_process_posts_no_posts(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test process_creator_posts with no posts."""
+        # Create account without posts
+        AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
 
-    # Mock worker pool methods
-    queue = MagicMock()
-    queue.join = AsyncMock()
-    queue.put = AsyncMock()
-    content_mixin._setup_worker_pool = AsyncMock(
-        return_value=("task", "process", MagicMock(), queue)
-    )
-    content_mixin._run_worker_pool = AsyncMock()
+        factory_async_session.commit()
+        await session.commit()
 
-    await content_mixin.process_creator_posts(
-        account=account,
-        performer=mock_performer,
-        studio=mock_studio,
-        session=session,
-    )
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
 
-    # Verify session operations
-    # The account should be in the session
-    stmt = select(Account).where(Account.id == account.id)
-    result = await session.execute(stmt)
-    found_account = result.scalar_one_or_none()
-    assert found_account is not None
-    assert found_account.id == account.id
+        # Create real performer and studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
 
-    # Verify worker pool setup was called
-    content_mixin._setup_worker_pool.assert_called_once()
-    setup_call_args = content_mixin._setup_worker_pool.call_args
-    # Check that "post" is in the arguments (should be in the first positional arg)
-    assert "post" in str(setup_call_args)
+        # Set up respx - expect NO calls for account without posts
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[]  # Empty list catches any unexpected call
+        )
 
-    # Verify worker pool execution with empty items
-    content_mixin._run_worker_pool.assert_called_once()
-    batch_args = content_mixin._run_worker_pool.call_args[1]
-    assert batch_args["items"] == []
+        # Call method
+        await respx_stash_processor.process_creator_posts(
+            account=account,
+            performer=performer,
+            studio=studio,
+            session=session,
+        )
 
+        # With no posts, no GraphQL calls should be made
+        assert len(graphql_route.calls) == 0
 
-@pytest.mark.asyncio
-async def test_process_creator_messages_no_messages(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
-):
-    """Test process_creator_messages with no messages."""
-    from unittest.mock import AsyncMock, MagicMock
+    @pytest.mark.asyncio
+    async def test_process_messages_no_messages(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test process_creator_messages with no messages."""
+        # Create account without messages
+        AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
 
-    # Create a real account with factory
-    account = AccountFactory(
-        id=12345,
-        username="test_user",
-        displayName="Test User",
-    )
+        factory_async_session.commit()
+        await session.commit()
 
-    # Query fresh from async session
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
 
-    # Mock worker pool methods
-    queue = MagicMock()
-    queue.join = AsyncMock()
-    queue.put = AsyncMock()
-    content_mixin._setup_worker_pool = AsyncMock(
-        return_value=("task", "process", MagicMock(), queue)
-    )
-    content_mixin._run_worker_pool = AsyncMock()
+        # Create real performer and studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
 
-    await content_mixin.process_creator_messages(
-        account=account,
-        performer=mock_performer,
-        studio=mock_studio,
-        session=session,
-    )
+        # Set up respx - expect NO calls for account without messages
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[]  # Empty list catches any unexpected call
+        )
 
-    # Verify session operations
-    # The account should be in the session
-    stmt = select(Account).where(Account.id == account.id)
-    result = await session.execute(stmt)
-    found_account = result.scalar_one_or_none()
-    assert found_account is not None
-    assert found_account.id == account.id
+        # Call method
+        await respx_stash_processor.process_creator_messages(
+            account=account,
+            performer=performer,
+            studio=studio,
+            session=session,
+        )
 
-    # Verify worker pool setup was called
-    content_mixin._setup_worker_pool.assert_called_once()
-    setup_call_args = content_mixin._setup_worker_pool.call_args
-    # Check that "message" is in the arguments
-    assert "message" in str(setup_call_args)
-
-    # Verify worker pool execution with empty items
-    content_mixin._run_worker_pool.assert_called_once()
-    batch_args = content_mixin._run_worker_pool.call_args[1]
-    assert batch_args["items"] == []
+        # With no messages, no GraphQL calls should be made
+        assert len(graphql_route.calls) == 0

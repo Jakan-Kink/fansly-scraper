@@ -79,7 +79,7 @@ def test_studio() -> None:
         "aliases",
         "tags",
         "stash_ids",
-        "url",
+        "urls",  # url is now a property that derives from urls
         "parent_studio",
         "details",
         "image_path",
@@ -87,6 +87,10 @@ def test_studio() -> None:
 
     for field in expected_fields:
         assert field in fields, f"Field {field} not found in Studio"
+
+    # url should be a property, not a field
+    assert "url" not in fields, "url should be a property, not a field"
+    assert hasattr(Studio, "url"), "Studio should have url property"
 
 
 @pytest.mark.unit
@@ -108,6 +112,7 @@ def test_studio_class_variables() -> None:
         "tags",
         "stash_ids",
         "url",
+        "urls",
         "parent_studio",
         "details",
     }

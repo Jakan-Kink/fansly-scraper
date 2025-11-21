@@ -7,8 +7,10 @@ from collections.abc import AsyncGenerator, AsyncIterator
 
 # Removed: from unittest.mock import AsyncMock, MagicMock
 # No longer using MagicMock for GraphQL client mocking - use respx instead
+import httpx
 import pytest
 import pytest_asyncio
+import respx
 
 from stash import StashClient, StashContext
 from stash.types import Scene, SceneCreateInput
@@ -21,6 +23,7 @@ __all__ = [
     # (MagicMock duplicates - use real factories from stash_type_factories)
     # Removed: "mock_client", "mock_session", "mock_transport"
     # (Mocked internal GraphQL components - use respx to mock HTTP instead)
+    "respx_stash_client",
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",
@@ -86,6 +89,88 @@ async def stash_client(stash_context) -> StashClient:
     yield client
     # Ensure we explicitly clean up after each test
     await client.close()
+
+
+@pytest_asyncio.fixture
+async def respx_stash_client(stash_context) -> StashClient:
+    """Get a StashClient with respx HTTP mocking enabled.
+
+    This is for unit tests that want to mock HTTP responses to Stash GraphQL API.
+    The fixture sets up respx mocking and provides the client within that context.
+
+    Tests using this fixture should set up their own respx routes for specific
+    GraphQL responses. The fixture provides a default empty response for any
+    unmatched requests.
+
+    Args:
+        stash_context: The StashContext fixture
+
+    Yields:
+        StashClient: A client with respx mocking enabled
+
+    Example:
+        ```python
+        @pytest.mark.asyncio
+        async def test_find_studio(respx_stash_client):
+            # Set up mock response
+            respx.post("http://localhost:9999/graphql").mock(
+                return_value=httpx.Response(200, json={
+                    "data": {"findStudio": {"id": "123", "name": "Test"}}
+                })
+            )
+
+            # Now the client will use your mocked response
+            studio = await respx_stash_client.find_studio("123")
+            assert studio.id == "123"
+        ```
+    """
+    with respx.mock:
+        # Default response for any unmatched GraphQL requests
+        respx.post("http://localhost:9999/graphql").mock(
+            return_value=httpx.Response(200, json={"data": {}})
+        )
+
+        # Initialize the client (will use mocked HTTP)
+        client = await stash_context.get_client()
+
+        yield client
+
+        # Cleanup: Clear LRU caches to prevent pollution between tests
+        # All find_* methods use @async_lru_cache which persists between tests
+        if hasattr(client, "find_studio"):
+            client.find_studio.cache_clear()
+        if hasattr(client, "find_studios"):
+            client.find_studios.cache_clear()
+        if hasattr(client, "find_performer"):
+            client.find_performer.cache_clear()
+        if hasattr(client, "find_performers"):
+            client.find_performers.cache_clear()
+        if hasattr(client, "find_scene"):
+            client.find_scene.cache_clear()
+        if hasattr(client, "find_scenes"):
+            client.find_scenes.cache_clear()
+        if hasattr(client, "find_tag"):
+            client.find_tag.cache_clear()
+        if hasattr(client, "find_tags"):
+            client.find_tags.cache_clear()
+        if hasattr(client, "find_gallery"):
+            client.find_gallery.cache_clear()
+        if hasattr(client, "find_galleries"):
+            client.find_galleries.cache_clear()
+        if hasattr(client, "find_image"):
+            client.find_image.cache_clear()
+        if hasattr(client, "find_images"):
+            client.find_images.cache_clear()
+        if hasattr(client, "find_marker"):
+            client.find_marker.cache_clear()
+        if hasattr(client, "find_markers"):
+            client.find_markers.cache_clear()
+
+        # Reset respx to prevent route pollution
+        respx.reset()
+
+        # Close the client
+        await client.close()
 
 
 @pytest.fixture

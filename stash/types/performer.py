@@ -272,7 +272,7 @@ class Performer(StashObject):
                 if account.username
                 else []
             ),
-            country="",
+            country=account.location or "",
             details=account.about or "",
             # Required fields with defaults
             tags=[],  # Empty list of tags to start

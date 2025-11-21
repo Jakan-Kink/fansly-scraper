@@ -2,6 +2,7 @@
 
 from .stash_api_fixtures import (  # Removed: mock_account, mock_performer, mock_studio, mock_scene; (MagicMock duplicates - use real factories from stash_type_factories); Removed: mock_client, mock_session, mock_transport; (Mocked internal GraphQL components - use respx to mock HTTP instead)
     enable_scene_creation,
+    respx_stash_client,
     stash_cleanup_tracker,
     stash_client,
     stash_context,
@@ -147,6 +148,7 @@ __all__ = [
     "mock_video_file",
     "real_stash_processor",
     "reset_stash_field_names_cache",
+    "respx_stash_client",
     "respx_stash_processor",
     "safe_image_create",
     "safe_scene_create",

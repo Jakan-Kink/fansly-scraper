@@ -141,6 +141,17 @@ SCENE_FIELDS = """
         screenshot
         preview
     }
+    scene_markers {
+        id
+    }
+    galleries {
+        id
+    }
+    groups {
+        group {
+            id
+        }
+    }
     studio {
         id
     }
@@ -195,7 +206,7 @@ PERFORMER_FIELDS = """
 STUDIO_FIELDS = """
     id
     name
-    url
+    urls
     image_path
     aliases
     details
@@ -457,6 +468,9 @@ GALLERY_FIELDS = """
     details
     photographer
     organized
+    cover {
+        id
+    }
     studio {
         id
     }
@@ -685,6 +699,10 @@ MARKER_FIELDS = """
     id
     title
     seconds
+    end_seconds
+    stream
+    preview
+    screenshot
     scene {
         id
     }
@@ -697,10 +715,15 @@ MARKER_FIELDS = """
 """
 
 # Marker query templates
+# Note: Stash doesn't have findSceneMarker (singular), but findSceneMarkers
+# accepts an 'ids' parameter for direct ID lookup
 FIND_MARKER_QUERY = f"""
 query FindMarker($id: ID!) {{
-    findSceneMarker(id: $id) {{
-        {MARKER_FIELDS}
+    findSceneMarkers(ids: [$id]) {{
+        count
+        scene_markers {{
+            {MARKER_FIELDS}
+        }}
     }}
 }}
 """
@@ -730,6 +753,18 @@ mutation UpdateMarker($input: SceneMarkerUpdateInput!) {{
         {MARKER_FIELDS}
     }}
 }}
+"""
+
+DESTROY_MARKER_MUTATION = """
+mutation DestroyMarker($id: ID!) {
+    sceneMarkerDestroy(id: $id)
+}
+"""
+
+DESTROY_MARKERS_MUTATION = """
+mutation DestroyMarkers($ids: [ID!]!) {
+    sceneMarkersDestroy(ids: $ids)
+}
 """
 
 # Scene marker tag query
