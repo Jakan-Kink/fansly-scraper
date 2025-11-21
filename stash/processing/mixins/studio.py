@@ -11,7 +11,6 @@ from metadata import Account
 from metadata.decorators import with_session
 from textio import print_error, print_info
 
-from ...client.utils import sanitize_model_data
 from ...logging import debug_print
 from ...logging import processing_logger as logger
 from ...types import Performer, Studio
@@ -66,8 +65,8 @@ class StudioProcessingMixin:
         if fansly_studio_result.count == 0:
             raise ValueError("Fansly Studio not found in Stash")
 
-        # Get Studio object from results (convert dict to Studio)
-        fansly_studio = Studio(**sanitize_model_data(fansly_studio_result.studios[0]))
+        # Get Studio object from results (already deserialized by client)
+        fansly_studio = fansly_studio_result.studios[0]
         debug_print(
             {
                 "method": "StashProcessing - process_creator_studio",
@@ -82,7 +81,7 @@ class StudioProcessingMixin:
                 id="new",  # Special value indicating new object
                 name=creator_studio_name,
                 parent_studio=fansly_studio,
-                url=f"https://fansly.com/{account.username}",
+                urls=[f"https://fansly.com/{account.username}"],  # urls is plural, list
             )
 
             # Add performer if provided
@@ -106,6 +105,8 @@ class StudioProcessingMixin:
                 )
                 # If we failed to create the studio, re-check if it already exists
                 # This can happen with parallel processing
+                # Clear cache to force a fresh query
+                self.context.client.find_studios.cache_clear()
                 studio_data = await self.context.client.find_studios(
                     q=creator_studio_name
                 )
@@ -116,5 +117,5 @@ class StudioProcessingMixin:
             else:
                 return studio
 
-        # Return first matching studio (convert dict to Studio)
-        return Studio(**sanitize_model_data(studio_data.studios[0]))
+        # Return first matching studio (already deserialized by client)
+        return studio_data.studios[0]

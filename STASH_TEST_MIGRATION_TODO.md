@@ -37,20 +37,20 @@ All tests organized by directory location. Each needs migration to one of two pa
 **Files**: 12 | **Functions**: ~119
 **Migration**: → `stash_client` + `stash_cleanup_tracker` (integration) OR respx (unit)
 
-| File                      | Violations | Status |
-| ------------------------- | ---------- | ------ |
-| `test_gallery_mixin.py`   | 30         | ✅     |
-| `test_tag_mixin_new.py`   | 30         | ✅     |
-| `test_scene_mixin.py`     | 21         | ✅     |
-| `test_marker_mixin.py`    | 18         | ✅     |
-| `test_image_mixin.py`     | 16         | ✅     |
-| `test_studio_mixin.py`    | 15         | ✅     |
-| `test_tag_mixin.py`       | 14         | ✅     |
-| `test_performer_mixin.py` | 7          | ✅     |
-| `test_subscription.py`    | 5          | ✅     |
-| `test_client_base.py`     | 1          | ✅     |
+| File                      | Violations | Status                    |
+| ------------------------- | ---------- | ------------------------- |
+| `test_gallery_mixin.py`   | 30         | ✅                        |
+| `test_tag_mixin_new.py`   | 30         | ✅                        |
+| `test_scene_mixin.py`     | 21         | ✅                        |
+| `test_marker_mixin.py`    | 18         | ✅                        |
+| `test_image_mixin.py`     | 16         | ✅                        |
+| `test_studio_mixin.py`    | 15         | ✅                        |
+| `test_tag_mixin.py`       | 14         | ✅                        |
+| `test_performer_mixin.py` | 7          | ✅                        |
+| `test_subscription.py`    | 5          | ✅                        |
+| `test_client_base.py`     | 1          | ✅                        |
 | `client_test_helpers.py`  | 4          | ✅ (deleted - was unused) |
-| `test_client.py`          | -          | ✅ (already using respx) |
+| `test_client.py`          | -          | ✅ (already using respx)  |
 
 ### Category B: Processing Unit Tests
 
@@ -58,30 +58,30 @@ All tests organized by directory location. Each needs migration to one of two pa
 **Files**: 25 | **Functions**: ~138
 **Migration**: → `respx_stash_processor` with HTTP mocking
 
-| File                                   | Violations | Status |
-| -------------------------------------- | ---------- | ------ |
-| `test_media_variants.py`               | -          | ✅     |
-| `test_background_processing.py`        | 14         | ✅     |
-| `test_stash_processing.py`             | 23         | ✅     |
-| `test_base.py`                         | 20         | ✅     |
-| `content/test_message_processing.py`   | 37         | ✅     |
-| `content/test_post_processing.py`      | 36         | ✅     |
-| `media_mixin/test_metadata_update.py`  | 30         | ✅     |
-| `gallery/test_gallery_creation.py`     | 26         | ✅     |
-| `content/test_content_collection.py`   | 15         | ✅     |
-| `test_gallery_methods.py`              | 13         | ✅     |
+| File                                   | Violations | Status                    |
+| -------------------------------------- | ---------- | ------------------------- |
+| `test_media_variants.py`               | -          | ✅                        |
+| `test_background_processing.py`        | 14         | ✅                        |
+| `test_stash_processing.py`             | 23         | ✅                        |
+| `test_base.py`                         | 20         | ✅                        |
+| `content/test_message_processing.py`   | 37         | ✅                        |
+| `content/test_post_processing.py`      | 36         | ✅                        |
+| `media_mixin/test_metadata_update.py`  | 30         | ✅                        |
+| `gallery/test_gallery_creation.py`     | 26         | ✅                        |
+| `content/test_content_collection.py`   | 15         | ✅                        |
+| `test_gallery_methods.py`              | 13         | ✅                        |
 | `media_mixin/async_mock_helper.py`     | 13         | ✅ (deleted - was unused) |
-| `gallery/test_gallery_lookup.py`       | 11         | ✅     |
-| `content/test_batch_processing.py`     | 9          | ❌     |
-| `gallery/test_media_detection.py`      | 8          | ❌     |
-| `media_mixin/test_file_handling.py`    | 7          | ❌     |
-| `test_media_mixin.py`                  | 6          | ❌     |
-| `test_account_mixin.py`                | 6          | ❌     |
-| `test_studio_mixin.py`                 | 5          | ❌     |
-| `test_creator_processing.py`           | 5          | ❌     |
-| `test_tag_mixin.py`                    | 4          | ❌     |
-| `gallery/test_process_item_gallery.py` | 3          | ❌     |
-| `test_gallery_mixin.py`                | 1          | ❌     |
+| `gallery/test_gallery_lookup.py`       | 11         | ✅                        |
+| `content/test_batch_processing.py`     | 9          | ❌                        |
+| `gallery/test_media_detection.py`      | 8          | ❌                        |
+| `media_mixin/test_file_handling.py`    | 7          | ❌                        |
+| `test_media_mixin.py`                  | 6          | ❌                        |
+| `test_account_mixin.py`                | 6          | ❌                        |
+| `test_studio_mixin.py`                 | 5          | ❌                        |
+| `test_creator_processing.py`           | 5          | ❌                        |
+| `test_tag_mixin.py`                    | 4          | ❌                        |
+| `gallery/test_process_item_gallery.py` | 3          | ❌                        |
+| `test_gallery_mixin.py`                | 1          | ❌                        |
 
 ### Category C: Processing Integration Tests
 
@@ -392,6 +392,7 @@ This is exactly why exceptions require user review - the human sees solutions th
 ### Completed: 24 files
 
 **Category A (StashClient) - COMPLETE ✅**
+
 - `tests/stash/client/test_gallery_mixin.py`
 - `tests/stash/client/test_tag_mixin_new.py`
 - `tests/stash/client/test_scene_mixin.py`
@@ -406,6 +407,7 @@ This is exactly why exceptions require user review - the human sees solutions th
 - `tests/stash/client/test_client.py` (already using respx)
 
 **Categories B/C (Processing)**
+
 - `tests/stash/processing/unit/test_media_variants.py`
 - `tests/stash/processing/unit/test_background_processing.py`
 - `tests/stash/processing/unit/test_stash_processing.py`

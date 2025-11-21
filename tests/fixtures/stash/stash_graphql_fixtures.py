@@ -238,7 +238,7 @@ def create_studio_dict(
     Args:
         id: Studio ID
         name: Studio name
-        url: Studio URL
+        url: Studio URL (will be converted to urls list)
         parent_studio: Parent studio dict (recursive)
         aliases: List of alias strings
         tags: List of tag dicts
@@ -251,7 +251,7 @@ def create_studio_dict(
     return {
         "id": id,
         "name": name,
-        "url": url,
+        "urls": [url] if url else [],  # Studio expects 'urls' (plural, list)
         "parent_studio": parent_studio,
         "aliases": aliases or [],
         "tags": tags or [],
