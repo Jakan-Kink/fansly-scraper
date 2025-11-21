@@ -216,8 +216,8 @@ class SubscriptionClientMixin:
         """
         result = await self.execute(
             """
-            query FindJob($id: ID!) {
-                findJob(id: $id) {
+            query FindJob($input: FindJobInput!) {
+                findJob(input: $input) {
                     id
                     status
                     progress
@@ -225,7 +225,7 @@ class SubscriptionClientMixin:
                 }
             }
             """,
-            {"id": job_id},
+            {"input": {"id": job_id}},
         )
 
         if job := result.get("findJob"):

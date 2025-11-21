@@ -1,403 +1,653 @@
-"""Tests for gallery lookup functionality."""
+"""Tests for gallery lookup functionality using respx at HTTP boundary.
 
+These tests mock at the HTTP boundary using respx, allowing real code execution
+through the entire processing pipeline. We verify that data flows correctly from
+database queries to GraphQL API calls.
+"""
+
+import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
+import respx
 from sqlalchemy import select
 
 from metadata import Post
-from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
-from tests.fixtures.stash.stash_type_factories import GalleryFactory
-
-
-@pytest.fixture
-def test_studio():
-    """Fixture for test studio instance."""
-    studio = MagicMock()
-    studio.id = "test_studio_123"
-    return studio
+from stash.processing import StashProcessing
+from tests.fixtures import (
+    AccountFactory,
+    PostFactory,
+    StudioFactory,
+)
 
 
 class TestGalleryLookup:
     """Test gallery lookup methods in GalleryProcessingMixin."""
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_stash_id(
-        self, factory_async_session, session, gallery_mixin
+    async def test_get_gallery_by_stash_id_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
     ):
-        """Test _get_gallery_by_stash_id method."""
-        # Create real Post object
-        account = AccountFactory(id=12345, username="test_user")
-        post = PostFactory(id=67890, accountId=12345)
+        """Test _get_gallery_by_stash_id when gallery is found."""
+        # Create real Post object with stash_id set
+        AccountFactory(id=12345, username="test_user")
+        PostFactory(id=67890, accountId=12345, stash_id=123)
         factory_async_session.commit()
+        await session.commit()
 
         # Query fresh from async session
         result = await session.execute(select(Post).where(Post.id == 67890))
         post_obj = result.unique().scalar_one()
 
-        # Test with valid stash_id (numeric)
-        post_obj.stash_id = 123
+        # Set up respx - findGallery returns the gallery
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGallery": {
+                                "id": "123",
+                                "title": "Test Gallery",
+                                "code": "67890",
+                            }
+                        }
+                    },
+                )
+            ]
+        )
 
-        mock_gallery = GalleryFactory(id="123", title="Test Gallery")
-        await gallery_mixin.context.get_client()
-        gallery_mixin.context.client.find_gallery = AsyncMock(return_value=mock_gallery)
+        gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
 
-        gallery = await gallery_mixin._get_gallery_by_stash_id(post_obj)
+        # Verify gallery was found
+        assert gallery is not None
+        assert gallery.id == "123"
+        assert gallery.title == "Test Gallery"
 
-        # Verify
-        assert gallery == mock_gallery
-        gallery_mixin.context.client.find_gallery.assert_called_once_with("123")
+        # Verify exactly 1 call
+        assert len(graphql_route.calls) == 1
 
-        # Test with no stash_id
-        gallery_mixin.context.client.find_gallery.reset_mock()
-        post_obj.stash_id = None
-
-        gallery = await gallery_mixin._get_gallery_by_stash_id(post_obj)
-
-        # Verify
-        assert gallery is None
-        gallery_mixin.context.client.find_gallery.assert_not_called()
-
-        # Test with gallery not found
-        gallery_mixin.context.client.find_gallery.reset_mock()
-        post_obj.stash_id = 123
-        gallery_mixin.context.client.find_gallery.return_value = None
-
-        gallery = await gallery_mixin._get_gallery_by_stash_id(post_obj)
-
-        # Verify
-        assert gallery is None
-        gallery_mixin.context.client.find_gallery.assert_called_once()
+        # Verify request contains findGallery with correct id
+        req = json.loads(graphql_route.calls[0].request.content)
+        assert "findGallery" in req["query"]
+        assert req["variables"]["id"] == "123"
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_title(
-        self, factory_async_session, session, gallery_mixin, gallery_mock_studio
+    async def test_get_gallery_by_stash_id_no_stash_id(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
     ):
-        """Test _get_gallery_by_title method."""
+        """Test _get_gallery_by_stash_id when post has no stash_id."""
+        # Create real Post object without stash_id
+        AccountFactory(id=12346, username="test_user_2")
+        PostFactory(id=67891, accountId=12346)  # No stash_id
+        factory_async_session.commit()
+        await session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Post).where(Post.id == 67891))
+        post_obj = result.unique().scalar_one()
+
+        # Set up respx - expect NO calls for post without stash_id
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[]  # Empty list catches any unexpected call
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+
+        # Verify no gallery returned
+        assert gallery is None
+
+        # Verify no GraphQL calls made
+        assert len(graphql_route.calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_stash_id_not_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_stash_id when gallery not found in Stash."""
+        # Create real Post object with stash_id
+        AccountFactory(id=12347, username="test_user_3")
+        PostFactory(id=67892, accountId=12347, stash_id=999)
+        factory_async_session.commit()
+        await session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Post).where(Post.id == 67892))
+        post_obj = result.unique().scalar_one()
+
+        # Set up respx - findGallery returns null
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"data": {"findGallery": None}},
+                )
+            ]
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_stash_id(post_obj)
+
+        # Verify no gallery returned
+        assert gallery is None
+
+        # Verify call was made
+        assert len(graphql_route.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_title_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_title when matching gallery found."""
         # Create real Post object with specific date
-        account = AccountFactory(id=12345, username="test_user")
-        post = PostFactory(
+        AccountFactory(id=12345, username="test_user")
+        PostFactory(
             id=67890,
             accountId=12345,
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
         factory_async_session.commit()
+        await session.commit()
 
         # Query fresh from async session
         result = await session.execute(select(Post).where(Post.id == 67890))
         post_obj = result.unique().scalar_one()
 
-        # Setup for matching gallery (numeric ID)
-        mock_results = MagicMock()
-        mock_results.count = 1
-        mock_results.galleries = [
-            {
-                "id": "123",
-                "title": "Test Title",
-                "date": "2024-04-01",
-                "studio": {"id": "123"},  # Must match gallery_mock_studio.id
-            }
-        ]
-        await gallery_mixin.context.get_client()
-        gallery_mixin.context.client.find_galleries = AsyncMock(
-            return_value=mock_results
+        # Create real studio using factory
+        studio = StudioFactory.build(id="123", name="Test Studio")
+
+        # Set up respx - findGalleries returns matching gallery
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "200",
+                                        "title": "Test Title",
+                                        "date": "2024-04-01",
+                                        "studio": {"id": "123"},
+                                    }
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                )
+            ]
         )
 
-        # Test with matching gallery (with studio)
-        gallery = await gallery_mixin._get_gallery_by_title(
-            post_obj, "Test Title", gallery_mock_studio
+        gallery = await respx_stash_processor._get_gallery_by_title(
+            post_obj, "Test Title", studio
         )
 
-        # Verify
+        # Verify gallery was found
         assert gallery is not None
-        assert gallery.id == "123"
+        assert gallery.id == "200"
         assert gallery.title == "Test Title"
-        assert post_obj.stash_id == 123  # Should update item's stash_id as int
-        gallery_mixin.context.client.find_galleries.assert_called_once()
+        assert post_obj.stash_id == 200  # Should update item's stash_id as int
 
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
+        # Verify exactly 1 call
+        assert len(graphql_route.calls) == 1
 
-        # Test with no matching galleries
-        mock_results.count = 0
-        mock_results.galleries = []
+        # Verify request contains findGalleries with title filter
+        req = json.loads(graphql_route.calls[0].request.content)
+        assert "findGalleries" in req["query"]
+        assert req["variables"]["gallery_filter"]["title"]["value"] == "Test Title"
+        assert req["variables"]["gallery_filter"]["title"]["modifier"] == "EQUALS"
 
-        gallery = await gallery_mixin._get_gallery_by_title(
-            post_obj, "Test Title", gallery_mock_studio
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_title_not_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_title when no matching gallery found."""
+        # Create real Post object
+        AccountFactory(id=12346, username="test_user_2")
+        PostFactory(
+            id=67891,
+            accountId=12346,
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        factory_async_session.commit()
+        await session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Post).where(Post.id == 67891))
+        post_obj = result.unique().scalar_one()
+
+        studio = StudioFactory.build(id="124", name="Test Studio")
+
+        # Set up respx - findGalleries returns empty
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
+                )
+            ]
         )
 
-        # Verify
-        assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
-
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
-
-        # Test with galleries but no match (different title)
-        mock_results.count = 1
-        mock_results.galleries = [
-            {
-                "id": "124",
-                "title": "Different Title",
-                "date": "2024-04-01",
-                "studio": {"id": "studio_123"},
-            }
-        ]
-
-        gallery = await gallery_mixin._get_gallery_by_title(
-            post_obj, "Test Title", gallery_mock_studio
+        gallery = await respx_stash_processor._get_gallery_by_title(
+            post_obj, "Test Title", studio
         )
 
-        # Verify
+        # Verify no gallery returned
         assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
 
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
+        # Verify call was made
+        assert len(graphql_route.calls) == 1
 
-        # Test with galleries but no match (different date)
-        mock_results.count = 1
-        mock_results.galleries = [
-            {
-                "id": "125",
-                "title": "Test Title",
-                "date": "2024-04-02",
-                "studio": {"id": "studio_123"},
-            }
-        ]
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_title_wrong_date(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_title rejects gallery with wrong date."""
+        # Create real Post object
+        AccountFactory(id=12347, username="test_user_3")
+        PostFactory(
+            id=67892,
+            accountId=12347,
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        factory_async_session.commit()
+        await session.commit()
 
-        gallery = await gallery_mixin._get_gallery_by_title(
-            post_obj, "Test Title", gallery_mock_studio
+        result = await session.execute(select(Post).where(Post.id == 67892))
+        post_obj = result.unique().scalar_one()
+
+        studio = StudioFactory.build(id="125", name="Test Studio")
+
+        # Set up respx - returns gallery with wrong date
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "201",
+                                        "title": "Test Title",
+                                        "date": "2024-04-02",  # Wrong date
+                                        "studio": {"id": "125"},
+                                    }
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                )
+            ]
         )
 
-        # Verify
-        assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
-
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
-
-        # Test with galleries but no match (different studio)
-        mock_results.count = 1
-        mock_results.galleries = [
-            {
-                "id": "126",
-                "title": "Test Title",
-                "date": "2024-04-01",
-                "studio": {"id": "different_studio"},
-            }
-        ]
-
-        gallery = await gallery_mixin._get_gallery_by_title(
-            post_obj, "Test Title", gallery_mock_studio
+        gallery = await respx_stash_processor._get_gallery_by_title(
+            post_obj, "Test Title", studio
         )
 
-        # Verify
+        # Verify no match (wrong date)
         assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
 
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_title_wrong_studio(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_title rejects gallery with wrong studio."""
+        # Create real Post object
+        AccountFactory(id=12348, username="test_user_4")
+        PostFactory(
+            id=67893,
+            accountId=12348,
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        factory_async_session.commit()
+        await session.commit()
 
-        # Test with no studio parameter
-        mock_results.count = 1
-        mock_results.galleries = [
-            {
-                "id": "127",
-                "title": "Test Title",
-                "date": "2024-04-01",
-                "studio": {"id": "studio_123"},
-            }
-        ]
+        result = await session.execute(select(Post).where(Post.id == 67893))
+        post_obj = result.unique().scalar_one()
 
-        gallery = await gallery_mixin._get_gallery_by_title(
+        studio = StudioFactory.build(id="126", name="Test Studio")
+
+        # Set up respx - returns gallery with wrong studio
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "202",
+                                        "title": "Test Title",
+                                        "date": "2024-04-01",
+                                        "studio": {"id": "different_studio"},  # Wrong
+                                    }
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                )
+            ]
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_title(
+            post_obj, "Test Title", studio
+        )
+
+        # Verify no match (wrong studio)
+        assert gallery is None
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_title_no_studio(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_title with no studio parameter matches any studio."""
+        # Create real Post object
+        AccountFactory(id=12349, username="test_user_5")
+        PostFactory(
+            id=67894,
+            accountId=12349,
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        factory_async_session.commit()
+        await session.commit()
+
+        result = await session.execute(select(Post).where(Post.id == 67894))
+        post_obj = result.unique().scalar_one()
+
+        # Set up respx - returns gallery with any studio
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "203",
+                                        "title": "Test Title",
+                                        "date": "2024-04-01",
+                                        "studio": {"id": "any_studio"},
+                                    }
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                )
+            ]
+        )
+
+        # Call without studio parameter
+        gallery = await respx_stash_processor._get_gallery_by_title(
             post_obj, "Test Title", None
         )
 
-        # Verify
+        # Verify gallery matches (no studio check)
         assert gallery is not None
-        assert gallery.id == "127"
-        gallery_mixin.context.client.find_galleries.assert_called_once()
+        assert gallery.id == "203"
 
     @pytest.mark.asyncio
-    async def test_get_gallery_by_code(
-        self, factory_async_session, session, gallery_mixin
+    async def test_get_gallery_by_code_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
     ):
-        """Test _get_gallery_by_code method."""
+        """Test _get_gallery_by_code when matching gallery found."""
         # Create real Post object
-        account = AccountFactory(id=12345, username="test_user")
-        post = PostFactory(id=67890, accountId=12345)
+        AccountFactory(id=12345, username="test_user")
+        PostFactory(id=67890, accountId=12345)
         factory_async_session.commit()
+        await session.commit()
 
-        # Query fresh from async session
         result = await session.execute(select(Post).where(Post.id == 67890))
         post_obj = result.unique().scalar_one()
 
-        # Setup for matching gallery (numeric ID)
-        mock_results = MagicMock()
-        mock_results.count = 1
-        mock_results.galleries = [{"id": "200", "code": "67890"}]
-        await gallery_mixin.context.get_client()
-        gallery_mixin.context.client.find_galleries = AsyncMock(
-            return_value=mock_results
+        # Set up respx - findGalleries returns matching gallery
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [{"id": "300", "code": "67890"}],
+                                "count": 1,
+                            }
+                        }
+                    },
+                )
+            ]
         )
 
-        # Test with matching gallery
-        gallery = await gallery_mixin._get_gallery_by_code(post_obj)
+        gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
 
-        # Verify
-        assert gallery is not None
-        assert gallery.id == "200"
-        assert gallery.code == "67890"
-        assert post_obj.stash_id == 200  # Should update item's stash_id as int
-        gallery_mixin.context.client.find_galleries.assert_called_once()
-
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
-
-        # Test with no matching galleries
-        mock_results.count = 0
-        mock_results.galleries = []
-
-        gallery = await gallery_mixin._get_gallery_by_code(post_obj)
-
-        # Verify
-        assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
-
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
-
-        # Test with galleries but no match (different code)
-        mock_results.count = 1
-        mock_results.galleries = [{"id": "201", "code": "54321"}]
-
-        gallery = await gallery_mixin._get_gallery_by_code(post_obj)
-
-        # Verify
-        assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_get_gallery_by_url(
-        self, factory_async_session, session, gallery_mixin
-    ):
-        """Test _get_gallery_by_url method."""
-        # Create real Post object
-        account = AccountFactory(id=12345, username="test_user")
-        post = PostFactory(id=67890, accountId=12345)
-        factory_async_session.commit()
-
-        # Query fresh from async session
-        result = await session.execute(select(Post).where(Post.id == 67890))
-        post_obj = result.unique().scalar_one()
-
-        # Setup for matching gallery (numeric ID, needs execute mock for save)
-        mock_results = MagicMock()
-        mock_results.count = 1
-        mock_results.galleries = [
-            {"id": "300", "urls": ["https://test.com/post/67890"]}
-        ]
-        await gallery_mixin.context.get_client()
-        gallery_mixin.context.client.find_galleries = AsyncMock(
-            return_value=mock_results
-        )
-
-        # Mock execute for gallery.save (which updates code)
-        gallery_mixin.context.client.execute = AsyncMock(
-            return_value={
-                "galleryUpdate": {
-                    "id": "300",
-                    "code": "67890",
-                    "urls": ["https://test.com/post/67890"],
-                }
-            }
-        )
-
-        # Test URL
-        test_url = "https://test.com/post/67890"
-
-        # Test with matching gallery
-        gallery = await gallery_mixin._get_gallery_by_url(post_obj, test_url)
-
-        # Verify
+        # Verify gallery was found
         assert gallery is not None
         assert gallery.id == "300"
+        assert gallery.code == "67890"
+        assert post_obj.stash_id == 300  # Should update item's stash_id
+
+        # Verify exactly 1 call
+        assert len(graphql_route.calls) == 1
+
+        # Verify request contains findGalleries with code filter
+        req = json.loads(graphql_route.calls[0].request.content)
+        assert "findGalleries" in req["query"]
+        assert req["variables"]["gallery_filter"]["code"]["value"] == "67890"
+        assert req["variables"]["gallery_filter"]["code"]["modifier"] == "EQUALS"
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_code_not_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_code when no matching gallery found."""
+        # Create real Post object
+        AccountFactory(id=12346, username="test_user_2")
+        PostFactory(id=67891, accountId=12346)
+        factory_async_session.commit()
+        await session.commit()
+
+        result = await session.execute(select(Post).where(Post.id == 67891))
+        post_obj = result.unique().scalar_one()
+
+        # Set up respx - findGalleries returns empty
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
+                )
+            ]
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+
+        # Verify no gallery returned
+        assert gallery is None
+        assert len(graphql_route.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_code_wrong_code(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_code rejects gallery with wrong code."""
+        # Create real Post object
+        AccountFactory(id=12347, username="test_user_3")
+        PostFactory(id=67892, accountId=12347)
+        factory_async_session.commit()
+        await session.commit()
+
+        result = await session.execute(select(Post).where(Post.id == 67892))
+        post_obj = result.unique().scalar_one()
+
+        # Set up respx - returns gallery with different code
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [{"id": "301", "code": "54321"}],  # Wrong
+                                "count": 1,
+                            }
+                        }
+                    },
+                )
+            ]
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_code(post_obj)
+
+        # Verify no match (wrong code)
+        assert gallery is None
+
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_url_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_url when matching gallery found."""
+        # Create real Post object
+        AccountFactory(id=12345, username="test_user")
+        PostFactory(id=67890, accountId=12345)
+        factory_async_session.commit()
+        await session.commit()
+
+        result = await session.execute(select(Post).where(Post.id == 67890))
+        post_obj = result.unique().scalar_one()
+
+        test_url = "https://test.com/post/67890"
+
+        # Set up respx - findGalleries returns matching gallery, then galleryUpdate for save
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # Call 0: findGalleries by URL
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {"id": "400", "urls": [test_url], "code": ""}
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                ),
+                # Call 1: galleryUpdate (from gallery.save())
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "galleryUpdate": {
+                                "id": "400",
+                                "code": "67890",
+                                "urls": [test_url],
+                            }
+                        }
+                    },
+                ),
+            ]
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_url(post_obj, test_url)
+
+        # Verify gallery was found
+        assert gallery is not None
+        assert gallery.id == "400"
         assert test_url in gallery.urls
-        assert post_obj.stash_id == 300  # Should update item's stash_id as int
-        gallery_mixin.context.client.find_galleries.assert_called_once()
-        gallery_mixin.context.client.execute.assert_called_once()  # gallery.save called
+        assert post_obj.stash_id == 400  # Should update item's stash_id
 
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
-        gallery_mixin.context.client.execute.reset_mock()
+        # Verify 2 calls (find + save)
+        assert len(graphql_route.calls) == 2
 
-        # Test with no matching galleries
-        mock_results.count = 0
-        mock_results.galleries = []
+        # Verify first request is findGalleries with url filter
+        req0 = json.loads(graphql_route.calls[0].request.content)
+        assert "findGalleries" in req0["query"]
+        assert req0["variables"]["gallery_filter"]["url"]["value"] == test_url
+        assert req0["variables"]["gallery_filter"]["url"]["modifier"] == "EQUALS"
 
-        gallery = await gallery_mixin._get_gallery_by_url(post_obj, test_url)
+        # Verify second request is galleryUpdate
+        req1 = json.loads(graphql_route.calls[1].request.content)
+        assert "galleryUpdate" in req1["query"]
 
-        # Verify
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_url_not_found(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_url when no matching gallery found."""
+        # Create real Post object
+        AccountFactory(id=12346, username="test_user_2")
+        PostFactory(id=67891, accountId=12346)
+        factory_async_session.commit()
+        await session.commit()
+
+        result = await session.execute(select(Post).where(Post.id == 67891))
+        post_obj = result.unique().scalar_one()
+
+        test_url = "https://test.com/post/67891"
+
+        # Set up respx - findGalleries returns empty
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"data": {"findGalleries": {"galleries": [], "count": 0}}},
+                )
+            ]
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_url(post_obj, test_url)
+
+        # Verify no gallery returned
         assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
+        assert len(graphql_route.calls) == 1
 
-        # Reset
-        gallery_mixin.context.client.find_galleries.reset_mock()
+    @pytest.mark.asyncio
+    async def test_get_gallery_by_url_wrong_url(
+        self, factory_async_session, session, respx_stash_processor: StashProcessing
+    ):
+        """Test _get_gallery_by_url rejects gallery with wrong URL."""
+        # Create real Post object
+        AccountFactory(id=12347, username="test_user_3")
+        PostFactory(id=67892, accountId=12347)
+        factory_async_session.commit()
+        await session.commit()
 
-        # Test with galleries but no match (different URL)
-        mock_results.count = 1
-        mock_results.galleries = [
-            {"id": "301", "urls": ["https://test.com/post/54321"]}
-        ]
+        result = await session.execute(select(Post).where(Post.id == 67892))
+        post_obj = result.unique().scalar_one()
 
-        gallery = await gallery_mixin._get_gallery_by_url(post_obj, test_url)
+        test_url = "https://test.com/post/67892"
 
-        # Verify
+        # Set up respx - returns gallery with different URL
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "401",
+                                        "urls": ["https://test.com/post/54321"],
+                                    }
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                )
+            ]
+        )
+
+        gallery = await respx_stash_processor._get_gallery_by_url(post_obj, test_url)
+
+        # Verify no match (wrong URL)
         assert gallery is None
-        gallery_mixin.context.client.find_galleries.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_get_gallery_by_title_matching_studio(
-    factory_async_session, session, gallery_mixin, gallery_mock_studio
-):
-    """Test _get_gallery_by_title with matching studio."""
-    # Create real Post object with specific date
-    account = AccountFactory(id=12345, username="test_user")
-    post = PostFactory(
-        id=67890,
-        accountId=12345,
-        createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-    )
-    factory_async_session.commit()
-
-    # Query fresh from async session
-    result = await session.execute(select(Post).where(Post.id == 67890))
-    post_obj = result.unique().scalar_one()
-
-    title = "Test Gallery"
-
-    # Mock client find_galleries response (must be dict, not MagicMock)
-    mock_galleries_result = MagicMock()
-    mock_galleries_result.count = 1
-    mock_galleries_result.galleries = [
-        {
-            "id": "400",
-            "title": title,
-            "date": "2024-04-01",
-            "studio": {"id": "123"},  # Must match gallery_mock_studio.id
-        }
-    ]
-    await gallery_mixin.context.get_client()
-
-    gallery_mixin.context.client.find_galleries = AsyncMock(
-        return_value=mock_galleries_result
-    )
-
-    result = await gallery_mixin._get_gallery_by_title(
-        post_obj, title, gallery_mock_studio
-    )
-    assert result is not None
-    assert result.id == "400"

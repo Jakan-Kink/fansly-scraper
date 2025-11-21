@@ -43,14 +43,14 @@ All tests organized by directory location. Each needs migration to one of two pa
 | `test_tag_mixin_new.py`   | 30         | ✅     |
 | `test_scene_mixin.py`     | 21         | ✅     |
 | `test_marker_mixin.py`    | 18         | ✅     |
-| `test_image_mixin.py`     | 16         | ❌     |
+| `test_image_mixin.py`     | 16         | ✅     |
 | `test_studio_mixin.py`    | 15         | ✅     |
 | `test_tag_mixin.py`       | 14         | ✅     |
-| `test_performer_mixin.py` | 7          | ❌     |
-| `test_subscription.py`    | 5          | ❌     |
-| `test_client_base.py`     | 1          | ❌     |
-| `client_test_helpers.py`  | 4          | ❌     |
-| `test_client.py`          | -          | ❌     |
+| `test_performer_mixin.py` | 7          | ✅     |
+| `test_subscription.py`    | 5          | ✅     |
+| `test_client_base.py`     | 1          | ✅     |
+| `client_test_helpers.py`  | 4          | ✅ (deleted - was unused) |
+| `test_client.py`          | -          | ✅ (already using respx) |
 
 ### Category B: Processing Unit Tests
 
@@ -64,14 +64,14 @@ All tests organized by directory location. Each needs migration to one of two pa
 | `test_background_processing.py`        | 14         | ✅     |
 | `test_stash_processing.py`             | 23         | ✅     |
 | `test_base.py`                         | 20         | ✅     |
-| `content/test_message_processing.py`   | 37         | ❌     |
-| `content/test_post_processing.py`      | 36         | ❌     |
+| `content/test_message_processing.py`   | 37         | ✅     |
+| `content/test_post_processing.py`      | 36         | ✅     |
 | `media_mixin/test_metadata_update.py`  | 30         | ✅     |
-| `gallery/test_gallery_creation.py`     | 26         | ❌     |
-| `content/test_content_collection.py`   | 15         | ❌     |
-| `test_gallery_methods.py`              | 13         | ❌     |
-| `media_mixin/async_mock_helper.py`     | 13         | ❌     |
-| `gallery/test_gallery_lookup.py`       | 11         | ❌     |
+| `gallery/test_gallery_creation.py`     | 26         | ✅     |
+| `content/test_content_collection.py`   | 15         | ✅     |
+| `test_gallery_methods.py`              | 13         | ✅     |
+| `media_mixin/async_mock_helper.py`     | 13         | ✅ (deleted - was unused) |
+| `gallery/test_gallery_lookup.py`       | 11         | ✅     |
 | `content/test_batch_processing.py`     | 9          | ❌     |
 | `gallery/test_media_detection.py`      | 8          | ❌     |
 | `media_mixin/test_file_handling.py`    | 7          | ❌     |
@@ -363,35 +363,73 @@ When mocking internal methods IS acceptable:
 - Consider if respx at HTTP boundary could work instead
 - Document WHY mocking is needed
 
+**Example - Why User Confirmation Matters**:
+
+When migrating `test_client_base.py`, the respx approach didn't work for testing initialization errors because gql doesn't make HTTP calls during init with `fetch_schema_from_transport=False`. Without user guidance, the automated approach would have been to mock internal methods like `StashClientBase.initialize` - creating another "faux" test.
+
+Instead, user prompting led to the correct solution: patch the **external** `gql.Client.__init__` to enable schema fetching, then respx catches the connection error. This tests real code paths while only changing variables used in external library initialization.
+
+```python
+# ❌ WRONG: Automated guess would mock internal method
+with patch.object(StashClientBase, "initialize", side_effect=Exception("Connection refused")):
+    ...
+
+# ✅ CORRECT: User-guided solution patches external library
+def patched_init(self, *args, **kwargs):
+    kwargs["fetch_schema_from_transport"] = True  # Enable HTTP during init
+    return original_init(self, *args, **kwargs)
+
+with patch.object(Client, "__init__", patched_init):
+    respx.post(...).mock(side_effect=httpx.ConnectError("Connection refused"))
+```
+
+This is exactly why exceptions require user review - the human sees solutions that preserve real code execution.
+
 ---
 
 ## Progress Summary
 
-### Completed: 13 files
+### Completed: 24 files
 
+**Category A (StashClient) - COMPLETE ✅**
+- `tests/stash/client/test_gallery_mixin.py`
+- `tests/stash/client/test_tag_mixin_new.py`
+- `tests/stash/client/test_scene_mixin.py`
+- `tests/stash/client/test_marker_mixin.py`
+- `tests/stash/client/test_image_mixin.py`
+- `tests/stash/client/test_studio_mixin.py`
+- `tests/stash/client/test_tag_mixin.py`
+- `tests/stash/client/test_performer_mixin.py`
+- `tests/stash/client/test_subscription.py`
+- `tests/stash/client/test_client_base.py`
+- `tests/stash/client/client_test_helpers.py` (deleted - was unused)
+- `tests/stash/client/test_client.py` (already using respx)
+
+**Categories B/C (Processing)**
 - `tests/stash/processing/unit/test_media_variants.py`
 - `tests/stash/processing/unit/test_background_processing.py`
 - `tests/stash/processing/unit/test_stash_processing.py`
 - `tests/stash/processing/unit/test_base.py`
+- `tests/stash/processing/unit/content/test_message_processing.py`
+- `tests/stash/processing/unit/content/test_post_processing.py`
+- `tests/stash/processing/unit/content/test_content_collection.py`
+- `tests/stash/processing/unit/gallery/test_gallery_creation.py`
+- `tests/stash/processing/unit/gallery/test_gallery_lookup.py`
+- `tests/stash/processing/unit/test_gallery_methods.py`
 - `tests/stash/processing/unit/media_mixin/test_metadata_update.py`
+- `tests/stash/processing/unit/media_mixin/async_mock_helper.py` (deleted - was unused)
 - `tests/stash/processing/integration/test_base_processing.py`
 - `tests/stash/processing/integration/test_metadata_update_integration.py`
-- `tests/stash/client/test_tag_mixin_new.py`
-- `tests/stash/client/test_tag_mixin.py`
-- `tests/stash/client/test_scene_mixin.py`
-- `tests/stash/client/test_gallery_mixin.py`
-- `tests/stash/client/test_marker_mixin.py`
-- `tests/stash/client/test_studio_mixin.py`
 
-### Remaining: ~34 files
+### Remaining: ~21 files
 
 | Category        | Files  | Est. Effort     |
 | --------------- | ------ | --------------- |
-| A (Client)      | 6      | 13-22 hours     |
-| B (Unit)        | 20     | 30-40 hours     |
+| A (Client)      | 0      | ✅ COMPLETE     |
+| B (Unit)        | 13     | 18-24 hours     |
 | C (Integration) | 7      | 10-20 hours     |
 | D (Other)       | 1      | 1-2 hours       |
-| **Total**       | **34** | **54-85 hours** |
+| **Total**       | **21** | **29-46 hours** |
 
 ---
 
@@ -406,4 +444,4 @@ When mocking internal methods IS acceptable:
 
 **Enforcement Hook**: `tests/conftest.py:50-100`
 
-**Last Updated**: 2025-11-18
+**Last Updated**: 2025-11-19

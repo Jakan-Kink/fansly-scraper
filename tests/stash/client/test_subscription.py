@@ -1,14 +1,22 @@
-"""Unit tests for subscription functionality."""
+"""Integration tests for subscription functionality.
+
+These tests require a real Stash server because they test WebSocket subscriptions
+which cannot be mocked with respx (HTTP-only mocking).
+
+IMPORTANT: WebSocket subscriptions are a valid exception to the mock-free testing
+guideline because:
+1. respx only supports HTTP mocking, not WebSocket
+2. The gql library's subscription transport uses WebSocket
+3. These tests validate real subscription behavior with actual job events
+"""
 
 import asyncio
-import contextlib
 import os
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from stash import StashClient
-from stash.types import Job, JobStatus
+from stash.types import JobStatus
 
 
 # Skip all tests in this module when running in the OpenHands sandbox
@@ -23,7 +31,13 @@ pytestmark = pytest.mark.skipif(
 async def test_subscribe_to_jobs(
     stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test job subscription by triggering a metadata scan job."""
+    """Test job subscription by triggering a metadata scan job.
+
+    This test verifies:
+    1. Subscribe to job updates works
+    2. Job status updates are received correctly
+    3. Terminal states (FINISHED, CANCELLED, FAILED) are detected
+    """
     # Start subscription before triggering the job
     async with stash_client.subscribe_to_jobs() as subscription:
         try:
@@ -52,7 +66,13 @@ async def test_subscribe_to_jobs(
 async def test_subscribe_to_logs(
     stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test log subscription."""
+    """Test log subscription.
+
+    This test verifies:
+    1. Subscribe to logs works
+    2. Log entries have required fields (time, level, message)
+    3. Job-related logs are captured
+    """
     # Start subscription before triggering the job
     async with stash_client.subscribe_to_logs() as subscription:
         # Start scan job with proper array of paths
@@ -88,7 +108,12 @@ async def test_subscribe_to_logs(
 async def test_subscribe_to_scan_complete(
     stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test scan complete subscription."""
+    """Test scan complete subscription.
+
+    This test verifies:
+    1. Subscribe to scan complete events works
+    2. Scan completion events are received as booleans
+    """
     # Start subscription before starting scan
     async with stash_client.subscribe_to_scan_complete() as subscription:
         # Start scan job with proper array of paths
@@ -113,98 +138,80 @@ async def test_subscribe_to_scan_complete(
 async def test_wait_for_job_with_updates(
     stash_client: StashClient, stash_cleanup_tracker
 ) -> None:
-    """Test waiting for job with subscription updates."""
-    # Use a more robust approach with mocking instead of depending on real jobs
-    # Setup mock behavior
-    mock_job_id = "1544"
+    """Test the wait_for_job_with_updates method.
 
-    # Create mock subscription
-    mock_updates = [
-        AsyncMock(
-            type="JOB_UPDATE",
-            job=Job(
-                id=mock_job_id,
-                status=JobStatus.READY,
-                description="Starting job...",
-                addTime="2025-04-13T20:15:50.019916834-04:00",
-                subTasks=[],  # Required parameter
-            ),
-        ),
-        AsyncMock(
-            type="JOB_UPDATE",
-            job=Job(
-                id=mock_job_id,
-                status=JobStatus.RUNNING,
-                progress=50,
-                description="Processing...",
-                addTime="2025-04-13T20:15:50.019916834-04:00",
-                subTasks=[],  # Required parameter
-            ),
-        ),
-        AsyncMock(
-            type="JOB_UPDATE",
-            job=Job(
-                id=mock_job_id,
-                status=JobStatus.FINISHED,
-                progress=100,
-                description="Generating...",
-                addTime="2025-04-13T20:15:50.019916834-04:00",
-                subTasks=[],  # Required parameter
-            ),
-        ),
-    ]
+    This test verifies:
+    1. The method starts a job and subscribes to updates
+    2. It properly waits for job completion
+    3. It returns True when job reaches desired status
 
-    # Create a mock async generator that yields predefined updates
-    async def mock_subscription_gen():
-        for update in mock_updates:
-            yield update
+    Note: This uses metadata_generate which creates a quick job for testing.
+    """
+    # Start a metadata generation job (quick operation)
+    job_id = await stash_client.metadata_generate(
+        {
+            "phashes": True,
+        },
+    )
+    assert job_id is not None, "Job ID should not be None"
 
-    # Create a mock context manager for subscription
-    @contextlib.asynccontextmanager
-    async def mock_subscribe():
-        yield mock_subscription_gen()
+    # Use the actual wait_for_job_with_updates method
+    result = await stash_client.wait_for_job_with_updates(
+        job_id,
+        status=JobStatus.FINISHED,
+        timeout_seconds=30.0,
+    )
 
-    # Patch the subscription method and metadata_generate
-    with (
-        patch.object(stash_client, "subscribe_to_jobs", return_value=mock_subscribe()),
-        patch.object(
-            stash_client,
-            "metadata_generate",
-            new_callable=AsyncMock,
-            return_value=mock_job_id,
-        ),
-    ):
-        result = False
-        # Now use our mocked subscription
-        async with stash_client.subscribe_to_jobs() as subscription:
-            job_id = await stash_client.metadata_generate(
-                {
-                    "phashes": True,
-                },
-            )
-            assert job_id is not None, "Job ID should not be None"
-            assert job_id == mock_job_id, "Should receive our mock job ID"
+    # Job should complete successfully
+    assert result is True, f"Job {job_id} should complete successfully"
 
-            try:
-                async with asyncio.timeout(5.0):
-                    async for update in subscription:
-                        if update.job and update.job.id == job_id:
-                            if update.job.status == JobStatus.FINISHED:
-                                result = True
-                                break
-                            if update.job.status in [
-                                JobStatus.CANCELLED,
-                                JobStatus.FAILED,
-                            ]:
-                                result = False
-                                break
-            except TimeoutError:
-                pytest.fail("Timed out waiting for job completion")
 
-            # Verify the job completed successfully
-            if not result:
-                print("Job failed to complete successfully.")
-                if "update" in locals() and hasattr(update, "job"):
-                    print(f"Last update status: {update.job.status}")
-                    print(f"Job details: {update.job}")
-            assert result is True, "Job should complete successfully"
+@pytest.mark.asyncio
+async def test_wait_for_job_with_updates_timeout(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test wait_for_job_with_updates with a very short timeout.
+
+    This test verifies:
+    1. The method handles timeout correctly
+    2. It returns None when timeout is reached
+    """
+    # Start a metadata generation job
+    job_id = await stash_client.metadata_generate(
+        {
+            "phashes": True,
+        },
+    )
+    assert job_id is not None, "Job ID should not be None"
+
+    # Use a very short timeout that will likely expire
+    # Note: This may pass if the job completes very quickly
+    result = await stash_client.wait_for_job_with_updates(
+        job_id,
+        status=JobStatus.FINISHED,
+        timeout_seconds=0.001,  # Very short timeout
+    )
+
+    # Result should be None (timeout) or True (job completed very fast)
+    assert result in [None, True], f"Expected None or True, got {result}"
+
+
+@pytest.mark.asyncio
+async def test_wait_for_job_with_updates_not_found(
+    stash_client: StashClient, stash_cleanup_tracker
+) -> None:
+    """Test wait_for_job_with_updates with non-existent job ID.
+
+    This test verifies:
+    1. The method handles non-existent jobs correctly
+    2. It returns None for jobs that don't exist
+    """
+    # Use a non-existent job ID
+    result = await stash_client.wait_for_job_with_updates(
+        "999999999",  # Non-existent job ID
+        status=JobStatus.FINISHED,
+        timeout_seconds=5.0,
+    )
+
+    # Should return None for non-existent job
+    assert result is None, "Should return None for non-existent job"

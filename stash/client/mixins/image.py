@@ -34,7 +34,7 @@ class ImageClientMixin(StashClientProtocol):
             if result and result.get("findImage"):
                 # Sanitize model data before creating Image
                 clean_data = sanitize_model_data(result["findImage"])
-                return Image(**clean_data)
+                return Image.from_dict(clean_data)
             return None
 
     @async_lru_cache(maxsize=3096, exclude_arg_indices=[0])  # exclude self
@@ -76,7 +76,9 @@ class ImageClientMixin(StashClientProtocol):
             return FindImagesResultType(**result["findImages"])
         except Exception:
             self.log.exception("Failed to find images")
-            return FindImagesResultType(count=0, images=[])
+            return FindImagesResultType(
+                count=0, images=[], megapixels=0.0, filesize=0.0
+            )
 
     async def create_image(self, image: Image) -> Image:
         """Create a new image in Stash.
