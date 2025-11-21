@@ -218,6 +218,8 @@ max-complexity = 14
     "RUF012",  # mutable class attributes in test fixtures and mock classes
     "PLC0415", # import outside top-level (common in test fixtures)
     "D",       # pydocstyle
+    "B017",    # pytest.raises(Exception) is acceptable in integration tests
+    "PT011",   # pytest.raises(Exception) is acceptable in integration tests
 ]
 "alembic/**/*.py" = [
     "INP001",  # implicit namespace package

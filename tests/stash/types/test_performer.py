@@ -434,7 +434,7 @@ async def test_performer_update_avatar_read_error() -> None:
 
     try:
         # Test error handling
-        with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
+        with pytest.raises(ValueError) as excinfo:
             await performer.update_avatar(mock_client, temp_path)
         assert "Failed to update avatar" in str(excinfo.value)
 

@@ -68,6 +68,7 @@ def pytest_collection_modifyitems(config, items):
     - If Stash is unavailable and test skips, it skips (expected)
 
     EXCEPTIONS:
+    - respx_stash_client: Uses respx to mock HTTP, no cleanup needed
     - respx_stash_processor: Uses respx to mock HTTP, no cleanup needed
     - Tests in tests/stash/types/: Unit tests for data conversion only
     """
@@ -80,8 +81,11 @@ def pytest_collection_modifyitems(config, items):
                 or "stash_context" in item.fixturenames
             )
 
-            # Exception: respx_stash_processor uses HTTP mocking, no real Stash
-            uses_respx = "respx_stash_processor" in item.fixturenames
+            # Exception: respx fixtures use HTTP mocking, no real Stash calls
+            uses_respx = (
+                "respx_stash_processor" in item.fixturenames
+                or "respx_stash_client" in item.fixturenames
+            )
 
             # Exception: tests/stash/types/ are unit tests for data models
             is_types_test = "tests/stash/types/" in str(item.fspath)

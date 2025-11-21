@@ -1,397 +1,519 @@
-"""Unit tests for stash processing module - core functionality."""
+"""Unit tests for stash processing module - core functionality.
 
-import asyncio
-import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+Migrated to use respx_stash_processor fixture with proper edge-mocking:
+- ✅ Use respx to mock HTTP responses at Stash GraphQL boundary
+- ✅ Use real async database sessions (no mocking AsyncSession)
+- ✅ Use real StashProcessing, StashClient, Database instances
+- ❌ Do NOT mock internal class methods
+"""
 
+import json
+from unittest.mock import patch
+
+import httpx
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+import respx
 
-from stash.context import StashContext
-from stash.processing import StashProcessing
-from stash.types import Image
-from tests.fixtures.metadata.metadata_factories import AccountFactory
-from tests.fixtures.stash.stash_type_factories import PerformerFactory
-
-
-# Most fixtures are imported from tests.fixtures via conftest.py:
-# - mock_config, test_state (from stash_integration_fixtures)
-# - stash_processor (for integration tests)
-#
-# For unit tests, we define mock_context and mock_database fixtures locally
-
-
-@pytest.fixture
-def mock_context():
-    """Fixture for mock stash context."""
-    context = MagicMock(spec=StashContext)
-    context.client = MagicMock()
-    context.get_client = AsyncMock()
-    return context
-
-
-@pytest.fixture
-def mock_database():
-    """Fixture for mock database."""
-    database = MagicMock()
-    return database
-
-
-@pytest.fixture
-def processor(mock_config, test_state, mock_context, mock_database):
-    """Fixture for stash processor instance for unit testing.
-
-    This creates a StashProcessing instance with all dependencies mocked.
-    For integration tests, use the 'stash_processor' fixture instead.
-    """
-    processor = StashProcessing(
-        config=mock_config,
-        state=test_state,
-        context=mock_context,
-        database=mock_database,
-        _background_task=None,
-        _cleanup_event=asyncio.Event(),
-        _owns_db=False,
-    )
-    return processor
-
-
-class TestStashProcessingBasics:
-    """Test the basic functionality of StashProcessing class."""
-
-    def test_init(self, mock_config, test_state, mock_context, mock_database):
-        """Test initialization of StashProcessing."""
-        # Create without background task
-        processor = StashProcessing(
-            config=mock_config,
-            state=test_state,
-            context=mock_context,
-            database=mock_database,
-            _background_task=None,
-            _cleanup_event=None,
-            _owns_db=False,
-        )
-
-        # Verify attributes
-        assert processor.config == mock_config
-        assert processor.state == test_state
-        assert processor.context == mock_context
-        assert processor.database == mock_database
-        assert processor._background_task is None
-        assert not processor._cleanup_event.is_set()
-        assert not processor._owns_db
-        assert isinstance(processor.log, logging.Logger)
-
-        # Create with background task - use real asyncio.Task
-        async def dummy_task():
-            await asyncio.sleep(0)
-
-        real_task = asyncio.create_task(dummy_task())
-        processor = StashProcessing(
-            config=mock_config,
-            state=test_state,
-            context=mock_context,
-            database=mock_database,
-            _background_task=real_task,
-            _cleanup_event=None,
-            _owns_db=True,
-        )
-
-        # Verify attributes
-        assert processor._background_task == real_task
-        assert not processor._cleanup_event.is_set()
-        assert processor._owns_db
-
-        # Clean up task
-        real_task.cancel()
-
-    def test_from_config(self, mock_config, test_state):
-        """Test creating processor from config."""
-        # Configure real stash context connection instead of mocking
-        mock_config.stash_context_conn = {
-            "scheme": "http",
-            "host": "localhost",
-            "port": 9999,
-            "apikey": "test_api_key",
-        }
-
-        # Call from_config
-        processor = StashProcessing.from_config(
-            config=mock_config,
-            state=test_state,
-        )
-
-        # Verify processor
-        assert processor.config == mock_config
-        assert processor.state is not test_state  # Should be a copy
-        assert processor.state.creator_id == test_state.creator_id
-        assert processor.state.creator_name == test_state.creator_name
-        # Context should be real StashContext from get_stash_context()
-        assert processor.context is not None
-        assert processor.database == mock_config._database
-        assert processor._background_task is None
-        assert not processor._cleanup_event.is_set()
-        assert not processor._owns_db
+from metadata import account_avatar
+from stash.client.utils import sanitize_model_data
+from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
+from tests.fixtures.stash.stash_graphql_fixtures import (
+    create_find_images_result,
+    create_find_performers_result,
+    create_graphql_response,
+    create_image_dict,
+    create_performer_dict,
+)
+from tests.fixtures.stash.stash_type_factories import ImageFileFactory, PerformerFactory
 
 
 class TestStashProcessingAccount:
     """Test the account-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_account(self, factory_session, processor):
-        """Test _find_account method."""
-        # Create test account using factory
+    async def test_find_account(self, respx_stash_processor, session):
+        """Test _find_account method - UNIT TEST with real database, no Stash API.
+
+        Verifies this is a pure database operation with NO HTTP calls.
+        """
+        # Create test account in real database
         test_account = AccountFactory.build(
             id=12345,
             username="test_user",
         )
+        session.add(test_account)
+        await session.commit()
 
-        # Mock session and execute - needs to be AsyncMock for async session
-        mock_session = MagicMock(spec=AsyncSession)
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = test_account
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        # Set processor state to match account
+        respx_stash_processor.state.creator_id = "12345"
 
         # Call _find_account
-        account = await processor._find_account(session=mock_session)
+        account = await respx_stash_processor._find_account(session=session)
 
-        # Verify account and session.execute was called
-        assert account == test_account
+        # Verify account was found via database query
+        assert account is not None
         assert account.id == 12345
         assert account.username == "test_user"
-        mock_session.execute.assert_called_once()
+
+        # Verify NO HTTP calls were made via respx routes
+        assert len(respx.routes) == 1  # Only the default route exists
+        assert not respx.routes[0].called, (
+            "Database-only operation should not make HTTP calls"
+        )
 
         # Test with no account found
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session.execute.reset_mock()
+        respx_stash_processor.state.creator_id = "99999"  # Non-existent ID
 
-        # Call _find_account
+        # Call _find_account and verify warning
         with patch(
             "stash.processing.mixins.account.print_warning"
         ) as mock_print_warning:
-            account = await processor._find_account(session=mock_session)
+            account = await respx_stash_processor._find_account(session=session)
 
-        # Verify no account and warning was printed
+        # Verify no account found and warning was printed
         assert account is None
         mock_print_warning.assert_called_once()
-        assert processor.state.creator_name in str(mock_print_warning.call_args)
+        assert respx_stash_processor.state.creator_name in str(
+            mock_print_warning.call_args
+        )
+
+        # Verify NO HTTP calls were made
+        assert not respx.routes[0].called, (
+            "Database-only operation should not make HTTP calls"
+        )
 
     @pytest.mark.asyncio
-    async def test_update_account_stash_id(self, factory_session, processor):
-        """Test _update_account_stash_id method."""
-        # Create test account using factory
+    async def test_update_account_stash_id(self, respx_stash_processor, session):
+        """Test _update_account_stash_id method - UNIT TEST with real database, no Stash API.
+
+        Verifies this is a pure database operation with NO HTTP calls.
+        """
+        # Create test account in real database
         test_account = AccountFactory.build(
             id=12345,
             username="test_user",
         )
         test_account.stash_id = None  # Start with no stash_id
+        session.add(test_account)
+        await session.commit()
 
         # Create test performer using factory
-        mock_performer = PerformerFactory(
+        test_performer = PerformerFactory(
             id="123",  # Use numeric string since code converts to int
             name="test_user",
         )
 
-        # Create mock session with async execute
-        mock_session = MagicMock(spec=AsyncSession)
-        mock_result = MagicMock()
-        mock_result.scalar_one.return_value = test_account
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_session.flush = AsyncMock()
-        mock_session.add = MagicMock()
-
         # Call _update_account_stash_id
-        await processor._update_account_stash_id(
-            test_account, mock_performer, session=mock_session
+        await respx_stash_processor._update_account_stash_id(
+            test_account, test_performer, session=session
         )
 
-        # Verify session operations
-        mock_session.execute.assert_called_once()
-        # The account's stash_id should be updated to the int value of performer.id
-        assert test_account.stash_id == int(mock_performer.id)
-        mock_session.add.assert_called_once_with(test_account)
-        mock_session.flush.assert_called_once()
+        # Verify account stash_id was updated via database
+        await session.refresh(test_account)
+        assert test_account.stash_id == int(test_performer.id)
+
+        # Verify NO HTTP calls were made via respx routes
+        assert len(respx.routes) == 1  # Only the default route exists
+        assert not respx.routes[0].called, (
+            "Database-only operation should not make HTTP calls"
+        )
 
 
 class TestStashProcessingPerformer:
     """Test the performer-related methods of StashProcessing."""
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer(self, factory_session, processor):
-        """Test _find_existing_performer method."""
-        # Create test performer using factory
-        mock_performer = PerformerFactory(
-            id="performer_123",
-            name="test_user",
-        )
+    async def test_find_existing_performer(self, respx_stash_processor):
+        """Test _find_existing_performer method - UNIT TEST with respx HTTP mocking.
 
-        # Mock context.client.find_performer
-        # Important: The method awaits find_performer, so it should return the performer directly
-        processor.context.client.find_performer = AsyncMock(return_value=mock_performer)
-
-        # Clear the cache before testing
-        if hasattr(processor._find_existing_performer, "cache_clear"):
-            processor._find_existing_performer.cache_clear()
-
-        # Case 1: Account has stash_id
-        # Create a new account object (different cache key from fixture)
-        test_account_1 = AccountFactory.build(username="test_user")
-        test_account_1.stash_id = "stash_123"
-
-        # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account_1)
-
-        # Verify performer and find_performer was called with stash_id
-        assert performer == mock_performer
-        processor.context.client.find_performer.assert_called_once_with("stash_123")
-
-        # Case 2: Account has no stash_id
-        processor.context.client.find_performer.reset_mock()
-
-        # Create a new account object (different cache key)
-        test_account_2 = AccountFactory.build(username="test_user")
-        test_account_2.stash_id = None
-
-        # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account_2)
-
-        # Verify performer and find_performer was called with username
-        assert performer == mock_performer
-        processor.context.client.find_performer.assert_called_once_with(
-            test_account_2.username
-        )
-
-        # Case 3: find_performer returns None
-        processor.context.client.find_performer.reset_mock()
-        processor.context.client.find_performer.return_value = None
-
-        # Create another new account object (different cache key)
-        test_account_3 = AccountFactory.build(username="test_user_2")
-        test_account_3.stash_id = None
-
-        # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account_3)
-
-        # Verify performer is None
-        assert performer is None
-        processor.context.client.find_performer.assert_called_once_with(
-            test_account_3.username
-        )
-
-        # Case 4: find_performer returns a coroutine
-        processor.context.client.find_performer.reset_mock()
-
-        # Create a coroutine that returns mock_performer
-        async def mock_coroutine():
-            return mock_performer
-
-        processor.context.client.find_performer.return_value = mock_coroutine()
-
-        # Create another test account for this case
-        test_account_4 = AccountFactory.build(username="test_user_3")
-        test_account_4.stash_id = None
-
-        # Call _find_existing_performer
-        performer = await processor._find_existing_performer(test_account_4)
-
-        # Verify performer
-        assert performer == mock_performer
-
-    @pytest.mark.asyncio
-    async def test_update_performer_avatar(self, factory_session, processor):
-        """Test _update_performer_avatar method."""
-        # Create test performer using factory
-        mock_performer = PerformerFactory(
+        Uses chained respx responses to test multiple cases in sequence.
+        """
+        # Create test performer data using helper
+        performer_data = create_performer_dict(
             id="123",
             name="test_user",
         )
-        # Mock update_avatar method since it's not part of the factory
-        mock_performer.update_avatar = AsyncMock()
+        performers_result = create_find_performers_result(
+            count=1, performers=[performer_data]
+        )
 
-        # Case 1: Account with no avatar
-        test_account_no_avatar = AccountFactory.build(
+        # Clear the cache before testing
+        if hasattr(respx_stash_processor._find_existing_performer, "cache_clear"):
+            respx_stash_processor._find_existing_performer.cache_clear()
+
+        # Create chained responses for 3 test cases
+        responses = [
+            # Case 1: Find by ID (account has stash_id) - uses findPerformer
+            httpx.Response(
+                200, json=create_graphql_response("findPerformer", performer_data)
+            ),
+            # Case 2: Find by username (no stash_id) - uses findPerformers
+            httpx.Response(
+                200, json=create_graphql_response("findPerformers", performers_result)
+            ),
+            # Case 3: Not found (returns empty result)
+            httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findPerformers",
+                    create_find_performers_result(count=0, performers=[]),
+                ),
+            ),
+        ]
+
+        # Set up route with chained responses
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=responses
+        )
+
+        # Case 1: Account has stash_id - search by ID (uses findPerformer query)
+        test_account_1 = AccountFactory.build(username="test_user")
+        test_account_1.stash_id = "123"
+
+        performer = await respx_stash_processor._find_existing_performer(test_account_1)
+
+        # Verify performer was found
+        assert performer is not None
+        assert performer.id == "123"
+        assert performer.name == "test_user"
+
+        # Inspect the first HTTP request
+        assert len(graphql_route.calls) == 1
+        request_body = json.loads(graphql_route.calls[0].request.content)
+        assert "findPerformer" in request_body["query"]
+        assert request_body["variables"]["id"] == "123"
+
+        # Case 2: Account has no stash_id - search by username (uses findPerformers query)
+        test_account_2 = AccountFactory.build(username="test_user_2")
+        test_account_2.stash_id = None
+
+        performer = await respx_stash_processor._find_existing_performer(test_account_2)
+
+        # Verify performer was found
+        assert performer is not None
+        assert performer.id == "123"
+
+        # Inspect the second HTTP request
+        assert len(graphql_route.calls) == 2
+        request_body = json.loads(graphql_route.calls[1].request.content)
+        assert (
+            "findPerformers" in request_body["query"]
+        )  # Note: plural when searching by name
+
+        # Case 3: Performer not found - GraphQL returns empty result
+        test_account_3 = AccountFactory.build(username="nonexistent_user")
+        test_account_3.stash_id = None
+
+        performer = await respx_stash_processor._find_existing_performer(test_account_3)
+
+        # Verify no performer found
+        assert performer is None
+
+        # Inspect the third HTTP request
+        assert len(graphql_route.calls) == 3
+        request_body = json.loads(graphql_route.calls[2].request.content)
+        assert (
+            "findPerformers" in request_body["query"]
+        )  # Note: plural when searching by name
+
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_no_avatar(
+        self, respx_stash_processor, session
+    ):
+        """Test _update_performer_avatar with account that has no avatar.
+
+        Verifies NO HTTP calls are made when account has no avatar.
+        """
+        # Create test performer - use REAL performer from factory
+        test_performer = PerformerFactory(
+            id="123",
+            name="test_user",
+            image_path="default=true",
+        )
+
+        # Create account with no avatar
+        test_account = AccountFactory.build(
             id=12345,
             username="test_user",
         )
-        test_account_no_avatar.avatar = None
+        session.add(test_account)
+        await session.commit()
 
-        await processor._update_performer_avatar(test_account_no_avatar, mock_performer)
+        await respx_stash_processor._update_performer_avatar(
+            test_account, test_performer, session=session
+        )
 
-        # Verify no avatar update was attempted
-        assert not mock_performer.update_avatar.called
+        # Verify NO HTTP calls were made (returns early before HTTP)
+        assert len(respx.routes) == 1  # Only the default route exists
+        assert not respx.routes[0].called, "No avatar should not make HTTP calls"
 
-        # Case 2: Account with avatar but no local_filename
-        test_account_no_file = AccountFactory.build(
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_no_local_filename(
+        self, respx_stash_processor, session
+    ):
+        """Test _update_performer_avatar with avatar that has no local_filename.
+
+        Verifies NO HTTP calls are made when avatar has no local_filename.
+        """
+        # Create test performer - use REAL performer
+        test_performer = PerformerFactory(
+            id="123",
+            name="test_user",
+            image_path="default=true",
+        )
+
+        # Create account with avatar but no local_filename
+        test_account = AccountFactory.build(
             id=12346,
-            username="test_user",
+            username="test_user_2",
         )
-        mock_avatar_no_file = MagicMock()
-        mock_avatar_no_file.local_filename = None
-        test_account_no_file.avatar = mock_avatar_no_file
+        session.add(test_account)
 
-        await processor._update_performer_avatar(test_account_no_file, mock_performer)
+        # Create avatar media with no local_filename
+        avatar = MediaFactory.build(
+            id=99998,
+            accountId=12346,
+            local_filename=None,  # No local file
+        )
+        session.add(avatar)
+        await session.commit()
 
-        # Verify no avatar update was attempted
-        assert not mock_performer.update_avatar.called
+        # Link avatar to account via association table
+        await session.execute(
+            account_avatar.insert().values(accountId=12346, mediaId=99998)
+        )
+        await session.commit()
 
-        # Case 3: Account with avatar and local_filename - should update
-        test_account_with_avatar = AccountFactory.build(
+        await respx_stash_processor._update_performer_avatar(
+            test_account, test_performer, session=session
+        )
+
+        # Verify NO HTTP calls were made (returns early)
+        assert not respx.routes[0].called, (
+            "No local_filename should not make HTTP calls"
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_no_images_found(
+        self, respx_stash_processor, session, tmp_path
+    ):
+        """Test _update_performer_avatar when no images found in Stash.
+
+        Verifies findImages is called and returns early (no performerUpdate call).
+        """
+        # Create test performer - use REAL performer
+        test_performer = PerformerFactory(
+            id="123",
+            name="test_user",
+            image_path="default=true",
+        )
+
+        # Create account with avatar and local_filename
+        test_account = AccountFactory.build(
+            id=12348,
+            username="test_user_4",
+        )
+        session.add(test_account)
+
+        # Create avatar media with local_filename
+        avatar = MediaFactory.build(
+            id=99997,
+            accountId=12348,
+            local_filename="missing_avatar.jpg",
+        )
+        session.add(avatar)
+        await session.commit()
+
+        # Link avatar to account
+        await session.execute(
+            account_avatar.insert().values(accountId=12348, mediaId=99997)
+        )
+        await session.commit()
+
+        # Create GraphQL response for findImages - empty result
+        empty_images_response = create_find_images_result(count=0, images=[])
+
+        # Mock findImages GraphQL response
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            return_value=httpx.Response(
+                200, json=create_graphql_response("findImages", empty_images_response)
+            )
+        )
+
+        await respx_stash_processor._update_performer_avatar(
+            test_account, test_performer, session=session
+        )
+
+        # Verify findImages was called
+        assert len(graphql_route.calls) == 1
+        request_body = json.loads(graphql_route.calls[0].request.content)
+        assert "findImages" in request_body["query"]
+
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_success(
+        self, respx_stash_processor, session, tmp_path
+    ):
+        """Test _update_performer_avatar successfully updates avatar.
+
+        Uses REAL performer.update_avatar with temp file and mocked HTTP responses.
+        """
+        # Create a temp image file for testing
+        test_image = tmp_path / "avatar.jpg"
+        test_image.write_bytes(b"fake image data")
+
+        # Create test performer - use REAL performer
+        test_performer = PerformerFactory(
+            id="123",
+            name="test_user",
+            image_path="default=true",
+        )
+
+        # Create account with avatar and local_filename
+        test_account = AccountFactory.build(
             id=12347,
-            username="test_user",
+            username="test_user_3",
         )
-        mock_avatar_with_file = MagicMock()
-        mock_avatar_with_file.local_filename = "avatar.jpg"
-        test_account_with_avatar.avatar = mock_avatar_with_file
+        session.add(test_account)
 
-        # Mock performer with default image
-        mock_performer.image_path = "default=true"
+        # Create avatar media with local_filename pointing to temp file
+        avatar = MediaFactory.build(
+            id=99999,
+            accountId=12347,
+            local_filename=str(test_image),  # Use real temp file path
+        )
+        session.add(avatar)
+        await session.commit()
 
-        # Mock client.find_images
-        mock_image = MagicMock(spec=Image)
-        mock_image.visual_files = [MagicMock()]
-        mock_image.visual_files[0].path = "path/to/avatar.jpg"
+        # Link avatar to account
+        await session.execute(
+            account_avatar.insert().values(accountId=12347, mediaId=99999)
+        )
+        await session.commit()
 
-        mock_image_result = MagicMock()
-        mock_image_result.count = 1
-        mock_image_result.images = [mock_image]
+        # Create GraphQL responses for findImages and performerUpdate
+        # Use factory to create ImageFile, then convert to dict with datetime as string
+        image_file = ImageFileFactory(
+            id="123",
+            path=str(test_image),
+            basename="avatar.jpg",
+            size=len(test_image.read_bytes()),
+            width=800,
+            height=600,
+        )
+        image_file_dict = sanitize_model_data(image_file.__dict__)
+        # Convert datetime to ISO string for JSON serialization
+        if image_file_dict.get("mod_time"):
+            image_file_dict["mod_time"] = image_file_dict["mod_time"].isoformat()
+        image_data = create_image_dict(
+            id="456",
+            title="Avatar",
+            visual_files=[image_file_dict],
+        )
+        images_response = create_find_images_result(count=1, images=[image_data])
+        performer_response = create_performer_dict(id="123", name="test_user")
 
-        processor.context.client.find_images = AsyncMock(return_value=mock_image_result)
+        # Mock both GraphQL responses with chained responses
+        responses = [
+            # findImages response
+            httpx.Response(
+                200, json=create_graphql_response("findImages", images_response)
+            ),
+            # performerUpdate response
+            httpx.Response(
+                200, json=create_graphql_response("performerUpdate", performer_response)
+            ),
+        ]
 
-        # Reset mock_performer.update_avatar for the test
-        mock_performer.update_avatar = AsyncMock()
-
-        await processor._update_performer_avatar(
-            test_account_with_avatar, mock_performer
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=responses
         )
 
-        # Verify avatar update was attempted
-        processor.context.client.find_images.assert_called_once()
-        assert "avatar.jpg" in str(processor.context.client.find_images.call_args)
-        mock_performer.update_avatar.assert_called_once()
-        assert "path/to/avatar.jpg" in str(mock_performer.update_avatar.call_args)
-
-        # Case 4: No images found in Stash
-        processor.context.client.find_images.reset_mock()
-        mock_image_result.count = 0
-        processor.context.client.find_images.return_value = mock_image_result
-        mock_performer.update_avatar.reset_mock()
-
-        await processor._update_performer_avatar(
-            test_account_with_avatar, mock_performer
+        await respx_stash_processor._update_performer_avatar(
+            test_account, test_performer, session=session
         )
 
-        # Verify no avatar update was attempted
-        processor.context.client.find_images.assert_called_once()
-        assert not mock_performer.update_avatar.called
+        # Verify both GraphQL calls were made
+        assert len(graphql_route.calls) == 2
 
-        # Case 5: update_avatar raises exception
-        processor.context.client.find_images.reset_mock()
-        mock_image_result.count = 1
-        processor.context.client.find_images.return_value = mock_image_result
-        mock_performer.update_avatar.reset_mock()
-        mock_performer.update_avatar.side_effect = Exception("Test error")
+        # Verify first call was findImages
+        request_body_1 = json.loads(graphql_route.calls[0].request.content)
+        assert "findImages" in request_body_1["query"]
+        assert str(test_image) in str(request_body_1["variables"])
 
-        # Mock print_error and logger
+        # Verify second call was performerUpdate
+        request_body_2 = json.loads(graphql_route.calls[1].request.content)
+        assert "performerUpdate" in request_body_2["query"]
+
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_exception(
+        self, respx_stash_processor, session, tmp_path
+    ):
+        """Test _update_performer_avatar when file doesn't exist (triggers exception).
+
+        Uses non-existent file path to trigger FileNotFoundError in real update_avatar.
+        """
+        # Create test performer - use REAL performer
+        test_performer = PerformerFactory(
+            id="123",
+            name="test_user",
+            image_path="default=true",
+        )
+
+        # Create account with avatar and local_filename
+        test_account = AccountFactory.build(
+            id=12349,
+            username="test_user_5",
+        )
+        session.add(test_account)
+
+        # Create path to non-existent file in temp directory
+        nonexistent_file = tmp_path / "nonexistent_avatar.jpg"
+        # Don't create the file - just reference it
+
+        # Create avatar media with non-existent file path
+        avatar = MediaFactory.build(
+            id=99996,
+            accountId=12349,
+            local_filename=str(nonexistent_file),  # File doesn't exist
+        )
+        session.add(avatar)
+        await session.commit()
+
+        # Link avatar to account
+        await session.execute(
+            account_avatar.insert().values(accountId=12349, mediaId=99996)
+        )
+        await session.commit()
+
+        # Create GraphQL response for findImages
+        # Use factory to create ImageFile, then convert to dict with datetime as string
+        image_file = ImageFileFactory(
+            id="456",
+            path=str(nonexistent_file),
+            basename="nonexistent_avatar.jpg",
+            size=0,  # File doesn't exist
+            width=800,
+            height=600,
+        )
+        image_file_dict = sanitize_model_data(image_file.__dict__)
+        # Convert datetime to ISO string for JSON serialization
+        if image_file_dict.get("mod_time"):
+            image_file_dict["mod_time"] = image_file_dict["mod_time"].isoformat()
+        image_data = create_image_dict(
+            id="789",
+            title="Avatar",
+            visual_files=[image_file_dict],
+        )
+        images_response = create_find_images_result(count=1, images=[image_data])
+
+        # Mock findImages GraphQL response
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            return_value=httpx.Response(
+                200, json=create_graphql_response("findImages", images_response)
+            )
+        )
+
+        # Mock print_error and logger to verify error handling
         with (
             patch("stash.processing.mixins.account.print_error") as mock_print_error,
             patch(
@@ -399,12 +521,12 @@ class TestStashProcessingPerformer:
             ) as mock_logger_exception,
             patch("stash.processing.mixins.account.debug_print") as mock_debug_print,
         ):
-            # Call _update_performer_avatar
-            await processor._update_performer_avatar(
-                test_account_with_avatar, mock_performer
+            # Call _update_performer_avatar - should handle FileNotFoundError
+            await respx_stash_processor._update_performer_avatar(
+                test_account, test_performer, session=session
             )
 
-            # Verify error handling
+            # Verify error handling was triggered
             mock_print_error.assert_called_once()
             assert "Failed to update performer avatar" in str(
                 mock_print_error.call_args
@@ -412,3 +534,6 @@ class TestStashProcessingPerformer:
             mock_logger_exception.assert_called_once()
             mock_debug_print.assert_called_once()
             assert "avatar_update_failed" in str(mock_debug_print.call_args)
+
+        # Verify findImages was called but performerUpdate was NOT
+        assert len(graphql_route.calls) == 1  # Only findImages

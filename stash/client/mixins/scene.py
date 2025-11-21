@@ -463,8 +463,14 @@ class SceneClientMixin(StashClientProtocol):
                 {"input": input_data},
             )
             # Clear caches since we've modified scenes
-            self._find_scene_cache.cache_clear()
-            self._find_scenes_cache.cache_clear()
+            if hasattr(self, "find_scene") and hasattr(self.find_scene, "cache_clear"):
+                self.find_scene.cache_clear()
+
+            if hasattr(self, "find_scenes") and hasattr(
+                self.find_scenes, "cache_clear"
+            ):
+                self.find_scenes.cache_clear()
+
             return [
                 Scene(**sanitize_model_data(scene))
                 for scene in result["bulkSceneUpdate"]
@@ -482,6 +488,10 @@ class SceneClientMixin(StashClientProtocol):
         Returns:
             List of updated Scene objects
         """
+        # Handle empty list early
+        if not scenes:
+            return []
+
         try:
             result = await self.execute(
                 fragments.SCENES_UPDATE_MUTATION,

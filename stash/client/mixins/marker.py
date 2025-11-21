@@ -31,9 +31,13 @@ class MarkerClientMixin(StashClientProtocol):
             self.log.exception(f"Failed to find marker {id}")
             return None
         else:
-            if result and result.get("findSceneMarker"):
+            # Note: We use findSceneMarkers (plural) with ID filter since
+            # Stash doesn't have findSceneMarker (singular)
+            markers_result = result.get("findSceneMarkers", {})
+            markers = markers_result.get("scene_markers", [])
+            if markers:
                 # Sanitize model data before creating SceneMarker
-                clean_data = sanitize_model_data(result["findSceneMarker"])
+                clean_data = sanitize_model_data(markers[0])
                 return SceneMarker(**clean_data)
             return None
 
@@ -172,3 +176,40 @@ class MarkerClientMixin(StashClientProtocol):
             # Mark as clean since we just saved
             updated_marker.mark_clean()
             return updated_marker
+
+    async def destroy_marker(self, ids: str | list[str]) -> bool:
+        """Destroy one or more scene markers.
+
+        Args:
+            ids: Single marker ID (str) or list of marker IDs to destroy
+
+        Returns:
+            True if deletion was successful
+
+        Raises:
+            gql.TransportError: If the request fails
+        """
+        try:
+            # Normalize to list for consistent handling
+            if isinstance(ids, str):
+                # Single ID - use sceneMarkerDestroy
+                result = await self.execute(
+                    fragments.DESTROY_MARKER_MUTATION,
+                    {"id": ids},
+                )
+                success = result.get("sceneMarkerDestroy", False)
+            else:
+                # Multiple IDs - use sceneMarkersDestroy
+                result = await self.execute(
+                    fragments.DESTROY_MARKERS_MUTATION,
+                    {"ids": ids},
+                )
+                success = result.get("sceneMarkersDestroy", False)
+        except Exception:
+            self.log.exception(f"Failed to destroy marker(s): {ids}")
+            raise
+        else:
+            # Clear caches since we've deleted markers
+            self.find_marker.cache_clear()
+            self.find_markers.cache_clear()
+            return success

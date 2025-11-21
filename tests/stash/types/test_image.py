@@ -337,7 +337,7 @@ def test_image_from_dict_method() -> None:
 @pytest.mark.unit
 def test_image_from_dict_missing_id_raises() -> None:
     """Test that Image.from_dict raises when ID is missing."""
-    with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertion below
+    with pytest.raises(ValueError) as excinfo:
         Image.from_dict({})
     assert "ID field" in str(excinfo.value)
 

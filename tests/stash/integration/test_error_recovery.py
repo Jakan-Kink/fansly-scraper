@@ -68,7 +68,7 @@ async def test_data_validation_workflow(
                 name="Test Performer",
                 gender=GenderEnum.INVALID,  # Invalid gender should fail
             )
-            with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
+            with pytest.raises(Exception) as exc_info:
                 await stash_client.create_performer(performer)
             assert "INVALID" in str(exc_info.value)
 
@@ -100,7 +100,7 @@ async def test_data_validation_workflow(
                 id="new",
                 name=studio_name,  # Same name should fail
             )
-            with pytest.raises(Exception) as exc_info:  # noqa: PT011 - message validated by assertion below
+            with pytest.raises(Exception) as exc_info:
                 await stash_client.create_studio(studio2)
             assert "already exists" in str(exc_info.value).lower()
 

@@ -1,309 +1,467 @@
-"""Unit tests for StudioClientMixin."""
+"""Unit tests for StudioClientMixin.
 
-from unittest.mock import AsyncMock, patch
+These tests mock at the HTTP boundary using respx, allowing real code execution
+through the entire GraphQL client stack including serialization/deserialization.
+"""
 
+import json
+
+import httpx
 import pytest
+import respx
+import strawberry
 
 from stash import StashClient
-from stash.client.mixins.studio import StudioClientMixin
-from stash.types import FindStudiosResultType, Studio
+from tests.fixtures import StudioFactory
 
 
-@pytest.fixture
-def mock_studio() -> Studio:
-    """Create a mock studio for testing."""
-    return Studio(
+def _studio_to_response_dict(studio) -> dict:
+    """Convert a StudioFactory instance to a GraphQL response dict.
+
+    This converts the Strawberry type to a plain dict suitable for
+    mocking a GraphQL response.
+    """
+    data = strawberry.asdict(studio)
+    # Handle nested objects that need conversion
+    if data.get("parent_studio"):
+        data["parent_studio"] = {"id": data["parent_studio"]["id"]}
+    if data.get("tags"):
+        data["tags"] = [{"id": t["id"]} for t in data["tags"]]
+    return data
+
+
+@pytest.mark.asyncio
+async def test_find_studio(respx_stash_client: StashClient) -> None:
+    """Test finding a studio by ID."""
+    # Create test studio using factory
+    test_studio = StudioFactory.build(
         id="123",
         name="Test Studio",
-        url="https://example.com",
+        urls=["https://example.com"],
         details="Test studio details",
         aliases=["Studio Test", "TestCo"],
-        stash_ids=[],
-        image_path=None,
-        tags=[],
+    )
+    studio_data = _studio_to_response_dict(test_studio)
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(200, json={"data": {"findStudio": studio_data}})
     )
 
+    studio = await respx_stash_client.find_studio("123")
 
-@pytest.mark.asyncio
-async def test_find_studio(
-    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
-) -> None:
-    """Test finding a studio by ID."""
-    # Clean the data to prevent _dirty_attrs errors
-    clean_data = {
-        k: v
-        for k, v in mock_studio.__dict__.items()
-        if not k.startswith("_") and k != "client_mutation_id"
-    }
+    # Verify the result
+    assert studio is not None
+    assert studio.id == "123"
+    assert studio.name == "Test Studio"
+    assert studio.urls == ["https://example.com"]
+    # Test backward compatibility - url property should check membership
+    assert studio.url == "https://example.com"
+    assert studio.details == "Test studio details"
+    assert studio.aliases == ["Studio Test", "TestCo"]
 
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        return_value={"findStudio": clean_data},
-    ):
-        studio = await stash_client.find_studio("123")
-        assert studio is not None
-        assert studio.id == mock_studio.id
-        assert studio.name == mock_studio.name
-        assert studio.url == mock_studio.url
-        assert studio.details == mock_studio.details
-        assert studio.aliases == mock_studio.aliases
+    # Verify GraphQL call
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "findStudio" in req["query"]
+    assert req["variables"]["id"] == "123"
 
 
 @pytest.mark.asyncio
-async def test_find_studio_not_found(
-    stash_client: StashClient, stash_cleanup_tracker
-) -> None:
+async def test_find_studio_not_found(respx_stash_client: StashClient) -> None:
     """Test finding a studio that doesn't exist."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        return_value={"findStudio": None},
-    ):
-        studio = await stash_client.find_studio("999")
-        assert studio is None
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(200, json={"data": {"findStudio": None}})
+    )
+
+    studio = await respx_stash_client.find_studio("999")
+
+    assert studio is None
+
+    # Verify GraphQL call
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "findStudio" in req["query"]
+    assert req["variables"]["id"] == "999"
 
 
 @pytest.mark.asyncio
-async def test_find_studio_error(
-    stash_client: StashClient, stash_cleanup_tracker
-) -> None:
+async def test_find_studio_error(respx_stash_client: StashClient) -> None:
     """Test handling errors when finding a studio."""
-    # Clear the cache to ensure we test the error handling path
-    stash_client.find_studio.cache_clear()
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(500, json={"errors": [{"message": "Test error"}]})
+    )
 
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
-    ):
-        # Use a unique ID that won't be cached
-        studio = await stash_client.find_studio("test_error_studio_999")
-        assert studio is None
+    # Use a unique ID that won't be cached
+    studio = await respx_stash_client.find_studio("test_error_studio_999")
+
+    assert studio is None
+
+    # Verify GraphQL call was made
+    assert len(graphql_route.calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_find_studios(
-    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
-) -> None:
+async def test_find_studios(respx_stash_client: StashClient) -> None:
     """Test finding studios with filters."""
+    # Create test studio using factory
+    test_studio = StudioFactory.build(
+        id="123",
+        name="Test Studio",
+        urls=["https://example.com"],
+    )
+    studio_data = _studio_to_response_dict(test_studio)
 
-    # Create a custom test class that we can control completely
-    class TestStudioClientMixin(StudioClientMixin):
-        # Override find_studios
-        async def find_studios(self, filter_=None, studio_filter=None, q=None):
-            # This ensures we return a proper FindStudiosResultType with count=1
-            return FindStudiosResultType(count=1, studios=[mock_studio])
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "findStudios": {
+                        "count": 1,
+                        "studios": [studio_data],
+                    }
+                }
+            },
+        )
+    )
 
-    # Create the test mixin instance
-    test_mixin = TestStudioClientMixin()
+    result = await respx_stash_client.find_studios()
 
-    # Test the mixin directly
-    result = await test_mixin.find_studios()
-
-    # Verify the results - this is the failing assertion
-    assert isinstance(result, FindStudiosResultType)
+    # Verify the results
     assert result.count == 1
     assert len(result.studios) == 1
-    assert result.studios[0].id == mock_studio.id
+    assert result.studios[0].id == "123"
+    assert result.studios[0].name == "Test Studio"
+
+    # Verify GraphQL call
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "findStudios" in req["query"]
 
 
 @pytest.mark.asyncio
-async def test_find_studios_error(
-    stash_client: StashClient, stash_cleanup_tracker
-) -> None:
+async def test_find_studios_with_filter(respx_stash_client: StashClient) -> None:
+    """Test finding studios with custom filter parameters."""
+    # Create test studio using factory
+    test_studio = StudioFactory.build(id="123", name="Test Studio")
+    studio_data = _studio_to_response_dict(test_studio)
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "findStudios": {
+                        "count": 1,
+                        "studios": [studio_data],
+                    }
+                }
+            },
+        )
+    )
+
+    result = await respx_stash_client.find_studios(
+        filter_={"per_page": 10, "page": 1},
+        q="Test",
+    )
+
+    # Verify the results
+    assert result.count == 1
+    assert len(result.studios) == 1
+
+    # Verify GraphQL call includes filter params
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "findStudios" in req["query"]
+    assert req["variables"]["filter"]["q"] == "Test"
+    assert req["variables"]["filter"]["per_page"] == 10
+
+
+@pytest.mark.asyncio
+async def test_find_studios_error(respx_stash_client: StashClient) -> None:
     """Test handling errors when finding studios."""
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        side_effect=Exception("Test error"),
-    ):
-        result = await stash_client.find_studios()
-        assert result.count == 0
-        assert len(result.studios) == 0
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(500, json={"errors": [{"message": "Test error"}]})
+    )
+
+    result = await respx_stash_client.find_studios()
+
+    assert result.count == 0
+    assert len(result.studios) == 0
+
+    # Verify GraphQL call was attempted
+    assert len(graphql_route.calls) == 1
 
 
 @pytest.mark.asyncio
-async def test_create_studio(
-    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
-) -> None:
+async def test_create_studio(respx_stash_client: StashClient) -> None:
     """Test creating a studio."""
-    # Clean the data to prevent _dirty_attrs errors
-    clean_data = {
-        k: v
-        for k, v in mock_studio.__dict__.items()
-        if not k.startswith("_") and k != "client_mutation_id"
-    }
+    # Create response studio (what Stash returns)
+    response_studio = StudioFactory.build(
+        id="123",
+        name="Test Studio",
+        urls=["https://example.com"],
+        details="Test studio details",
+    )
+    response_data = _studio_to_response_dict(response_studio)
 
-    with patch.object(
-        stash_client,
-        "execute",
-        new_callable=AsyncMock,
-        return_value={"studioCreate": clean_data},
-    ):
-        # Create with minimum fields
-        studio = Studio(
-            id="new",  # Required field for initialization
-            name="New Studio",
-            url=None,
-            details=None,
-            aliases=[],
-            stash_ids=[],
-            image_path=None,
-            tags=[],
-        )
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(200, json={"data": {"studioCreate": response_data}})
+    )
 
-        # Mock the to_input method
-        with patch.object(studio, "to_input", new_callable=AsyncMock, return_value={}):
-            created = await stash_client.create_studio(studio)
-            assert created.id == mock_studio.id
-            assert created.name == mock_studio.name
+    # Create studio to send (input)
+    studio = StudioFactory.build(
+        id="new",
+        name="New Studio",
+        urls=[],
+        details=None,
+        aliases=[],
+    )
 
-        # Create with all fields
-        studio = Studio(
-            id="new",  # Required field for initialization
-            name="Full Studio",
-            url="https://example.com/full",
-            details="Full studio details",
-            aliases=["Full Test"],
-            stash_ids=[],
-            image_path="/path/to/image.jpg",
-            tags=[],
-        )
+    created = await respx_stash_client.create_studio(studio)
 
-        # Mock the to_input method
-        with patch.object(studio, "to_input", new_callable=AsyncMock, return_value={}):
-            created = await stash_client.create_studio(studio)
-            assert created.id == mock_studio.id
-            assert created.name == mock_studio.name
+    # Verify the result
+    assert created.id == "123"
+    assert created.name == "Test Studio"
+
+    # Verify GraphQL call
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "studioCreate" in req["query"]
+    assert "input" in req["variables"]
 
 
 @pytest.mark.asyncio
-async def test_create_studio_error(
-    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
-) -> None:
+async def test_create_studio_with_all_fields(respx_stash_client: StashClient) -> None:
+    """Test creating a studio with all optional fields."""
+    # Create response studio
+    response_studio = StudioFactory.build(
+        id="123",
+        name="Test Studio",
+        urls=["https://example.com"],
+    )
+    response_data = _studio_to_response_dict(response_studio)
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(200, json={"data": {"studioCreate": response_data}})
+    )
+
+    # Create studio with all fields
+    studio = StudioFactory.build(
+        id="new",
+        name="Full Studio",
+        urls=["https://example.com/full"],
+        details="Full studio details",
+        aliases=["Full Test"],
+        image_path="/path/to/image.jpg",
+    )
+
+    created = await respx_stash_client.create_studio(studio)
+
+    # Verify the result
+    assert created.id == "123"
+    assert created.name == "Test Studio"
+
+    # Verify GraphQL call
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "studioCreate" in req["query"]
+
+
+@pytest.mark.asyncio
+async def test_create_studio_error(respx_stash_client: StashClient) -> None:
     """Test handling errors when creating a studio."""
-    with (
-        patch.object(
-            stash_client,
-            "execute",
-            new_callable=AsyncMock,
-            side_effect=Exception("Test error"),
-        ),
-        patch.object(mock_studio, "to_input", new_callable=AsyncMock, return_value={}),
-        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
-    ):
-        await stash_client.create_studio(mock_studio)
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(500, json={"errors": [{"message": "Test error"}]})
+    )
+
+    studio = StudioFactory.build(id="new", name="Test Studio")
+
+    with pytest.raises(Exception):
+        await respx_stash_client.create_studio(studio)
 
 
 @pytest.mark.asyncio
-async def test_update_studio(
-    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
-) -> None:
+async def test_update_studio(respx_stash_client: StashClient) -> None:
     """Test updating a studio."""
-    # Create updated versions of the mock studio for each test case
-    updated_name_studio = Studio(
-        id=mock_studio.id,
-        name="Updated Name",  # Updated field
-        url=mock_studio.url,
-        details=mock_studio.details,
-        aliases=mock_studio.aliases,
-        stash_ids=mock_studio.stash_ids,
-        image_path=mock_studio.image_path,
-        tags=mock_studio.tags,
+    # Create response studio with updated values
+    updated_studio = StudioFactory.build(
+        id="123",
+        name="Updated Name",
+        urls=["https://example.com"],
+        details="Test studio details",
+        aliases=["Studio Test", "TestCo"],
+    )
+    response_data = _studio_to_response_dict(updated_studio)
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(200, json={"data": {"studioUpdate": response_data}})
     )
 
-    updated_fields_studio = Studio(
-        id=mock_studio.id,
-        name=mock_studio.name,
-        url="https://example.com/updated",  # Updated field
-        details="Updated details",  # Updated field
-        aliases=mock_studio.aliases,
-        stash_ids=mock_studio.stash_ids,
-        image_path=mock_studio.image_path,
-        tags=mock_studio.tags,
+    # Create studio with original values
+    studio = StudioFactory.build(
+        id="123",
+        name="Original Name",
+        urls=["https://example.com"],
+        details="Test studio details",
+        aliases=["Studio Test", "TestCo"],
     )
+    # Actually change the value to trigger dirty tracking
+    studio.name = "Updated Name"
 
-    # Clean the data to prevent _dirty_attrs errors
-    clean_name_data = {
-        k: v
-        for k, v in updated_name_studio.__dict__.items()
-        if not k.startswith("_") and k != "client_mutation_id"
-    }
-    clean_fields_data = {
-        k: v
-        for k, v in updated_fields_studio.__dict__.items()
-        if not k.startswith("_") and k != "client_mutation_id"
-    }
+    updated = await respx_stash_client.update_studio(studio)
 
-    # Mock execute to return the appropriate updated studio
-    studio_update_mock = AsyncMock()
-    studio_update_mock.side_effect = [
-        {"studioUpdate": clean_name_data},
-        {"studioUpdate": clean_fields_data},
-    ]
+    # Verify the result
+    assert updated.id == "123"
+    assert updated.name == "Updated Name"
 
-    with patch.object(stash_client, "execute", studio_update_mock):
-        # Update single field - name
-        studio = Studio(
-            id=mock_studio.id,
-            name="Updated Name",  # Updated field
-            url=mock_studio.url,
-            details=mock_studio.details,
-            aliases=mock_studio.aliases,
-            stash_ids=mock_studio.stash_ids,
-            image_path=mock_studio.image_path,
-            tags=mock_studio.tags,
-        )
-
-        # Mock the to_input method
-        with patch.object(studio, "to_input", new_callable=AsyncMock, return_value={}):
-            updated = await stash_client.update_studio(studio)
-            assert updated.id == mock_studio.id
-            assert updated.name == "Updated Name"
-
-        # Update multiple fields - url and details
-        studio = Studio(
-            id=mock_studio.id,
-            name=mock_studio.name,
-            url="https://example.com/updated",  # Updated field
-            details="Updated details",  # Updated field
-            aliases=mock_studio.aliases,
-            stash_ids=mock_studio.stash_ids,
-            image_path=mock_studio.image_path,
-            tags=mock_studio.tags,
-        )
-
-        # Mock the to_input method
-        with patch.object(studio, "to_input", new_callable=AsyncMock, return_value={}):
-            updated = await stash_client.update_studio(studio)
-            assert updated.id == mock_studio.id
-            assert updated.url == "https://example.com/updated"
-            assert updated.details == "Updated details"
+    # Verify GraphQL call
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "studioUpdate" in req["query"]
+    assert "input" in req["variables"]
 
 
 @pytest.mark.asyncio
-async def test_update_studio_error(
-    stash_client: StashClient, stash_cleanup_tracker, mock_studio: Studio
-) -> None:
+async def test_update_studio_multiple_fields(respx_stash_client: StashClient) -> None:
+    """Test updating multiple studio fields at once."""
+    # Create response studio with updated values
+    updated_studio = StudioFactory.build(
+        id="123",
+        name="Test Studio",
+        urls=["https://example.com/updated"],
+        details="Updated details",
+        aliases=["Studio Test", "TestCo"],
+    )
+    response_data = _studio_to_response_dict(updated_studio)
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(200, json={"data": {"studioUpdate": response_data}})
+    )
+
+    # Create studio with original values
+    studio = StudioFactory.build(
+        id="123",
+        name="Test Studio",
+        urls=["https://example.com/original"],
+        details="Original details",
+        aliases=["Studio Test", "TestCo"],
+    )
+    # Actually change multiple field values to trigger dirty tracking
+    studio.urls = ["https://example.com/updated"]
+    studio.details = "Updated details"
+
+    updated = await respx_stash_client.update_studio(studio)
+
+    # Verify the result
+    assert updated.id == "123"
+    assert updated.urls == ["https://example.com/updated"]
+    assert updated.details == "Updated details"
+
+    # Verify GraphQL call
+    assert len(graphql_route.calls) == 1
+    req = json.loads(graphql_route.calls[0].request.content)
+    assert "studioUpdate" in req["query"]
+
+
+@pytest.mark.asyncio
+async def test_update_studio_no_changes(respx_stash_client: StashClient) -> None:
+    """Test updating a studio with no actual changes skips the API call."""
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(200, json={"data": {}})
+    )
+
+    # Create studio with no dirty fields
+    studio = StudioFactory.build(
+        id="123",
+        name="Test Studio",
+    )
+    # Ensure no dirty attrs (simulating a freshly loaded studio)
+    studio._dirty_attrs.clear()
+
+    result = await respx_stash_client.update_studio(studio)
+
+    # Should return the original studio without making API call
+    assert result.id == "123"
+    assert result.name == "Test Studio"
+
+    # No GraphQL call should be made
+    assert len(graphql_route.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_update_studio_error(respx_stash_client: StashClient) -> None:
     """Test handling errors when updating a studio."""
-    with (
-        patch.object(
-            stash_client,
-            "execute",
-            new_callable=AsyncMock,
-            side_effect=Exception("Test error"),
-        ),
-        patch.object(
-            mock_studio,
-            "to_input",
-            new_callable=AsyncMock,
-            return_value={"id": "123", "name": "Test"},
-        ),
-        pytest.raises(Exception),  # noqa: PT011, B017 - testing error handling for API failure
-    ):
-        await stash_client.update_studio(mock_studio)
+    respx.post("http://localhost:9999/graphql").mock(
+        return_value=httpx.Response(500, json={"errors": [{"message": "Test error"}]})
+    )
+
+    # Create studio with original value
+    studio = StudioFactory.build(id="123", name="Original")
+    # Actually change the value to trigger dirty tracking
+    studio.name = "Updated"
+
+    with pytest.raises(Exception):
+        await respx_stash_client.update_studio(studio)
+
+
+@pytest.mark.asyncio
+async def test_find_studio_caching(respx_stash_client: StashClient) -> None:
+    """Test that find_studio results are cached."""
+    # Create test studio
+    test_studio = StudioFactory.build(id="123", name="Test Studio")
+    studio_data = _studio_to_response_dict(test_studio)
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            httpx.Response(200, json={"data": {"findStudio": studio_data}}),
+            httpx.Response(200, json={"data": {"findStudio": None}}),
+        ]
+    )
+
+    # First call should hit the API
+    studio1 = await respx_stash_client.find_studio("123")
+    assert studio1 is not None
+    assert len(graphql_route.calls) == 1
+
+    # Second call with same ID should use cache
+    studio2 = await respx_stash_client.find_studio("123")
+    assert studio2 is not None
+    assert len(graphql_route.calls) == 1  # Still only 1 call
+
+    # Different ID should hit API again
+    studio3 = await respx_stash_client.find_studio("456")
+    assert studio3 is None
+    assert len(graphql_route.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_create_studio_clears_cache(respx_stash_client: StashClient) -> None:
+    """Test that create_studio clears the find caches."""
+    # Create test studio
+    test_studio = StudioFactory.build(id="123", name="Test Studio")
+    studio_data = _studio_to_response_dict(test_studio)
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            # First find_studio call
+            httpx.Response(200, json={"data": {"findStudio": studio_data}}),
+            # create_studio call
+            httpx.Response(200, json={"data": {"studioCreate": studio_data}}),
+            # Second find_studio call (after cache clear)
+            httpx.Response(200, json={"data": {"findStudio": studio_data}}),
+        ]
+    )
+
+    # Populate cache
+    await respx_stash_client.find_studio("123")
+    assert len(graphql_route.calls) == 1
+
+    # Create should clear cache
+    studio = StudioFactory.build(id="new", name="New Studio")
+    await respx_stash_client.create_studio(studio)
+    assert len(graphql_route.calls) == 2
+
+    # Next find should hit API again (cache was cleared)
+    await respx_stash_client.find_studio("123")
+    assert len(graphql_route.calls) == 3

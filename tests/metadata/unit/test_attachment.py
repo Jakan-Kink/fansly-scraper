@@ -170,7 +170,7 @@ async def test_attachment_exclusivity(session, test_account):
 
     # Adding the attachment should fail
     session.add(attachment)
-    with pytest.raises(Exception):  # noqa: PT011, B017 - database constraint violations vary by backend
+    with pytest.raises(Exception):
         await session.commit()
 
 

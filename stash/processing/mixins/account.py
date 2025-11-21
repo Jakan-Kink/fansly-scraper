@@ -179,7 +179,15 @@ class AccountProcessingMixin:
                     }
                 )
                 return
-            avatar = avatar_stash_obj.images[0]
+            # Convert dict to Image object (Strawberry doesn't auto-deserialize nested objects)
+            avatar_data = avatar_stash_obj.images[0]
+            from ...types import Image
+
+            avatar = (
+                Image.from_dict(avatar_data)
+                if isinstance(avatar_data, dict)
+                else avatar_data
+            )
             avatar_path = avatar.visual_files[0].path
             try:
                 await performer.update_avatar(self.context.client, avatar_path)

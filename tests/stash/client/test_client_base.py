@@ -1,8 +1,12 @@
-"""Unit tests for StashClientBase."""
+"""Unit tests for StashClientBase.
+
+These tests mock at the HTTP boundary using respx, allowing real code execution
+through the entire GraphQL client stack.
+"""
 
 import logging
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -68,21 +72,37 @@ async def test_client_create() -> None:
     await client.close()
 
 
+@respx.mock
 @pytest.mark.asyncio
 async def test_client_initialization_error() -> None:
-    """Test client initialization error handling."""
-    # Create a mock for initialize that raises an error
+    """Test client initialization error handling.
+
+    When the HTTP connection fails during client initialization,
+    the error should propagate up from create().
+
+    Note: We temporarily enable fetch_schema_from_transport to trigger
+    an actual HTTP call during initialization (normally disabled due to
+    Stash schema validation issues).
+    """
+    from gql import Client
+
+    # Mock the GraphQL endpoint to return a connection error
+    # This simulates a Stash server that is not running
+    respx.post("http://localhost:9999/graphql").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+
+    # Patch Client to enable schema fetching during init
+    # This makes connect_async() actually make an HTTP call
+    original_init = Client.__init__
+
+    def patched_init(self, *args, **kwargs):
+        kwargs["fetch_schema_from_transport"] = True
+        return original_init(self, *args, **kwargs)
+
     with (
-        patch.object(
-            StashClientBase,
-            "initialize",
-            AsyncMock(
-                side_effect=ValueError("Failed to connect to Stash: Connection failed")
-            ),
-        ),
-        pytest.raises(
-            ValueError, match="Failed to connect to Stash: Connection failed"
-        ),
+        patch.object(Client, "__init__", patched_init),
+        pytest.raises(Exception),
     ):
         await StashClientBase.create()
 

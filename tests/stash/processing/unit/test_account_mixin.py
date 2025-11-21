@@ -114,7 +114,7 @@ class TestAccountProcessingMixin:
         account_mixin.state.creator_name = "nonexistent"
 
         # Call process_creator and expect error
-        with pytest.raises(ValueError) as excinfo:  # noqa: PT011 - message validated by assertions below
+        with pytest.raises(ValueError) as excinfo:
             await account_mixin.process_creator(session=session)
 
         # Verify error message

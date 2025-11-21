@@ -73,7 +73,12 @@ class StudioClientMixin(StashClientProtocol):
                 fragments.FIND_STUDIOS_QUERY,
                 {"filter": filter_, "studio_filter": studio_filter},
             )
-            return FindStudiosResultType(**result["findStudios"])
+            # Deserialize each studio in the list
+            data = result["findStudios"]
+            studios = [
+                Studio(**sanitize_model_data(s)) for s in data.get("studios", [])
+            ]
+            return FindStudiosResultType(count=data.get("count", 0), studios=studios)
         except Exception:
             self.log.exception("Failed to find studios")
             return FindStudiosResultType(count=0, studios=[])

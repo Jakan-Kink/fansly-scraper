@@ -384,7 +384,6 @@ def create_image_dict(
         "studio": studio,
         "performers": performers or [],
         "tags": tags or [],
-        "files": [],
         "visual_files": [],
         "urls": [],
         "galleries": [],
