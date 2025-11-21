@@ -122,6 +122,8 @@ class StashProcessingBase:
                 self.state.download_path = set_create_directory_for_download(
                     self.config, self.state
                 )
+                # Update base_path to use the created download_path for scanning
+                self.state.base_path = self.state.download_path
                 print_info(f"Created download path: {self.state.download_path}")
             except Exception as e:
                 print_error(f"Failed to create download path: {e}")
