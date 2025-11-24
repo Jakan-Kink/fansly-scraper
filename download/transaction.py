@@ -38,17 +38,22 @@ async def in_transaction_or_new[T](
         # We're already in a transaction, create a savepoint
         if debug and "print_debug" in globals():
             globals()["print_debug"](f"Creating savepoint for {operation_name}")
+        # NOTE: Do not call session.commit() inside session.begin() or session.begin_nested()
+        # context managers. The context manager handles commit automatically on exit.
+        # Calling commit() explicitly inside causes "Can't operate on closed transaction" error.
+        # See: https://github.com/sqlalchemy/sqlalchemy/issues/6288
+        #      https://docs.sqlalchemy.org/en/20/orm/session_transaction.html
         async with session.begin_nested():
             results = await func(*args, **kwargs)
             await session.flush()
-            await session.commit()
             return results
     else:
-        # Start a new transaction
+        # No transaction yet - execute directly and let outer context handle transaction
+        # This allows async_session_scope() to manage the transaction lifecycle
         if debug and "print_debug" in globals():
-            globals()["print_debug"](f"Starting new transaction for {operation_name}")
-        async with session.begin():
-            results = await func(*args, **kwargs)
-            await session.flush()
-            await session.commit()
-            return results
+            globals()["print_debug"](
+                f"No transaction for {operation_name}, executing directly"
+            )
+        results = await func(*args, **kwargs)
+        await session.flush()
+        return results
