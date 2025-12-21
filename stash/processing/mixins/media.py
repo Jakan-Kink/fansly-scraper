@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session
+from stash_graphql_client.types import Image, ImageFile, Performer, Scene, VideoFile
 
 from errors import ConfigError
 from metadata import Account, AccountMediaBundle, Attachment, Media
@@ -23,7 +24,6 @@ from metadata.decorators import with_session
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Image, ImageFile, Performer, Scene, VideoFile
 
 
 if TYPE_CHECKING:

@@ -10,6 +10,7 @@ from pprint import pformat
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy.orm import Session
+from stash_graphql_client.types import Gallery, GalleryChapter, Studio
 
 from metadata import Account, Post
 from metadata.attachment import ContentType
@@ -17,7 +18,6 @@ from textio import print_error
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Gallery, GalleryChapter, Studio
 
 
 if TYPE_CHECKING:

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import select
+from stash_graphql_client.types import Performer, Studio
 
 from metadata import (
     Account,
@@ -23,7 +24,6 @@ from textio import print_error, print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Performer, Studio
 
 
 if TYPE_CHECKING:

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func, select
+from stash_graphql_client.types import Performer
 
 from metadata import Account, Media, account_avatar
 from metadata.decorators import with_session
@@ -15,7 +16,6 @@ from textio import print_error, print_warning
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Performer
 
 
 if TYPE_CHECKING:
@@ -179,15 +179,8 @@ class AccountProcessingMixin:
                     }
                 )
                 return
-            # Convert dict to Image object (Strawberry doesn't auto-deserialize nested objects)
-            avatar_data = avatar_stash_obj.images[0]
-            from ...types import Image
-
-            avatar = (
-                Image.from_dict(avatar_data)
-                if isinstance(avatar_data, dict)
-                else avatar_data
-            )
+            # Library returns Image objects directly - no conversion needed
+            avatar = avatar_stash_obj.images[0]
             avatar_path = avatar.visual_files[0].path
             try:
                 await performer.update_avatar(self.context.client, avatar_path)

@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from stash_graphql_client import StashContext
+from stash_graphql_client.types import Performer
 
 from metadata import Account, Database
 from metadata.decorators import with_session
 from textio import print_error, print_info
 
-from ..context import StashContext
 from ..logging import debug_print
-from ..types import Performer
 from .base import StashProcessingBase
 from .mixins import (
     AccountProcessingMixin,

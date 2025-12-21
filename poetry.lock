@@ -824,21 +824,6 @@ editorconfig = ">=0.12.2"
 six = ">=1.13.0"
 
 [[package]]
-name = "lia-web"
-version = "0.2.3"
-description = "A library for working with web frameworks"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "lia_web-0.2.3-py3-none-any.whl", hash = "sha256:237c779c943cd4341527fc0adfcc3d8068f992ee051f4ef059b8474ee087f641"},
-    {file = "lia_web-0.2.3.tar.gz", hash = "sha256:ccc9d24cdc200806ea96a20b22fb68f4759e6becdb901bd36024df7921e848d7"},
-]
-
-[package.dependencies]
-typing-extensions = ">=4.14.0"
-
-[[package]]
 name = "loguru"
 version = "0.7.3"
 description = "Python logging made (stupidly) simple"
@@ -1397,7 +1382,7 @@ version = "25.0"
 description = "Core utilities for Python packages"
 optional = false
 python-versions = ">=3.8"
-groups = ["main", "dev", "test"]
+groups = ["dev", "test"]
 files = [
     {file = "packaging-25.0-py3-none-any.whl", hash = "sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"},
     {file = "packaging-25.0.tar.gz", hash = "sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f"},
@@ -2926,43 +2911,6 @@ files = [
 ]
 
 [[package]]
-name = "strawberry-graphql"
-version = "0.285.0"
-description = "A library for creating GraphQL APIs"
-optional = false
-python-versions = "<4.0,>=3.10"
-groups = ["main"]
-files = [
-    {file = "strawberry_graphql-0.285.0-py3-none-any.whl", hash = "sha256:1db1ebf62e97daf5181beb8d42907e2fe926412d5da68c920b89d49dceb16680"},
-    {file = "strawberry_graphql-0.285.0.tar.gz", hash = "sha256:461e32cd98f2b92e1ef02cf409f36a630a6a265c020d676bdaaf4d5398b371fe"},
-]
-
-[package.dependencies]
-graphql-core = ">=3.2.0,<3.4.0"
-lia-web = ">=0.2.1"
-packaging = ">=23"
-python-dateutil = ">=2.7,<3.0"
-typing-extensions = ">=4.5.0"
-
-[package.extras]
-aiohttp = ["aiohttp (>=3.7.4.post0,<4)"]
-asgi = ["python-multipart (>=0.0.7)", "starlette (>=0.18.0)"]
-chalice = ["chalice (>=1.22,<2.0)"]
-channels = ["asgiref (>=3.2,<4.0)", "channels (>=3.0.5)"]
-cli = ["libcst", "pygments (>=2.3,<3.0)", "python-multipart (>=0.0.7)", "rich (>=12.0.0)", "starlette (>=0.18.0)", "typer (>=0.12.4)", "uvicorn (>=0.11.6)", "websockets (>=15.0.1,<16)"]
-debug = ["libcst", "rich (>=12.0.0)"]
-debug-server = ["libcst", "pygments (>=2.3,<3.0)", "python-multipart (>=0.0.7)", "rich (>=12.0.0)", "starlette (>=0.18.0)", "typer (>=0.12.4)", "uvicorn (>=0.11.6)", "websockets (>=15.0.1,<16)"]
-django = ["Django (>=3.2)", "asgiref (>=3.2,<4.0)"]
-fastapi = ["fastapi (>=0.65.2)", "python-multipart (>=0.0.7)"]
-flask = ["flask (>=1.1)"]
-litestar = ["litestar (>=2) ; python_version ~= \"3.10\""]
-opentelemetry = ["opentelemetry-api (<2)", "opentelemetry-sdk (<2)"]
-pydantic = ["pydantic (>1.6.1)"]
-pyinstrument = ["pyinstrument (>=4.0.0)"]
-quart = ["quart (>=0.19.3)"]
-sanic = ["sanic (>=20.12.2)"]
-
-[[package]]
 name = "strenum"
 version = "0.4.15"
 description = "An Enum that inherits from str."
@@ -3445,4 +3393,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "160423012a2b48bdb3d57881fd6309bf84b55b31c899157fcba52f85ca31af5f"
+content-hash = "27c802c47ff17fcc24119f1a8b95ecb108f67c2c385cbf4c16b94770fc116757"

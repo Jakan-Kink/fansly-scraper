@@ -10,11 +10,12 @@ from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from stash_graphql_client import StashContext
+
 from metadata import Account, Database
 from pathio import set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
-from ..context import StashContext
 from ..logging import debug_print
 from ..logging import processing_logger as logger
 

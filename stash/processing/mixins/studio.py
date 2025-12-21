@@ -6,6 +6,7 @@ import traceback
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
+from stash_graphql_client.types import Performer, Studio
 
 from metadata import Account
 from metadata.decorators import with_session
@@ -13,7 +14,6 @@ from textio import print_error, print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
-from ...types import Performer, Studio
 
 
 if TYPE_CHECKING:

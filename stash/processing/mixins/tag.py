@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ...client.utils import sanitize_model_data
+from stash_graphql_client.types import Image, Scene, Tag
+
 from ...logging import debug_print
-from ...types import Image, Scene, Tag
 
 
 if TYPE_CHECKING:
@@ -39,8 +39,8 @@ class TagProcessingMixin:
                 tag_filter={"name": {"value": tag_name, "modifier": "EQUALS"}},
             )
             if name_results.count > 0:
-                # Convert dict to Tag object using unpacking
-                found_tag = Tag(**sanitize_model_data(name_results.tags[0]))
+                # Library returns Tag objects directly - no conversion needed
+                found_tag = name_results.tags[0]
                 debug_print(
                     {
                         "method": "StashProcessing - _process_hashtags_to_tags",
@@ -55,8 +55,8 @@ class TagProcessingMixin:
                     tag_filter={"aliases": {"value": tag_name, "modifier": "INCLUDES"}},
                 )
                 if alias_results.count > 0:
-                    # Convert dict to Tag object using unpacking
-                    found_tag = Tag(**sanitize_model_data(alias_results.tags[0]))
+                    # Library returns Tag objects directly - no conversion needed
+                    found_tag = alias_results.tags[0]
                     debug_print(
                         {
                             "method": "StashProcessing - _process_hashtags_to_tags",
@@ -98,7 +98,8 @@ class TagProcessingMixin:
             q="Trailer",
         )
         if tag_data.count > 0:
-            preview_tag = Tag(**sanitize_model_data(tag_data.tags[0]))
+            # Library returns Tag objects directly - no conversion needed
+            preview_tag = tag_data.tags[0]
             # Check if tag already exists
             current_tag_ids = (
                 {t.id for t in file.tags} if hasattr(file, "tags") else set()
