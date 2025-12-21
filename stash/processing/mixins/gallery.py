@@ -10,8 +10,7 @@ from pprint import pformat
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy.orm import Session
-from stash_graphql_client import UNSET
-from stash_graphql_client.types import Gallery, GalleryChapter, Studio
+from stash_graphql_client.types import UNSET, Gallery, GalleryChapter, Studio
 
 from metadata import Account, Post
 from metadata.attachment import ContentType
