@@ -70,85 +70,26 @@ class MediaProcessingMixin:
         for file_data in stash_obj.visual_files:
             logger.debug(f"Checking visual file: {file_data}")
 
-            # First check if file_data is already an ImageFile
-            if (
-                hasattr(file_data, "__type_name__")
-                and file_data.__type_name__ == "ImageFile"
-            ):
-                logger.debug(f"Found existing ImageFile object: {file_data}")
+            # Library returns ImageFile objects directly (Pydantic auto-deserialization)
+            if isinstance(file_data, ImageFile):
+                logger.debug(f"Found ImageFile object: {file_data}")
                 return file_data
-
-            # Otherwise, if it's a dict, try to create an ImageFile
-            if isinstance(file_data, dict):
-                # Ensure all required fields exist for ImageFile
-                required_fields = [
-                    "id",
-                    "path",
-                    "basename",
-                    "parent_folder_id",
-                    "size",
-                    "width",
-                    "height",
-                ]
-                missing_fields = [
-                    field for field in required_fields if field not in file_data
-                ]
-
-                if missing_fields:
-                    logger.warning(
-                        f"Missing required fields for ImageFile: {missing_fields}. Cannot create ImageFile."
-                    )
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _get_image_file_from_stash_obj",
-                            "status": "missing_required_fields",
-                            "missing_fields": missing_fields,
-                            "available_fields": list(file_data.keys()),
-                        }
-                    )
-                    continue
-
-                # Ensure fingerprints exists
-                if "fingerprints" not in file_data:
-                    file_data["fingerprints"] = []
-                # Ensure mod_time exists
-                if "mod_time" not in file_data:
-                    file_data["mod_time"] = None
-
-                # Create the ImageFile with all required fields
-                try:
-                    file = ImageFile(**file_data)
-                    logger.debug(f"Created ImageFile from dict: {file}")
-                except Exception as e:
-                    logger.error(f"Error creating ImageFile: {e}")
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _get_image_file_from_stash_obj",
-                            "status": "image_file_creation_failed",
-                            "error": str(e),
-                            "file_data": file_data,
-                        }
-                    )
-                    continue
-                else:
-                    return file
-            else:
-                # Not a dict or ImageFile, might be something else
-                logger.warning(f"Unexpected file_data type: {type(file_data)}")
-                debug_print(
-                    {
-                        "method": "StashProcessing - _get_image_file_from_stash_obj",
-                        "status": "unexpected_file_data_type",
-                        "file_data_type": str(type(file_data)),
-                    }
-                )
-                continue
+            # Unexpected type - library should always return ImageFile
+            logger.warning(f"Unexpected file_data type: {type(file_data)}")
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_image_file_from_stash_obj",
+                    "status": "unexpected_file_data_type",
+                    "file_data_type": str(type(file_data)),
+                }
+            )
+            continue
 
         # If we get here, no valid files were found
         logger.debug("No valid ImageFile found in visual_files")
         return None
 
-    def _get_video_file_from_stash_obj(self, stash_obj: Scene) -> VideoFile | None:  # noqa: PLR0911 - Multiple validation checks for VideoFile extraction
+    def _get_video_file_from_stash_obj(self, stash_obj: Scene) -> VideoFile | None:
         """Extract VideoFile from Stash Scene object.
 
         Args:
@@ -177,90 +118,6 @@ class MediaProcessingMixin:
         try:
             # Get the first file
             file_data = stash_obj.files[0]
-            logger.debug(f"First file in scene: {file_data}")
-
-            # Check if already a VideoFile
-            if (
-                hasattr(file_data, "__type_name__")
-                and file_data.__type_name__ == "VideoFile"
-            ):
-                logger.debug(f"Found existing VideoFile object: {file_data}")
-                return file_data
-
-            # If it's a dict, try to create a VideoFile
-            if isinstance(file_data, dict):
-                # Log available fields
-                logger.debug(f"VideoFile data fields: {list(file_data.keys())}")
-
-                # Ensure required fields
-                required_fields = ["id", "path", "basename", "size"]
-                missing_fields = [
-                    field for field in required_fields if field not in file_data
-                ]
-
-                if missing_fields:
-                    logger.warning(
-                        f"Missing required fields for VideoFile: {missing_fields}. Cannot create VideoFile."
-                    )
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _get_video_file_from_stash_obj",
-                            "status": "missing_required_fields_video",
-                            "missing_fields": missing_fields,
-                            "available_fields": list(file_data.keys()),
-                            "scene_id": scene_id,
-                        }
-                    )
-                    return None
-
-                # Ensure optional fields
-                if "fingerprints" not in file_data:
-                    file_data["fingerprints"] = []
-                if "mod_time" not in file_data:
-                    file_data["mod_time"] = None
-
-                # Add extra debugging to see file paths
-                debug_print(
-                    {
-                        "method": "StashProcessing - _get_video_file_from_stash_obj",
-                        "status": "video_file_details",
-                        "scene_id": scene_id,
-                        "file_path": file_data.get("path"),
-                        "file_basename": file_data.get("basename"),
-                    }
-                )
-
-                # Create VideoFile
-                try:
-                    file = VideoFile(**file_data)
-                    logger.debug(f"Created VideoFile from dict: {file}")
-                except Exception as e:
-                    logger.error(f"Error creating VideoFile: {e}")
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _get_video_file_from_stash_obj",
-                            "status": "video_file_creation_failed",
-                            "error": str(e),
-                            "file_data": file_data,
-                            "scene_id": scene_id,
-                        }
-                    )
-                    return None
-                else:
-                    return file
-            else:
-                logger.warning(
-                    f"First file in scene is not a VideoFile or dict: {type(file_data)}"
-                )
-                debug_print(
-                    {
-                        "method": "StashProcessing - _get_video_file_from_stash_obj",
-                        "status": "invalid_video_file_type",
-                        "file_type": str(type(file_data)),
-                        "scene_id": scene_id,
-                    }
-                )
-                return None
         except Exception as e:
             logger.error(f"Error getting VideoFile from scene: {e}")
             debug_print(
@@ -272,6 +129,25 @@ class MediaProcessingMixin:
                 }
             )
             return None
+        else:
+            logger.debug(f"First file in scene: {file_data}")
+
+            # Library returns VideoFile objects directly (Pydantic auto-deserialization)
+            if not isinstance(file_data, VideoFile):
+                # Unexpected type - library should always return VideoFile
+                logger.warning(f"Unexpected file_data type: {type(file_data)}")
+                debug_print(
+                    {
+                        "method": "StashProcessing - _get_video_file_from_stash_obj",
+                        "status": "unexpected_file_data_type",
+                        "file_data_type": str(type(file_data)),
+                        "scene_id": scene_id,
+                    }
+                )
+                return None
+
+            logger.debug(f"Found VideoFile object: {file_data}")
+            return file_data
 
     def _create_nested_path_or_conditions(
         self,
@@ -527,12 +403,9 @@ class MediaProcessingMixin:
                             logger.info("Processing image data: %s", image_data)
 
                             try:
-                                image = (
-                                    Image(**image_data)
-                                    if isinstance(image_data, dict)
-                                    else image_data
-                                )
-                                logger.info("Created image object: %s", image)
+                                # Library returns Image objects directly (Pydantic)
+                                image = image_data
+                                logger.info("Using image object: %s", image)
 
                                 # Try to get a file from the image object
                                 if file := self._get_file_from_stash_obj(image):
@@ -641,11 +514,8 @@ class MediaProcessingMixin:
                         valid_files_found = False
                         for scene_data in results.scenes:
                             try:
-                                scene = (
-                                    Scene(**scene_data)
-                                    if isinstance(scene_data, dict)
-                                    else scene_data
-                                )
+                                # Library returns Scene objects directly (Pydantic)
+                                scene = scene_data
 
                                 if file := self._get_file_from_stash_obj(scene):
                                     found.append((scene, file))
@@ -937,7 +807,7 @@ class MediaProcessingMixin:
         logger.debug(
             f"Method: StashProcessing - _update_stash_metadata, "
             f"Status: update_metadata--before_save, "
-            f"Object type: {stash_obj.__type_name__}, "
+            f"Object type: {stash_obj.__class__.__name__}, "
             f"Object ID: {stash_obj.id}"
         )
 
@@ -972,7 +842,7 @@ class MediaProcessingMixin:
                 {
                     "method": "StashProcessing - _update_stash_metadata",
                     "status": "save_error",
-                    "object_type": stash_obj.__type_name__,
+                    "object_type": stash_obj.__class__.__name__,
                     "object_id": stash_obj.id,
                     "error": str(e),
                 }

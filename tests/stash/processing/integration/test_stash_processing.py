@@ -7,10 +7,10 @@ real GraphQL calls to a Stash instance.
 
 import pytest
 from sqlalchemy import select
+from stash_graphql_client.client.utils import sanitize_model_data
+from stash_graphql_client.types import Performer, Studio
 
 from metadata import Account
-from stash.client.utils import sanitize_model_data
-from stash.types import Performer, Studio
 from tests.fixtures.metadata.metadata_factories import AccountFactory
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
 

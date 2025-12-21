@@ -3,8 +3,8 @@
 import httpx
 import pytest
 import respx
+from stash_graphql_client.types import ImageFile, VideoFile
 
-from stash.types import ImageFile, VideoFile
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_graphql_response,

@@ -1,1 +1,0 @@
-"""Stash client test package."""

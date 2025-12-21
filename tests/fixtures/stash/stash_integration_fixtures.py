@@ -22,9 +22,9 @@ import httpx
 import pytest
 import pytest_asyncio
 import respx
+from stash_graphql_client.types import FindStudiosResultType, StashID, Studio
 
 from stash.processing import StashProcessing
-from stash.types import FindStudiosResultType, StashID, Studio
 
 
 # ============================================================================

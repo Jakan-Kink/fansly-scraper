@@ -8,7 +8,7 @@ REMOVED: AsyncMock monkey-patching has been removed. Tests should NOT mock
 internal async methods. Use @respx.mock to intercept HTTP calls at the edge instead.
 """
 
-from stash.types import Image, Scene, SceneMarker, Studio, Tag
+from stash_graphql_client.types import Image, Scene, SceneMarker, Studio, Tag
 
 # Import fixtures from stash_api_fixtures
 from tests.fixtures.stash.stash_api_fixtures import (

@@ -10,6 +10,7 @@ from pprint import pformat
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy.orm import Session
+from stash_graphql_client import UNSET
 from stash_graphql_client.types import Gallery, GalleryChapter, Studio
 
 from metadata import Account, Post
@@ -78,8 +79,8 @@ class GalleryProcessingMixin:
         if not galleries or galleries.count == 0:
             return None
 
-        for gallery_dict in galleries.galleries:
-            gallery = Gallery(**gallery_dict)
+        # Library returns Gallery objects directly (Pydantic)
+        for gallery in galleries.galleries:
             debug_print(
                 {
                     "method": "StashProcessing - _get_gallery_by_title",
@@ -92,10 +93,7 @@ class GalleryProcessingMixin:
             if (
                 gallery.title == title
                 and gallery.date == item.createdAt.strftime("%Y-%m-%d")
-                and (
-                    not studio
-                    or (gallery.studio and gallery.studio.get("id") == studio.id)
-                )
+                and (not studio or (gallery.studio and gallery.studio.id == studio.id))
             ):
                 debug_print(
                     {
@@ -126,8 +124,8 @@ class GalleryProcessingMixin:
         if not galleries or galleries.count == 0:
             return None
 
-        for gallery_dict in galleries.galleries:
-            gallery = Gallery(**gallery_dict)
+        # Library returns Gallery objects directly (Pydantic)
+        for gallery in galleries.galleries:
             if gallery.code == str(item.id):
                 debug_print(
                     {
@@ -159,10 +157,10 @@ class GalleryProcessingMixin:
         if not galleries or galleries.count == 0:
             return None
 
-        for gallery_dict in galleries.galleries:
-            gallery = Gallery(**gallery_dict)
-            # Check if url matches
-            if gallery.url == url or (hasattr(gallery, "urls") and url in gallery.urls):
+        # Library returns Gallery objects directly (Pydantic)
+        for gallery in galleries.galleries:
+            # Check if url matches in urls list (url field is deprecated)
+            if gallery.urls is not UNSET and url in gallery.urls:
                 debug_print(
                     {
                         "method": "StashProcessing - _get_gallery_by_url",
@@ -251,10 +249,8 @@ class GalleryProcessingMixin:
         """
         performers = []
 
-        # Add main performer
+        # Add main performer (id is always loaded in library objects)
         if performer:
-            if hasattr(performer, "awaitable_attrs"):
-                await performer.awaitable_attrs.id
             performers.append(performer)
 
         # Add mentioned accounts as performers
@@ -395,14 +391,11 @@ class GalleryProcessingMixin:
         # Set up performers
         await self._setup_gallery_performers(gallery, item, performer)
 
-        # Set studio if provided
+        # Set studio if provided (id is always loaded in library objects)
         if studio:
-            if hasattr(studio, "awaitable_attrs"):
-                await studio.awaitable_attrs.id
             gallery.studio = studio
 
-        # Set URL and save
-        gallery.url = url
+        # Set URLs (url field is deprecated, use urls)
         gallery.urls = [url]
 
         # Add chapters for aggregated posts
@@ -518,7 +511,7 @@ class GalleryProcessingMixin:
                     "status": "collected_media_batch",
                     "item_id": item.id,
                     "media_count": len(media_batch),
-                    "account_id": account.__dict__.get("id", None),
+                    "account_id": account.id,
                 }
             )
 

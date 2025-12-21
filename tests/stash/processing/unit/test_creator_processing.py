@@ -17,8 +17,8 @@ import httpx
 import pytest
 import respx
 import strawberry
+from stash_graphql_client.types.job import JobStatus
 
-from stash.types.job import JobStatus
 from tests.fixtures import (
     create_find_performers_result,
     create_find_studios_result,

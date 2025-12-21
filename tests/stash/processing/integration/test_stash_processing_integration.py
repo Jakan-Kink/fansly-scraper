@@ -18,10 +18,11 @@ Philosophy:
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from stash_graphql_client.client.utils import sanitize_model_data
+from stash_graphql_client.types import Studio
 
 from metadata.post import Post
 from stash.processing import StashProcessing
-from stash.types import Studio
 
 
 class TestStashProcessingIntegration:
@@ -49,7 +50,6 @@ class TestStashProcessingIntegration:
             # Find or create Fansly (network) studio in Docker Stash
             # Handles parallel test execution with try-except
             from errors import StashGraphQLError
-            from stash.client.utils import sanitize_model_data
 
             studio_result = await stash_client.find_studios(q="Fansly (network)")
             if studio_result.count > 0:
@@ -168,7 +168,6 @@ class TestStashProcessingIntegration:
             # Find or create Fansly (network) studio in Docker Stash
             # Handles parallel test execution with try-except
             from errors import StashGraphQLError
-            from stash.client.utils import sanitize_model_data
 
             studio_result = await stash_client.find_studios(q="Fansly (network)")
             if studio_result.count > 0:

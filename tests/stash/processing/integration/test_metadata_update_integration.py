@@ -18,9 +18,9 @@ IMPORTANT NOTES:
 from datetime import UTC, datetime
 
 import pytest
+from stash_graphql_client.client.utils import sanitize_model_data
+from stash_graphql_client.types import Image, Scene, Studio
 
-from stash.client.utils import sanitize_model_data
-from stash.types import Image, Scene
 from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 
 
@@ -90,8 +90,6 @@ class TestMetadataUpdateIntegration:
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
                 studio_dict = studio_results.studios[0]
-                from stash.types import Studio
-
                 studio = Studio(**sanitize_model_data(studio_dict))
                 cleanup["studios"].append(studio.id)
 
@@ -171,8 +169,6 @@ class TestMetadataUpdateIntegration:
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
                 studio_dict = studio_results.studios[0]
-                from stash.types import Studio
-
                 studio = Studio(**sanitize_model_data(studio_dict))
                 cleanup["studios"].append(studio.id)
 
@@ -284,8 +280,6 @@ class TestMetadataUpdateIntegration:
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
                 studio_dict = studio_results.studios[0]
-                from stash.types import Studio
-
                 studio = Studio(**sanitize_model_data(studio_dict))
                 cleanup["studios"].append(studio.id)
 
@@ -340,8 +334,6 @@ class TestMetadataUpdateIntegration:
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
                 studio_dict = studio_results.studios[0]
-                from stash.types import Studio
-
                 studio = Studio(**sanitize_model_data(studio_dict))
                 cleanup["studios"].append(studio.id)
 

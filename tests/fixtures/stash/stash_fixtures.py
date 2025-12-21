@@ -10,10 +10,9 @@ from typing import Any, ClassVar
 
 import pytest
 import strawberry
+from stash_graphql_client.types.base import StashObject
+from stash_graphql_client.types.enums import BulkUpdateIdMode
 from strawberry import ID
-
-from stash.types.base import StashObject
-from stash.types.enums import BulkUpdateIdMode
 
 
 # =============================================================================

@@ -112,11 +112,9 @@ class StashProcessing(
         try:
             if not account or not performer:
                 raise ValueError("Missing account or performer data")
-            # Convert dict to Performer if needed
-            if isinstance(performer, dict):
-                performer = Performer.from_dict(performer)
-            elif not isinstance(performer, Performer):
-                raise TypeError("performer must be a Stash Performer object or dict")
+            # Validate performer type (library returns Pydantic objects directly)
+            if not isinstance(performer, Performer):
+                raise TypeError("performer must be a Stash Performer object")
 
             # Ensure we have a fresh account instance bound to the session
             stmt = select(Account).where(Account.id == account.id)

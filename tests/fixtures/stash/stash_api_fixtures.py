@@ -11,9 +11,8 @@ import httpx
 import pytest
 import pytest_asyncio
 import respx
-
-from stash import StashClient, StashContext
-from stash.types import Scene, SceneCreateInput
+from stash_graphql_client import StashClient, StashContext
+from stash_graphql_client.types import Scene, SceneCreateInput
 
 
 # Export all fixtures for wildcard import

@@ -23,10 +23,17 @@ from datetime import UTC, datetime
 import pytest
 from factory.base import Factory
 from factory.declarations import LazyAttribute, LazyFunction, Sequence
-
-from stash.types import Gallery, Group, Image, Performer, Scene, Studio, Tag
-from stash.types.files import Fingerprint, ImageFile, VideoFile
-from stash.types.job import Job, JobStatus
+from stash_graphql_client.types import (
+    Gallery,
+    Group,
+    Image,
+    Performer,
+    Scene,
+    Studio,
+    Tag,
+)
+from stash_graphql_client.types.files import Fingerprint, ImageFile, VideoFile
+from stash_graphql_client.types.job import Job, JobStatus
 
 
 class PerformerFactory(Factory):

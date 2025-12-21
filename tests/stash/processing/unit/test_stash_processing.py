@@ -13,9 +13,9 @@ from unittest.mock import patch
 import httpx
 import pytest
 import respx
+from stash_graphql_client.client.utils import sanitize_model_data
 
 from metadata import account_avatar
-from stash.client.utils import sanitize_model_data
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,

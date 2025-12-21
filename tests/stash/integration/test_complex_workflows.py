@@ -7,9 +7,8 @@ import asyncio
 import time
 
 import pytest
-
-from stash import StashClient
-from stash.types import (
+from stash_graphql_client import StashClient
+from stash_graphql_client.types import (
     Gallery,
     GenderEnum,
     GenerateMetadataInput,

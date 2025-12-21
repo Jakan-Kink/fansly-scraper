@@ -10,10 +10,8 @@ import os
 from datetime import UTC, datetime
 
 import pytest
-
-from metadata import Account, Post
-from stash import StashClient
-from stash.types import (
+from stash_graphql_client import StashClient
+from stash_graphql_client.types import (
     GenerateMetadataInput,
     GenerateMetadataOptions,
     Performer,
@@ -21,6 +19,8 @@ from stash.types import (
     Studio,
     Tag,
 )
+
+from metadata import Account, Post
 
 
 # Skip all tests in this module when running in sandbox
