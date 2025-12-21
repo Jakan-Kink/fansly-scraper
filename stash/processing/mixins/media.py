@@ -52,102 +52,46 @@ class MediaProcessingMixin:
         return None
 
     def _get_image_file_from_stash_obj(self, stash_obj: Image) -> ImageFile | None:
-        """Extract ImageFile from Stash Image object.
+        """Extract ImageFile or VideoFile from Stash Image object.
+
+        The library handles visual_files union types automatically via Pydantic.
+        No manual type checking needed - Pydantic ensures correct deserialization.
 
         Args:
             stash_obj: Image object from Stash
 
         Returns:
-            ImageFile object or None if no valid file found
+            ImageFile or VideoFile object, or None if no files
         """
-        logger.debug(f"Getting file from Image object: {stash_obj}")
-        if not hasattr(stash_obj, "visual_files") or not stash_obj.visual_files:
+        if not stash_obj.visual_files:
             logger.debug("Image has no visual_files")
             return None
 
-        logger.debug(f"Image has {len(stash_obj.visual_files)} visual files")
-
-        for file_data in stash_obj.visual_files:
-            logger.debug(f"Checking visual file: {file_data}")
-
-            # Library returns ImageFile objects directly (Pydantic auto-deserialization)
-            if isinstance(file_data, ImageFile):
-                logger.debug(f"Found ImageFile object: {file_data}")
-                return file_data
-            # Unexpected type - library should always return ImageFile
-            logger.warning(f"Unexpected file_data type: {type(file_data)}")
-            debug_print(
-                {
-                    "method": "StashProcessing - _get_image_file_from_stash_obj",
-                    "status": "unexpected_file_data_type",
-                    "file_data_type": str(type(file_data)),
-                }
-            )
-            continue
-
-        # If we get here, no valid files were found
-        logger.debug("No valid ImageFile found in visual_files")
-        return None
+        # Library returns ImageFile/VideoFile objects directly (Pydantic auto-deserialization)
+        file_data = stash_obj.visual_files[0]
+        logger.debug(f"Found visual file: {file_data}")
+        return file_data
 
     def _get_video_file_from_stash_obj(self, stash_obj: Scene) -> VideoFile | None:
         """Extract VideoFile from Stash Scene object.
+
+        The library handles file deserialization automatically via Pydantic.
+        No manual type checking needed - Pydantic ensures correct types.
 
         Args:
             stash_obj: Scene object from Stash
 
         Returns:
-            VideoFile object or None if no valid file found
+            VideoFile object or None if no files
         """
-        scene_id = getattr(stash_obj, "id", "unknown")
-        logger.debug(f"Getting file from Scene object: {scene_id}")
-
-        if not hasattr(stash_obj, "files") or not stash_obj.files:
-            logger.debug(f"Scene has no files: {scene_id}")
-            debug_print(
-                {
-                    "method": "StashProcessing - _get_video_file_from_stash_obj",
-                    "status": "scene_has_no_files",
-                    "scene_id": scene_id,
-                }
-            )
+        if not stash_obj.files:
+            logger.debug(f"Scene {stash_obj.id} has no files")
             return None
 
-        # Enhanced logging for scene files
-        logger.debug(f"Scene {scene_id} has {len(stash_obj.files)} files")
-
-        try:
-            # Get the first file
-            file_data = stash_obj.files[0]
-        except Exception as e:
-            logger.error(f"Error getting VideoFile from scene: {e}")
-            debug_print(
-                {
-                    "method": "StashProcessing - _get_video_file_from_stash_obj",
-                    "status": "video_file_access_failed",
-                    "error": str(e),
-                    "scene_id": scene_id,
-                }
-            )
-            return None
-        else:
-            logger.debug(f"First file in scene: {file_data}")
-
-            # Library returns VideoFile objects directly (Pydantic auto-deserialization)
-            if not isinstance(file_data, VideoFile):
-                # Unexpected type - library should always return VideoFile
-                logger.warning(f"Unexpected file_data type: {type(file_data)}")
-                debug_print(
-                    {
-                        "method": "StashProcessing - _get_video_file_from_stash_obj",
-                        "status": "unexpected_file_data_type",
-                        "file_data_type": str(type(file_data)),
-                        "scene_id": scene_id,
-                    }
-                )
-                return None
-
-            logger.debug(f"Found VideoFile object: {file_data}")
-            return file_data
+        # Library returns VideoFile objects directly (Pydantic auto-deserialization)
+        file_data = stash_obj.files[0]
+        logger.debug(f"Found VideoFile in scene {stash_obj.id}: {file_data}")
+        return file_data
 
     def _create_nested_path_or_conditions(
         self,
