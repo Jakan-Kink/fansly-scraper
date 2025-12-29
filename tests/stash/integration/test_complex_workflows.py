@@ -7,9 +7,8 @@ import asyncio
 import time
 
 import pytest
-
-from stash import StashClient
-from stash.types import (
+from stash_graphql_client import StashClient
+from stash_graphql_client.types import (
     Gallery,
     GenderEnum,
     GenerateMetadataInput,
@@ -183,18 +182,18 @@ async def test_full_content_workflow(
             # Verify scene
             scene = await stash_client.find_scene(scene.id)
             assert scene is not None
-            assert scene.performers[0]["id"] == performer.id
-            assert scene.studio["id"] == studio.id
+            assert scene.performers[0].id == performer.id
+            assert scene.studio.id == studio.id
             assert len(scene.tags) == len(tags)
-            assert {t["id"] for t in scene.tags} == {t.id for t in tags}
+            assert {t.id for t in scene.tags} == {t.id for t in tags}
 
             # Verify gallery
             gallery = await stash_client.find_gallery(gallery.id)
             assert gallery is not None
-            assert gallery.performers[0]["id"] == performer.id
-            assert gallery.studio["id"] == studio.id
+            assert gallery.performers[0].id == performer.id
+            assert gallery.studio.id == studio.id
             assert len(gallery.tags) == len(tags)
-            assert {t["id"] for t in gallery.tags} == {t.id for t in tags}
+            assert {t.id for t in gallery.tags} == {t.id for t in tags}
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(

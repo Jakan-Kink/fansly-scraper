@@ -10,11 +10,12 @@ from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from stash_graphql_client import StashContext
+
 from metadata import Account, Database
 from pathio import set_create_directory_for_download
 from textio import print_error, print_info, print_warning
 
-from ..context import StashContext
 from ..logging import debug_print
 from ..logging import processing_logger as logger
 
@@ -198,16 +199,8 @@ class StashProcessingBase:
         """
         try:
             await self.continue_stash_processing(account, performer)
-            # Determine performer name whether it's object or dict
-            perf_name = (
-                (
-                    performer.get("name")
-                    if isinstance(performer, dict)
-                    else performer.name
-                )
-                if performer
-                else "unknown performer"
-            )
+            # Get performer name (library returns Pydantic objects directly)
+            perf_name = performer.name if performer else "unknown performer"
             print_info(f"Stash processing completed successfully for {perf_name}")
         except asyncio.CancelledError:
             logger.debug("Background task cancelled")

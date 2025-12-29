@@ -115,22 +115,13 @@ from .stash import (
     ImageFactory,
     ImageFileFactory,
     JobFactory,
-    MockTag,
     PerformerFactory,
     SceneFactory,
     StudioFactory,
     TagFactory,
-    TestStashCreateInput,
-    TestStashObject,
-    TestStashObjectNoCreate,
-    TestStashObjectNoStrawberry,
-    TestStashUpdateInput,
     VideoFileFactory,
     account_mixin,
     batch_mixin,
-    bulk_update_ids_data,
-    bulk_update_strings_data,
-    complex_relationship_data,
     content_mixin,
     create_find_performers_result,
     create_find_scenes_result,
@@ -142,48 +133,30 @@ from .stash import (
     create_studio_dict,
     create_tag_create_result,
     create_tag_dict,
-    edge_case_stash_data,
     enable_scene_creation,
     fansly_network_studio,
     gallery_mixin,
     gallery_mock_performer,
     gallery_mock_studio,
-    generate_graphql_response,
-    generate_stash_object_data,
-    large_stash_object_data,
     media_mixin,
     mock_gallery,  # From stash_type_factories (real factory)
     mock_image,  # From stash_type_factories (real factory)
-    mock_image_file,
+    mock_image_file,  # From stash_type_factories (real factory)
     mock_item,
     mock_performer,  # From stash_type_factories (real factory)
-    mock_permissions,
     mock_scene,  # From stash_type_factories (real factory)
     mock_studio,  # From stash_type_factories (real factory)
     mock_studio_finder,
     mock_tag,
-    mock_tags,
-    mock_video_file,
+    mock_video_file,  # From stash_type_factories (real factory)
     real_stash_processor,
-    reset_stash_field_names_cache,
     respx_stash_client,
     respx_stash_processor,
-    safe_image_create,
-    safe_scene_create,
-    safe_scene_marker_create,
-    safe_studio_create,
-    safe_tag_create,
-    sanitize_model_data,
     stash_cleanup_tracker,
     stash_client,
     stash_context,
     studio_mixin,
     tag_mixin,
-    test_query,
-    test_stash_object,
-    test_stash_object_new,
-    test_stash_object_no_create,
-    test_stash_object_no_strawberry,
     test_state,
 )
 from .stash import GroupFactory as StashGroupFactory
@@ -286,21 +259,11 @@ mod_stash_type_factories = [
     "mock_scene",  # From stash_type_factories - returns SceneFactory()
     "mock_gallery",
     "mock_image",
-    "mock_image_file",
-    "mock_video_file",
+    "mock_image_file",  # From stash_type_factories - returns ImageFileFactory()
+    "mock_video_file",  # From stash_type_factories - returns VideoFileFactory()
 ]
 
 mod_stash_fixtures = [
-    "reset_stash_field_names_cache",
-    "MockTag",
-    "TestStashCreateInput",
-    "TestStashObject",
-    "TestStashObjectNoCreate",
-    "TestStashObjectNoStrawberry",
-    "TestStashUpdateInput",
-    "bulk_update_ids_data",
-    "bulk_update_strings_data",
-    "complex_relationship_data",
     "create_find_performers_result",
     "create_find_scenes_result",
     "create_find_studios_result",
@@ -311,17 +274,15 @@ mod_stash_fixtures = [
     "create_studio_dict",
     "create_tag_create_result",
     "create_tag_dict",
-    "edge_case_stash_data",
-    "generate_graphql_response",
-    "generate_stash_object_data",
-    "large_stash_object_data",
+    # Removed (Phase 6 cleanup - from stash_fixtures.py): reset_stash_field_names_cache,
+    # MockTag, TestStashCreateInput, TestStashObject, TestStashObjectNoCreate,
+    # TestStashObjectNoStrawberry, TestStashUpdateInput, bulk_update_ids_data,
+    # bulk_update_strings_data, complex_relationship_data, edge_case_stash_data,
+    # generate_graphql_response, generate_stash_object_data, large_stash_object_data,
+    # mock_tags, test_stash_object, test_stash_object_new, test_stash_object_no_create,
+    # test_stash_object_no_strawberry
     # Removed: "mock_stash_client_with_errors", "mock_stash_client_with_responses"
     # (Mocked internal client.execute() - use respx to mock HTTP instead)
-    "mock_tags",
-    "test_stash_object",
-    "test_stash_object_new",
-    "test_stash_object_no_create",
-    "test_stash_object_no_strawberry",
 ]
 
 mod_stash_mixin_fixtures = [
@@ -367,12 +328,8 @@ mod_database_fixtures = [
 ]
 
 mod_stash_processing_fixtures = [
-    "sanitize_model_data",
-    "safe_scene_marker_create",
-    "safe_tag_create",
-    "safe_studio_create",
-    "safe_image_create",
-    "safe_scene_create",
+    # REMOVED (Phase 6 cleanup): All safe_*_create and sanitize_model_data
+    # These were never used - tests use real fixtures from stash_api_fixtures
 ]
 
 mod_stash_api_fixtures = [
@@ -381,7 +338,7 @@ mod_stash_api_fixtures = [
     "respx_stash_client",
     "enable_scene_creation",
     "stash_cleanup_tracker",
-    "test_query",
+    # Removed: test_query (Phase 6 cleanup - never used)
     # Removed: mock_account, mock_performer, mock_studio, mock_scene
     # (MagicMock duplicates - use real factories instead)
     # Removed: mock_session, mock_transport, mock_client
@@ -390,16 +347,8 @@ mod_stash_api_fixtures = [
 
 mod_stash_integration_fixtures = [
     "fansly_network_studio",
-    # Removed: "mock_context", "mock_stash_context"
-    # (Mocked internal StashContext - use real stash_context or respx)
     "test_state",  # was "mock_state" - already a real object, not a mock
     "mock_studio_finder",
-    # Removed: "integration_mock_performer", "integration_mock_studio", "integration_mock_scene"
-    # (MagicMock duplicates - use real factories from stash_type_factories)
-    "mock_permissions",
-    # Note: mock_gallery and mock_image are in mod_stash_fixtures (from stash_type_factories)
-    # Removed: "stash_processor"
-    # (Used mock_stash_context - use real_stash_processor with respx instead)
     "real_stash_processor",  # Hits real Docker Stash (true integration tests)
     "respx_stash_processor",  # Has respx.mock wrapper (unit tests with mocked HTTP)
 ]

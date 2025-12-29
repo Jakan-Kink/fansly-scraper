@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from stash_graphql_client import StashClient, StashContext
+
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
@@ -15,7 +17,6 @@ from config.modes import DownloadMode
 
 if TYPE_CHECKING:
     from metadata import Base, Database
-    from stash import StashClient, StashContext
 
 
 @dataclass
@@ -552,8 +553,6 @@ class FanslyConfig:
         if self._stash is None:
             if self.stash_context_conn is None:
                 raise RuntimeError("No StashContext connection data available.")
-
-            from stash import StashContext
 
             self._stash = StashContext(conn=self.stash_context_conn)
             self._save_config()

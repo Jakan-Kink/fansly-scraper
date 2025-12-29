@@ -102,7 +102,7 @@ class TestStudioProcessingMixin:
         new_studio_dict = create_studio_dict(
             id=mock_studio.id,
             name=mock_studio.name,
-            url=mock_studio.url,
+            urls=mock_studio.urls,
         )
 
         # Mock GraphQL responses (respx_stash_processor already has respx enabled)
@@ -210,7 +210,7 @@ class TestStudioProcessingMixin:
         creator_studio_dict = create_studio_dict(
             id="studio_123",
             name="test_user (Fansly)",
-            url="https://fansly.com/test_user",
+            urls=["https://fansly.com/test_user"],
             aliases=[],
             tags=[],
             stash_ids=[],

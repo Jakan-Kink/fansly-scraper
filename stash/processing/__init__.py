@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from stash_graphql_client import StashContext
+from stash_graphql_client.types import Performer
 
 from metadata import Account, Database
 from metadata.decorators import with_session
 from textio import print_error, print_info
 
-from ..context import StashContext
 from ..logging import debug_print
-from ..types import Performer
 from .base import StashProcessingBase
 from .mixins import (
     AccountProcessingMixin,
@@ -112,11 +112,9 @@ class StashProcessing(
         try:
             if not account or not performer:
                 raise ValueError("Missing account or performer data")
-            # Convert dict to Performer if needed
-            if isinstance(performer, dict):
-                performer = Performer.from_dict(performer)
-            elif not isinstance(performer, Performer):
-                raise TypeError("performer must be a Stash Performer object or dict")
+            # Validate performer type (library returns Pydantic objects directly)
+            if not isinstance(performer, Performer):
+                raise TypeError("performer must be a Stash Performer object")
 
             # Ensure we have a fresh account instance bound to the session
             stmt = select(Account).where(Account.id == account.id)

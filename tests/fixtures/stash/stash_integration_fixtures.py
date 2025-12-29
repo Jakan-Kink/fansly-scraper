@@ -22,9 +22,9 @@ import httpx
 import pytest
 import pytest_asyncio
 import respx
+from stash_graphql_client.types import FindStudiosResultType, StashID, Studio
 
 from stash.processing import StashProcessing
-from stash.types import FindStudiosResultType, StashID, Studio
 
 
 # ============================================================================
@@ -35,51 +35,37 @@ from stash.types import FindStudiosResultType, StashID, Studio
 def _clear_stash_client_caches(client):
     """Clear all LRU caches from StashClient to prevent test pollution.
 
-    The StashClient uses @async_lru_cache decorators on all find_* methods.
+    The StashClient may use @async_lru_cache decorators on find_* methods.
     These caches persist between sequential tests, causing stale data issues.
-    This function clears all known caches.
+    This function clears all known caches if they exist.
+
+    Note: In stash-graphql-client v0.5.0+, caching behavior may have changed.
+    We safely check for cache_clear() before calling it.
     """
-    # Performer caches
-    if hasattr(client, "find_performer"):
-        client.find_performer.cache_clear()
-    if hasattr(client, "find_performers"):
-        client.find_performers.cache_clear()
+    # List of method names that might have caches
+    cache_methods = [
+        "find_performer",
+        "find_performers",
+        "find_studio",
+        "find_studios",
+        "find_scene",
+        "find_scenes",
+        "find_image",
+        "find_images",
+        "find_gallery",
+        "find_galleries",
+        "find_tag",
+        "find_tags",
+        "find_marker",
+        "find_markers",
+    ]
 
-    # Studio caches
-    if hasattr(client, "find_studio"):
-        client.find_studio.cache_clear()
-    if hasattr(client, "find_studios"):
-        client.find_studios.cache_clear()
-
-    # Scene caches
-    if hasattr(client, "find_scene"):
-        client.find_scene.cache_clear()
-    if hasattr(client, "find_scenes"):
-        client.find_scenes.cache_clear()
-
-    # Image caches
-    if hasattr(client, "find_image"):
-        client.find_image.cache_clear()
-    if hasattr(client, "find_images"):
-        client.find_images.cache_clear()
-
-    # Gallery caches
-    if hasattr(client, "find_gallery"):
-        client.find_gallery.cache_clear()
-    if hasattr(client, "find_galleries"):
-        client.find_galleries.cache_clear()
-
-    # Tag caches
-    if hasattr(client, "find_tag"):
-        client.find_tag.cache_clear()
-    if hasattr(client, "find_tags"):
-        client.find_tags.cache_clear()
-
-    # Marker caches
-    if hasattr(client, "find_marker"):
-        client.find_marker.cache_clear()
-    if hasattr(client, "find_markers"):
-        client.find_markers.cache_clear()
+    for method_name in cache_methods:
+        if hasattr(client, method_name):
+            method = getattr(client, method_name)
+            # Only clear cache if the method has cache_clear (i.e., is decorated with @lru_cache)
+            if hasattr(method, "cache_clear"):
+                method.cache_clear()
 
 
 # ============================================================================
@@ -133,31 +119,9 @@ def test_state(tmp_path):
 # to tests/fixtures/metadata_fixtures.py for better separation of concerns.
 
 
-@pytest.fixture
-def mock_permissions():
-    """Fixture for mock content permissions.
-
-    This is just a dict, not a database object, so we keep it as-is.
-    """
-    return {
-        "permissionFlags": [
-            {
-                "id": "perm_123",
-                "type": 0,
-                "flags": 2,
-                "price": 0,
-                "metadata": "",
-                "validAfter": None,
-                "validBefore": None,
-                "verificationFlags": 2,
-                "verificationMetadata": "{}",
-            }
-        ],
-        "accountPermissionFlags": {
-            "flags": 6,
-            "metadata": '{"4":"{\\"subscriptionTierId\\":\\"tier_123\\"}"}',
-        },
-    }
+# REMOVED: mock_permissions fixture (Phase 6 cleanup)
+# This fixture was exported but never used in any test.
+# Tests use real permission objects from metadata factories instead.
 
 
 # REMOVED: integration_mock_performer, integration_mock_studio, integration_mock_scene
@@ -323,10 +287,8 @@ def mock_studio_finder(fansly_network_studio):
     async def mock_find_studios_fn(q=None, **kwargs):
         """Mock find_studios that returns Fansly network studio or empty result."""
         if q == "Fansly (network)":
-            import strawberry
-
-            fansly_studio_dict = strawberry.asdict(fansly_network_studio)
-            return FindStudiosResultType(count=1, studios=[fansly_studio_dict])
+            # Return Studio object directly - FindStudiosResultType expects Studio objects
+            return FindStudiosResultType(count=1, studios=[fansly_network_studio])
         # For creator-specific studio search, return empty (will create new)
         return FindStudiosResultType(count=0, studios=[])
 

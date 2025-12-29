@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from stash_graphql_client.types import FindImagesResultType, FindScenesResultType, Image
 
 from metadata import Account
 from metadata.account import AccountMedia, account_media_bundle_media
 from metadata.attachment import Attachment, ContentType
-from stash.types import Image
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaBundleFactory,
@@ -69,9 +69,6 @@ class TestMediaProcessingIntegration:
         factory_session.commit()
 
         # Mock Stash client at the API boundary
-        from unittest.mock import AsyncMock, patch
-
-        from stash.types import FindImagesResultType
         from tests.fixtures.stash.stash_type_factories import (
             ImageFactory,
             ImageFileFactory,
@@ -227,7 +224,6 @@ class TestMediaProcessingIntegration:
         factory_session.commit()
 
         # Mock Stash client at API boundary
-        from stash.types import FindImagesResultType, FindScenesResultType
         from tests.fixtures import (
             ImageFactory,
             ImageFileFactory,
@@ -385,8 +381,6 @@ class TestMediaProcessingIntegration:
         factory_session.commit()
 
         # Mock at client API boundary - this is where we make HTTP calls to Stash
-        from stash.types import FindImagesResultType
-
         # Create a proper visual file mock that _get_image_file_from_stash_obj will recognize
         mock_visual_file = mocker.MagicMock()
         mock_visual_file.__type_name__ = (
@@ -529,7 +523,6 @@ class TestMediaProcessingIntegration:
         factory_session.commit()
 
         # Mock Stash client at API boundary
-        from stash.types import FindImagesResultType
         from tests.fixtures.stash.stash_type_factories import (
             ImageFactory,
             ImageFileFactory,

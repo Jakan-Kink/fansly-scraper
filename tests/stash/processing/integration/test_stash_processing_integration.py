@@ -18,10 +18,10 @@ Philosophy:
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from stash_graphql_client.types import Studio
 
 from metadata.post import Post
 from stash.processing import StashProcessing
-from stash.types import Studio
 
 
 class TestStashProcessingIntegration:
@@ -49,12 +49,11 @@ class TestStashProcessingIntegration:
             # Find or create Fansly (network) studio in Docker Stash
             # Handles parallel test execution with try-except
             from errors import StashGraphQLError
-            from stash.client.utils import sanitize_model_data
 
             studio_result = await stash_client.find_studios(q="Fansly (network)")
             if studio_result.count > 0:
                 # Use existing studio
-                network_studio = Studio(**sanitize_model_data(studio_result.studios[0]))
+                network_studio = studio_result.studios[0]
             else:
                 # Try to create, but handle race condition if it already exists
                 try:
@@ -80,9 +79,7 @@ class TestStashProcessingIntegration:
                                 q="Fansly (network)"
                             )
                             if studio_result.count > 0:
-                                network_studio = Studio(
-                                    **sanitize_model_data(studio_result.studios[0])
-                                )
+                                network_studio = studio_result.studios[0]
                                 break
                         else:
                             # Studio exists but search never found it
@@ -168,12 +165,11 @@ class TestStashProcessingIntegration:
             # Find or create Fansly (network) studio in Docker Stash
             # Handles parallel test execution with try-except
             from errors import StashGraphQLError
-            from stash.client.utils import sanitize_model_data
 
             studio_result = await stash_client.find_studios(q="Fansly (network)")
             if studio_result.count > 0:
                 # Use existing studio
-                network_studio = Studio(**sanitize_model_data(studio_result.studios[0]))
+                network_studio = studio_result.studios[0]
             else:
                 # Try to create, but handle race condition if it already exists
                 try:
@@ -199,9 +195,7 @@ class TestStashProcessingIntegration:
                                 q="Fansly (network)"
                             )
                             if studio_result.count > 0:
-                                network_studio = Studio(
-                                    **sanitize_model_data(studio_result.studios[0])
-                                )
+                                network_studio = studio_result.studios[0]
                                 break
                         else:
                             # Studio exists but search never found it

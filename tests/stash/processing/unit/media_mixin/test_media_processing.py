@@ -78,7 +78,7 @@ class TestMediaProcessing:
 
         # Response 4: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -89,7 +89,7 @@ class TestMediaProcessing:
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{account.username} (Fansly)",
-            url=f"https://fansly.com/{account.username}",
+            urls=[f"https://fansly.com/{account.username}"],
             parent_studio=fansly_studio,
         )
 
@@ -267,7 +267,7 @@ class TestMediaProcessing:
 
         # Response 4: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -278,7 +278,7 @@ class TestMediaProcessing:
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{account.username} (Fansly)",
-            url=f"https://fansly.com/{account.username}",
+            urls=[f"https://fansly.com/{account.username}"],
             parent_studio=fansly_studio,
         )
 
@@ -496,7 +496,7 @@ class TestMediaProcessing:
 
         # Response 4: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -507,7 +507,7 @@ class TestMediaProcessing:
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{account.username} (Fansly)",
-            url=f"https://fansly.com/{account.username}",
+            urls=[f"https://fansly.com/{account.username}"],
             parent_studio=fansly_studio,
         )
 

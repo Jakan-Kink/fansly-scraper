@@ -9,7 +9,6 @@ import json
 import httpx
 import pytest
 import respx
-import strawberry
 
 from tests.fixtures import MediaLocationFactory
 from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
@@ -20,6 +19,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_studios_result,
     create_graphql_response,
     create_image_dict,
+    create_performer_dict,
     create_scene_dict,
     create_studio_dict,
 )
@@ -105,7 +105,10 @@ async def test_process_hls_variant(
     find_scenes_data = create_find_scenes_result(count=1, scenes=[scene_data])
 
     # Response 2: findPerformers - convert mock_performer to dict
-    performer_dict = strawberry.asdict(mock_performer)
+    performer_dict = create_performer_dict(
+        id=mock_performer.id,
+        name=mock_performer.name,
+    )
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
     )
@@ -120,7 +123,7 @@ async def test_process_hls_variant(
     creator_studio_dict = create_studio_dict(
         id="creator_999",
         name=f"{test_account.username} (Fansly)",
-        url=f"https://fansly.com/{test_account.username}",
+        urls=[f"https://fansly.com/{test_account.username}"],
     )
     creator_studio_result = create_find_studios_result(
         count=1, studios=[creator_studio_dict]
@@ -268,7 +271,10 @@ async def test_process_dash_variant(
     find_scenes_data = create_find_scenes_result(count=1, scenes=[scene_data])
 
     # Response 2: findPerformers - convert mock_performer to dict
-    performer_dict = strawberry.asdict(mock_performer)
+    performer_dict = create_performer_dict(
+        id=mock_performer.id,
+        name=mock_performer.name,
+    )
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
     )
@@ -283,7 +289,7 @@ async def test_process_dash_variant(
     creator_studio_dict = create_studio_dict(
         id="creator_999",
         name=f"{test_account.username} (Fansly)",
-        url=f"https://fansly.com/{test_account.username}",
+        urls=[f"https://fansly.com/{test_account.username}"],
     )
     creator_studio_result = create_find_studios_result(
         count=1, studios=[creator_studio_dict]
@@ -422,7 +428,10 @@ async def test_process_preview_variant(
     empty_scenes_result = create_find_scenes_result(count=0, scenes=[])
 
     # Response 3: findPerformers - convert mock_performer to dict
-    performer_dict = strawberry.asdict(mock_performer)
+    performer_dict = create_performer_dict(
+        id=mock_performer.id,
+        name=mock_performer.name,
+    )
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
     )
@@ -437,7 +446,7 @@ async def test_process_preview_variant(
     creator_studio_dict = create_studio_dict(
         id="creator_999",
         name=f"{test_account.username} (Fansly)",
-        url=f"https://fansly.com/{test_account.username}",
+        urls=[f"https://fansly.com/{test_account.username}"],
     )
     creator_studio_result = create_find_studios_result(
         count=1, studios=[creator_studio_dict]
@@ -612,7 +621,10 @@ async def test_process_bundle_ordering(
     empty_scenes_result = create_find_scenes_result(count=0, scenes=[])
 
     # Create reusable responses
-    performer_dict = strawberry.asdict(mock_performer)
+    performer_dict = create_performer_dict(
+        id=mock_performer.id,
+        name=mock_performer.name,
+    )
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
     )
@@ -625,7 +637,7 @@ async def test_process_bundle_ordering(
     creator_studio_dict = create_studio_dict(
         id="creator_999",
         name=f"{test_account.username} (Fansly)",
-        url=f"https://fansly.com/{test_account.username}",
+        urls=[f"https://fansly.com/{test_account.username}"],
     )
     creator_studio_result = create_find_studios_result(
         count=1, studios=[creator_studio_dict]
@@ -787,7 +799,10 @@ async def test_process_bundle_with_preview(
     empty_performers_result = create_find_performers_result(count=0, performers=[])
 
     # findPerformers call 2: by alias (found)
-    performer_dict = strawberry.asdict(mock_performer)
+    performer_dict = create_performer_dict(
+        id=mock_performer.id,
+        name=mock_performer.name,
+    )
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
     )
@@ -800,7 +815,7 @@ async def test_process_bundle_with_preview(
     creator_studio_dict = create_studio_dict(
         id="creator_999",
         name=f"{test_account.username} (Fansly)",
-        url=f"https://fansly.com/{test_account.username}",
+        urls=[f"https://fansly.com/{test_account.username}"],
     )
     creator_studio_result = create_find_studios_result(
         count=1, studios=[creator_studio_dict]
@@ -967,7 +982,10 @@ async def test_bundle_permission_inheritance(
     empty_performers_result = create_find_performers_result(count=0, performers=[])
 
     # findPerformers call 2: by alias (found)
-    performer_dict = strawberry.asdict(mock_performer)
+    performer_dict = create_performer_dict(
+        id=mock_performer.id,
+        name=mock_performer.name,
+    )
     find_performers_data = create_find_performers_result(
         count=1, performers=[performer_dict]
     )
@@ -980,7 +998,7 @@ async def test_bundle_permission_inheritance(
     creator_studio_dict = create_studio_dict(
         id="creator_999",
         name=f"{test_account.username} (Fansly)",
-        url=f"https://fansly.com/{test_account.username}",
+        urls=[f"https://fansly.com/{test_account.username}"],
     )
     creator_studio_result = create_find_studios_result(
         count=1, studios=[creator_studio_dict]
