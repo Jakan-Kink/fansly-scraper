@@ -10,6 +10,10 @@ from stash_graphql_client import StashClient
 from stash_graphql_client.types import GenerateMetadataOptions, JobStatus, Scene
 
 
+# Integration tests with metadata generation need longer timeouts
+pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(180)]
+
+
 @pytest.mark.asyncio
 async def test_scene_workflow(
     stash_client: StashClient, enable_scene_creation, stash_cleanup_tracker

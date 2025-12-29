@@ -393,12 +393,78 @@ def create_image_dict(
     return base
 
 
+def create_find_galleries_result(
+    count: int = 0, galleries: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """Create a findGalleries query result matching FindGalleriesResultType.
+
+    Args:
+        count: Total number of galleries
+        galleries: List of gallery dicts
+
+    Returns:
+        Dict matching FindGalleriesResultType schema
+    """
+    if galleries is None:
+        galleries = []
+
+    return {"count": count, "galleries": galleries}
+
+
+def create_gallery_dict(
+    id: str,
+    title: str | None = None,
+    code: str | None = None,
+    urls: list[str] | None = None,
+    studio: dict | None = None,
+    performers: list[dict] | None = None,
+    tags: list[dict] | None = None,
+    scenes: list[dict] | None = None,
+    images: list[dict] | None = None,
+    **kwargs,
+) -> dict[str, Any]:
+    """Create a Gallery dict matching the Gallery type schema.
+
+    Args:
+        id: Gallery ID
+        title: Gallery title
+        code: Gallery code
+        urls: List of URL strings
+        studio: Studio dict
+        performers: List of performer dicts
+        tags: List of tag dicts
+        scenes: List of scene dicts
+        images: List of image dicts
+        **kwargs: Additional gallery fields
+
+    Returns:
+        Dict matching Gallery type
+    """
+    base = {
+        "id": id,
+        "title": title,
+        "code": code,
+        "urls": urls or [],
+        "studio": studio,
+        "performers": performers or [],
+        "tags": tags or [],
+        "scenes": scenes or [],
+        "images": images or [],
+        "files": [],
+        "organized": False,
+    }
+    base.update(kwargs)
+    return base
+
+
 __all__ = [
+    "create_find_galleries_result",
     "create_find_images_result",
     "create_find_performers_result",
     "create_find_scenes_result",
     "create_find_studios_result",
     "create_find_tags_result",
+    "create_gallery_dict",
     "create_graphql_response",
     "create_image_dict",
     "create_performer_dict",

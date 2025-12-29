@@ -20,28 +20,28 @@ from stash_graphql_client.types import (
 )
 
 
+# Integration tests with metadata generation and error recovery need longer timeouts
+pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(180)]
+
+
 def get_id(obj):
-    """Get ID from either a dict or an object with id attribute."""
-    if isinstance(obj, dict):
-        return obj.get("id")
-    return getattr(obj, "id", None)
+    """Get ID from Pydantic model."""
+    return obj.id
 
 
 def get_ids(objects):
-    """Get set of IDs from list of dicts or objects."""
-    return {get_id(obj) for obj in objects}
+    """Get set of IDs from list of Pydantic models."""
+    return {obj.id for obj in objects}
 
 
 def get_attribute(obj, attr_name):
-    """Get attribute from either a dict or an object."""
-    if isinstance(obj, dict):
-        return obj.get(attr_name)
+    """Get attribute from Pydantic model."""
     return getattr(obj, attr_name, None)
 
 
 def get_attribute_list(obj, attr_name):
-    """Get attribute list from either a dict or an object."""
-    attr = get_attribute(obj, attr_name)
+    """Get attribute list from Pydantic model."""
+    attr = getattr(obj, attr_name, None)
     if attr is None:
         return []
     return attr

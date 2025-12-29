@@ -72,6 +72,7 @@ pylint = ">=3.3.3"
 pre-commit = ">=4.0.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 ruff = ">=0.14.2"
+keyrings-codeartifact = "^2.1.2"
 
 [tool.poetry.group.typing]
 optional = true
@@ -301,15 +302,14 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--tb=short",
+    "--cov=.",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
     "--cov-config=pyproject.toml",
-    "--randomly-seed=1234",
-    "--timeout=300",
-    "-n=8",  # Use 8 parallel workers
-    "-v",  # Add verbose output for better debugging
-    "--color=no",  # Disable colors to avoid ANSI codes in log files
 ]
+timeout = 60
+timeout_method = "thread"
+timeout_func_only = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -320,6 +320,7 @@ asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning",
+    "default::errors.StashCleanupWarning",  # Always show Stash cleanup warnings (must come after ignore::UserWarning)
     "ignore::sqlalchemy.exc.SAWarning",
     "ignore::coverage.exceptions.CoverageWarning",
     "ignore::pluggy.PluggyTeardownRaisedWarning",
@@ -330,7 +331,6 @@ markers = [
     "unit: marks tests as unit tests",
     "functional: marks tests as functional tests",
     "performance: marks tests as performance tests",
-    "asyncio: mark a test as an async test",
     "full_workflow: marks tests that run the complete workflow",
     "comprehensive: marks tests that check for comprehensive coverage",
 ]
@@ -488,3 +488,9 @@ ignore_errors = true
 module = "config.decorators"
 # Complex decorator typing with dynamic behavior
 ignore_errors = true
+
+# AWS CodeArtifact private package repository
+[[tool.poetry.source]]
+name = "codeartifact"
+url = "https://stash-tools-024848464090.d.codeartifact.us-east-2.amazonaws.com/pypi/python-packages/simple/"
+priority = "supplemental"

@@ -52,17 +52,18 @@ class MediaProcessingMixin:
             return self._get_video_file_from_stash_obj(stash_obj)
         return None
 
-    def _get_image_file_from_stash_obj(self, stash_obj: Image) -> ImageFile | None:
+    def _get_image_file_from_stash_obj(
+        self, stash_obj: Image
+    ) -> ImageFile | VideoFile | None:
         """Extract ImageFile or VideoFile from Stash Image object.
-
-        The library handles visual_files union types automatically via Pydantic.
-        No manual type checking needed - Pydantic ensures correct deserialization.
 
         Args:
             stash_obj: Image object from Stash
 
         Returns:
-            ImageFile or VideoFile object, or None if no files
+            ImageFile or VideoFile object, or None if no valid file found.
+            Note: Animated GIFs are stored as VideoFile in Stash, so Images
+            can have either ImageFile or VideoFile in their visual_files.
         """
         if not stash_obj.visual_files:
             logger.debug("Image has no visual_files")
@@ -663,7 +664,10 @@ class MediaProcessingMixin:
             performers.append(main_performer)
 
         # Add mentioned performers if any
-        mentions = await item.awaitable_attrs.accountMentions
+        try:
+            mentions = await item.awaitable_attrs.accountMentions
+        except AttributeError:
+            mentions = None
         if mentions:
             for mention in mentions:
                 # Try to find existing performer
@@ -1243,8 +1247,9 @@ class MediaProcessingMixin:
             lookup_data = [
                 (stash_id, mimetype) for stash_id, mimetype, _ in stash_id_media
             ]
+            # Use str keys since GraphQL returns string IDs
             stash_id_map = {
-                stash_id: media_id for stash_id, _, media_id in stash_id_media
+                str(stash_id): media_id for stash_id, _, media_id in stash_id_media
             }
 
             debug_print(

@@ -305,7 +305,7 @@ class TestBackgroundProcessing:
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user (Fansly)"
-        assert studio_vars["url"] == "https://fansly.com/test_user"
+        assert studio_vars["urls"] == ["https://fansly.com/test_user"]
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_stash_id_update(
@@ -403,7 +403,7 @@ class TestBackgroundProcessing:
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user2 (Fansly)"
-        assert studio_vars["url"] == "https://fansly.com/test_user2"
+        assert studio_vars["urls"] == ["https://fansly.com/test_user2"]
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_missing_inputs(
@@ -498,7 +498,7 @@ class TestBackgroundProcessing:
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user3 (Fansly)"
-        assert studio_vars["url"] == "https://fansly.com/test_user3"
+        assert studio_vars["urls"] == ["https://fansly.com/test_user3"]
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_invalid_performer_type(

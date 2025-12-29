@@ -1,54 +1,48 @@
 """Tests for batch processing functionality in ContentProcessingMixin.
 
-This test module uses real database fixtures and factories instead of mocks
-to provide more reliable integration testing while maintaining test isolation.
+This test module uses real database fixtures and factories with respx edge mocking
+to provide reliable unit testing while letting real code flow execute.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+import json
+from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
+import respx
 from sqlalchemy import insert, select
 from sqlalchemy.orm import selectinload
 
-from metadata import (
-    Account,
-    AccountMedia,
-    AccountMediaBundle,
-    Attachment,
-    Post,
-)
+from metadata import Account, AccountMedia, AccountMediaBundle, Attachment, Post
 from metadata.account import account_media_bundle_media
 from metadata.attachment import ContentType
-from metadata.messages import group_users
 from tests.fixtures import (
     AccountFactory,
     AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
     MediaFactory,
-    MessageFactory,
-    MetadataGroupFactory,
     PostFactory,
+    create_graphql_response,
 )
+from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
 
 
 @pytest.mark.asyncio
 async def test_process_creator_posts_with_batch_processing(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
+    factory_async_session, session, respx_stash_processor
 ):
-    """Test process_creator_posts with batch processing enabled."""
-    # Enable batch processing
-    content_mixin.use_batch_processing = True
-    content_mixin._batch_processing_done = False
+    """Test process_creator_posts processes galleries correctly."""
+    await respx_stash_processor.context.get_client()
 
     # Create account with factory
-    account = AccountFactory(id=12345, username="test_user", displayName="Test User")
+    AccountFactory(id=12345, username="test_user", displayName="Test User")
 
     # Create post with attachment (required by INNER JOIN in process_creator_posts)
-    post = PostFactory(id=200, accountId=12345, content="Test post")
-    media = MediaFactory(id=123, accountId=12345, mimetype="image/jpeg")
-    account_media = AccountMediaFactory(id=123, accountId=12345, mediaId=123)
-    attachment = AttachmentFactory(
+    PostFactory(id=200, accountId=12345, content="Test post")
+    MediaFactory(id=123, accountId=12345, mimetype="image/jpeg", is_downloaded=True)
+    AccountMediaFactory(id=123, accountId=12345, mediaId=123)
+    AttachmentFactory(
         id=60001,
         postId=200,  # Link attachment to post
         contentId=123,  # Points to AccountMedia
@@ -56,89 +50,108 @@ async def test_process_creator_posts_with_batch_processing(
         pos=0,
     )
 
+    # Commit factory changes
+    factory_async_session.commit()
+
     # Query fresh from async session
     result = await session.execute(select(Account).where(Account.id == 12345))
     account = result.scalar_one()
 
-    # Mock batch processing result
-    mock_batch_result = {"images": ["img1"], "scenes": ["scene1"]}
-    content_mixin.process_account_media_by_mimetype = AsyncMock(
-        return_value=mock_batch_result
+    # Create performer and studio using factories
+    performer = PerformerFactory.build(id="500", name="test_user")
+    studio = StudioFactory.build(id="999", name="test_user (Fansly)")
+
+    # Create minimal GraphQL responses to let batch processing execute
+    # This is a UNIT test - we only care that batch processing orchestration works
+    from tests.fixtures.stash import create_find_galleries_result, create_gallery_dict
+
+    graphql_route = respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            # findGalleries - search by code (returns no galleries)
+            httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findGalleries", create_find_galleries_result(count=0, galleries=[])
+                ),
+            ),
+            # findGalleries - search by title (returns no galleries)
+            httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findGalleries", create_find_galleries_result(count=0, galleries=[])
+                ),
+            ),
+            # findGalleries - search by URL (returns no galleries, will create new)
+            httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "findGalleries", create_find_galleries_result(count=0, galleries=[])
+                ),
+            ),
+            # galleryCreate - create new gallery
+            httpx.Response(
+                200,
+                json=create_graphql_response(
+                    "galleryCreate",
+                    create_gallery_dict(
+                        id="700",
+                        title="test_user - 2025/11/21",
+                        code="200",
+                        urls=["https://fansly.com/post/200"],
+                        studio={"id": "999"},
+                        performers=[{"id": "500", "name": "test_user"}],
+                    ),
+                ),
+            ),
+        ]
     )
 
-    await content_mixin.process_creator_posts(
+    await respx_stash_processor.process_creator_posts(
         account=account,
-        performer=mock_performer,
-        studio=mock_studio,
+        performer=performer,
+        studio=studio,
         session=session,
     )
 
-    # Verify batch processing was called
-    content_mixin.process_account_media_by_mimetype.assert_called_once()
-    assert content_mixin._batch_processing_done is True
+    # Verify GraphQL calls were made in expected sequence
+    calls = graphql_route.calls
+    assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
 
+    # Call 0: findGalleries (by code)
+    req0 = json.loads(calls[0].request.content)
+    assert "findGalleries" in req0["query"]
+    assert req0["variables"]["gallery_filter"]["code"]["value"] == "200"
+    assert calls[0].response.json()["data"]["findGalleries"]["count"] == 0
 
-@pytest.mark.asyncio
-async def test_process_creator_messages_skip_batch_processing(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
-):
-    """Test process_creator_messages skips batch processing when already done."""
-    from unittest.mock import AsyncMock
+    # Call 1: findGalleries (by title)
+    req1 = json.loads(calls[1].request.content)
+    assert "findGalleries" in req1["query"]
+    assert "test_user" in req1["variables"]["gallery_filter"]["title"]["value"]
+    assert calls[1].response.json()["data"]["findGalleries"]["count"] == 0
 
-    # Enable batch processing but mark it as already done
-    content_mixin.use_batch_processing = True
-    content_mixin._batch_processing_done = True
-
-    # Mock worker pool methods
-    queue = MagicMock()
-    queue.join = AsyncMock()
-    queue.put = AsyncMock()
-    content_mixin._setup_worker_pool = AsyncMock(
-        return_value=("task", "process", MagicMock(), queue)
+    # Call 2: findGalleries (by URL)
+    req2 = json.loads(calls[2].request.content)
+    assert "findGalleries" in req2["query"]
+    assert (
+        req2["variables"]["gallery_filter"]["url"]["value"]
+        == "https://fansly.com/post/200"
     )
-    content_mixin._run_worker_pool = AsyncMock()
+    assert calls[2].response.json()["data"]["findGalleries"]["count"] == 0
 
-    # Mock batch processing method to verify it's not called
-    content_mixin.process_account_media_by_mimetype = AsyncMock()
-
-    # Create account and group with factory
-    account = AccountFactory(id=12345, username="test_user", displayName="Test User")
-    group = MetadataGroupFactory(id=40001, createdBy=12345)
-
-    # Create message with attachment (required by INNER JOIN)
-    message = MessageFactory(
-        id=50001, groupId=40001, senderId=12345, content="Test message"
-    )
-    media = MediaFactory(id=124, accountId=12345, mimetype="image/jpeg")
-    account_media = AccountMediaFactory(id=124, accountId=12345, mediaId=124)
-    attachment = AttachmentFactory(
-        id=60002,
-        messageId=50001,  # Link attachment to message
-        contentId=124,  # Points to AccountMedia
-        contentType=ContentType.ACCOUNT_MEDIA,
-        pos=0,
-    )
-    await session.execute(insert(group_users).values(accountId=12345, groupId=40001))
-    await session.flush()
-
-    # Query fresh account
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
-
-    await content_mixin.process_creator_messages(
-        account=account,
-        performer=mock_performer,
-        studio=mock_studio,
-        session=session,
-    )
-
-    # Verify batch processing was not called since it was already done
-    content_mixin.process_account_media_by_mimetype.assert_not_called()
+    # Call 3: galleryCreate (create new gallery)
+    req3 = json.loads(calls[3].request.content)
+    assert "GalleryCreate" in req3["query"]
+    assert req3["variables"]["input"]["code"] == "200"
+    assert req3["variables"]["input"]["studio_id"] == "999"
+    assert req3["variables"]["input"]["performer_ids"] == ["500"]
+    assert calls[3].response.json()["data"]["galleryCreate"]["id"] == "700"
 
 
 @pytest.mark.asyncio
 async def test_collect_media_from_attachments_with_aggregated_post(
-    factory_async_session, session, content_mixin
+    factory_async_session,
+    session,
+    respx_stash_processor,
 ):
     """Test _collect_media_from_attachments with an aggregated post."""
     # Create account and media
@@ -180,7 +193,9 @@ async def test_collect_media_from_attachments_with_aggregated_post(
     main_attachment = result.scalar_one()
 
     # Call the method
-    result = await content_mixin._collect_media_from_attachments([main_attachment])
+    result = await respx_stash_processor._collect_media_from_attachments(
+        [main_attachment]
+    )
 
     # Verify nested media was found
     assert len(result) == 1
@@ -189,7 +204,9 @@ async def test_collect_media_from_attachments_with_aggregated_post(
 
 @pytest.mark.asyncio
 async def test_collect_media_from_attachments_with_bundle(
-    factory_async_session, session, content_mixin
+    factory_async_session,
+    session,
+    respx_stash_processor,
 ):
     """Test _collect_media_from_attachments with a media bundle."""
     # Create account
@@ -245,7 +262,7 @@ async def test_collect_media_from_attachments_with_bundle(
     attachment = result.scalar_one()
 
     # Call the method
-    result = await content_mixin._collect_media_from_attachments([attachment])
+    result = await respx_stash_processor._collect_media_from_attachments([attachment])
 
     # Verify all media was collected
     assert len(result) >= 2  # At least two bundle media (preview is optional)
@@ -256,23 +273,25 @@ async def test_collect_media_from_attachments_with_bundle(
 
 @pytest.mark.asyncio
 async def test_process_items_with_gallery_error_handling(
-    factory_async_session, session, content_mixin, mock_performer, mock_studio
+    factory_async_session, session, respx_stash_processor
 ):
     """Test error handling in _process_items_with_gallery."""
     # Create account
-    account = AccountFactory(id=12345, username="test_user", displayName="Test User")
+    AccountFactory(id=12345, username="test_user", displayName="Test User")
 
     # Create a working post with attachment
-    working_post = PostFactory(id=204, accountId=12345, content="Working post #test")
-    media = MediaFactory(id=129, accountId=12345, mimetype="image/jpeg")
-    account_media = AccountMediaFactory(id=129, accountId=12345, mediaId=129)
-    attachment = AttachmentFactory(
+    PostFactory(id=204, accountId=12345, content="Working post #test")
+    MediaFactory(id=129, accountId=12345, mimetype="image/jpeg")
+    AccountMediaFactory(id=129, accountId=12345, mediaId=129)
+    AttachmentFactory(
         id=60006,
         postId=204,  # Link attachment to post
         contentId=129,  # Points to AccountMedia
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
+    # Commit factory changes
+    factory_async_session.commit()
 
     # Query fresh from async session
     result = await session.execute(select(Account).where(Account.id == 12345))
@@ -283,21 +302,24 @@ async def test_process_items_with_gallery_error_handling(
     )
     working_post = result.unique().scalar_one()
 
-    # Mock _process_item_gallery to track calls
-    content_mixin._process_item_gallery = AsyncMock()
+    # Create performer and studio
+    performer = PerformerFactory.build(id="500", name="test_user")
+    studio = StudioFactory.build(id="999", name="test_user (Fansly)")
 
-    # Process post - using just the working post since we can't easily trigger
-    # database errors with real objects
-    await content_mixin._process_items_with_gallery(
-        account=account,
-        performer=mock_performer,
-        studio=mock_studio,
-        item_type="post",
-        items=[working_post],
-        url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
-        session=session,
-    )
+    # Patch _process_item_gallery to track calls and verify error handling works
+    with patch.object(
+        respx_stash_processor, "_process_item_gallery", new=AsyncMock()
+    ) as mock_gallery:
+        await respx_stash_processor._process_items_with_gallery(
+            account=account,
+            performer=performer,
+            studio=studio,
+            item_type="post",
+            items=[working_post],
+            url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
+            session=session,
+        )
 
-    # Verify the working post was processed
-    assert content_mixin._process_item_gallery.call_count == 1
-    assert content_mixin._process_item_gallery.call_args[1]["item"].id == 204
+        # Verify the working post was processed
+        assert mock_gallery.call_count == 1
+        assert mock_gallery.call_args[1]["item"].id == 204

@@ -10,10 +10,12 @@ from .stash_api_fixtures import (  # Removed: mock_account, mock_performer, mock
 
 # stash_fixtures.py is now empty - all fixtures removed as dead code during migration
 from .stash_graphql_fixtures import (
+    create_find_galleries_result,
     create_find_performers_result,
     create_find_scenes_result,
     create_find_studios_result,
     create_find_tags_result,
+    create_gallery_dict,
     create_graphql_response,
     create_performer_dict,
     create_scene_dict,
@@ -23,7 +25,7 @@ from .stash_graphql_fixtures import (
 )
 from .stash_integration_fixtures import (
     fansly_network_studio,
-    mock_studio_finder,
+    message_media_generator,
     real_stash_processor,
     respx_stash_processor,
     test_state,
@@ -79,10 +81,12 @@ __all__ = [
     "account_mixin",
     "batch_mixin",
     "content_mixin",
+    "create_find_galleries_result",
     "create_find_performers_result",
     "create_find_scenes_result",
     "create_find_studios_result",
     "create_find_tags_result",
+    "create_gallery_dict",
     "create_graphql_response",
     "create_performer_dict",
     "create_scene_dict",
@@ -95,6 +99,7 @@ __all__ = [
     "gallery_mock_performer",
     "gallery_mock_studio",
     "media_mixin",
+    "message_media_generator",
     "mock_gallery",
     "mock_image",
     "mock_image_file",
@@ -102,7 +107,6 @@ __all__ = [
     "mock_performer",
     "mock_scene",
     "mock_studio",
-    "mock_studio_finder",
     "mock_tag",
     "mock_video_file",
     "real_stash_processor",

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import traceback
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy.orm import Session
 from stash_graphql_client.types import Performer, Studio
@@ -22,6 +23,24 @@ if TYPE_CHECKING:
 
 class StudioProcessingMixin:
     """Studio processing functionality."""
+
+    # Class-level locks for studio creation, keyed by username
+    # Prevents TOCTOU race condition when concurrent workers try to create
+    # the same studio simultaneously
+    _studio_creation_locks: ClassVar[dict[str, asyncio.Lock]] = {}
+    _studio_creation_locks_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
+
+    async def _get_studio_lock(self, username: str) -> asyncio.Lock:
+        """Get or create a lock for studio creation for a specific username.
+
+        Uses double-checked locking to minimize lock contention.
+        """
+        if username not in self._studio_creation_locks:
+            async with self._studio_creation_locks_lock:
+                # Double-check after acquiring lock
+                if username not in self._studio_creation_locks:
+                    self._studio_creation_locks[username] = asyncio.Lock()
+        return self._studio_creation_locks[username]
 
     async def _find_existing_studio(self, account: Account) -> Studio | None:
         """Find existing studio in Stash.
@@ -74,19 +93,27 @@ class StudioProcessingMixin:
             }
         )
         creator_studio_name = f"{account.username} (Fansly)"
-        studio_data = await self.context.client.find_studios(q=creator_studio_name)
-        if studio_data.count == 0:
-            # Create new studio with required fields
-            studio = Studio(
-                id="new",  # Special value indicating new object
-                name=creator_studio_name,
-                parent_studio=fansly_studio,
-                urls=[f"https://fansly.com/{account.username}"],  # urls is plural, list
-            )
 
-            # Add performer if provided
-            if performer:
-                studio.performers = [performer]
+        # Use lock to prevent TOCTOU race condition when concurrent workers
+        # try to create the same studio simultaneously
+        studio_lock = await self._get_studio_lock(account.username)
+        async with studio_lock:
+            # Clear cache and re-query inside lock to get fresh data
+            self.context.client.find_studios.cache_clear()
+            studio_data = await self.context.client.find_studios(q=creator_studio_name)
+
+            if studio_data.count == 0:
+                # Create new studio with required fields
+                studio = Studio(
+                    id="new",  # Special value indicating new object
+                    name=creator_studio_name,
+                    parent_studio=fansly_studio,
+                    urls=[f"https://fansly.com/{account.username}"],
+                )
+
+                # Add performer if provided
+                if performer:
+                    studio.performers = [performer]
 
             # Create in Stash
             try:
@@ -117,5 +144,5 @@ class StudioProcessingMixin:
             else:
                 return studio
 
-        # Return first matching studio (already deserialized by client)
-        return studio_data.studios[0]
+            # Return first matching studio (already deserialized by client)
+            return studio_data.studios[0]

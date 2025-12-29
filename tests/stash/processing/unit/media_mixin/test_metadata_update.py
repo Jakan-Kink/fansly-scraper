@@ -7,6 +7,7 @@ import httpx
 import pytest
 import respx
 
+from stash.client.utils import _get_attr
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_performers_result,
     create_find_studios_result,
@@ -443,9 +444,7 @@ class TestMetadataUpdate:
         assert len(mock_image.performers) == 3
         # Verify performers have correct names
         # Performers are dicts from GraphQL (not Performer objects)
-        performer_names = [
-            p["name"] if isinstance(p, dict) else p.name for p in mock_image.performers
-        ]
+        performer_names = [_get_attr(p, "name") for p in mock_image.performers]
         assert mock_account.username in performer_names
         assert mention1.username in performer_names
         # mention2 is newly created, so it might have "Display " prefix from Performer.from_account()
@@ -669,9 +668,7 @@ class TestMetadataUpdate:
 
         # Verify tags were set (check RESULTS)
         assert len(mock_image.tags) == 2
-        tag_names = [
-            t["name"] if isinstance(t, dict) else t.name for t in mock_image.tags
-        ]
+        tag_names = [_get_attr(t, "name") for t in mock_image.tags]
         assert "test_tag" in tag_names
         assert "another_tag" in tag_names
 
@@ -780,9 +777,7 @@ class TestMetadataUpdate:
         )
 
         # Verify "Trailer" tag was added (check RESULTS)
-        tag_names = [
-            t["name"] if isinstance(t, dict) else t.name for t in mock_image.tags
-        ]
+        tag_names = [_get_attr(t, "name") for t in mock_image.tags]
         assert "Trailer" in tag_names
 
         # Verify GraphQL call sequence (permanent assertion)

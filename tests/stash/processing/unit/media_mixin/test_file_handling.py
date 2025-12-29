@@ -63,6 +63,37 @@ class TestFileHandling:
         assert file.path == "/path/to/image.jpg"
         assert file.size == 12345
 
+        # Test with GIF file (VideoFile structure in Image)
+        # This simulates what Stash returns for animated GIFs
+        mock_image.visual_files = [
+            {
+                "id": "file_gif_123",
+                "path": "/path/to/animation.gif",
+                "basename": "animation.gif",
+                "parent_folder_id": "folder_123",
+                "size": 12099861,
+                "mod_time": "2022-10-11T16:27:32Z",
+                "fingerprints": [{"type": "md5", "value": "abcdef123456"}],
+                # VideoFile specific fields
+                "format": "gif",
+                "width": 272,
+                "height": 480,
+                "duration": 19.18,
+                "video_codec": "gif",
+                "audio_codec": "",
+                "frame_rate": 11.11,
+                "bit_rate": 5046865,
+            }
+        ]
+
+        file = respx_stash_processor._get_file_from_stash_obj(mock_image)
+
+        # Verify VideoFile returned
+        assert file is not None, "Failed to extract GIF file from Image object"
+        assert isinstance(file, VideoFile), "GIF should be extracted as VideoFile"
+        assert file.format == "gif"
+        assert file.duration == 19.18
+
     def test_get_file_from_stash_obj_scene(
         self, respx_stash_processor, mock_scene, mock_video_file
     ):

@@ -14,10 +14,15 @@ Usage:
     media = MediaFactory(accountId=account.id, mimetype="video/mp4")
 """
 
+import os
+import random
+import time
 from datetime import UTC, datetime
 
 from factory.alchemy import SQLAlchemyModelFactory
 from factory.declarations import LazyAttribute, LazyFunction, Sequence
+from faker import Faker
+from faker.providers import BaseProvider
 
 from metadata import (
     Account,
@@ -39,21 +44,210 @@ from metadata import (
 from metadata.attachment import ContentType
 
 
+# Helper for pytest-xdist worker isolation
+def _get_worker_offset():
+    """Generate unique ID offset per pytest-xdist worker.
+
+    Combines monotonic_ns() with worker ID to ensure each parallel worker
+    gets a non-overlapping ID range, preventing race conditions in shared resources.
+
+    Returns:
+        int: Unique offset for this worker's ID range
+    """
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+
+    # Convert worker ID to numeric offset
+    if worker_id == "master":
+        worker_num = 0
+    else:
+        # Extract number from "gw0", "gw1", etc.
+        worker_num = int(worker_id.replace("gw", "")) + 1
+
+    # Combine monotonic_ns + worker for true uniqueness
+    # 20 bits for time (~1M range per worker), 12 bits for worker (4096 workers max)
+    time_offset = int(time.monotonic_ns()) % (2**20)
+    worker_offset = worker_num * (2**20)
+
+    return time_offset + worker_offset
+
+
 # 60-bit ID ranges for BigInteger testing
 # Each entity type gets a 100 trillion range within the 60-bit space (2^60 - 1)
 # This simulates realistic Fansly API IDs which are large snowflake-like integers
-ACCOUNT_ID_BASE = 100_000_000_000_000_000  # Accounts
-MEDIA_ID_BASE = 200_000_000_000_000_000  # Media
-MEDIA_LOCATION_ID_BASE = 210_000_000_000_000_000  # MediaLocations
-POST_ID_BASE = 300_000_000_000_000_000  # Posts
-GROUP_ID_BASE = 400_000_000_000_000_000  # Groups (conversations)
-MESSAGE_ID_BASE = 500_000_000_000_000_000  # Messages
-ATTACHMENT_ID_BASE = 600_000_000_000_000_000  # Attachments
-ACCOUNT_MEDIA_ID_BASE = 700_000_000_000_000_000  # AccountMedia
-ACCOUNT_MEDIA_BUNDLE_ID_BASE = 800_000_000_000_000_000  # AccountMediaBundle
-HASHTAG_ID_BASE = 900_000_000_000_000_000  # Hashtags
-STORY_ID_BASE = 1_000_000_000_000_000_000  # Stories (within 60-bit max)
-WALL_ID_BASE = 110_000_000_000_000_000  # Walls
+#
+# Uses monotonic_ns() + worker_id for parallel test isolation - each pytest-xdist
+# worker gets a unique, non-overlapping ID range, preventing collisions
+_ID_OFFSET = _get_worker_offset()
+
+ACCOUNT_ID_BASE = 100_000_000_000_000_000 + _ID_OFFSET  # Accounts
+MEDIA_ID_BASE = 200_000_000_000_000_000 + _ID_OFFSET  # Media
+MEDIA_LOCATION_ID_BASE = 210_000_000_000_000_000 + _ID_OFFSET  # MediaLocations
+POST_ID_BASE = 300_000_000_000_000_000 + _ID_OFFSET  # Posts
+GROUP_ID_BASE = 400_000_000_000_000_000 + _ID_OFFSET  # Groups (conversations)
+MESSAGE_ID_BASE = 500_000_000_000_000_000 + _ID_OFFSET  # Messages
+ATTACHMENT_ID_BASE = 600_000_000_000_000_000 + _ID_OFFSET  # Attachments
+ACCOUNT_MEDIA_ID_BASE = 700_000_000_000_000_000 + _ID_OFFSET  # AccountMedia
+ACCOUNT_MEDIA_BUNDLE_ID_BASE = (
+    800_000_000_000_000_000 + _ID_OFFSET
+)  # AccountMediaBundle
+HASHTAG_ID_BASE = 900_000_000_000_000_000 + _ID_OFFSET  # Hashtags
+STORY_ID_BASE = 1_000_000_000_000_000_000 + _ID_OFFSET  # Stories (within 60-bit max)
+WALL_ID_BASE = 110_000_000_000_000_000 + _ID_OFFSET  # Walls
+
+
+# Custom Faker provider for realistic Fansly content
+class FanslyContentProvider(BaseProvider):
+    """Faker provider for generating realistic Fansly post/message content.
+
+    Based on analysis of real Fansly API responses, content follows these patterns:
+    1. Short teaser posts (27-60 chars): Questions with emojis
+    2. Medium posts (80-200 chars): Description + hashtag block
+    3. Long narrative posts (300-600 chars): Story-style content with hashtags
+    """
+
+    # Realistic short teaser templates (< 60 chars)
+    SHORT_TEASERS = [
+        "Would you like a squeeze? 🐮",
+        "What naughty things would you whisper to me? 😳",
+        "Did you have nice dreams about me? 🤭😏",
+        "Do you like the view? 🔥",
+        "A little sneak peak at some photos I created today ;)",
+        "Ready for something special? 💋",
+        "Miss me? 😘",
+        "Should I post the full video? 👀",
+        "Good morning, my dears! ☀️💕",
+        "Happy Friday! Let's celebrate 🎉",
+        "New content dropping soon... 👀🔥",
+        "Who wants to see more? 💜",
+        "This outfit was so fun to wear! 😈",
+        "Behind the scenes from today's shoot 📸",
+        "Just uploaded something special for you 💝",
+    ]
+
+    # Medium post templates with hashtag placeholders
+    MEDIUM_TEMPLATES = [
+        "Do you like my outfit? 😈\n\n{hashtags}",
+        "Living the dream! 😎💜\n\n{hashtags}",
+        "Will it go in….\n\n{hashtags}",
+        "Do you immediately shove it in me, or will you give me a good spanking first? 😈\n\n{hashtags}",
+        "Slide my panties to the side and pleasure me 🥵🥵\n\n{hashtags}",
+        "And here are a few impressions from yesterday's session 🥺\n\n{hashtags}",
+        "The sales just started! 🖤🛒 Use my code for an additional discount!\n\n{hashtags}",
+        "Want to watch the full session? 😍 Make sure you have your renew switched on!\n\n{hashtags}",
+    ]
+
+    # Long narrative post templates
+    LONG_TEMPLATES = [
+        "Daily Fit\n\nA good day starts with the right mindset. And today, my routine comes with an added challenge. There's something about the preparation—both physical and mental—that gets me into the right headspace before anything else. It's not just about being ready, it's about being present.\n\n{hashtags}",
+        "Story Time\n\nShooting a big custom video today, and that always comes with its own little rituals. There's something about the preparation—both physical and mental—that gets me into the right headspace before a scene. It's not just about being ready for the camera, it's about being ready.\n\n{hashtags}",
+        "Happy Monday, my dears! 🖤\n\nWhether you're starting the week strong or just trying to survive it, I hope you find something (or someone) to keep you motivated. 😉🔥 Let's make it a good one! Drop a comment and let me know how your week is going.\n\n{hashtags}",
+        "This week on my page, things are getting INTENSE 🥵\n\nHere's what we got in stock for you:\n🔥 A strict session\n🖤 A bedtime ritual\n❄️ Story Post: Something special\n\nStay tuned for more!\n\n{hashtags}",
+    ]
+
+    # Hashtag categories (realistic Fansly hashtags)
+    HASHTAG_CATEGORIES = {
+        "body": [
+            "#bigass",
+            "#boobs",
+            "#tits",
+            "#curves",
+            "#petite",
+            "#skinny",
+            "#blonde",
+            "#redhead",
+            "#brunette",
+        ],
+        "fetish": [
+            "#latex",
+            "#rubber",
+            "#bdsm",
+            "#fetish",
+            "#kink",
+            "#kinky",
+            "#submissive",
+            "#dominant",
+        ],
+        "activity": [
+            "#gym",
+            "#workout",
+            "#selfie",
+            "#photoshoot",
+            "#behindthescenes",
+            "#newcontent",
+        ],
+        "clothing": [
+            "#leggings",
+            "#catsuit",
+            "#lingerie",
+            "#heels",
+            "#outfit",
+            "#ootd",
+        ],
+        "mood": ["#sexy", "#hot", "#naughty", "#playful", "#teasing", "#flirty"],
+        "general": [
+            "#fyp",
+            "#fansly",
+            "#exclusive",
+            "#subscribe",
+            "#newpost",
+            "#contentcreator",
+        ],
+    }
+
+    def fansly_post_content(self, length: str = "random") -> str:
+        """Generate realistic Fansly post content.
+
+        Args:
+            length: "short", "medium", "long", or "random"
+
+        Returns:
+            Realistic post content string
+        """
+        if length == "random":
+            length = random.choice(["short", "short", "medium", "medium", "long"])
+
+        if length == "short":
+            return random.choice(self.SHORT_TEASERS)
+        if length == "medium":
+            template = random.choice(self.MEDIUM_TEMPLATES)
+            hashtags = self._generate_hashtags(5, 10)
+            return template.format(hashtags=hashtags)
+        # long
+        template = random.choice(self.LONG_TEMPLATES)
+        hashtags = self._generate_hashtags(8, 15)
+        return template.format(hashtags=hashtags)
+
+    def fansly_message_content(self) -> str:
+        """Generate realistic Fansly message content (typically shorter)."""
+        # Messages are usually shorter and more personal
+        templates = [
+            "Hey! Thanks for subscribing 💕",
+            "Check out my latest post! 🔥",
+            "I just uploaded something special for you 😘",
+            "Miss you! Come say hi 👋",
+            "New video just dropped! 🎬",
+            "Thanks for the tip! 💝 Here's a little something extra...",
+            "Happy to have you here! Let me know what content you'd like to see 😊",
+        ]
+        return random.choice(templates)
+
+    def fansly_hashtags(self, count: int = 5) -> str:
+        """Generate realistic Fansly hashtags."""
+        return self._generate_hashtags(count, count)
+
+    def _generate_hashtags(self, min_count: int, max_count: int) -> str:
+        """Generate a string of hashtags from various categories."""
+        count = random.randint(min_count, max_count)
+        all_tags = []
+        for tags in self.HASHTAG_CATEGORIES.values():
+            all_tags.extend(tags)
+        selected = random.sample(all_tags, min(count, len(all_tags)))
+        return " ".join(selected)
+
+
+# Create a Faker instance with our custom provider
+fake = Faker()
+fake.add_provider(FanslyContentProvider)
 
 
 class BaseFactory(SQLAlchemyModelFactory):
@@ -182,7 +376,10 @@ class PostFactory(BaseFactory):
 
     id = Sequence(lambda n: POST_ID_BASE + n)
     accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
-    content = Sequence(lambda n: f"Test post content {n}")
+    # Use short teasers only (no hashtags) for Stash integration tests.
+    # Full hashtag-linked content requires going through process_post_hashtags()
+    # which is reserved for true end-to-end Fansly→Stash flow tests.
+    content = LazyFunction(lambda: fake.fansly_post_content(length="short"))
     fypFlag = 0  # Note: singular, not plural (API has fypFlags but we store fypFlag)
     inReplyTo = None
     inReplyToRoot = None
@@ -227,7 +424,8 @@ class MessageFactory(BaseFactory):
     groupId = Sequence(lambda n: GROUP_ID_BASE + n)
     senderId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     recipientId = None
-    content = Sequence(lambda n: f"Test message content {n}")
+    # Use realistic Fansly message content by default
+    content = LazyFunction(lambda: fake.fansly_message_content())
     createdAt = LazyFunction(lambda: datetime.now(UTC))
     deletedAt = None
     deleted = False
@@ -580,12 +778,13 @@ async def setup_accounts_and_groups(
     await create_groups_from_messages(session, messages)
 
 
-# Export all factories
+# Export all factories and utilities
 __all__ = [
     "AccountFactory",
     "AccountMediaBundleFactory",
     "AccountMediaFactory",
     "AttachmentFactory",
+    "FanslyContentProvider",
     "GroupFactory",
     "HashtagFactory",
     "MediaFactory",
@@ -598,5 +797,6 @@ __all__ = [
     "TimelineStatsFactory",
     "WallFactory",
     "create_groups_from_messages",
+    "fake",
     "setup_accounts_and_groups",
 ]

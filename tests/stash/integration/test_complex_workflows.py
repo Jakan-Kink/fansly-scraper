@@ -23,7 +23,7 @@ from stash_graphql_client.types import (
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.full_workflow
-@pytest.mark.timeout(60)  # Allow 60 seconds for metadata generation
+@pytest.mark.timeout(180)  # Allow 3 minutes for metadata generation
 @pytest.mark.asyncio
 async def test_full_content_workflow(
     stash_client: StashClient,
@@ -204,7 +204,7 @@ async def test_full_content_workflow(
 
 
 @pytest.mark.integration
-@pytest.mark.timeout(60)  # Allow 60 seconds for metadata generation
+@pytest.mark.timeout(180)  # Allow 3 minutes for metadata generation
 @pytest.mark.asyncio
 async def test_concurrent_operations(
     stash_client: StashClient,

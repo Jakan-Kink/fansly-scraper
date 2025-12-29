@@ -8,6 +8,7 @@ from .cleanup_fixtures import (
     cleanup_rich_progress_state,
     cleanup_unawaited_coroutines,
 )
+from .test_isolation import get_unique_test_id, get_worker_id
 
 
 __all__ = [
@@ -17,4 +18,6 @@ __all__ = [
     "cleanup_mock_patches",
     "cleanup_rich_progress_state",
     "cleanup_unawaited_coroutines",
+    "get_unique_test_id",
+    "get_worker_id",
 ]

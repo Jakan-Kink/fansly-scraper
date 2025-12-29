@@ -31,13 +31,13 @@ pytestmark = pytest.mark.skipif(
 
 
 def get_id(obj):
-    """Get ID from either a dict or an object with id attribute."""
-    return obj["id"] if isinstance(obj, dict) else obj.id
+    """Get ID from Pydantic model."""
+    return obj.id
 
 
 def get_ids(objects):
-    """Get set of IDs from list of dicts or objects."""
-    return {get_id(obj) for obj in objects}
+    """Get set of IDs from list of Pydantic models."""
+    return {obj.id for obj in objects}
 
 
 @pytest.fixture
@@ -75,6 +75,7 @@ def mock_post() -> Post:
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(120)  # 2 minutes for metadata generation
 async def test_content_import_workflow(
     stash_client: StashClient,
     mock_account: Account,
@@ -92,6 +93,8 @@ async def test_content_import_workflow(
     5. Generates metadata
     6. Verifies everything
     7. Cleans up created objects
+
+    Note: This test requires extended timeout due to metadata generation.
     """
     try:
         async with stash_cleanup_tracker(stash_client) as cleanup:
@@ -175,6 +178,7 @@ async def test_content_import_workflow(
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(300)  # 5 minutes for metadata generation on 10 scenes
 async def test_batch_import_workflow(
     stash_client: StashClient,
     mock_account: Account,
@@ -190,6 +194,8 @@ async def test_batch_import_workflow(
     4. Tracks overall progress
     5. Verifies everything
     6. Cleans up created objects
+
+    Note: This test requires extended timeout due to metadata generation.
     """
     try:
         async with stash_cleanup_tracker(stash_client) as cleanup:

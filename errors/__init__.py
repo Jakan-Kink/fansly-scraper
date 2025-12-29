@@ -209,6 +209,17 @@ class StashServerError(StashError):
         super().__init__(*args)
 
 
+class StashCleanupWarning(UserWarning):
+    """Warning emitted when Stash cleanup tracker encounters errors during cleanup.
+
+    This warning is raised when test cleanup fails to delete Stash objects,
+    which may indicate test isolation issues or leftover test data.
+    """
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+
+
 # endregion
 
 
@@ -235,6 +246,7 @@ __all__ = [
     "M3U8Error",
     "MediaError",
     "MediaHashMismatchError",
+    "StashCleanupWarning",
     "StashConnectionError",
     "StashError",
     "StashGraphQLError",

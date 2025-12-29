@@ -1,4 +1,7 @@
-"""Tests for tag-related methods in GalleryProcessingMixin."""
+"""Tests for tag-related methods in GalleryProcessingMixin.
+
+Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
+"""
 
 import httpx
 import pytest
@@ -17,11 +20,11 @@ class TestTagMethods:
     """Test tag-related methods in GalleryProcessingMixin."""
 
     @pytest.mark.asyncio
-    @respx.mock
     async def test_process_hashtags_to_tags(
-        self, factory_async_session, session, gallery_mixin
+        self, factory_async_session, session, respx_stash_processor
     ):
         """Test _process_hashtags_to_tags method."""
+        # Note: respx_stash_processor already has respx.mock wrapper
         # Create real Hashtag objects
         hashtag1 = HashtagFactory(id=1001, value="test_tag")
         hashtag2 = HashtagFactory(id=1002, value="new_tag")
@@ -64,11 +67,8 @@ class TestTagMethods:
             ]
         )
 
-        # Initialize client
-        await gallery_mixin.context.get_client()
-
         # Call the method
-        tags = await gallery_mixin._process_hashtags_to_tags(hashtags)
+        tags = await respx_stash_processor._process_hashtags_to_tags(hashtags)
 
         # Verify results
         assert len(tags) == 2
@@ -78,15 +78,15 @@ class TestTagMethods:
         assert tags[1].name == "new_tag"
 
     @pytest.mark.asyncio
-    @respx.mock
     async def test_process_hashtags_to_tags_already_exists(
-        self, factory_async_session, session, gallery_mixin
+        self, factory_async_session, session, respx_stash_processor
     ):
         """Test _process_hashtags_to_tags when tag already exists.
 
         The client now handles "already exists" errors internally and returns
         the existing tag, so we just verify the tag is returned correctly.
         """
+        # Note: respx_stash_processor already has respx.mock wrapper
         # Create real Hashtag object
         hashtag1 = HashtagFactory(id=1001, value="test_tag")
         factory_async_session.commit()
@@ -118,11 +118,8 @@ class TestTagMethods:
             ]
         )
 
-        # Initialize client
-        await gallery_mixin.context.get_client()
-
         # Call the method
-        tags = await gallery_mixin._process_hashtags_to_tags([hashtag1])
+        tags = await respx_stash_processor._process_hashtags_to_tags([hashtag1])
 
         # Verify results
         assert len(tags) == 1
@@ -130,11 +127,11 @@ class TestTagMethods:
         assert tags[0].name == "test_tag"
 
     @pytest.mark.asyncio
-    @respx.mock
     async def test_process_hashtags_to_tags_error(
-        self, factory_async_session, session, gallery_mixin
+        self, factory_async_session, session, respx_stash_processor
     ):
         """Test _process_hashtags_to_tags with other errors."""
+        # Note: respx_stash_processor already has respx.mock wrapper
         # Create real Hashtag object
         hashtag1 = HashtagFactory(id=1001, value="test_tag")
         factory_async_session.commit()
@@ -166,20 +163,17 @@ class TestTagMethods:
             ]
         )
 
-        # Initialize client
-        await gallery_mixin.context.get_client()
-
         # Call the method and expect error
         with pytest.raises(Exception, match="network error") as excinfo:
-            await gallery_mixin._process_hashtags_to_tags([hashtag1])
+            await respx_stash_processor._process_hashtags_to_tags([hashtag1])
 
         # Verify the error is re-raised
         assert "network error" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    @respx.mock
-    async def test_add_preview_tag(self, gallery_mixin, mock_image):
+    async def test_add_preview_tag(self, respx_stash_processor, mock_image):
         """Test _add_preview_tag method."""
+        # Note: respx_stash_processor already has respx.mock wrapper
         # Create response
         trailer_tag_dict = create_tag_dict(id="tag_trailer", name="Trailer")
         tag_results = create_find_tags_result(count=1, tags=[trailer_tag_dict])
@@ -192,23 +186,20 @@ class TestTagMethods:
             )
         )
 
-        # Initialize client
-        await gallery_mixin.context.get_client()
-
         # Test on image with no existing tags
         mock_image.tags = []
 
         # Call the method
-        await gallery_mixin._add_preview_tag(mock_image)
+        await respx_stash_processor._add_preview_tag(mock_image)
 
         # Verify the tag was added
         assert len(mock_image.tags) == 1
         assert mock_image.tags[0].id == "tag_trailer"
 
     @pytest.mark.asyncio
-    @respx.mock
-    async def test_add_preview_tag_existing(self, gallery_mixin):
+    async def test_add_preview_tag_existing(self, respx_stash_processor):
         """Test _add_preview_tag with existing tag (should not add duplicate)."""
+        # Note: respx_stash_processor already has respx.mock wrapper
         from tests.fixtures import ImageFactory, TagFactory
 
         # Create tag and image with that tag
@@ -231,19 +222,16 @@ class TestTagMethods:
             )
         )
 
-        # Initialize client
-        await gallery_mixin.context.get_client()
-
         # Call the method
-        await gallery_mixin._add_preview_tag(mock_image)
+        await respx_stash_processor._add_preview_tag(mock_image)
 
         # Verify no additional tag was added
         assert len(mock_image.tags) == 1
 
     @pytest.mark.asyncio
-    @respx.mock
-    async def test_add_preview_tag_not_found(self, gallery_mixin, mock_image):
+    async def test_add_preview_tag_not_found(self, respx_stash_processor, mock_image):
         """Test _add_preview_tag when preview tag doesn't exist."""
+        # Note: respx_stash_processor already has respx.mock wrapper
         # Create response
         empty_result = create_find_tags_result(count=0, tags=[])
 
@@ -255,14 +243,11 @@ class TestTagMethods:
             )
         )
 
-        # Initialize client
-        await gallery_mixin.context.get_client()
-
         # Test on image with no existing tags
         mock_image.tags = []
 
         # Call the method
-        await gallery_mixin._add_preview_tag(mock_image)
+        await respx_stash_processor._add_preview_tag(mock_image)
 
         # Verify no tag was added
         assert len(mock_image.tags) == 0
