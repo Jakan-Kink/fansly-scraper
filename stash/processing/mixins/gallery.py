@@ -10,7 +10,7 @@ from pprint import pformat
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy.orm import Session
-from stash_graphql_client.types import UNSET, Gallery, GalleryChapter, Studio
+from stash_graphql_client.types import Gallery, GalleryChapter, Studio, is_set
 
 from metadata import Account, Post
 from metadata.attachment import ContentType
@@ -159,7 +159,7 @@ class GalleryProcessingMixin:
         # Library returns Gallery objects directly (Pydantic)
         for gallery in galleries.galleries:
             # Check if url matches in urls list (url field is deprecated)
-            if gallery.urls is not UNSET and url in gallery.urls:
+            if is_set(gallery.urls) and url in gallery.urls:
                 debug_print(
                     {
                         "method": "StashProcessing - _get_gallery_by_url",

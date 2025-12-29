@@ -18,15 +18,10 @@ from stash_graphql_client.types import Scene, SceneCreateInput
 # Export all fixtures for wildcard import
 __all__ = [
     "enable_scene_creation",
-    # Removed: "mock_account", "mock_performer", "mock_studio", "mock_scene"
-    # (MagicMock duplicates - use real factories from stash_type_factories)
-    # Removed: "mock_client", "mock_session", "mock_transport"
-    # (Mocked internal GraphQL components - use respx to mock HTTP instead)
     "respx_stash_client",
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",
-    "test_query",
 ]
 
 
@@ -135,35 +130,29 @@ async def respx_stash_client(stash_context) -> StashClient:
         yield client
 
         # Cleanup: Clear LRU caches to prevent pollution between tests
-        # All find_* methods use @async_lru_cache which persists between tests
-        if hasattr(client, "find_studio"):
-            client.find_studio.cache_clear()
-        if hasattr(client, "find_studios"):
-            client.find_studios.cache_clear()
-        if hasattr(client, "find_performer"):
-            client.find_performer.cache_clear()
-        if hasattr(client, "find_performers"):
-            client.find_performers.cache_clear()
-        if hasattr(client, "find_scene"):
-            client.find_scene.cache_clear()
-        if hasattr(client, "find_scenes"):
-            client.find_scenes.cache_clear()
-        if hasattr(client, "find_tag"):
-            client.find_tag.cache_clear()
-        if hasattr(client, "find_tags"):
-            client.find_tags.cache_clear()
-        if hasattr(client, "find_gallery"):
-            client.find_gallery.cache_clear()
-        if hasattr(client, "find_galleries"):
-            client.find_galleries.cache_clear()
-        if hasattr(client, "find_image"):
-            client.find_image.cache_clear()
-        if hasattr(client, "find_images"):
-            client.find_images.cache_clear()
-        if hasattr(client, "find_marker"):
-            client.find_marker.cache_clear()
-        if hasattr(client, "find_markers"):
-            client.find_markers.cache_clear()
+        # All find_* methods may use @async_lru_cache which persists between tests
+        # In stash-graphql-client v0.5.0+, safely check for cache_clear() before calling
+        cache_methods = [
+            "find_studio",
+            "find_studios",
+            "find_performer",
+            "find_performers",
+            "find_scene",
+            "find_scenes",
+            "find_tag",
+            "find_tags",
+            "find_gallery",
+            "find_galleries",
+            "find_image",
+            "find_images",
+            "find_marker",
+            "find_markers",
+        ]
+        for method_name in cache_methods:
+            if hasattr(client, method_name):
+                method = getattr(client, method_name)
+                if hasattr(method, "cache_clear"):
+                    method.cache_clear()
 
         # Reset respx to prevent route pollution
         respx.reset()
@@ -366,62 +355,3 @@ async def stash_cleanup_tracker():
             print(f"{'=' * 60}\n")
 
     return cleanup_context
-
-
-# REMOVED: mock_session, mock_transport, mock_client
-# These fixtures mocked internal GraphQL client components.
-#
-# Replacement: Use respx to mock at the true edge (HTTP layer)
-# respx successfully intercepts HTTP calls underneath _session.execute()
-# allowing tests through the real code path while mocking GraphQL HTTP responses.
-#
-# Migration example:
-#   Before:
-#     def test_query(mock_session, mock_client):
-#         mock_session.execute.return_value = {"data": {...}}
-#         mock_client.__aenter__.return_value = mock_session
-#         client.client = mock_client
-#
-#   After:
-#     @respx.mock
-#     def test_query():
-#         respx.post("http://localhost:9999/graphql").mock(
-#             return_value=httpx.Response(200, json={"data": {...}})
-#         )
-#         # Test with real client, real _session.execute()
-#
-# This tests the same behavior through the REAL _session.execute() boundary.
-
-
-@pytest.fixture
-def test_query():
-    """Sample GraphQL query for testing.
-
-    This fixture provides a simple GraphQL query string that can be used in tests
-    to verify GraphQL client behavior. It includes a query with variables and
-    nested fields to test different aspects of GraphQL execution.
-
-    Returns:
-        str: A sample GraphQL query string for testing
-    """
-    return """
-    query TestQuery($id: ID!) {
-        findScene(id: $id) {
-            id
-            title
-        }
-    }
-    """
-
-
-# REMOVED: mock_account, mock_performer, mock_studio, mock_scene
-# These fixtures were MagicMock-based duplicates.
-#
-# Replacements:
-# - mock_account: Use AccountFactory from tests.fixtures.metadata
-# - mock_performer: Use PerformerFactory or mock_performer from stash_type_factories
-# - mock_studio: Use StudioFactory or mock_studio from stash_type_factories
-# - mock_scene: Use SceneFactory or mock_scene from stash_type_factories
-#
-# The real factory-based fixtures are in stash_type_factories.py and return
-# actual Strawberry GraphQL type instances, not MagicMock objects.

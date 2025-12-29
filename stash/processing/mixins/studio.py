@@ -105,8 +105,8 @@ class StudioProcessingMixin:
                 )
                 # If we failed to create the studio, re-check if it already exists
                 # This can happen with parallel processing
-                # Clear cache to force a fresh query
-                self.context.client.find_studios.cache_clear()
+                # Invalidate Studio cache to force a fresh query
+                Studio._store.invalidate_type(Studio)
                 studio_data = await self.context.client.find_studios(
                     q=creator_studio_name
                 )

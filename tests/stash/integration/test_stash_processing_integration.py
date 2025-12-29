@@ -105,7 +105,7 @@ async def test_process_creator_to_background(
     creator_studio_dict = create_studio_dict(
         id="studio_123",
         name="test_user (Fansly)",
-        url="https://fansly.com/test_user",
+        urls=["https://fansly.com/test_user"],
     )
     creator_result = create_find_studios_result(count=1, studios=[creator_studio_dict])
 

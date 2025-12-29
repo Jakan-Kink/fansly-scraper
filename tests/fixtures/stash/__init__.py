@@ -6,7 +6,6 @@ from .stash_api_fixtures import (  # Removed: mock_account, mock_performer, mock
     stash_cleanup_tracker,
     stash_client,
     stash_context,
-    test_query,
 )
 
 # stash_fixtures.py is now empty - all fixtures removed as dead code during migration
@@ -24,7 +23,6 @@ from .stash_graphql_fixtures import (
 )
 from .stash_integration_fixtures import (
     fansly_network_studio,
-    mock_permissions,
     mock_studio_finder,
     real_stash_processor,
     respx_stash_processor,
@@ -42,14 +40,9 @@ from .stash_mixin_fixtures import (
     studio_mixin,
     tag_mixin,
 )
-from .stash_processing_fixtures import (
-    safe_image_create,
-    safe_scene_create,
-    safe_scene_marker_create,
-    safe_studio_create,
-    safe_tag_create,
-    sanitize_model_data,
-)
+
+# stash_processing_fixtures.py now only re-exports fixtures from stash_api_fixtures
+# No direct exports needed here - fixtures available via stash_processing_fixtures module
 from .stash_type_factories import (
     GalleryFactory,
     GroupFactory,
@@ -107,7 +100,6 @@ __all__ = [
     "mock_image_file",
     "mock_item",
     "mock_performer",
-    "mock_permissions",
     "mock_scene",
     "mock_studio",
     "mock_studio_finder",
@@ -116,17 +108,10 @@ __all__ = [
     "real_stash_processor",
     "respx_stash_client",
     "respx_stash_processor",
-    "safe_image_create",
-    "safe_scene_create",
-    "safe_scene_marker_create",
-    "safe_studio_create",
-    "safe_tag_create",
-    "sanitize_model_data",
     "stash_cleanup_tracker",
     "stash_client",
     "stash_context",
     "studio_mixin",
     "tag_mixin",
-    "test_query",
     "test_state",
 ]

@@ -15,8 +15,7 @@ See tests/stash/CLEANUP_ENFORCEMENT_SUMMARY.md for full documentation.
 """
 
 import pytest
-
-from stash import StashClient
+from stash_graphql_client import StashClient
 
 
 @pytest.mark.asyncio

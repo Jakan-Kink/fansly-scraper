@@ -11,25 +11,21 @@ Key improvements:
 """
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 import respx
-import strawberry
-from stash_graphql_client.types.job import JobStatus
 
 from tests.fixtures import (
     create_find_performers_result,
     create_find_studios_result,
     create_graphql_response,
+    create_performer_dict,
+    create_studio_dict,
 )
 from tests.fixtures.metadata.metadata_factories import AccountFactory
-from tests.fixtures.stash.stash_type_factories import (
-    JobFactory,
-    PerformerFactory,
-    StudioFactory,
-)
 
 
 # ============================================================================
@@ -62,12 +58,11 @@ class TestCreatorProcessing:
         # Configure processor state to find the account
         processor.state.creator_id = str(real_account.id)
 
-        # Create Performer using factory and convert to JSON for respx (Stash)
-        mock_performer = PerformerFactory(
+        # Create performer dict for GraphQL response
+        performer_dict = create_performer_dict(
             id="performer_123",
             name="Test User",
         )
-        performer_dict = strawberry.asdict(mock_performer)
 
         # Mock GraphQL HTTP response
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -174,12 +169,11 @@ class TestCreatorProcessing:
         # Configure processor state
         processor.state.creator_id = str(real_account.id)
 
-        # Create Performer using factory and convert to JSON
-        new_performer = PerformerFactory(
+        # Create performer dict for GraphQL response
+        performer_dict = create_performer_dict(
             id="new_performer_123",
             name="New User",
         )
-        performer_dict = strawberry.asdict(new_performer)
 
         # Mock GraphQL HTTP responses
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -236,19 +230,16 @@ class TestCreatorProcessing:
         factory_session.add(real_account)
         factory_session.commit()
 
-        # Create Studios using factory and convert to JSON
-        fansly_studio = StudioFactory(
+        # Create studio dicts for GraphQL responses
+        fansly_dict = create_studio_dict(
             id="fansly_123",
             name="Fansly (network)",
         )
-        creator_studio = StudioFactory(
+        creator_dict = create_studio_dict(
             id="studio_123",
             name="test_user (Fansly)",
-            parent_studio=fansly_studio,
+            parent_studio=fansly_dict,
         )
-
-        fansly_dict = strawberry.asdict(fansly_studio)
-        creator_dict = strawberry.asdict(creator_studio)
 
         # Mock GraphQL HTTP responses
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -334,23 +325,19 @@ class TestCreatorProcessing:
         processor.state.base_path = tmp_path / "creator_folder"
         processor.state.base_path.mkdir(parents=True, exist_ok=True)
 
-        # Create factories for GraphQL responses
-        finished_job = JobFactory(
-            id="job_123",
-            status=JobStatus.FINISHED,
-            description="Scanning metadata",
-            progress=100.0,
-        )
-        mock_performer = PerformerFactory(
+        # Create dicts for GraphQL responses
+        finished_job_dict = {
+            "id": "job_123",
+            "status": "FINISHED",
+            "description": "Scanning metadata",
+            "progress": 100.0,
+            "subTasks": [],
+            "addTime": datetime.now(UTC).isoformat(),
+        }
+        performer_dict = create_performer_dict(
             id="performer_123",
             name="Test User",
         )
-
-        # Convert to JSON-serializable dicts
-        finished_job_dict = json.loads(
-            json.dumps(strawberry.asdict(finished_job), default=str)
-        )
-        performer_dict = strawberry.asdict(mock_performer)
 
         # Mock GraphQL HTTP responses for the full workflow
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -412,27 +399,23 @@ class TestCreatorProcessing:
         processor.state.base_path = tmp_path / "creator_folder"
         processor.state.base_path.mkdir(parents=True, exist_ok=True)
 
-        # Create Job instances using factory and convert to JSON
-        running_job = JobFactory(
-            id="job_123",
-            status=JobStatus.RUNNING,
-            description="Scanning metadata",
-            progress=50.0,
-        )
-        finished_job = JobFactory(
-            id="job_123",
-            status=JobStatus.FINISHED,
-            description="Scanning metadata",
-            progress=100.0,
-        )
-
-        # Convert to dict and ensure JSON serializable (datetime → str)
-        running_job_dict = json.loads(
-            json.dumps(strawberry.asdict(running_job), default=str)
-        )
-        finished_job_dict = json.loads(
-            json.dumps(strawberry.asdict(finished_job), default=str)
-        )
+        # Create job dicts for GraphQL responses
+        running_job_dict = {
+            "id": "job_123",
+            "status": "RUNNING",
+            "description": "Scanning metadata",
+            "progress": 50.0,
+            "subTasks": [],
+            "addTime": datetime.now(UTC).isoformat(),
+        }
+        finished_job_dict = {
+            "id": "job_123",
+            "status": "FINISHED",
+            "description": "Scanning metadata",
+            "progress": 100.0,
+            "subTasks": [],
+            "addTime": datetime.now(UTC).isoformat(),
+        }
 
         # Mock GraphQL HTTP responses
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -577,27 +560,23 @@ class TestCreatorProcessing:
         processor.state.base_path = tmp_path / "creator_folder"
         processor.state.base_path.mkdir(parents=True, exist_ok=True)
 
-        # Create Job instances
-        error_job = JobFactory(
-            id="job_123",
-            status=JobStatus.RUNNING,
-            description="Scanning metadata",
-            error="Temporary error",
-        )
-        finished_job = JobFactory(
-            id="job_123",
-            status=JobStatus.FINISHED,
-            description="Scanning metadata",
-            progress=100.0,
-        )
-
-        # Convert to dict and ensure JSON serializable (datetime → str)
-        error_job_dict = json.loads(
-            json.dumps(strawberry.asdict(error_job), default=str)
-        )
-        finished_job_dict = json.loads(
-            json.dumps(strawberry.asdict(finished_job), default=str)
-        )
+        # Create job dicts for GraphQL responses
+        error_job_dict = {
+            "id": "job_123",
+            "status": "RUNNING",
+            "description": "Scanning metadata",
+            "error": "Temporary error",
+            "subTasks": [],
+            "addTime": datetime.now(UTC).isoformat(),
+        }
+        finished_job_dict = {
+            "id": "job_123",
+            "status": "FINISHED",
+            "description": "Scanning metadata",
+            "progress": 100.0,
+            "subTasks": [],
+            "addTime": datetime.now(UTC).isoformat(),
+        }
 
         # Mock GraphQL HTTP responses
         graphql_route = respx.post("http://localhost:9999/graphql").mock(

@@ -18,8 +18,7 @@ IMPORTANT NOTES:
 from datetime import UTC, datetime
 
 import pytest
-from stash_graphql_client.client.utils import sanitize_model_data
-from stash_graphql_client.types import Image, Scene, Studio
+from stash_graphql_client.types import Scene
 
 from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
 
@@ -62,11 +61,8 @@ class TestMetadataUpdateIntegration:
             if not results or results.count == 0:
                 pytest.skip("No images found in Stash - cannot test Image update")
 
-            # NOTE: Strawberry doesn't properly deserialize nested objects,
-            # so results.images is a list of dicts, not Image objects.
-            # Need to manually convert to Image object.
-            image_dict = results.images[0]
-            image = Image(**sanitize_model_data(image_dict))
+            # Get the Image object (Pydantic returns native objects, no conversion needed)
+            image = results.images[0]
 
             # Save original metadata for restoration
             original_title = image.title
@@ -89,8 +85,7 @@ class TestMetadataUpdateIntegration:
             studio_name = f"{account.username} (Fansly)"
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
-                studio_dict = studio_results.studios[0]
-                studio = Studio(**sanitize_model_data(studio_dict))
+                studio = studio_results.studios[0]
                 cleanup["studios"].append(studio.id)
 
             # Verify metadata was set correctly
@@ -168,8 +163,7 @@ class TestMetadataUpdateIntegration:
             studio_name = f"{account.username} (Fansly)"
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
-                studio_dict = studio_results.studios[0]
-                studio = Studio(**sanitize_model_data(studio_dict))
+                studio = studio_results.studios[0]
                 cleanup["studios"].append(studio.id)
 
             # Verify metadata was set correctly
@@ -279,8 +273,7 @@ class TestMetadataUpdateIntegration:
             studio_name = f"{account.username} (Fansly)"
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
-                studio_dict = studio_results.studios[0]
-                studio = Studio(**sanitize_model_data(studio_dict))
+                studio = studio_results.studios[0]
                 cleanup["studios"].append(studio.id)
 
             # Automatic cleanup of scene happens when exiting context
@@ -333,8 +326,7 @@ class TestMetadataUpdateIntegration:
             studio_name = f"{account.username} (Fansly)"
             studio_results = await stash_client.find_studios(q=studio_name)
             if studio_results.count > 0:
-                studio_dict = studio_results.studios[0]
-                studio = Studio(**sanitize_model_data(studio_dict))
+                studio = studio_results.studios[0]
                 cleanup["studios"].append(studio.id)
 
             # Verify metadata was NOT changed

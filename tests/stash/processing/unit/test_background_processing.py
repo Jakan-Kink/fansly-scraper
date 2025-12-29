@@ -80,7 +80,7 @@ class TestBackgroundProcessing:
         # Mock GraphQL HTTP responses for complete process_creator_studio flow
         # 1. Find Fansly parent studio
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -91,7 +91,7 @@ class TestBackgroundProcessing:
         creator_studio = create_studio_dict(
             id="123",
             name="test_user (Fansly)",
-            url="https://fansly.com/test_user",
+            urls=["https://fansly.com/test_user"],
             parent_studio=fansly_studio,
         )
 
@@ -247,14 +247,14 @@ class TestBackgroundProcessing:
 
         # Mock complete GraphQL flow
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
         empty_studios = create_find_studios_result(count=0, studios=[])
         creator_studio = create_studio_dict(
             id="123",
             name="test_user (Fansly)",
-            url="https://fansly.com/test_user",
+            urls=["https://fansly.com/test_user"],
             parent_studio=fansly_studio,
         )
         empty_galleries = {"count": 0, "galleries": []}
@@ -337,7 +337,7 @@ class TestBackgroundProcessing:
 
         # Mock GraphQL responses
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
         empty_studios = create_find_studios_result(count=0, studios=[])
@@ -444,7 +444,7 @@ class TestBackgroundProcessing:
 
         # Mock GraphQL responses
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
         empty_studios = create_find_studios_result(count=0, studios=[])

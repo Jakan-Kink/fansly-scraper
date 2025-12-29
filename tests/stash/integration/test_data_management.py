@@ -326,7 +326,7 @@ class TestPerformerManagement:
                     for scene in scenes:
                         scene.performers = [main_performer]
                         updated = await stash_client.update_scene(scene)
-                        assert updated.performers[0]["id"] == main_performer.id
+                        assert updated.performers[0].id == main_performer.id
 
                 # Verify merge
                 all_scenes = await stash_client.find_scenes(

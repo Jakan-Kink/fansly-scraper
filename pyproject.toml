@@ -384,7 +384,7 @@ exclude_also = [
 ]
 ignore_errors = true
 skip_empty = true
-skip_covered = true
+skip_covered = false
 precision = 2
 show_missing = true
 fail_under = 70

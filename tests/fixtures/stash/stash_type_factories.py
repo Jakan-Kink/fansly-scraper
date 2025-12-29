@@ -24,6 +24,7 @@ import pytest
 from factory.base import Factory
 from factory.declarations import LazyAttribute, LazyFunction, Sequence
 from stash_graphql_client.types import (
+    UNSET,
     Gallery,
     Group,
     Image,
@@ -208,7 +209,7 @@ class SceneFactory(Factory):
     o_counter = None
     organized = False
     studio = None
-    paths = None
+    paths = UNSET  # Must be UNSET not None - Pydantic validator expects UnsetType
 
 
 class GalleryFactory(Factory):
@@ -295,7 +296,7 @@ class ImageFactory(Factory):
     photographer = None
     organized = False
     studio = None
-    paths = None
+    paths = UNSET  # Must be UNSET not None - Pydantic validator expects UnsetType
 
 
 class GroupFactory(Factory):
@@ -630,10 +631,10 @@ __all__ = [
     "StudioFactory",
     "TagFactory",
     "VideoFileFactory",
+    # Pytest fixtures
     "mock_gallery",
     "mock_image",
     "mock_image_file",
-    # Pytest fixtures
     "mock_performer",
     "mock_scene",
     "mock_studio",

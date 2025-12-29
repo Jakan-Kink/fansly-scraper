@@ -54,7 +54,7 @@ class TestMetadataUpdate:
 
         # Response 2: findStudios - Fansly network studio exists
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -62,7 +62,7 @@ class TestMetadataUpdate:
         creator_studio = create_studio_dict(
             id="creator_123",
             name=f"{mock_account.username} (Fansly)",
-            url=f"https://fansly.com/{mock_account.username}",
+            urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
         creator_studio_result = create_find_studios_result(
@@ -211,14 +211,14 @@ class TestMetadataUpdate:
         )
 
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
         creator_studio = create_studio_dict(
             id="creator_123",
             name=f"{mock_account.username} (Fansly)",
-            url=f"https://fansly.com/{mock_account.username}",
+            urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
         creator_studio_result = create_find_studios_result(
@@ -366,7 +366,7 @@ class TestMetadataUpdate:
 
         # Response 5: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -374,7 +374,7 @@ class TestMetadataUpdate:
         creator_studio = create_studio_dict(
             id="creator_123",
             name=f"{mock_account.username} (Fansly)",
-            url=f"https://fansly.com/{mock_account.username}",
+            urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
         creator_studio_result = create_find_studios_result(
@@ -489,7 +489,7 @@ class TestMetadataUpdate:
 
         # Response 3: findStudios for Fansly (network) - found
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -500,7 +500,7 @@ class TestMetadataUpdate:
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
-            url=f"https://fansly.com/{mock_account.username}",
+            urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
 
@@ -594,7 +594,7 @@ class TestMetadataUpdate:
 
         # Response 3: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -605,7 +605,7 @@ class TestMetadataUpdate:
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
-            url=f"https://fansly.com/{mock_account.username}",
+            urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
 
@@ -711,7 +711,7 @@ class TestMetadataUpdate:
 
         # Response 3: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -722,7 +722,7 @@ class TestMetadataUpdate:
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
-            url=f"https://fansly.com/{mock_account.username}",
+            urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
 
@@ -827,7 +827,7 @@ class TestMetadataUpdate:
 
         # Response 3: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", url="https://fansly.com"
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -838,7 +838,7 @@ class TestMetadataUpdate:
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
-            url=f"https://fansly.com/{mock_account.username}",
+            urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
 

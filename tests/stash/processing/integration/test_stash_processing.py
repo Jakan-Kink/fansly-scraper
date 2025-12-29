@@ -7,7 +7,6 @@ real GraphQL calls to a Stash instance.
 
 import pytest
 from sqlalchemy import select
-from stash_graphql_client.client.utils import sanitize_model_data
 from stash_graphql_client.types import Performer, Studio
 
 from metadata import Account
@@ -212,7 +211,7 @@ class TestStashProcessingIntegration:
                 )
                 cleanup["studios"].append(fansly_parent.id)
             else:
-                fansly_parent = Studio(**sanitize_model_data(fansly_result.studios[0]))
+                fansly_parent = fansly_result.studios[0]
 
             # Create a real creator studio in Stash BEFORE calling _find_existing_studio
             creator_studio = Studio(
@@ -273,22 +272,18 @@ class TestStashProcessingIntegration:
             assert studio.id != "new"  # Should have real ID from Stash
 
             # Verify parent studio relationship exists
-            # (GraphQL returns parent_studio as dict, so accessing via attribute or key)
             assert studio.parent_studio is not None
-            if isinstance(studio.parent_studio, dict):
-                assert "id" in studio.parent_studio
-            else:
-                assert studio.parent_studio.id is not None
+            assert studio.parent_studio.id is not None
 
-            # Verify studio URL
-            assert studio.url == f"https://fansly.com/{account.username}"
+            # Verify studio URLs
+            assert f"https://fansly.com/{account.username}" in studio.urls
 
             # Verify we can find it again (proving it was really created in Stash)
             found_studio = await real_stash_processor.context.client.find_studios(
                 q=f"{account.username} (Fansly)"
             )
             assert found_studio.count == 1
-            assert found_studio.studios[0]["id"] == studio.id
+            assert found_studio.studios[0].id == studio.id
 
             # Verify GraphQL call sequence (permanent assertion)
             assert len(calls) == 3, (
