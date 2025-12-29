@@ -6,9 +6,9 @@ fixtures and factory-based test data instead of mocks.
 
 import pytest
 from sqlalchemy import select
+from stash_graphql_client.types import Gallery
 
 from metadata import Account
-from stash.types import Gallery
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     GroupFactory,

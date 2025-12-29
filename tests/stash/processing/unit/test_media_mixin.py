@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from stash_graphql_client.types import FindImagesResultType, Image
 
 # Import the modules instead of the classes to avoid fixture issues
 from metadata import Account, AccountMedia, Media, Post
 from metadata.attachment import ContentType
-from stash.types import FindImagesResultType, Image
 from tests.fixtures import (
     AccountFactory,
     AccountMediaFactory,

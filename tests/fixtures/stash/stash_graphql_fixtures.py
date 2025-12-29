@@ -226,7 +226,7 @@ def create_find_studios_result(
 def create_studio_dict(
     id: str,
     name: str,
-    url: str | None = None,
+    urls: list[str] | None = None,
     parent_studio: dict | None = None,
     aliases: list[str] | None = None,
     tags: list[dict] | None = None,
@@ -238,7 +238,7 @@ def create_studio_dict(
     Args:
         id: Studio ID
         name: Studio name
-        url: Studio URL
+        urls: List of Studio URLs (Stash schema change from url to urls)
         parent_studio: Parent studio dict (recursive)
         aliases: List of alias strings
         tags: List of tag dicts
@@ -251,7 +251,7 @@ def create_studio_dict(
     return {
         "id": id,
         "name": name,
-        "url": url,
+        "urls": urls or [],
         "parent_studio": parent_studio,
         "aliases": aliases or [],
         "tags": tags or [],

@@ -6,9 +6,8 @@ These tests require a running Stash instance.
 import asyncio
 
 import pytest
-
-from stash import StashClient
-from stash.types import GenerateMetadataOptions, JobStatus, Scene
+from stash_graphql_client import StashClient
+from stash_graphql_client.types import GenerateMetadataOptions, JobStatus, Scene
 
 
 @pytest.mark.asyncio

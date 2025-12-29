@@ -13,11 +13,11 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
+from stash_graphql_client import StashContext
 
 from config.fanslyconfig import FanslyConfig
 from download.downloadstate import DownloadState
 from metadata.database import Database
-from stash.context import StashContext
 from stash.processing.base import StashProcessingBase
 from stash.processing.mixins.account import AccountProcessingMixin
 from stash.processing.mixins.batch import BatchProcessingMixin

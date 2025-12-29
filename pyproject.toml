@@ -44,8 +44,6 @@ aiomultiprocess = ">=0.9.1"
 toml = ">=0.10.2"
 sqlalchemy = {extras = ["asyncio"], version = ">=2.0.44,<3.0.0"}
 httpx = {extras = ["http2"], version = ">=0.28.1"}
-strawberry-graphql = ">=0.279.0"
-gql = {extras = ["httpx", "websockets"], version = ">=4.0.0"}
 websocket-client = ">=1.8.0"
 psycopg2-binary = ">=2.9.10,<3.0.0"
 asyncpg = ">=0.30.0,<1.0.0"
@@ -54,6 +52,7 @@ httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
 jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
+stash-graphql-client = "^0.5.0b4"
 
 
 [tool.poetry.group.browser-auth]
@@ -385,7 +384,7 @@ exclude_also = [
 ]
 ignore_errors = true
 skip_empty = true
-skip_covered = true
+skip_covered = false
 precision = 2
 show_missing = true
 fail_under = 70
