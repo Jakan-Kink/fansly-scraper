@@ -42,14 +42,13 @@ async def test_full_content_workflow(
     7. Generates metadata
     8. Verifies everything
     """
-    async with stash_cleanup_tracker(stash_client) as cleanup:
+    async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
         try:
             # Use unique timestamp to avoid name conflicts between test runs
             unique_id = int(time.time() * 1000) % 1000000  # Last 6 digits of timestamp
 
             # Create performer with required relationships
             performer = Performer(
-                id="new",  # New performer
                 name=f"full_content_workflow - Test Performer {unique_id}",
                 gender=GenderEnum.FEMALE,
                 urls=[f"https://example.com/performer/{unique_id}"],
@@ -78,9 +77,8 @@ async def test_full_content_workflow(
 
             # Create studio
             studio = Studio(
-                id="new",
                 name=f"full_content_workflow - Test Studio {unique_id}",
-                url=f"https://example.com/studio/{unique_id}",
+                urls=[f"https://example.com/studio/{unique_id}"],
                 details="Test studio details",
             )
             studio = await stash_client.create_studio(studio)
@@ -92,7 +90,6 @@ async def test_full_content_workflow(
             tags = []
             for name in ["Tag1", "Tag2", "Tag3"]:
                 tag = Tag(
-                    id="new",
                     name=f"full_content_workflow - {name} {unique_id}",
                     description=f"Test {name.lower()} description",
                 )
@@ -104,7 +101,6 @@ async def test_full_content_workflow(
 
             # Create scene with relationships
             scene = Scene(
-                id="new",
                 title=f"full_content_workflow - Test Scene {unique_id}",
                 details="Test scene details",
                 date="2024-01-01",
@@ -121,7 +117,6 @@ async def test_full_content_workflow(
 
             # Create gallery with relationships
             gallery = Gallery(
-                id="new",
                 title=f"full_content_workflow - Test Gallery {unique_id}",
                 details="Test gallery details",
                 date="2024-01-01",
@@ -170,7 +165,7 @@ async def test_full_content_workflow(
                         if (
                             update.job
                             and update.job.id == job_id
-                            and update.status in ["FINISHED", "CANCELLED"]
+                            and update.job.status in ["FINISHED", "CANCELLED"]
                         ):
                             print(f"Job {job_id} finished")  # Debug print
                             break
@@ -219,14 +214,13 @@ async def test_concurrent_operations(
     3. Generates metadata concurrently
     4. Verifies everything worked correctly
     """
-    async with stash_cleanup_tracker(stash_client) as cleanup:
+    async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
         try:
             # Create scenes concurrently
             scenes = []
 
             async def create_scene(i: int) -> Scene:
                 scene = Scene(
-                    id="new",
                     title=f"concurrent_operations - Test Scene {i}",
                     details=f"Test scene {i} details",
                     date="2024-01-01",
@@ -291,7 +285,7 @@ async def test_concurrent_operations(
                         if (
                             update.job
                             and update.job.id in job_ids
-                            and update.status in ["FINISHED", "CANCELLED"]
+                            and update.job.status in ["FINISHED", "CANCELLED"]
                         ):
                             finished_jobs.add(update.job.id)
                             print(f"Job {update.job.id} finished")  # Debug print
@@ -336,7 +330,6 @@ async def test_error_handling(
         try:
             # Test invalid scene creation
             scene = Scene(
-                id="new",
                 title="",  # Empty title
                 urls=[],  # No URLs
                 organized=True,
@@ -347,9 +340,8 @@ async def test_error_handling(
 
             # Create a studio to test invalid relationships
             studio = Studio(
-                id="new",
                 name="error_handling - Test Studio",
-                url="https://example.com/studio",
+                urls=["https://example.com/studio"],
             )
             studio = await stash_client.create_studio(studio)
             cleanup["studios"].append(studio.id)
@@ -357,7 +349,6 @@ async def test_error_handling(
 
             # Test invalid studio reference
             scene = Scene(
-                id="new",
                 title="error_handling - Test Scene",
                 urls=["https://example.com/scene"],
                 organized=True,
@@ -372,7 +363,6 @@ async def test_error_handling(
             # Test concurrent error handling
             async def create_invalid_scene(i: int) -> None:
                 scene = Scene(
-                    id="new",
                     title=f"error_handling - Test Scene {i}",
                     urls=[f"https://example.com/scene/{i}"],
                     organized=True,
@@ -391,7 +381,6 @@ async def test_error_handling(
 
             # Test recovery - create valid scene after errors
             scene = Scene(
-                id="new",
                 title="error_handling - Valid Scene",
                 urls=["https://example.com/valid"],
                 organized=True,
@@ -400,7 +389,7 @@ async def test_error_handling(
             created = await stash_client.create_scene(scene)
             assert created.id is not None
             assert created.title == scene.title
-            assert created.studio["id"] == studio.id
+            assert created.studio.id == studio.id
             cleanup["scenes"].append(created.id)
             print(
                 f"Recovery successful - created valid scene: {created}"

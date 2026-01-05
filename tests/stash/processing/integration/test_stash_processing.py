@@ -120,7 +120,6 @@ class TestStashProcessingIntegration:
         ) as cleanup:
             # Create a real performer in Stash
             test_performer = Performer(
-                id="new",
                 name="performer_user_integration_test",
                 urls=["https://fansly.com/performer_user_integration_test"],
             )
@@ -159,7 +158,6 @@ class TestStashProcessingIntegration:
         ) as cleanup:
             # Create a real performer in Stash with a unique name
             test_performer = Performer(
-                id="new",
                 name="new_performer_by_username_test",
                 urls=["https://fansly.com/new_performer_by_username_test"],
             )
@@ -201,7 +199,6 @@ class TestStashProcessingIntegration:
             )
             if fansly_result.count == 0:
                 fansly_parent = Studio(
-                    id="new",
                     name="Fansly (network)",
                     urls=["https://fansly.com"],
                 )
@@ -215,7 +212,6 @@ class TestStashProcessingIntegration:
 
             # Create a real creator studio in Stash BEFORE calling _find_existing_studio
             creator_studio = Studio(
-                id="new",
                 name="studio_exists_test (Fansly)",
                 urls=["https://fansly.com/studio_exists_test"],
                 parent_studio=fansly_parent,
@@ -345,7 +341,6 @@ class TestStashProcessingIntegration:
 
             # Create a real performer in Stash
             test_performer = Performer(
-                id="new",
                 name="no_avatar_user_test",
                 urls=["https://fansly.com/no_avatar_user_test"],
             )

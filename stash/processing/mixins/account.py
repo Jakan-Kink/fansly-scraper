@@ -125,7 +125,7 @@ class AccountProcessingMixin:
 
         # Try URL match
         result = await self.context.client.find_performers(
-            performer_filter={"urls": {"value": fansly_url, "modifier": "INCLUDES"}}
+            performer_filter={"url": {"value": fansly_url, "modifier": "INCLUDES"}}
         )
         if is_set(result.count) and result.count > 0:
             logger.debug(f"Found existing performer by URL: {fansly_url}")

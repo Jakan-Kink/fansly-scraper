@@ -5,6 +5,7 @@ through the entire processing pipeline. We verify that GraphQL calls are made
 with correct data from our test objects.
 """
 
+import asyncio
 import json
 from unittest.mock import patch
 
@@ -296,3 +297,138 @@ class TestStudioProcessingMixin:
             # debug_print is called 3 times
             assert mock_debug_print.call_count == 3
             assert "studio_creation_failed" in str(mock_debug_print.call_args)
+
+    @pytest.mark.asyncio
+    async def test_process_creator_studio_creation_fails_retry_also_fails(
+        self, respx_stash_processor, mock_account, mock_performer
+    ):
+        """Test process_creator_studio when creation fails AND retry finds nothing (line 141).
+
+        This covers the branch where studio creation fails, then the retry query
+        also returns 0 studios, causing the method to return None.
+        """
+        # Create responses
+        fansly_studio_dict = create_studio_dict(
+            id="fansly_123", name="Fansly (network)"
+        )
+        fansly_studio_result = create_find_studios_result(
+            count=1, studios=[fansly_studio_dict]
+        )
+
+        empty_result = create_find_studios_result(count=0, studios=[])
+
+        # Mock GraphQL responses (respx_stash_processor already has respx enabled)
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # First call: find Fansly studio (found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", fansly_studio_result),
+                ),
+                # Second call: find Creator studio (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", empty_result),
+                ),
+                # Third call: studioCreate returns error
+                httpx.Response(
+                    200,
+                    json={
+                        "errors": [{"message": "Studio creation failed"}],
+                        "data": None,
+                    },
+                ),
+                # Fourth call: retry find Creator studio (STILL not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", empty_result),
+                ),
+            ]
+        )
+
+        # Call process_creator_studio with error mocks
+        with (
+            patch("stash.processing.mixins.studio.print_error") as mock_print_error,
+            patch(
+                "stash.processing.mixins.studio.logger.exception"
+            ) as mock_logger_exception,
+            patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
+        ):
+            result = await respx_stash_processor.process_creator_studio(
+                account=mock_account, performer=mock_performer
+            )
+
+            # Verify result is None (line 141)
+            assert result is None
+
+            # Verify error handling was called
+            mock_print_error.assert_called_once()
+            mock_logger_exception.assert_called_once()
+            assert mock_debug_print.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_get_studio_lock_race_condition(self, respx_stash_processor):
+        """Test _get_studio_lock double-check race condition (line 41->43).
+
+        This covers the branch where after acquiring the _studio_creation_locks_lock,
+        we find that another task already created the lock for this username.
+
+        Ultra-aggressive approach: Mock the dict to return False first time, True second time.
+        """
+        username = "race_test_user"
+
+        # Clear any existing locks
+        respx_stash_processor._studio_creation_locks.clear()
+
+        # Create the lock that will be "created by another task" during the race
+        pre_existing_lock = asyncio.Lock()
+
+        # Track how many times we've checked the dict
+        check_count = [0]
+
+        # Save the original dict for reference
+        original_dict = respx_stash_processor._studio_creation_locks
+
+        # Create a wrapper that intercepts __contains__ checks
+        class RaceConditionDict(dict):
+            def __contains__(self, key):
+                if key == username:
+                    check_count[0] += 1
+                    if check_count[0] == 1:
+                        # First check (line 38): Return False - pass outer if
+                        return False
+                    if check_count[0] == 2:
+                        # Second check (line 41): Inject lock and return True - fail inner if!
+                        super().__setitem__(username, pre_existing_lock)
+                        return True  # This triggers line 41->43!
+                return super().__contains__(key)
+
+        # Replace the dict with our race-injecting version
+        race_dict = RaceConditionDict()
+        respx_stash_processor._studio_creation_locks = race_dict
+
+        try:
+            # Call _get_studio_lock - it will:
+            # 1. Line 38: Check username in dict -> our __contains__ returns False (check 1)
+            # 2. Line 39: Enter lock
+            # 3. Line 41: Check username in dict -> our __contains__ injects lock & returns True (check 2)
+            # 4. Line 42: SKIPPED (double-check failed - username IS in dict!)
+            # 5. Line 43: Return pre_existing_lock
+            result_lock = await respx_stash_processor._get_studio_lock(username)
+
+            # Verify we got the pre-existing lock (not a new one)
+            assert result_lock is pre_existing_lock, (
+                f"Should return the pre-existing lock. Got {id(result_lock)}, expected {id(pre_existing_lock)}"
+            )
+
+            # Verify the double-check was actually triggered
+            assert check_count[0] == 2, (
+                f"Should have checked dict twice, got {check_count[0]} checks"
+            )
+
+            # Verify only ONE lock exists
+            assert len(race_dict) == 1
+
+        finally:
+            # Restore original dict
+            respx_stash_processor._studio_creation_locks = original_dict

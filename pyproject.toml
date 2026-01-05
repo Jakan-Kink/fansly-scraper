@@ -52,7 +52,7 @@ httpx-retries = ">=0.4.3"
 ffmpeg-python = ">=0.2.0"
 jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
-stash-graphql-client = ">=0.5.0"
+stash-graphql-client = ">=0.7.0"
 
 
 [tool.poetry.group.browser-auth]
@@ -72,7 +72,6 @@ pylint = ">=3.3.3"
 pre-commit = ">=4.0.1"
 bandit = {extras = ["toml"], version = ">=1.8.0"}
 ruff = ">=0.14.2"
-keyrings-codeartifact = "^2.1.2"
 
 [tool.poetry.group.typing]
 optional = true
@@ -489,8 +488,4 @@ module = "config.decorators"
 # Complex decorator typing with dynamic behavior
 ignore_errors = true
 
-# AWS CodeArtifact private package repository
-[[tool.poetry.source]]
-name = "codeartifact"
-url = "https://stash-tools-024848464090.d.codeartifact.us-east-2.amazonaws.com/pypi/python-packages/simple/"
-priority = "supplemental"
+# stash-graphql-client now on PyPI - CodeArtifact no longer needed

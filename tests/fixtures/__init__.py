@@ -348,9 +348,8 @@ mod_stash_api_fixtures = [
 mod_stash_integration_fixtures = [
     "fansly_network_studio",
     "test_state",  # was "mock_state" - already a real object, not a mock
-    "mock_studio_finder",
+    # Removed: mock_studio_finder, mock_permissions (deleted during stash-graphql-client migration)
     "message_media_generator",
-    "mock_permissions",
     "real_stash_processor",  # Hits real Docker Stash (true integration tests)
     "respx_stash_processor",  # Has respx.mock wrapper (unit tests with mocked HTTP)
 ]

@@ -120,10 +120,9 @@ class StashProcessing(
             stmt = select(Account).where(Account.id == account.id)
             result = await session.execute(stmt)
             account = result.scalar_one()
-            if not isinstance(account, Account):
-                raise TypeError("account must be a SQLAlchemy Account model")
 
-            if account.stash_id != performer.id:
+            # Convert performer.id (string) to int for comparison with account.stash_id (int)
+            if account.stash_id != int(performer.id):
                 await self._update_account_stash_id(
                     account=account,
                     performer=performer,
@@ -173,7 +172,10 @@ class StashProcessing(
             )
             raise
         finally:
-            print_info(f"Finished Stash processing for {performer.name}")
+            performer_name = (
+                performer.name if isinstance(performer, Performer) else repr(performer)
+            )
+            print_info(f"Finished Stash processing for {performer_name}")
 
 
 # Export main class

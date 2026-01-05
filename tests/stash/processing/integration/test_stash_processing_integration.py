@@ -46,7 +46,6 @@ class TestStashProcessingIntegration:
                 # Try to create, but handle race condition if it already exists
                 try:
                     test_network_studio = Studio(
-                        id="new",  # Indicates new object
                         name="Fansly (network)",
                         url="",
                     )
@@ -169,7 +168,6 @@ class TestStashProcessingIntegration:
                 # Try to create, but handle race condition if it already exists
                 try:
                     test_network_studio = Studio(
-                        id="new",  # Indicates new object
                         name="Fansly (network)",
                         url="",
                     )
@@ -310,7 +308,7 @@ class TestIntegrationErrorHandling:
             matching_performers = [
                 p
                 for p in performers_result.performers
-                if p.get("name") == test_account.displayName
+                if p.name == test_account.displayName
             ]
             assert len(matching_performers) == 1, (
                 "Should not create duplicate performers"

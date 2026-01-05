@@ -78,13 +78,14 @@ async def test_process_hls_variant(
     # 4. findStudios - to find the creator-specific studio
     # 5. sceneUpdate - to save the updated scene metadata
 
-    # Response 1: findScenes
+    # Response 1: findScenesByPathRegex
     # NOTE: The path must contain the VARIANT media ID, not the parent media ID
     scene_data = create_scene_dict(
         id="scene_123",
         title="HLS Test Scene",
         files=[
             {
+                "__typename": "VideoFile",
                 "id": "file_123",
                 "path": f"/path/to/media_{hls_variant.id}",
                 "basename": f"media_{hls_variant.id}.m3u8",
@@ -99,12 +100,15 @@ async def test_process_hls_variant(
                 "audio_codec": "aac",
                 "frame_rate": 30.0,
                 "bit_rate": 5000000,
+                "fingerprints": [],
+                "mod_time": "2024-01-01T00:00:00Z",
             }
         ],
     )
     find_scenes_data = create_find_scenes_result(count=1, scenes=[scene_data])
 
-    # Response 2: findPerformers - convert mock_performer to dict
+    # Response 2-3: findPerformers (name + alias searches)
+    empty_performers_result = create_find_performers_result(count=0, performers=[])
     performer_dict = create_performer_dict(
         id=mock_performer.id,
         name=mock_performer.name,
@@ -129,7 +133,7 @@ async def test_process_hls_variant(
         count=1, studios=[creator_studio_dict]
     )
 
-    # Response 5: sceneUpdate - mutation returns the updated scene
+    # Response 6: sceneUpdate - mutation returns the updated scene
     updated_scene_data = create_scene_dict(
         id="scene_123",
         title="HLS Test Scene",  # Will be updated with actual title from test_post
@@ -139,7 +143,12 @@ async def test_process_hls_variant(
     graphql_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
             httpx.Response(
-                200, json=create_graphql_response("findScenes", find_scenes_data)
+                200,
+                json=create_graphql_response("findScenesByPathRegex", find_scenes_data),
+            ),
+            httpx.Response(
+                200,
+                json=create_graphql_response("findPerformers", empty_performers_result),
             ),
             httpx.Response(
                 200,
@@ -171,24 +180,28 @@ async def test_process_hls_variant(
     # Verify GraphQL call sequence (permanent assertion)
     import json
 
-    assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
+    # 6 calls: findScenesByPathRegex + 2 findPerformers + 2 findStudios + sceneUpdate
+    assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
     calls = graphql_route.calls
 
     # Verify query types in order
     req0 = json.loads(calls[0].request.content)
-    assert "findScenes" in req0["query"]
+    assert "findScenesByPathRegex" in req0["query"]
 
     req1 = json.loads(calls[1].request.content)
     assert "findPerformers" in req1["query"]
 
     req2 = json.loads(calls[2].request.content)
-    assert "findStudios" in req2["query"]
+    assert "findPerformers" in req2["query"]
 
     req3 = json.loads(calls[3].request.content)
     assert "findStudios" in req3["query"]
 
     req4 = json.loads(calls[4].request.content)
-    assert "sceneUpdate" in req4["query"]
+    assert "findStudios" in req4["query"]
+
+    req5 = json.loads(calls[5].request.content)
+    assert "sceneUpdate" in req5["query"]
 
 
 @pytest.mark.asyncio
@@ -647,29 +660,42 @@ async def test_process_bundle_ordering(
     empty_performers_result = create_find_performers_result(count=0, performers=[])
 
     # Build the full response sequence (no findScenes - bundle has only images)
+    # For each of 3 images: 2 findPerformers + 2 findStudios + 1 imageUpdate
     responses = [
         httpx.Response(
             200, json=create_graphql_response("findImages", find_images_data)
         ),
-        httpx.Response(
-            200, json=create_graphql_response("findPerformers", empty_performers_result)
-        ),
-        httpx.Response(
-            200, json=create_graphql_response("findPerformers", find_performers_data)
-        ),
-        httpx.Response(
-            200, json=create_graphql_response("findStudios", fansly_studio_result)
-        ),
-        httpx.Response(
-            200, json=create_graphql_response("findStudios", creator_studio_result)
-        ),
     ]
 
-    # Add imageUpdate for each of the 3 images
-    responses.extend(
-        httpx.Response(200, json=create_graphql_response("imageUpdate", images_data[i]))
-        for i in range(3)
-    )
+    # Add responses for each image (performer/studio lookups not cached)
+    for i in range(3):
+        responses.extend(
+            [
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", empty_performers_result
+                    ),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", find_performers_data
+                    ),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", fansly_studio_result),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", creator_studio_result),
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("imageUpdate", images_data[i])
+                ),
+            ]
+        )
 
     graphql_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=responses
@@ -697,18 +723,30 @@ async def test_process_bundle_ordering(
     assert bundle_media_ids == [m.id for m in media_items]
 
     # Verify GraphQL call sequence (permanent assertion)
-    assert len(graphql_route.calls) == 8, "Expected exactly 8 GraphQL calls"
+    # 16 calls: 1 findImages + (2 findPerformers + 2 findStudios + 1 imageUpdate) x 3 images
+    assert len(graphql_route.calls) == 16, "Expected exactly 16 GraphQL calls"
     calls = graphql_route.calls
 
     # Verify query types in order
     assert "findImages" in json.loads(calls[0].request.content)["query"]
-    assert "findPerformers" in json.loads(calls[1].request.content)["query"]  # By name
-    assert "findPerformers" in json.loads(calls[2].request.content)["query"]  # By alias
+    # Image 1
+    assert "findPerformers" in json.loads(calls[1].request.content)["query"]
+    assert "findPerformers" in json.loads(calls[2].request.content)["query"]
     assert "findStudios" in json.loads(calls[3].request.content)["query"]
     assert "findStudios" in json.loads(calls[4].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[7].request.content)["query"]
+    # Image 2
+    assert "findPerformers" in json.loads(calls[6].request.content)["query"]
+    assert "findPerformers" in json.loads(calls[7].request.content)["query"]
+    assert "findStudios" in json.loads(calls[8].request.content)["query"]
+    assert "findStudios" in json.loads(calls[9].request.content)["query"]
+    assert "imageUpdate" in json.loads(calls[10].request.content)["query"]
+    # Image 3
+    assert "findPerformers" in json.loads(calls[11].request.content)["query"]
+    assert "findPerformers" in json.loads(calls[12].request.content)["query"]
+    assert "findStudios" in json.loads(calls[13].request.content)["query"]
+    assert "findStudios" in json.loads(calls[14].request.content)["query"]
+    assert "imageUpdate" in json.loads(calls[15].request.content)["query"]
 
 
 @pytest.mark.asyncio
@@ -1009,6 +1047,7 @@ async def test_bundle_permission_inheritance(
         httpx.Response(
             200, json=create_graphql_response("findImages", find_images_data)
         ),
+        # First image processing
         httpx.Response(
             200, json=create_graphql_response("findPerformers", empty_performers_result)
         ),
@@ -1021,13 +1060,26 @@ async def test_bundle_permission_inheritance(
         httpx.Response(
             200, json=create_graphql_response("findStudios", creator_studio_result)
         ),
+        httpx.Response(
+            200, json=create_graphql_response("imageUpdate", images_data[0])
+        ),
+        # Second image processing (performer/studio lookups not cached)
+        httpx.Response(
+            200, json=create_graphql_response("findPerformers", empty_performers_result)
+        ),
+        httpx.Response(
+            200, json=create_graphql_response("findPerformers", find_performers_data)
+        ),
+        httpx.Response(
+            200, json=create_graphql_response("findStudios", fansly_studio_result)
+        ),
+        httpx.Response(
+            200, json=create_graphql_response("findStudios", creator_studio_result)
+        ),
+        httpx.Response(
+            200, json=create_graphql_response("imageUpdate", images_data[1])
+        ),
     ]
-
-    # Add imageUpdate for each of the 2 images
-    responses.extend(
-        httpx.Response(200, json=create_graphql_response("imageUpdate", images_data[i]))
-        for i in range(2)
-    )
 
     graphql_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=responses
@@ -1055,14 +1107,21 @@ async def test_bundle_permission_inheritance(
     assert bundle_media_ids == [m.id for m in media_items]
 
     # Verify GraphQL call sequence (permanent assertion)
-    assert len(graphql_route.calls) == 7, "Expected exactly 7 GraphQL calls"
+    # 11 calls: 1 findImages + (2 findPerformers + 2 findStudios + 1 imageUpdate) x 2 images
+    assert len(graphql_route.calls) == 11, "Expected exactly 11 GraphQL calls"
     calls = graphql_route.calls
 
     # Verify query types in order
     assert "findImages" in json.loads(calls[0].request.content)["query"]
+    # First image
     assert "findPerformers" in json.loads(calls[1].request.content)["query"]  # By name
     assert "findPerformers" in json.loads(calls[2].request.content)["query"]  # By alias
-    assert "findStudios" in json.loads(calls[3].request.content)["query"]
-    assert "findStudios" in json.loads(calls[4].request.content)["query"]
+    assert "findStudios" in json.loads(calls[3].request.content)["query"]  # Fansly
+    assert "findStudios" in json.loads(calls[4].request.content)["query"]  # Creator
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
-    assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
+    # Second image
+    assert "findPerformers" in json.loads(calls[6].request.content)["query"]  # By name
+    assert "findPerformers" in json.loads(calls[7].request.content)["query"]  # By alias
+    assert "findStudios" in json.loads(calls[8].request.content)["query"]  # Fansly
+    assert "findStudios" in json.loads(calls[9].request.content)["query"]  # Creator
+    assert "imageUpdate" in json.loads(calls[10].request.content)["query"]

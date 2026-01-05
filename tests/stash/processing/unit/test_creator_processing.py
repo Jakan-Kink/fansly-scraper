@@ -116,16 +116,15 @@ class TestCreatorProcessing:
         # Verify the variables match what we expect
         variables = request_body.get("variables", {})
 
-        # get_or_create_performer uses fuzzy search with filter.q, not performer_filter
+        # New library: find_performer uses performer_filter with name/alias searches
         filter_params = variables.get("filter", {})
-        assert filter_params.get("q") == "Test User"  # displayName from Account
-        assert (
-            filter_params.get("per_page") == 40
-        )  # Default from get_or_create_performer
+        assert filter_params.get("per_page") == -1  # Get all results
 
-        # performer_filter should be None or empty for fuzzy search
-        performer_filter = variables.get("performer_filter")
-        assert performer_filter is None or performer_filter == {}
+        # First call should be name search with EQUALS modifier
+        performer_filter = variables.get("performer_filter", {})
+        name_filter = performer_filter.get("name", {})
+        assert name_filter.get("value") == "Test User"  # displayName from Account
+        assert name_filter.get("modifier") == "EQUALS"
 
     @pytest.mark.asyncio
     async def test_process_creator_no_account_raises_error(
@@ -180,9 +179,10 @@ class TestCreatorProcessing:
         )
 
         # Mock GraphQL HTTP responses
+        # v0.7.x: find_performer() makes 3 calls (name + alias + URL search)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # First call: findPerformers (not found)
+                # First call: findPerformers by name (not found)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -190,7 +190,23 @@ class TestCreatorProcessing:
                         create_find_performers_result(count=0, performers=[]),
                     ),
                 ),
-                # Second call: performerCreate (creates new)
+                # Second call: findPerformers by alias (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        create_find_performers_result(count=0, performers=[]),
+                    ),
+                ),
+                # Third call: findPerformers by URL (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        create_find_performers_result(count=0, performers=[]),
+                    ),
+                ),
+                # Fourth call: performerCreate (creates new)
                 httpx.Response(
                     200, json=create_graphql_response("performerCreate", performer_dict)
                 ),
@@ -209,16 +225,16 @@ class TestCreatorProcessing:
         assert performer is not None
         assert performer.name == "New User"
 
-        # Verify respx was hit twice (find then create)
-        assert graphql_route.call_count == 2
+        # Verify respx was hit 4 times (3 findPerformers: name/alias/URL + 1 performerCreate)
+        assert graphql_route.call_count == 4
 
         # Verify first call was findPerformers
         first_request = json.loads(graphql_route.calls[0].request.content)
         assert "findPerformers" in first_request.get("query", "")
 
-        # Verify second call was performerCreate
-        second_request = json.loads(graphql_route.calls[1].request.content)
-        assert "performerCreate" in second_request.get("query", "")
+        # Verify fourth call was performerCreate
+        fourth_request = json.loads(graphql_route.calls[3].request.content)
+        assert "performerCreate" in fourth_request.get("query", "")
 
     @pytest.mark.asyncio
     async def test_find_existing_studio(self, factory_session, respx_stash_processor):

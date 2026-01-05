@@ -8,7 +8,6 @@ import json
 import httpx
 import pytest
 import respx
-import strawberry
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from stash_graphql_client.types import Image
@@ -26,7 +25,7 @@ from tests.fixtures import (
     create_graphql_response,
     create_studio_dict,
 )
-from tests.fixtures.stash.stash_type_factories import ImageFactory
+from tests.fixtures.stash.stash_graphql_fixtures import create_image_dict
 
 
 class TestMediaProcessingWithRealData:
@@ -77,8 +76,8 @@ class TestMediaProcessingWithRealData:
         )
         media = result_media.unique().scalar_one()
 
-        # Create Image using factory
-        image = ImageFactory.build(
+        # Create image dict for GraphQL response using fixture
+        image_dict = create_image_dict(
             id="600",
             title="Test Image",
             visual_files=[
@@ -96,13 +95,9 @@ class TestMediaProcessingWithRealData:
             ],
         )
 
-        # Convert to dict for GraphQL response
-
-        image_dict = strawberry.asdict(image)
-
         # Create Fansly network studio response
         fansly_studio_dict = create_studio_dict(
-            id="246", name="Fansly (network)", url=""
+            id="246", name="Fansly (network)", urls=[]
         )
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
@@ -112,7 +107,7 @@ class TestMediaProcessingWithRealData:
         creator_studio_dict = create_studio_dict(
             id="999",
             name="test_user (Fansly)",
-            url="https://fansly.com/test_user",
+            urls=["https://fansly.com/test_user"],
         )
         creator_studio_result = create_find_studios_result(
             count=1, studios=[creator_studio_dict]
@@ -276,8 +271,8 @@ class TestMediaProcessingWithRealData:
         )
         attachment = result_attachment.scalar_one()
 
-        # Create Image using factory for GraphQL response
-        image = ImageFactory.build(
+        # Create image dict for GraphQL response using fixture
+        image_dict = create_image_dict(
             id="601",
             title="Test Image",
             visual_files=[
@@ -295,11 +290,9 @@ class TestMediaProcessingWithRealData:
             ],
         )
 
-        image_dict = strawberry.asdict(image)
-
         # Create Fansly network studio response
         fansly_studio_dict = create_studio_dict(
-            id="246", name="Fansly (network)", url=""
+            id="246", name="Fansly (network)", urls=[]
         )
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
@@ -309,7 +302,7 @@ class TestMediaProcessingWithRealData:
         creator_studio_dict = create_studio_dict(
             id="1000",
             name="test_user_2 (Fansly)",
-            url="https://fansly.com/test_user_2",
+            urls=["https://fansly.com/test_user_2"],
         )
 
         # Mock GraphQL responses - chain all responses

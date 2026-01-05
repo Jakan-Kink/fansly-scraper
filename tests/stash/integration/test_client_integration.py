@@ -19,10 +19,9 @@ async def test_scene_workflow(
     stash_client: StashClient, enable_scene_creation, stash_cleanup_tracker
 ) -> None:
     """Test complete scene workflow."""
-    async with stash_cleanup_tracker(stash_client) as cleanup:
+    async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
         # Create scene
         scene = Scene(
-            id="new",  # Required for initialization, will be replaced on create
             title="Test Scene",
             details="Test scene details",
             date="2024-01-01",

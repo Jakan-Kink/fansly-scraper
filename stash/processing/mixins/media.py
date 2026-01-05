@@ -416,17 +416,17 @@ class MediaProcessingMixin:
 
             try:
                 # Use findScenesByPathRegex for single-query lookup
-                scenes = await self.context.client.find_scenes_by_path_regex(
+                result = await self.context.client.find_scenes_by_path_regex(
                     filter_={"q": regex_pattern}
                 )
 
                 logger.info(
                     "Scene regex search results: found %s scenes for %s media IDs",
-                    len(scenes),
+                    result.count,
                     len(scene_ids),
                 )
 
-                if len(scenes) == 0:
+                if result.count == 0:
                     logger.warning(
                         f"No scenes found for {len(scene_ids)} media IDs via regex"
                     )
@@ -439,7 +439,7 @@ class MediaProcessingMixin:
                     )
                 else:
                     valid_files_found = False
-                    for scene in scenes:
+                    for scene in result.scenes:
                         try:
                             if file := self._get_file_from_stash_obj(scene):
                                 found.append((scene, file))
@@ -462,13 +462,13 @@ class MediaProcessingMixin:
 
                     if not valid_files_found:
                         logger.warning(
-                            f"Found {len(scenes)} scenes but no valid scene files could be extracted"
+                            f"Found {result.count} scenes but no valid scene files could be extracted"
                         )
                         debug_print(
                             {
                                 "method": "StashProcessing - _find_stash_files_by_path",
                                 "status": "no_valid_scene_files_found",
-                                "scene_count": len(scenes),
+                                "scene_count": result.count,
                             }
                         )
 
@@ -765,28 +765,7 @@ class MediaProcessingMixin:
             f"Object ID: {stash_obj.id}"
         )
 
-        # Check and log what makes the object dirty
-        if hasattr(stash_obj, "_dirty_attrs") and stash_obj._dirty_attrs:
-            logger.debug("Dirty attributes:\n%s\n", stash_obj._dirty_attrs)
-        else:
-            logger.debug("No dirty attributes detected")
-
-        # Log detailed state just before save
-        is_dirty = stash_obj.is_dirty() if hasattr(stash_obj, "is_dirty") else True
-        logger.debug(
-            "State before save:\nTitle = %s\nDate = %s\nCode = %s\nDirty = %s\n",
-            getattr(stash_obj, "title", None),
-            getattr(stash_obj, "date", None),
-            getattr(stash_obj, "code", None),
-            is_dirty,
-        )
-
-        # Only save if there are actual changes
-        if not is_dirty:
-            logger.debug("No changes detected, skipping save")
-            return
-
-        # Save changes to Stash
+        # Save changes to Stash (save() handles dirty check internally)
         try:
             await stash_obj.save(self.context.client)
             logger.debug("Successfully saved changes to Stash")

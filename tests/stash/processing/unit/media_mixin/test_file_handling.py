@@ -51,7 +51,7 @@ class TestFileHandling:
                 "basename": "image.jpg",
                 "parent_folder_id": "folder_123",
                 "fingerprints": [],
-                "mod_time": None,
+                "mod_time": "2024-01-01T00:00:00Z",
             }
         ]
 
@@ -160,15 +160,17 @@ class TestFileHandling:
 
         # Response 1: findImage - return an image with visual_files
         image_file = {
+            "__typename": "ImageFile",
             "id": "file_image_123",
             "path": "/path/to/image.jpg",
             "basename": "image.jpg",
             "size": 1024,
             "width": 1920,
             "height": 1080,
-            "parent_folder_id": None,
+            "format": "jpg",
+            "parent_folder_id": "folder_123",
             "fingerprints": [],
-            "mod_time": None,
+            "mod_time": "2024-01-01T00:00:00Z",
         }
         image_result = create_image_dict(
             id="image_123",
@@ -178,11 +180,12 @@ class TestFileHandling:
 
         # Response 2: findScene - return a scene with files
         video_file = {
+            "__typename": "VideoFile",
             "id": "file_scene_123",
             "path": "/path/to/video.mp4",
             "basename": "video.mp4",
             "size": 2048,
-            "parent_folder_id": None,
+            "parent_folder_id": "folder_123",
             "format": "mp4",
             "width": 1920,
             "height": 1080,
@@ -191,6 +194,8 @@ class TestFileHandling:
             "audio_codec": "aac",
             "frame_rate": 30.0,
             "bit_rate": 5000000,
+            "fingerprints": [],
+            "mod_time": "2024-01-01T00:00:00Z",
         }
         scene_result = create_scene_dict(
             id="scene_123",
@@ -244,15 +249,17 @@ class TestFileHandling:
 
         # Response 1: findImages - return images with path filter match
         image_file = {
+            "__typename": "ImageFile",
             "id": "file_test123",
             "path": "/path/to/media_test123.jpg",
             "basename": "media_test123.jpg",
             "size": 1024,
             "width": 1920,
             "height": 1080,
-            "parent_folder_id": None,
+            "format": "jpg",
+            "parent_folder_id": "folder_123",
             "fingerprints": [],
-            "mod_time": None,
+            "mod_time": "2024-01-01T00:00:00Z",
         }
         image_result = create_image_dict(
             id="img_test123",

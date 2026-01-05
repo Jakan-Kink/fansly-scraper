@@ -5,12 +5,11 @@ These tests use respx_stash_processor fixture for edge mocking.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 import respx
-import strawberry
 from PIL import Image
 
 # Re-query account to ensure relationship is properly loaded
@@ -18,8 +17,11 @@ from sqlalchemy import select
 
 from metadata import Account
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
-from tests.fixtures.stash.stash_graphql_fixtures import create_graphql_response
-from tests.fixtures.stash.stash_type_factories import ImageFactory, PerformerFactory
+from tests.fixtures.stash.stash_graphql_fixtures import (
+    create_graphql_response,
+    create_performer_dict,
+)
+from tests.fixtures.stash.stash_type_factories import PerformerFactory
 
 
 class TestAccountProcessingMixin:
@@ -87,17 +89,31 @@ class TestAccountProcessingMixin:
         # 2. performerCreate creates new performer
         await respx_stash_processor.context.get_client()
 
-        mock_performer = PerformerFactory.build(
+        performer_dict = create_performer_dict(
             id="123",
             name="test_user",
             urls=["https://fansly.com/test_user"],
         )
-        performer_dict = strawberry.asdict(mock_performer)
 
         # Mock GraphQL HTTP responses
+        # _get_or_create_performer makes 3 findPerformers calls (name, alias, URL) + 1 create
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # findPerformers (fuzzy search) - no existing performer
+                # findPerformers (name search) - no existing performer
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", {"count": 0, "performers": []}
+                    ),
+                ),
+                # findPerformers (alias search) - no existing performer
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", {"count": 0, "performers": []}
+                    ),
+                ),
+                # findPerformers (URL search) - no existing performer
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -123,7 +139,9 @@ class TestAccountProcessingMixin:
         assert performer.name == "test_user"
 
         # Verify GraphQL calls were made
-        assert graphql_route.call_count == 2  # findPerformers + performerCreate
+        assert (
+            graphql_route.call_count == 4
+        )  # 3x findPerformers (name/alias/URL) + performerCreate
 
         # Test with no account found
         respx_stash_processor.state.creator_id = (
@@ -200,23 +218,27 @@ class TestAccountProcessingMixin:
 
         try:
             # Mock GraphQL responses for avatar update
-            # Create findImages response with image that has visual_files
-            mock_image = ImageFactory.build(id="img_123")
-            image_dict = strawberry.asdict(mock_image)
-            # Add visual_files to the dict with all required ImageFile fields
-            image_dict["visual_files"] = [
-                {
-                    "id": "file_123",
-                    "path": str(temp_avatar_path),  # Use the actual temp file path
-                    "basename": "avatar.jpg",
-                    "parent_folder_id": "folder_123",
-                    "mod_time": "2024-01-01T00:00:00Z",
-                    "size": 1024,
-                    "fingerprints": [],
-                    "width": 100,
-                    "height": 100,
-                }
-            ]
+            # Import create_image_dict for proper dict creation
+            from tests.fixtures.stash.stash_graphql_fixtures import create_image_dict
+
+            # Create image dict with visual_files
+            image_dict = create_image_dict(
+                id="img_123",
+                title=None,
+                visual_files=[
+                    {
+                        "id": "file_123",
+                        "path": str(temp_avatar_path),  # Use the actual temp file path
+                        "basename": "avatar.jpg",
+                        "parent_folder_id": "folder_123",
+                        "mod_time": "2024-01-01T00:00:00Z",
+                        "size": 1024,
+                        "fingerprints": [],
+                        "width": 100,
+                        "height": 100,
+                    }
+                ],
+            )
 
             images_response = {
                 "count": 1,
@@ -225,7 +247,10 @@ class TestAccountProcessingMixin:
                 "filesize": 0.0,
             }
 
-            performer_dict = strawberry.asdict(mock_performer)
+            performer_dict = create_performer_dict(
+                id="123",
+                name="test_user",
+            )
 
             graphql_route = respx.post("http://localhost:9999/graphql").mock(
                 side_effect=[
@@ -268,8 +293,7 @@ class TestAccountProcessingMixin:
         # Setup context.client
         await respx_stash_processor.context.get_client()
 
-        mock_performer = PerformerFactory.build(id="999", name="test_user")
-        performer_dict = strawberry.asdict(mock_performer)
+        performer_dict = create_performer_dict(id="999", name="test_user")
 
         # Mock GraphQL response - findPerformer by ID (singular)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -305,8 +329,7 @@ class TestAccountProcessingMixin:
         # Setup context.client
         await respx_stash_processor.context.get_client()
 
-        mock_performer = PerformerFactory.build(id="999", name="test_user")
-        performer_dict = strawberry.asdict(mock_performer)
+        performer_dict = create_performer_dict(id="999", name="test_user")
 
         # Mock GraphQL response - findPerformers (plural) by name
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -398,3 +421,197 @@ class TestAccountProcessingMixin:
         # Verify stash_id was updated (performer.id is string "123", converted to int)
         await session.refresh(account)
         assert account.stash_id == int(mock_performer.id)
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_performer_found_by_alias(
+        self, respx_stash_processor, session
+    ):
+        """Test _get_or_create_performer when performer found by alias (lines 123-124)."""
+        account = AccountFactory.build(id=12345, username="test_user")
+        session.add(account)
+        await session.commit()
+
+        # Create performer data that will be found by alias
+        existing_performer_dict = create_performer_dict(
+            id="999", name="Test User", aliases=["test_user"]
+        )
+
+        # Mock GraphQL: first call finds nothing by name, second call finds by alias
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # findPerformers by name - not found
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        {"count": 0, "performers": []},
+                    ),
+                ),
+                # findPerformers by alias - FOUND (lines 123-124)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        {"count": 1, "performers": [existing_performer_dict]},
+                    ),
+                ),
+            ]
+        )
+
+        await respx_stash_processor.context.get_client()
+        result = await respx_stash_processor._get_or_create_performer(account)
+
+        # Verify performer was found (not created)
+        assert result.id == "999"
+        assert graphql_route.call_count == 2  # Name search + alias search only
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_performer_found_by_url(
+        self, respx_stash_processor, session
+    ):
+        """Test _get_or_create_performer when performer found by URL (lines 131-132)."""
+        account = AccountFactory.build(id=12345, username="test_user")
+        session.add(account)
+        await session.commit()
+
+        # Create performer data that will be found by URL
+        existing_performer_dict = create_performer_dict(
+            id="888", name="Different Name", urls=["https://fansly.com/test_user"]
+        )
+
+        # Mock GraphQL: name and alias searches fail, URL search succeeds
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # findPerformers by name - not found
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        {"count": 0, "performers": []},
+                    ),
+                ),
+                # findPerformers by alias - not found
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        {"count": 0, "performers": []},
+                    ),
+                ),
+                # findPerformers by URL - FOUND (lines 131-132)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        {"count": 1, "performers": [existing_performer_dict]},
+                    ),
+                ),
+            ]
+        )
+
+        await respx_stash_processor.context.get_client()
+        result = await respx_stash_processor._get_or_create_performer(account)
+
+        # Verify performer was found by URL
+        assert result.id == "888"
+        assert graphql_route.call_count == 3  # Name + alias + URL searches
+
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_with_custom_image(
+        self, respx_stash_processor, session
+    ):
+        """Test _update_performer_avatar when performer has custom image (line 242->exit)."""
+        account = AccountFactory.build(id=12345, username="test_user")
+        session.add(account)
+
+        # Create avatar media
+        avatar = MediaFactory.build(
+            id=999, accountId=12345, mimetype="image/jpeg", local_filename="avatar.jpg"
+        )
+        account.avatar = avatar
+        session.add(avatar)
+        await session.commit()
+
+        # Create performer with custom image (not default)
+        performer = PerformerFactory.build(
+            id="123",
+            name="test_user",
+            image_path="/path/to/custom_image.jpg",  # Custom image, no default=true
+        )
+
+        # Call _update_performer_avatar
+        await respx_stash_processor.context.get_client()
+        await respx_stash_processor._update_performer_avatar(
+            account, performer, session=session
+        )
+
+        # Should return early without making any GraphQL calls
+        # (line 242->exit branch)
+
+    @pytest.mark.asyncio
+    async def test_update_performer_avatar_query_exception(
+        self, respx_stash_processor, session
+    ):
+        """Test _update_performer_avatar with avatar query exception (lines 223-224)."""
+        account = AccountFactory.build(id=12345, username="test_user")
+        session.add(account)
+        await session.commit()
+
+        # Create performer
+        performer = PerformerFactory.build(id="123", name="test_user")
+
+        # Mock session.execute to raise an exception
+
+        original_execute = session.execute
+
+        async def failing_execute(stmt):
+            # Only fail for the avatar query, not other queries
+            if "avatar" in str(stmt):
+                raise RuntimeError("Database error!")
+            return await original_execute(stmt)
+
+        session.execute = failing_execute
+
+        # Call _update_performer_avatar (should handle exception gracefully)
+        await respx_stash_processor.context.get_client()
+        with patch("stash.processing.mixins.account.logger.error") as mock_logger:
+            await respx_stash_processor._update_performer_avatar(
+                account, performer, session=session
+            )
+
+            # Verify exception was logged (lines 223-224)
+            mock_logger.assert_called_once()
+            assert "Failed to query avatar" in str(mock_logger.call_args)
+
+        # Restore original execute
+        session.execute = original_execute
+
+    @pytest.mark.asyncio
+    async def test_find_existing_performer_stash_id_returns_none(
+        self, respx_stash_processor, session
+    ):
+        """Test _find_existing_performer when stash_id lookup returns None (line 302->314)."""
+        account = AccountFactory.build(
+            id=12345,
+            username="test_user",
+            stash_id=999,  # Has stash_id but lookup fails
+        )
+        session.add(account)
+        await session.commit()
+
+        # Mock client to return None for stash_id lookup
+        await respx_stash_processor.context.get_client()
+        with patch.object(
+            respx_stash_processor.context.client,
+            "find_performer",
+            new=AsyncMock(side_effect=[None, PerformerFactory.build(id="123")]),
+        ) as mock_find:
+            result = await respx_stash_processor._find_existing_performer(account)
+
+            # Verify it fell through to username search (line 302->314 branch)
+            assert mock_find.call_count == 2
+            assert mock_find.call_args_list[0][0][0] == 999  # First call with stash_id
+            assert (
+                mock_find.call_args_list[1][0][0] == "test_user"
+            )  # Second call with username
+            assert result.id == "123"

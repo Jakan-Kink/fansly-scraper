@@ -15,6 +15,7 @@ Philosophy:
 - Use factories for test data creation
 """
 
+import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -398,6 +399,8 @@ def capture_graphql_calls(stash_client):
         """Capture the call details at the gql boundary.
 
         Captures raw gql operations and responses before StashClient error handling.
+
+        Note: In gql 4.0+, we extract variables and query from the DocumentNode object directly.
         """
         result = None
         exception = None
@@ -411,15 +414,53 @@ def capture_graphql_calls(stash_client):
         else:
             return result
         finally:
-            # Always log the call with raw gql result or exception
-            calls.append(
-                {
-                    "query": str(operation),  # Convert gql DocumentNode to string
-                    "variables": variable_values,
-                    "result": dict(result) if result else None,
-                    "exception": exception,
-                }
-            )
+            # In gql 4.0+, operation is a GraphQLRequest object with:
+            # - document: The DocumentNode (GraphQL query AST)
+            # - variable_values: The variables dict
+            # - operation_name: The operation name (optional)
+
+            try:
+                # Extract variables from GraphQLRequest.variable_values
+                variables = (
+                    operation.variable_values
+                    if hasattr(operation, "variable_values")
+                    else variable_values
+                )
+
+                # Extract query string from GraphQLRequest.document
+                if hasattr(operation, "document"):
+                    # gql 4.0+: operation.document is the DocumentNode
+                    from graphql import print_ast
+
+                    query_str = print_ast(operation.document)
+                else:
+                    # Fallback: convert to string
+                    query_str = str(operation)
+
+                # Always log the call with raw gql result or exception
+                calls.append(
+                    {
+                        "query": query_str,
+                        "variables": variables,
+                        "result": dict(result) if result else None,
+                        "exception": exception,
+                    }
+                )
+            except Exception as e:
+                print(f"ERROR in capture_graphql_calls finally block: {e}")
+                import traceback
+
+                traceback.print_exc()
+                # Append minimal info on error
+                calls.append(
+                    {
+                        "query": str(operation),
+                        "variables": None,
+                        "result": dict(result) if result else None,
+                        "exception": exception,
+                        "capture_error": str(e),
+                    }
+                )
 
     # Patch the _session.execute method at the gql boundary
     with patch.object(
@@ -563,6 +604,41 @@ async def message_media_generator(factory_session, real_stash_processor):
         total_images_available = images_result.count
         total_scenes_available = scenes_result.count
 
+        # PARTITION MEDIA BY XDIST WORKER for parallel test isolation
+        # Only partition when running with multiple workers AND have enough media
+        worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+        worker_num = int(worker_id.replace("gw", "")) if "gw" in worker_id else 0
+        num_workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+
+        # Only partition if we have enough media (at least 50 images/scenes per worker)
+        min_media_per_worker = 50
+        should_partition = (
+            num_workers > 1
+            and total_images_available >= (num_workers * min_media_per_worker)
+            and total_scenes_available >= (num_workers * min_media_per_worker // 4)
+        )
+
+        if should_partition:
+            # Calculate this worker's partition
+            images_per_worker = total_images_available // num_workers
+            scenes_per_worker = total_scenes_available // num_workers
+
+            # Define page range for this worker (1-indexed)
+            worker_image_start = (worker_num * images_per_worker) + 1
+            worker_image_end = worker_image_start + images_per_worker
+            worker_scene_start = (worker_num * scenes_per_worker) + 1
+            worker_scene_end = worker_scene_start + scenes_per_worker
+
+            # Use worker's partition size as available pool
+            total_images_available = images_per_worker
+            total_scenes_available = scenes_per_worker
+        else:
+            # No partitioning - use full range (accept potential media collisions)
+            worker_image_start = 1
+            worker_image_end = total_images_available + 1
+            worker_scene_start = 1
+            worker_scene_end = total_scenes_available + 1
+
         # If spread_over_objs > 1, reserve buffer for distribution validation
         reserved_buffer = 10 if spread_over_objs > 1 else 0
         max_images_for_distribution = total_images_available - reserved_buffer
@@ -635,17 +711,17 @@ async def message_media_generator(factory_session, real_stash_processor):
             total_images_needed = sum(c["num_images"] for c in counts_list)
             total_videos_needed = sum(c["num_videos"] for c in counts_list)
 
-            # Sample unique pages from available pool (no overlap)
+            # Sample unique pages from WORKER'S PARTITION (no overlap between workers)
             all_image_pages = (
                 faker.random.sample(
-                    range(1, total_images_available + 1), total_images_needed
+                    range(worker_image_start, worker_image_end), total_images_needed
                 )
                 if total_images_needed > 0
                 else []
             )
             all_video_pages = (
                 faker.random.sample(
-                    range(1, total_scenes_available + 1), total_videos_needed
+                    range(worker_scene_start, worker_scene_end), total_videos_needed
                 )
                 if total_videos_needed > 0
                 else []

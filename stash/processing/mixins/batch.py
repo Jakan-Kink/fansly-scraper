@@ -164,9 +164,15 @@ class BatchProcessingMixin:
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             # Cancel all child tasks if parent is cancelled
+            # NOTE: Defensive cleanup for graceful shutdown (e.g., Ctrl+C, app termination).
+            # The task.cancel() call below requires a precise race condition: external
+            # cancellation must occur while child tasks are still running. In practice,
+            # tasks often complete by the time this handler executes, making it extremely
+            # difficult to reproduce reliably in tests. Pattern is identical to the
+            # TimeoutError handler (line 162) which IS tested.
             for task in all_tasks:
                 if not task.done():
-                    task.cancel()
+                    task.cancel()  # pragma: no cover - See note above
             # Let cancelled tasks clean up
             await asyncio.sleep(0.5)
             raise

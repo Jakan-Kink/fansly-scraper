@@ -57,11 +57,7 @@ def _get_worker_offset():
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
 
     # Convert worker ID to numeric offset
-    if worker_id == "master":
-        worker_num = 0
-    else:
-        # Extract number from "gw0", "gw1", etc.
-        worker_num = int(worker_id.replace("gw", "")) + 1
+    worker_num = 0 if worker_id == "master" else int(worker_id.replace("gw", "")) + 1
 
     # Combine monotonic_ns + worker for true uniqueness
     # 20 bits for time (~1M range per worker), 12 bits for worker (4096 workers max)
@@ -204,16 +200,16 @@ class FanslyContentProvider(BaseProvider):
             Realistic post content string
         """
         if length == "random":
-            length = random.choice(["short", "short", "medium", "medium", "long"])
+            length = random.choice(["short", "short", "medium", "medium", "long"])  # noqa: S311
 
         if length == "short":
-            return random.choice(self.SHORT_TEASERS)
+            return random.choice(self.SHORT_TEASERS)  # noqa: S311
         if length == "medium":
-            template = random.choice(self.MEDIUM_TEMPLATES)
+            template = random.choice(self.MEDIUM_TEMPLATES)  # noqa: S311
             hashtags = self._generate_hashtags(5, 10)
             return template.format(hashtags=hashtags)
         # long
-        template = random.choice(self.LONG_TEMPLATES)
+        template = random.choice(self.LONG_TEMPLATES)  # noqa: S311
         hashtags = self._generate_hashtags(8, 15)
         return template.format(hashtags=hashtags)
 
@@ -229,7 +225,7 @@ class FanslyContentProvider(BaseProvider):
             "Thanks for the tip! 💝 Here's a little something extra...",
             "Happy to have you here! Let me know what content you'd like to see 😊",
         ]
-        return random.choice(templates)
+        return random.choice(templates)  # noqa: S311
 
     def fansly_hashtags(self, count: int = 5) -> str:
         """Generate realistic Fansly hashtags."""
@@ -237,7 +233,7 @@ class FanslyContentProvider(BaseProvider):
 
     def _generate_hashtags(self, min_count: int, max_count: int) -> str:
         """Generate a string of hashtags from various categories."""
-        count = random.randint(min_count, max_count)
+        count = random.randint(min_count, max_count)  # noqa: S311
         all_tags = []
         for tags in self.HASHTAG_CATEGORIES.values():
             all_tags.extend(tags)

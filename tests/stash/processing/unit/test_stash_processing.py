@@ -13,7 +13,6 @@ from unittest.mock import patch
 import httpx
 import pytest
 import respx
-from stash_graphql_client.client.utils import sanitize_model_data
 
 from metadata import account_avatar
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
@@ -24,7 +23,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_image_dict,
     create_performer_dict,
 )
-from tests.fixtures.stash.stash_type_factories import ImageFileFactory, PerformerFactory
+from tests.fixtures.stash.stash_type_factories import PerformerFactory
 
 
 class TestStashProcessingAccount:
@@ -391,19 +390,20 @@ class TestStashProcessingPerformer:
         await session.commit()
 
         # Create GraphQL responses for findImages and performerUpdate
-        # Use factory to create ImageFile, then convert to dict with datetime as string
-        image_file = ImageFileFactory(
-            id="123",
-            path=str(test_image),
-            basename="avatar.jpg",
-            size=len(test_image.read_bytes()),
-            width=800,
-            height=600,
-        )
-        image_file_dict = sanitize_model_data(image_file.__dict__)
-        # Convert datetime to ISO string for JSON serialization
-        if image_file_dict.get("mod_time"):
-            image_file_dict["mod_time"] = image_file_dict["mod_time"].isoformat()
+        # Create image file dict directly (no Pydantic factory needed for mocking)
+        image_file_dict = {
+            "__typename": "ImageFile",
+            "id": "123",
+            "path": str(test_image),
+            "basename": "avatar.jpg",
+            "parent_folder_id": "folder_123",
+            "size": len(test_image.read_bytes()),
+            "width": 800,
+            "height": 600,
+            "format": "jpg",
+            "fingerprints": [],
+            "mod_time": "2024-01-01T00:00:00Z",
+        }
         image_data = create_image_dict(
             id="456",
             title="Avatar",
@@ -486,19 +486,20 @@ class TestStashProcessingPerformer:
         await session.commit()
 
         # Create GraphQL response for findImages
-        # Use factory to create ImageFile, then convert to dict with datetime as string
-        image_file = ImageFileFactory(
-            id="456",
-            path=str(nonexistent_file),
-            basename="nonexistent_avatar.jpg",
-            size=0,  # File doesn't exist
-            width=800,
-            height=600,
-        )
-        image_file_dict = sanitize_model_data(image_file.__dict__)
-        # Convert datetime to ISO string for JSON serialization
-        if image_file_dict.get("mod_time"):
-            image_file_dict["mod_time"] = image_file_dict["mod_time"].isoformat()
+        # Create image file dict directly (no Pydantic factory needed for mocking)
+        image_file_dict = {
+            "__typename": "ImageFile",
+            "id": "456",
+            "path": str(nonexistent_file),
+            "basename": "nonexistent_avatar.jpg",
+            "parent_folder_id": "folder_123",
+            "size": 0,  # File doesn't exist
+            "width": 800,
+            "height": 600,
+            "format": "jpg",
+            "fingerprints": [],
+            "mod_time": "2024-01-01T00:00:00Z",
+        }
         image_data = create_image_dict(
             id="789",
             title="Avatar",
@@ -537,3 +538,90 @@ class TestStashProcessingPerformer:
 
         # Verify findImages was called but performerUpdate was NOT
         assert len(graphql_route.calls) == 1  # Only findImages
+
+    @pytest.mark.asyncio
+    async def test_continue_stash_processing_stash_id_already_synced(
+        self, respx_stash_processor, session
+    ):
+        """Test continue_stash_processing skips update when stash_id already matches (line 126->133)."""
+        # Create test account with stash_id already set
+        test_account = AccountFactory.build(
+            id=12345,
+            username="test_user",
+            stash_id=123,  # Already synced with performer ID (integer)
+        )
+        session.add(test_account)
+        await session.commit()
+
+        # Create test performer with matching ID
+        test_performer = PerformerFactory.build(
+            id="123",  # Matches account.stash_id (string, will be compared as int)
+            name="test_user",
+        )
+
+        # Use spy with wraps to track _update_account_stash_id calls
+        with patch.object(
+            respx_stash_processor,
+            "_update_account_stash_id",
+            wraps=respx_stash_processor._update_account_stash_id,
+        ) as spy_update:
+            # Mock Stash GraphQL responses for downstream processing
+            # (respx_stash_processor already has respx enabled)
+            from tests.fixtures.stash.stash_graphql_fixtures import (
+                create_find_studios_result,
+                create_studio_dict,
+            )
+
+            fansly_studio = create_studio_dict(id="fansly_123", name="Fansly (network)")
+            creator_studio = create_studio_dict(
+                id="studio_123", name="test_user (Fansly)"
+            )
+
+            respx.post("http://localhost:9999/graphql").mock(
+                side_effect=[
+                    # findStudios for Fansly
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response(
+                            "findStudios",
+                            create_find_studios_result(
+                                count=1, studios=[fansly_studio]
+                            ),
+                        ),
+                    ),
+                    # findStudios for creator
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response(
+                            "findStudios",
+                            create_find_studios_result(
+                                count=1, studios=[creator_studio]
+                            ),
+                        ),
+                    ),
+                    # findScenes for posts (return empty)
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response(
+                            "findScenes", {"count": 0, "scenes": []}
+                        ),
+                    ),
+                    # findGalleries for messages (return empty)
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response(
+                            "findGalleries", {"count": 0, "galleries": []}
+                        ),
+                    ),
+                ]
+            )
+
+            # Call continue_stash_processing
+            await respx_stash_processor.continue_stash_processing(
+                account=test_account,
+                performer=test_performer,
+                session=session,
+            )
+
+            # Verify _update_account_stash_id was NOT called (branch 126->133)
+            spy_update.assert_not_called()
