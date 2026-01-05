@@ -32,23 +32,23 @@ Mock only at true external boundaries:
 
 ### API Tests
 
-| Metric                      | Count         |
-| --------------------------- | ------------- |
-| Total test files            | 3             |
-| Total test functions        | 54            |
-| Tests using RESPX correctly | 48            |
-| Tests needing migration     | 6             |
-| Estimated effort            | **4-5 hours** |
+| Metric                      | Count                                                   |
+| --------------------------- | ------------------------------------------------------- |
+| Total test files            | 3                                                       |
+| Total test functions        | 54                                                      |
+| Tests using RESPX correctly | 48                                                      |
+| Tests needing migration     | 6                                                       |
+| Estimated effort            | **2-3 hours** (reduced from 4-5 hours with spy pattern) |
 
 ### Download Tests
 
-| Metric                         | Count              |
-| ------------------------------ | ------------------ |
-| Total test files               | 9                  |
-| Total test functions           | 88                 |
-| Mock violations found          | 79                 |
-| Tests following best practices | 3 files (24 tests) |
-| Estimated effort               | **30-40 hours**    |
+| Metric                         | Count                                                       |
+| ------------------------------ | ----------------------------------------------------------- |
+| Total test files               | 9                                                           |
+| Total test functions           | 88                                                          |
+| Mock violations found          | 79                                                          |
+| Tests following best practices | 3 files (24 tests)                                          |
+| Estimated effort               | **20-28 hours** (reduced from 30-40 hours with spy pattern) |
 
 ---
 
@@ -253,6 +253,75 @@ async def test_fetch_content():
     assert result == b"data"
 ```
 
+#### Pattern 5: Spy Pattern for Internal Orchestration Tests
+
+For tests that verify internal method coordination without bypassing real code execution:
+
+```python
+# ❌ WRONG: Mocking internal method with return_value/side_effect
+@respx.mock
+async def test_download_batch_with_retry():
+    with patch.object(downloader, "_download_single_file", AsyncMock(side_effect=[
+        Exception("Network error"),  # First call fails
+        True,  # Retry succeeds
+    ])):
+        result = await downloader.download_batch([url1])
+        # Never tests real download logic or real retry behavior!
+
+# ✅ CORRECT: Spy pattern with wraps - real code executes
+@respx.mock
+async def test_download_batch_with_retry(tmp_path):
+    original_download = downloader._download_single_file
+    call_count = 0
+    call_urls = []
+
+    async def spy_download(url, output_path):
+        nonlocal call_count
+        call_count += 1
+        call_urls.append(url)
+        return await original_download(url, output_path)  # Real code executes!
+
+    # Mock CDN to fail once, then succeed
+    respx.get(url__regex=r"https://cdn\.fansly\.com/.*").mock(
+        side_effect=[
+            httpx.Response(500),  # First attempt fails
+            httpx.Response(200, content=b"video data"),  # Retry succeeds
+        ]
+    )
+
+    with patch.object(downloader, "_download_single_file", wraps=spy_download):
+        result = await downloader.download_batch([url1])
+
+        # Verify orchestration
+        assert call_count == 2  # Original + retry
+        assert call_urls[0] == call_urls[1]  # Same URL retried
+        assert result.success is True
+        # Verify real file was created
+        assert (tmp_path / "file.mp4").exists()
+```
+
+**Why spy pattern matters for download tests:**
+
+- Real download logic executes (retry delays, exponential backoff, etc.)
+- Tests actual error handling and recovery paths
+- Verifies real file I/O operations occur
+- Catches regressions in orchestration (e.g., infinite retry loops)
+- Similar concept to RESPX call inspection but for internal coordination
+
+**When to use spy pattern in download/API tests:**
+
+1. Testing retry logic with real backoff calculations
+2. Verifying early exit conditions in batch operations
+3. Testing rate limiting coordination between multiple download methods
+4. Confirming error propagation through download pipeline
+5. Validating conditional branching based on content type or file size
+6. Validating how data was transformed by internal functions in between multi-step operations
+
+**When NOT to use spy pattern:**
+
+1. If RESPX at HTTP boundary is sufficient (prefer that)
+2. Testing simple HTTP requests with no internal orchestration
+
 ---
 
 ## Migration Patterns
@@ -398,43 +467,97 @@ async def test_download_handles_404(download_state, tmp_path):
 
 ## Migration Priority Recommendations
 
-### Week 1: API Tests + Critical Downloads (12-15 hours)
+### Week 1: API Tests + Critical Downloads (9-11 hours)
 
-1. `test_fansly_api_additional.py` - Fix 4 violations (3-4 hours)
+1. `test_fansly_api_additional.py` - Fix 5 violations **(2-3 hours)** ⚡ Reduced from 3-4 hours
 
-   - Init tests (3) - Share same pattern
+   - Init tests (3) - Use RESPX at HTTP boundary (not spy pattern)
    - CORS test (1) - RESPX capture
 
-2. `test_m3u8.py` - 28 violations, **Critical** (8-10 hours)
-   - Extensive internal function patches
-   - Path/file mocking that should use real tmp_path
-   - Complex mock chaining for HTTP responses
+2. `test_m3u8.py` - 28 violations, **Critical** **(6-8 hours)** ⚡ Reduced from 8-10 hours
+   - Replace Path mocks with real `tmp_path` (simpler than spy pattern)
+   - Spy pattern for two-tier download strategy orchestration
+   - RESPX for all HTTP boundaries
 
-### Week 2: Critical + High Severity (15-20 hours)
+### Week 2: Critical + High Severity (8-11 hours)
 
-1. `test_m3u8_integration.py` - 16 violations, **Critical** (6-8 hours)
+1. `test_m3u8_integration.py` - 16 violations, **Critical** **(4-5 hours)** ⚡ Reduced from 6-8 hours
 
-   - Similar patterns to test_m3u8.py
-   - Already uses RESPX in some places (build on this)
+   - Already uses RESPX correctly
+   - Remove Path mocks → use real `tmp_path`
+   - Spy pattern for strategy coordination
 
-2. `test_transaction_recovery.py` - 11 violations, **Critical** (4-5 hours)
+2. `test_transaction_recovery.py` - 11 violations, **Critical** **(2-3 hours)** ⚡ Reduced from 4-5 hours
 
-   - Mocked database sessions → use real test_database fixture
-   - Internal error handler patches
+   - Use real database sessions (one test already correct)
+   - Optional spy pattern for error handler verification
 
-3. `test_common.py` - 9 violations, High (4-5 hours)
-   - Internal function patches (process_media_info, download_media)
+3. `test_common.py` - 9 violations, High **(3-4 hours)** ⚡ Reduced from 4-5 hours
+   - Spy pattern for download pipeline coordination
+   - RESPX for HTTP boundaries
 
-### Week 3: Medium + High Severity (12-15 hours)
+### Week 3: Medium + High Severity (3-5 hours)
 
-1. `test_account.py` - 10 violations, Medium (4-5 hours)
+1. `test_account.py` - 10 violations, Medium **(2-3 hours)** ⚡ Reduced from 4-5 hours
 
-   - Internal API wrapper mocks
-   - Config fixture improvements
+   - Fixture reconfiguration (main issue)
+   - Use real `fansly_api` fixture instead of MagicMock
 
-2. `test_media_filtering.py` - 5 violations, High (3-4 hours)
-   - pytest-mocker patches on media processing
-   - Good structure, just needs mock elimination
+2. `test_media_filtering.py` - 5 violations, High **(1-2 hours)** ⚡ Reduced from 3-4 hours
+   - Already well-structured with pytest-mocker
+   - Minimal changes needed
+
+---
+
+## Effort Reduction Analysis
+
+### Summary by File
+
+| File                            | Original Effort | Revised Effort | Reduction | Key Strategy                          |
+| ------------------------------- | --------------- | -------------- | --------- | ------------------------------------- |
+| `test_fansly_api_additional.py` | 3-4 hrs         | 2-3 hrs        | -25%      | RESPX at boundary (no spy)            |
+| `test_m3u8.py`                  | 8-10 hrs        | 6-8 hrs        | -25%      | Real tmp_path + spy for orchestration |
+| `test_m3u8_integration.py`      | 6-8 hrs         | 4-5 hrs        | -35%      | Remove Path mocks                     |
+| `test_transaction_recovery.py`  | 4-5 hrs         | 2-3 hrs        | -40%      | Use real database                     |
+| `test_account.py`               | 4-5 hrs         | 2-3 hrs        | -40%      | Fixture reconfiguration               |
+| `test_common.py`                | 4-5 hrs         | 3-4 hrs        | -20%      | Spy for orchestration                 |
+| `test_media_filtering.py`       | 3-4 hrs         | 1-2 hrs        | -50%      | Minimal changes                       |
+| **Total API**                   | 3-4 hrs         | 2-3 hrs        | **-25%**  | RESPX primarily                       |
+| **Total Download**              | 30-40 hrs       | 20-28 hrs      | **-33%**  | Mixed strategies                      |
+| **COMBINED**                    | 33-44 hrs       | 22-31 hrs      | **-36%**  | Strategic tool selection              |
+
+### Why Effort Reduced
+
+1. **Path Mocking Revelation** (saves 3-4 hours):
+
+   - 7+ tests mock `Path.exists()` when they should use `tmp_path`
+   - Real temp files are simpler than both mocks AND spy patterns
+
+2. **Spy Pattern Clarity** (saves 4-5 hours):
+
+   - Identifies which tests need orchestration verification
+   - Cleaner than full test rewrites for coordination logic
+   - Applies to ~10% of violations, not all
+
+3. **Many Tests Already Good** (saves 5-6 hours):
+
+   - 24 tests have zero violations
+   - Most API tests already use RESPX
+   - Less work than originally estimated
+
+4. **Database Testing Simplified** (saves 1-2 hours):
+   - One test already correct (nested_transaction_recovery)
+   - Other two just need real fixtures
+
+### Strategic Tool Selection
+
+| Violation Type              | Tool                      | Example                            |
+| --------------------------- | ------------------------- | ---------------------------------- |
+| HTTP calls to external APIs | RESPX                     | Fansly API, CDN URLs               |
+| File operations             | Real `tmp_path`           | Video downloads, M3U8 segments     |
+| Database operations         | Real sessions + factories | Account, Media, Post creation      |
+| Internal orchestration      | Spy pattern               | Retry logic, fallback coordination |
+| External binaries           | Mock subprocess           | ffmpeg (truly external)            |
 
 ---
 
@@ -485,27 +608,29 @@ def test_callback(self):
 
 ### API Tests
 
-| Status       | Files | Tests  | Effort        |
-| ------------ | ----- | ------ | ------------- |
-| ✅ Compliant | 2     | 36     | 0             |
-| ❌ Migration | 1     | 18     | 3-4 hours     |
-| **Total**    | **3** | **54** | **3-4 hours** |
+| Status       | Files | Tests  | Effort                         |
+| ------------ | ----- | ------ | ------------------------------ |
+| ✅ Compliant | 2     | 36     | 0                              |
+| ❌ Migration | 1     | 18     | **2-3 hrs** ⚡ (was 3-4 hours) |
+| **Total**    | **3** | **54** | **2-3 hrs** ⚡ (was 3-4 hours) |
 
 ### Download Tests
 
-| Status       | Files | Tests  | Effort          |
-| ------------ | ----- | ------ | --------------- |
-| ✅ Compliant | 3     | 24     | 0               |
-| ❌ Migration | 6     | 64     | 30-40 hours     |
-| **Total**    | **9** | **88** | **30-40 hours** |
+| Status       | Files | Tests  | Effort                             |
+| ------------ | ----- | ------ | ---------------------------------- |
+| ✅ Compliant | 3     | 24     | 0                                  |
+| ❌ Migration | 6     | 64     | **20-28 hrs** ⚡ (was 30-40 hours) |
+| **Total**    | **9** | **88** | **20-28 hrs** ⚡ (was 30-40 hours) |
 
 ### Combined Total
 
-| Category  | Files  | Tests   | Effort          |
-| --------- | ------ | ------- | --------------- |
-| API       | 3      | 54      | 3-4 hours       |
-| Download  | 9      | 88      | 30-40 hours     |
-| **Total** | **12** | **142** | **33-44 hours** |
+| Category  | Files  | Tests   | Effort                             |
+| --------- | ------ | ------- | ---------------------------------- |
+| API       | 3      | 54      | **2-3 hrs** ⚡ (was 3-4 hours)     |
+| Download  | 9      | 88      | **20-28 hrs** ⚡ (was 30-40 hours) |
+| **Total** | **12** | **142** | **22-31 hrs** ⚡ (was 33-44 hours) |
+
+**Overall Reduction**: **-36%** effort savings with spy pattern strategy
 
 ---
 
@@ -521,4 +646,4 @@ def test_callback(self):
 
 **RESPX Documentation**: https://lundberg.github.io/respx/
 
-**Last Updated**: 2025-11-18
+**Last Updated**: 2025-11-21

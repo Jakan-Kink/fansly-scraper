@@ -135,10 +135,9 @@ class TestMetadataUpdateIntegration:
         )
         session_sync.commit()
 
-        async with stash_cleanup_tracker(stash_client) as cleanup:
+        async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
             # Create a real Scene in Stash via API
             scene = Scene(
-                id="new",  # Signal to to_input() this is a new object
                 title="Test Scene Before Update",
                 urls=["https://example.com/original_scene"],
                 organized=False,
@@ -217,10 +216,9 @@ class TestMetadataUpdateIntegration:
         )
         session_sync.commit()
 
-        async with stash_cleanup_tracker(stash_client) as cleanup:
+        async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
             # Create scene with earlier date in Stash
             scene = Scene(
-                id="new",  # Signal to to_input() this is a new object
                 title="Original Title",
                 date="2024-01-01",  # Earlier date
                 code="original_code",
@@ -297,10 +295,9 @@ class TestMetadataUpdateIntegration:
         post = PostFactory(accountId=account.id, content="Test post")
         session_sync.commit()
 
-        async with stash_cleanup_tracker(stash_client) as cleanup:
+        async with stash_cleanup_tracker(stash_client, auto_capture=False) as cleanup:
             # Create organized scene in Stash
             scene = Scene(
-                id="new",  # Signal to to_input() this is a new object
                 title="Original Organized Title",
                 date="2024-03-01",
                 code="organized_code",

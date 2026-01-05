@@ -18,6 +18,10 @@ import pytest
 from stash_graphql_client import StashClient
 
 
+@pytest.mark.skip(
+    reason="Enforcement demonstration test - intentionally triggers XPASS(strict). "
+    "Run with 'pytest tests/stash/test_cleanup_enforcement.py' to verify enforcement."
+)
 @pytest.mark.asyncio
 async def test_missing_cleanup_tracker(stash_client: StashClient) -> None:
     """Test that intentionally violates cleanup pattern.

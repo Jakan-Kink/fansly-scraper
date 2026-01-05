@@ -2,7 +2,11 @@
 
 This module tests the batch processing methods that handle collections of media
 objects efficiently by grouping them by mimetype and processing in batches.
+
+Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 """
+
+from unittest.mock import patch
 
 import pytest
 
@@ -20,7 +24,7 @@ class TestBatchProcessing:
 
     @pytest.mark.asyncio
     async def test_process_media_batch_small(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """Test _process_media_batch_by_mimetype with small batch (< 20 items)."""
         # Create a small batch of media (under max_batch_size of 20)
@@ -49,12 +53,11 @@ class TestBatchProcessing:
             return {"images": [ImageFactory() for _ in media_list], "scenes": []}
 
         # Mock the internal batch processing method
-        original_process = media_mixin._process_batch_internal
-        media_mixin._process_batch_internal = mock_process_internal
-
-        try:
+        with patch.object(
+            respx_stash_processor, "_process_batch_internal", mock_process_internal
+        ):
             # Call the method
-            result = await media_mixin._process_media_batch_by_mimetype(
+            result = await respx_stash_processor._process_media_batch_by_mimetype(
                 media_list=media_list,
                 item=mock_item,
                 account=mock_account,
@@ -67,13 +70,10 @@ class TestBatchProcessing:
             # Verify results
             assert len(result["images"]) == 5
             assert len(result["scenes"]) == 0
-        finally:
-            # Restore original method
-            media_mixin._process_batch_internal = original_process
 
     @pytest.mark.asyncio
     async def test_process_media_batch_large(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """Test _process_media_batch_by_mimetype splits large batches (> 20 items)."""
         # Create a large batch that exceeds max_batch_size of 20
@@ -101,12 +101,11 @@ class TestBatchProcessing:
             return {"images": [ImageFactory() for _ in media_list], "scenes": []}
 
         # Mock the internal batch processing method
-        original_process = media_mixin._process_batch_internal
-        media_mixin._process_batch_internal = mock_process_internal
-
-        try:
+        with patch.object(
+            respx_stash_processor, "_process_batch_internal", mock_process_internal
+        ):
             # Call the method
-            result = await media_mixin._process_media_batch_by_mimetype(
+            result = await respx_stash_processor._process_media_batch_by_mimetype(
                 media_list=media_list,
                 item=mock_item,
                 account=mock_account,
@@ -121,13 +120,10 @@ class TestBatchProcessing:
             # Verify all results were collected
             assert len(result["images"]) == 45
             assert len(result["scenes"]) == 0
-        finally:
-            # Restore original method
-            media_mixin._process_batch_internal = original_process
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_with_stash_ids(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """Test _process_batch_internal processes media with stash_ids."""
         # Create media with stash_ids
@@ -167,15 +163,17 @@ class TestBatchProcessing:
                 }
             )
 
-        # Mock the methods
-        original_find = media_mixin._find_stash_files_by_id
-        original_update = media_mixin._update_stash_metadata
-        media_mixin._find_stash_files_by_id = mock_find_by_id
-        media_mixin._update_stash_metadata = mock_update_metadata
-
-        try:
+        # Mock the methods using patch.object
+        with (
+            patch.object(
+                respx_stash_processor, "_find_stash_files_by_id", mock_find_by_id
+            ),
+            patch.object(
+                respx_stash_processor, "_update_stash_metadata", mock_update_metadata
+            ),
+        ):
             # Call the method
-            result = await media_mixin._process_batch_internal(
+            result = await respx_stash_processor._process_batch_internal(
                 media_list=media_list,
                 item=mock_item,
                 account=mock_account,
@@ -191,14 +189,10 @@ class TestBatchProcessing:
             # Verify results
             assert len(result["images"]) == 3
             assert len(result["scenes"]) == 0
-        finally:
-            # Restore original methods
-            media_mixin._find_stash_files_by_id = original_find
-            media_mixin._update_stash_metadata = original_update
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_with_paths(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """Test _process_batch_internal processes media without stash_ids (path-based)."""
         # Create media WITHOUT stash_ids (will use path-based lookup)
@@ -234,15 +228,17 @@ class TestBatchProcessing:
         ):
             update_calls.append({"media_id": media_id})
 
-        # Mock the methods
-        original_find = media_mixin._find_stash_files_by_path
-        original_update = media_mixin._update_stash_metadata
-        media_mixin._find_stash_files_by_path = mock_find_by_path
-        media_mixin._update_stash_metadata = mock_update_metadata
-
-        try:
+        # Mock the methods using patch.object
+        with (
+            patch.object(
+                respx_stash_processor, "_find_stash_files_by_path", mock_find_by_path
+            ),
+            patch.object(
+                respx_stash_processor, "_update_stash_metadata", mock_update_metadata
+            ),
+        ):
             # Call the method
-            result = await media_mixin._process_batch_internal(
+            result = await respx_stash_processor._process_batch_internal(
                 media_list=media_list,
                 item=mock_item,
                 account=mock_account,
@@ -258,14 +254,10 @@ class TestBatchProcessing:
             # Verify results
             assert len(result["images"]) == 3
             assert len(result["scenes"]) == 0
-        finally:
-            # Restore original methods
-            media_mixin._find_stash_files_by_path = original_find
-            media_mixin._update_stash_metadata = original_update
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_mixed_mimetype(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """Test _process_batch_internal with mixed mimetypes (images + videos)."""
         # Create mixed media (images and videos)
@@ -309,14 +301,17 @@ class TestBatchProcessing:
         async def mock_update_metadata(*args, **kwargs):
             """No-op async mock for metadata update."""
 
-        original_find = media_mixin._find_stash_files_by_path
-        original_update = media_mixin._update_stash_metadata
-        media_mixin._find_stash_files_by_path = mock_find_by_path
-        media_mixin._update_stash_metadata = mock_update_metadata
-
-        try:
+        # Mock the methods using patch.object
+        with (
+            patch.object(
+                respx_stash_processor, "_find_stash_files_by_path", mock_find_by_path
+            ),
+            patch.object(
+                respx_stash_processor, "_update_stash_metadata", mock_update_metadata
+            ),
+        ):
             # Call the method
-            result = await media_mixin._process_batch_internal(
+            result = await respx_stash_processor._process_batch_internal(
                 media_list=media_list,
                 item=mock_item,
                 account=mock_account,
@@ -325,18 +320,14 @@ class TestBatchProcessing:
             # Verify results contain both images and scenes
             assert len(result["images"]) == 2
             assert len(result["scenes"]) == 2
-        finally:
-            # Restore original methods
-            media_mixin._find_stash_files_by_path = original_find
-            media_mixin._update_stash_metadata = original_update
 
     @pytest.mark.asyncio
     async def test_process_batch_internal_empty_list(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
         """Test _process_batch_internal handles empty media list gracefully."""
         # Call with empty list
-        result = await media_mixin._process_batch_internal(
+        result = await respx_stash_processor._process_batch_internal(
             media_list=[],
             item=mock_item,
             account=mock_account,

@@ -440,9 +440,10 @@ class TestGalleryLookupMethods:
         result = await session.execute(select(Post).where(Post.id == 12345))
         post = result.unique().scalar_one()
 
-        # Set up respx - gallery found with code already matching (no save needed)
+        # Set up respx - gallery found with code already matching, but still calls save()
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # findGalleries - returns gallery with matching code
                 httpx.Response(
                     200,
                     json={
@@ -460,7 +461,21 @@ class TestGalleryLookupMethods:
                             }
                         }
                     },
-                )
+                ),
+                # galleryUpdate - called by gallery.save() even though code matches
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "galleryUpdate": {
+                                "id": "789",
+                                "code": "12345",
+                                "title": "URL Gallery",
+                                "urls": ["https://example.com/gallery/123"],
+                            }
+                        }
+                    },
+                ),
             ]
         )
 

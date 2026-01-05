@@ -7,22 +7,26 @@ database queries to GraphQL API calls.
 
 import json
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import selectinload
 
 from metadata import Account, AccountMedia
 from metadata.attachment import Attachment, ContentType
+from metadata.messages import group_users
 from metadata.post import Post
 from stash.processing import StashProcessing
 from tests.fixtures import (
     AccountFactory,
     AccountMediaFactory,
     AttachmentFactory,
+    GroupFactory,
     MediaFactory,
+    MessageFactory,
     PerformerFactory,
     PostFactory,
     StudioFactory,
@@ -461,3 +465,127 @@ class TestProcessCreatorContent:
 
         # With no messages, no GraphQL calls should be made
         assert len(graphql_route.calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_process_posts_exception_handling(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test process_creator_posts handles exceptions during processing (lines 249-257)."""
+        # Create account and post with attachments
+        AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
+
+        PostFactory(
+            id=123,
+            accountId=12345,
+            content="Test post",
+            createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        AttachmentFactory(
+            postId=123,
+            contentId=123,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
+
+        factory_async_session.commit()
+        await session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
+
+        # Create real performer and studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+
+        # Mock _process_items_with_gallery to raise an exception
+        with patch.object(
+            respx_stash_processor,
+            "_process_items_with_gallery",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Simulated processing error"),
+        ):
+            # Call method - should catch exception and continue
+            await respx_stash_processor.process_creator_posts(
+                account=account,
+                performer=performer,
+                studio=studio,
+                session=session,
+            )
+            # Test passes if no exception propagates (exception was caught and logged)
+
+    @pytest.mark.asyncio
+    async def test_process_messages_exception_handling(
+        self,
+        factory_async_session,
+        session,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test process_creator_messages handles exceptions during processing (lines 129-137)."""
+        # Create account
+        account_obj = AccountFactory(
+            id=12345,
+            username="test_user",
+            displayName="Test User",
+        )
+
+        # Create group with proper foreign key
+        group_obj = GroupFactory(id=999, createdBy=12345)
+
+        # Create message with proper foreign keys and attachment
+        message_obj = MessageFactory(
+            id=123,
+            groupId=999,
+            senderId=12345,
+            content="Test message",
+            createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
+        )
+        AttachmentFactory(
+            messageId=123,
+            contentId=123,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
+
+        # Commit to sync session first
+        factory_async_session.commit()
+
+        # Set up the many-to-many relationship - Group.users is viewonly so use insert()
+        factory_async_session.sync_session.execute(
+            insert(group_users).values(groupId=999, accountId=12345)
+        )
+        factory_async_session.commit()
+
+        # Commit to async session
+        await session.commit()
+
+        # Query fresh from async session
+        result = await session.execute(select(Account).where(Account.id == 12345))
+        account = result.scalar_one()
+
+        # Create real performer and studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+
+        # Mock _process_items_with_gallery to raise an exception
+        with patch.object(
+            respx_stash_processor,
+            "_process_items_with_gallery",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("Simulated processing error"),
+        ):
+            # Call method - should catch exception and continue
+            await respx_stash_processor.process_creator_messages(
+                account=account,
+                performer=performer,
+                studio=studio,
+                session=session,
+            )
+            # Test passes if no exception propagates (exception was caught and logged)

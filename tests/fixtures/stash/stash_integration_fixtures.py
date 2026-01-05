@@ -15,20 +15,31 @@ Philosophy:
 - Use factories for test data creation
 """
 
+import os
+import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from unittest.mock import patch
 
 import httpx
 import pytest
 import pytest_asyncio
 import respx
-from stash_graphql_client.types import FindStudiosResultType, StashID, Studio
+from faker import Faker
+from stash_graphql_client.types import StashID, Studio
 
+from fileio.fnmanip import extract_media_id
+from metadata import AccountMedia
 from stash.processing import StashProcessing
+from tests.fixtures.metadata.metadata_factories import (
+    AccountMediaBundleFactory,
+    AccountMediaFactory,
+    MediaFactory,
+)
 
 
 # ============================================================================
-# Cache Management Helpers
+# Helper Functions
 # ============================================================================
 
 
@@ -68,8 +79,37 @@ def _clear_stash_client_caches(client):
                 method.cache_clear()
 
 
+def _get_id(obj):
+    """Get ID from either a dict or an object with id attribute.
+
+    Handles both Strawberry objects and plain dicts for Pydantic transition.
+    """
+    return obj["id"] if isinstance(obj, dict) else obj.id
+
+
+def _get_path(obj, default=None):
+    """Get path from Pydantic model attributes.
+
+    For Stash Image objects, extracts path from visual_files[0].path.
+    For Stash Scene objects, extracts path from files[0].path.
+    """
+    # Try direct path first
+    if hasattr(obj, "path") and obj.path:
+        return obj.path
+
+    # Try visual_files (images)
+    if hasattr(obj, "visual_files") and obj.visual_files and len(obj.visual_files) > 0:
+        return obj.visual_files[0].path
+
+    # Try files (scenes)
+    if hasattr(obj, "files") and obj.files and len(obj.files) > 0:
+        return obj.files[0].path
+
+    return default
+
+
 # ============================================================================
-# Test State and Context Fixtures
+# Configuration Fixtures
 # ============================================================================
 
 
@@ -94,24 +134,6 @@ def test_state(tmp_path):
     )
 
 
-# REMOVED: mock_stash_context, mock_context
-# These mocked INTERNAL StashContext.client API methods (find_performer, create_studio, etc.)
-# This violates edge-mocking principles - we should NOT mock internal boundaries.
-#
-# ✅ Replacement options:
-#    1. Use `stash_context` fixture for REAL Docker Stash connection (best for integration tests)
-#    2. Use @respx.mock to mock HTTP responses (best for unit tests):
-#       @respx.mock
-#       def test_something():
-#           respx.post("http://localhost:9999/graphql").mock(
-#               return_value=httpx.Response(200, json={"data": {...}})
-#           )
-#           client = await StashClient.create(conn={})
-#           result = await client.find_performer(...)
-#
-# See /tmp/mock_to_respx_migration_guide.md for detailed migration examples.
-
-
 # ============================================================================
 # Stash Object Fixtures (Stash API objects - use mocks for external API)
 # ============================================================================
@@ -119,9 +141,31 @@ def test_state(tmp_path):
 # to tests/fixtures/metadata_fixtures.py for better separation of concerns.
 
 
-# REMOVED: mock_permissions fixture (Phase 6 cleanup)
-# This fixture was exported but never used in any test.
-# Tests use real permission objects from metadata factories instead.
+@pytest.fixture
+def mock_permissions():
+    """Fixture for mock content permissions.
+
+    This is just a dict, not a database object, so we keep it as-is.
+    """
+    return {
+        "permissionFlags": [
+            {
+                "id": "perm_123",
+                "type": 0,
+                "flags": 2,
+                "price": 0,
+                "metadata": "",
+                "validAfter": None,
+                "validBefore": None,
+                "verificationFlags": 2,
+                "verificationMetadata": "{}",
+            }
+        ],
+        "accountPermissionFlags": {
+            "flags": 6,
+            "metadata": '{"4":"{\\"subscriptionTierId\\":\\"tier_123\\"}"}',
+        },
+    }
 
 
 # REMOVED: integration_mock_performer, integration_mock_studio, integration_mock_scene
@@ -138,18 +182,6 @@ def test_state(tmp_path):
 # ============================================================================
 # StashProcessing Fixtures
 # ============================================================================
-
-
-# REMOVED: stash_processor fixture
-# This fixture used mock_stash_context which violated edge-mocking principles.
-#
-# ✅ Replacement: Use real_stash_processor with respx to mock HTTP responses:
-#    @respx.mock
-#    def test_something(real_stash_processor):
-#        respx.post("http://localhost:9999/graphql").mock(
-#            return_value=httpx.Response(200, json={"data": {...}})
-#        )
-#        # Now real_stash_processor will use real StashClient with mocked HTTP
 
 
 @pytest_asyncio.fixture
@@ -206,10 +238,17 @@ async def respx_stash_processor(config, test_database_sync, test_state, stash_co
         StashProcessing: Processor with mocked HTTP responses
 
     Example:
-        @respx.mock
+        @pytest.mark.asyncio
         async def test_something(respx_stash_processor):
+            # Add specific mock route for your test
             respx.post("http://localhost:9999/graphql").mock(
-                return_value=httpx.Response(200, json={"data": {...}})
+                side_effect=[
+                    httpx.Response(200, json={"data": {"findScenes": {...}}}),       # Call 1
+                    httpx.Response(200, json={"data": {"findPerformers": {...}}}),   # Call 2
+                    httpx.Response(200, json={"data": {"findStudios": {...}}}),      # Call 3
+                    httpx.Response(200, json={"data": {"findStudios": {...}}}),      # Call 4
+                    httpx.Response(200, json={"data": {"sceneUpdate": {...}}}),      # Call 5
+                ]
             )
             # Now respx_stash_processor will use your mocked responses
     """
@@ -253,7 +292,7 @@ def fansly_network_studio():
     return Studio(
         id="246",
         name="Fansly (network)",
-        url="",
+        urls=["https://fansly.com"],
         parent_studio=None,
         aliases=[],
         tags=[],
@@ -268,36 +307,50 @@ def fansly_network_studio():
 
 
 @pytest.fixture
-def mock_studio_finder(fansly_network_studio):
-    """Fixture providing a mock find_studios function and creator studio factory.
+def mock_find_studios(fansly_network_studio):
+    """Fixture providing mock functions for find_studios calls.
 
-    Returns a tuple of (mock_find_studios_fn, creator_studio_factory) where:
-    - mock_find_studios_fn: async function that returns Fansly network studio or empty result
-    - creator_studio_factory: function that creates a mock creator studio for an account
+    Returns a tuple of (mock_find_studios_fn, create_creator_studio_fn):
+    - mock_find_studios_fn: Async function to mock find_studios("Fansly (network)")
+    - create_creator_studio_fn: Helper to create a creator studio with the network as parent
 
-    Usage:
-        mock_find_studios_fn, create_creator_studio = mock_studio_finder
-        mock_creator_studio = create_creator_studio(account)
+    This allows tests to mock both the network studio lookup and creator studio creation.
 
-        with patch.object(client, 'find_studios', new=AsyncMock(side_effect=mock_find_studios_fn)):
-            ...
+    Example:
+        mock_find_studios_fn, create_creator_studio_fn = mock_find_studios
+        respx.post("http://localhost:9999/graphql").mock(
+            side_effect=mock_find_studios_fn
+        )
+        creator_studio = create_creator_studio_fn("creator_username", "123")
     """
-    from tests.fixtures.stash.stash_type_factories import StudioFactory
 
-    async def mock_find_studios_fn(q=None, **kwargs):
-        """Mock find_studios that returns Fansly network studio or empty result."""
-        if q == "Fansly (network)":
-            # Return Studio object directly - FindStudiosResultType expects Studio objects
-            return FindStudiosResultType(count=1, studios=[fansly_network_studio])
-        # For creator-specific studio search, return empty (will create new)
-        return FindStudiosResultType(count=0, studios=[])
+    async def mock_find_studios_fn(request):
+        """Mock function for find_studios GraphQL calls."""
+        # Return the Fansly (network) studio for queries matching it
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "findStudios": {
+                        "count": 1,
+                        "studios": [
+                            {
+                                "id": fansly_network_studio.id,
+                                "name": fansly_network_studio.name,
+                                "url": fansly_network_studio.url,
+                            }
+                        ],
+                    }
+                }
+            },
+        )
 
-    def create_creator_studio(account, studio_id="999"):
-        """Create a mock creator studio for the given account."""
-        return StudioFactory(
+    def create_creator_studio(creator_username: str, studio_id: str = "999"):
+        """Create a creator studio with Fansly network as parent."""
+        return Studio(
             id=studio_id,
-            name=f"{account.username} (Fansly)",
-            url=f"https://fansly.com/{account.username}",
+            name=f"{creator_username} (Fansly)",
+            url=f"https://fansly.com/{creator_username}",
             parent_studio=fansly_network_studio,
         )
 
@@ -346,6 +399,8 @@ def capture_graphql_calls(stash_client):
         """Capture the call details at the gql boundary.
 
         Captures raw gql operations and responses before StashClient error handling.
+
+        Note: In gql 4.0+, we extract variables and query from the DocumentNode object directly.
         """
         result = None
         exception = None
@@ -359,18 +414,572 @@ def capture_graphql_calls(stash_client):
         else:
             return result
         finally:
-            # Always log the call with raw gql result or exception
-            calls.append(
-                {
-                    "query": str(operation),  # Convert gql DocumentNode to string
-                    "variables": variable_values,
-                    "result": dict(result) if result else None,
-                    "exception": exception,
-                }
-            )
+            # In gql 4.0+, operation is a GraphQLRequest object with:
+            # - document: The DocumentNode (GraphQL query AST)
+            # - variable_values: The variables dict
+            # - operation_name: The operation name (optional)
+
+            try:
+                # Extract variables from GraphQLRequest.variable_values
+                variables = (
+                    operation.variable_values
+                    if hasattr(operation, "variable_values")
+                    else variable_values
+                )
+
+                # Extract query string from GraphQLRequest.document
+                if hasattr(operation, "document"):
+                    # gql 4.0+: operation.document is the DocumentNode
+                    from graphql import print_ast
+
+                    query_str = print_ast(operation.document)
+                else:
+                    # Fallback: convert to string
+                    query_str = str(operation)
+
+                # Always log the call with raw gql result or exception
+                calls.append(
+                    {
+                        "query": query_str,
+                        "variables": variables,
+                        "result": dict(result) if result else None,
+                        "exception": exception,
+                    }
+                )
+            except Exception as e:
+                print(f"ERROR in capture_graphql_calls finally block: {e}")
+                import traceback
+
+                traceback.print_exc()
+                # Append minimal info on error
+                calls.append(
+                    {
+                        "query": str(operation),
+                        "variables": None,
+                        "result": dict(result) if result else None,
+                        "exception": exception,
+                        "capture_error": str(e),
+                    }
+                )
 
     # Patch the _session.execute method at the gql boundary
     with patch.object(
         stash_client._session, "execute", side_effect=capture_session_execute
     ):
         yield calls
+
+
+# ============================================================================
+# Message Media Generation Fixture
+# ============================================================================
+
+
+@dataclass
+class MessageMediaMetadata:
+    """Metadata about generated media for call count assertions.
+
+    Attributes:
+        num_images: Number of images created
+        num_videos: Number of videos created
+        total_media: Total media items (images + videos)
+        has_bundle: True if images were bundled (>3 images)
+        media_items: List of built Media objects (not committed - test sets accountId)
+        account_media_items: List of built AccountMedia objects (not committed)
+        bundle: Built AccountMediaBundle if has_bundle, else None (not committed)
+        bundle_media_links: List of dicts with bundle linking metadata
+    """
+
+    num_images: int
+    num_videos: int
+    total_media: int
+    has_bundle: bool
+    media_items: list  # List of Media objects (built, not committed)
+    account_media_items: list[AccountMedia]  # Built AccountMedia objects
+    bundle: object | None  # AccountMediaBundle or None (built, not committed)
+    bundle_media_links: list[
+        dict
+    ]  # Bundle linking metadata: [{"account_media": obj, "pos": int}]
+
+
+@dataclass
+class MultiObjectMediaMetadata:
+    """Wrapper for media distributed across multiple objects (posts/messages).
+
+    Supports list-like access: len(wrapper) and wrapper[index]
+
+    Attributes:
+        total_images: Total images across all distributions
+        total_videos: Total videos across all distributions
+        total_media: Total media items across all distributions
+        distributions: List of MessageMediaMetadata for each object
+
+    Example:
+        # Generate media for 3 posts
+        media_meta = await message_media_generator(spread_over_objs=3)
+        print(f"Total: {media_meta.total_images} images")
+        print(f"Distributions: {len(media_meta)}")  # 3
+
+        # Access individual distribution
+        for i in range(len(media_meta)):
+            dist = media_meta[i]  # MessageMediaMetadata for object i
+            print(f"Object {i}: {dist.num_images} images")
+    """
+
+    total_images: int
+    total_videos: int
+    total_media: int
+    distributions: list[MessageMediaMetadata]
+
+    def __len__(self) -> int:
+        """Return number of distributions (spread_over_objs)."""
+        return len(self.distributions)
+
+    def __getitem__(self, index: int) -> MessageMediaMetadata:
+        """Access individual distribution by index."""
+        return self.distributions[index]
+
+    def __setitem__(self, index: int, obj: MessageMediaMetadata) -> None:
+        """Set individual distribution by index."""
+        self.distributions[index] = obj
+
+
+@pytest_asyncio.fixture
+async def message_media_generator(factory_session, real_stash_processor):
+    """Generate realistic message media using Docker Stash data and Faker.
+
+    This fixture returns a factory function that can accept parameters.
+
+    Args:
+        factory_session: Database session for creating objects
+        real_stash_processor: StashProcessing with real Stash connection
+
+    Returns:
+        Factory function that accepts:
+            spread_over_objs (int): Number of objects (posts/messages) to distribute media across
+                - Default: 1 (single MessageMediaMetadata)
+                - When > 1: Returns MultiObjectMediaMetadata with distributions
+
+    Example:
+        async def test_single_post(message_media_generator):
+            # Generate media for single object (backward compatible)
+            media_meta = await message_media_generator()
+            # Returns: MessageMediaMetadata
+
+        async def test_multiple_posts(message_media_generator):
+            # Generate media for 3 posts
+            media_meta = await message_media_generator(spread_over_objs=3)
+            # Returns: MultiObjectMediaMetadata with len(media_meta) == 3
+            for i in range(len(media_meta)):
+                dist = media_meta[i]  # MessageMediaMetadata for post i
+    """
+
+    async def _generate_media(
+        spread_over_objs: int = 1,
+    ) -> MessageMediaMetadata | MultiObjectMediaMetadata:
+        """Generate media distributed across specified number of objects.
+
+        Args:
+            spread_over_objs: Number of objects to distribute media across
+
+        Returns:
+            MessageMediaMetadata (when spread_over_objs==1)
+            MultiObjectMediaMetadata (when spread_over_objs>1)
+        """
+        # Use a truly random seed, independent of pytest-randomly
+        # time_ns() provides nanosecond precision for better parallel test isolation
+        random_seed = int(time.monotonic_ns()) % (2**32)
+        faker = Faker()
+        faker.seed_instance(random_seed)
+        client = real_stash_processor.context.client
+
+        # STEP 1: Get total counts from Docker Stash (will be cached)
+        images_result = await client.find_images()
+        scenes_result = await client.find_scenes()
+
+        if images_result.count == 0 and scenes_result.count == 0:
+            pytest.skip(
+                "Docker Stash has no images or scenes; cannot generate message media."
+            )
+
+        total_images_available = images_result.count
+        total_scenes_available = scenes_result.count
+
+        # PARTITION MEDIA BY XDIST WORKER for parallel test isolation
+        # Only partition when running with multiple workers AND have enough media
+        worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+        worker_num = int(worker_id.replace("gw", "")) if "gw" in worker_id else 0
+        num_workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+
+        # Only partition if we have enough media (at least 50 images/scenes per worker)
+        min_media_per_worker = 50
+        should_partition = (
+            num_workers > 1
+            and total_images_available >= (num_workers * min_media_per_worker)
+            and total_scenes_available >= (num_workers * min_media_per_worker // 4)
+        )
+
+        if should_partition:
+            # Calculate this worker's partition
+            images_per_worker = total_images_available // num_workers
+            scenes_per_worker = total_scenes_available // num_workers
+
+            # Define page range for this worker (1-indexed)
+            worker_image_start = (worker_num * images_per_worker) + 1
+            worker_image_end = worker_image_start + images_per_worker
+            worker_scene_start = (worker_num * scenes_per_worker) + 1
+            worker_scene_end = worker_scene_start + scenes_per_worker
+
+            # Use worker's partition size as available pool
+            total_images_available = images_per_worker
+            total_scenes_available = scenes_per_worker
+        else:
+            # No partitioning - use full range (accept potential media collisions)
+            worker_image_start = 1
+            worker_image_end = total_images_available + 1
+            worker_scene_start = 1
+            worker_scene_end = total_scenes_available + 1
+
+        # If spread_over_objs > 1, reserve buffer for distribution validation
+        reserved_buffer = 10 if spread_over_objs > 1 else 0
+        max_images_for_distribution = total_images_available - reserved_buffer
+        max_scenes_for_distribution = total_scenes_available - reserved_buffer
+
+        # Helper functions for multi-object distribution
+        def build_obj_counts(num_objs: int) -> list[dict[str, int]]:
+            """Generate media counts for each object.
+
+            Returns:
+                List of dicts with 'num_images' and 'num_videos' for each object
+            """
+            counts_list = []
+            for _i in range(num_objs):
+                # Images: 0-30 with 75% chance of at least 1
+                num_images = faker.random_int(min=0, max=30)
+                if num_images == 0 and faker.random.random() < 0.75:
+                    num_images = faker.random_int(min=1, max=30)
+
+                # Videos: Weighted distribution (0=60%, 1=25%, 2=10%, 3=5%)
+                video_roll = faker.random.random()
+                if video_roll < 0.60:
+                    num_videos = 0
+                elif video_roll < 0.85:
+                    num_videos = 1
+                elif video_roll < 0.95:
+                    num_videos = 2
+                else:
+                    num_videos = 3
+
+                counts_list.append({"num_images": num_images, "num_videos": num_videos})
+
+            return counts_list
+
+        def validate_media_obj_counts(counts_list: list[dict[str, int]]) -> bool:
+            """Validate that media counts don't exceed available media.
+
+            Args:
+                counts_list: List of dicts with 'num_images' and 'num_videos'
+
+            Returns:
+                True if valid, False if exceeds limits or any object has 0 total
+            """
+            total_images_needed = sum(c["num_images"] for c in counts_list)
+            total_videos_needed = sum(c["num_videos"] for c in counts_list)
+
+            # Check total doesn't exceed available (minus buffer)
+            if total_images_needed > max_images_for_distribution:
+                return False
+            if total_videos_needed > max_scenes_for_distribution:
+                return False
+
+            # Each object must have at least 1 media item
+            for counts in counts_list:
+                if counts["num_images"] + counts["num_videos"] == 0:
+                    return False
+
+            return True
+
+        def allocate_page_indices(counts_list: list[dict[str, int]]) -> list[dict]:
+            """Allocate unique page indices for each object.
+
+            Args:
+                counts_list: List of {"num_images": int, "num_videos": int}
+
+            Returns:
+                List of dicts with num_images, num_videos, image_pages, video_pages
+            """
+            # Calculate totals
+            total_images_needed = sum(c["num_images"] for c in counts_list)
+            total_videos_needed = sum(c["num_videos"] for c in counts_list)
+
+            # Sample unique pages from WORKER'S PARTITION (no overlap between workers)
+            all_image_pages = (
+                faker.random.sample(
+                    range(worker_image_start, worker_image_end), total_images_needed
+                )
+                if total_images_needed > 0
+                else []
+            )
+            all_video_pages = (
+                faker.random.sample(
+                    range(worker_scene_start, worker_scene_end), total_videos_needed
+                )
+                if total_videos_needed > 0
+                else []
+            )
+
+            # Distribute pages to each object
+            result = []
+            img_offset = 0
+            vid_offset = 0
+
+            for counts in counts_list:
+                num_imgs = counts["num_images"]
+                num_vids = counts["num_videos"]
+
+                result.append(
+                    {
+                        "num_images": num_imgs,
+                        "num_videos": num_vids,
+                        "image_pages": all_image_pages[
+                            img_offset : img_offset + num_imgs
+                        ],
+                        "video_pages": all_video_pages[
+                            vid_offset : vid_offset + num_vids
+                        ],
+                    }
+                )
+
+                img_offset += num_imgs
+                vid_offset += num_vids
+
+            return result
+
+        # STEP 2: Generate and validate media counts
+        valid_obj_counts = False
+        while not valid_obj_counts:
+            media_obj_counts = build_obj_counts(spread_over_objs)
+            valid_obj_counts = validate_media_obj_counts(media_obj_counts)
+
+        # STEP 3: Allocate unique page indices for each object
+        obj_data_list = allocate_page_indices(media_obj_counts)
+
+        async def build_media_metadata(obj_data: dict) -> MessageMediaMetadata:
+            """Build MessageMediaMetadata for a single object using pre-allocated indices.
+
+            Args:
+                obj_data: Dict with 'num_images', 'num_videos', 'image_pages', 'video_pages'
+
+            Returns:
+                MessageMediaMetadata with all media objects built
+            """
+            num_images = obj_data["num_images"]
+            num_videos = obj_data["num_videos"]
+            image_pages = obj_data["image_pages"]
+            video_pages = obj_data["video_pages"]
+
+            # STEP 4: Fetch specific media using unique random pages and build in-memory objects
+            media_items = []  # Store built Media objects
+            account_media_items = []
+            bundle = None
+            has_bundle = num_images > 3
+            bundle_media_links = []  # Track bundle linking data for tests to apply after commit
+
+            # Handle images
+            if has_bundle:
+                # Build AccountMediaBundle (not committed - test will set accountId and commit)
+                bundle = AccountMediaBundleFactory.build()
+
+                for i, page_num in enumerate(image_pages):
+                    # Fetch one specific image by page number
+                    image_result = await client.find_images(
+                        filter_={"per_page": 1, "page": page_num}
+                    )
+
+                    if image_result.count > 0:
+                        real_image = image_result.images[0]
+                        # Handle both dict (GraphQL) and object responses (Pydantic transition)
+                        stash_image_id = _get_id(real_image)
+                        image_path = _get_path(
+                            real_image, f"/stash/media/image_{stash_image_id}.jpg"
+                        )
+
+                        # Extract Fansly Media ID from filename (e.g., _id_626832468225302528)
+                        fansly_media_id = extract_media_id(image_path)
+                        used_fallback = fansly_media_id is None
+                        if used_fallback:
+                            # Fallback to using Stash ID if filename doesn't contain _id_ pattern
+                            fansly_media_id = int(stash_image_id)
+
+                        # Build Media object (not committed - test will set accountId and commit)
+                        # 33% chance to include stash_id (tests both code paths)
+                        # EXCEPTION: If fallback was used, MUST include stash_id since
+                        # Media.id won't be in file path for path-based lookups
+                        media_kwargs = {
+                            "id": fansly_media_id,  # Fansly API Media ID from filename
+                            "mimetype": "image/jpeg",
+                            "type": 1,  # Image
+                            "is_downloaded": True,
+                            "local_filename": image_path,
+                        }
+                        if used_fallback or faker.random.random() < 0.33:
+                            media_kwargs["stash_id"] = int(stash_image_id)
+
+                        media = MediaFactory.build(**media_kwargs)
+                        media_items.append(media)  # Store for test to commit
+
+                        # Build AccountMedia without accountId (test will set it)
+                        account_media = AccountMediaFactory.build(
+                            mediaId=media.id, accountId=None
+                        )
+
+                        # Store bundle link metadata (position in bundle)
+                        bundle_media_links.append(
+                            {"account_media": account_media, "pos": i}
+                        )
+                        account_media_items.append(account_media)
+            else:
+                # Individual AccountMedia for ≤3 images
+                for _i, page_num in enumerate(image_pages):
+                    image_result = await client.find_images(
+                        filter_={"per_page": 1, "page": page_num}
+                    )
+                    if image_result.count > 0:
+                        real_image = image_result.images[0]
+                        # Handle both dict (GraphQL) and object responses (Pydantic transition)
+                        stash_image_id = _get_id(real_image)
+                        image_path = _get_path(
+                            real_image, f"/stash/media/image_{stash_image_id}.jpg"
+                        )
+
+                        # Extract Fansly Media ID from filename (e.g., _id_626832468225302528)
+                        fansly_media_id = extract_media_id(image_path)
+                        used_fallback = fansly_media_id is None
+                        if used_fallback:
+                            # Fallback to using Stash ID if filename doesn't contain _id_ pattern
+                            fansly_media_id = int(stash_image_id)
+
+                        # Build Media object (not committed)
+                        # 33% chance to include stash_id (tests both code paths)
+                        # EXCEPTION: If fallback was used, MUST include stash_id since
+                        # Media.id won't be in file path for path-based lookups
+                        media_kwargs = {
+                            "id": fansly_media_id,  # Fansly API Media ID from filename
+                            "mimetype": "image/jpeg",
+                            "type": 1,
+                            "is_downloaded": True,
+                            "local_filename": image_path,
+                        }
+                        if used_fallback or faker.random.random() < 0.33:
+                            media_kwargs["stash_id"] = int(stash_image_id)
+
+                        media = MediaFactory.build(**media_kwargs)
+                        media_items.append(media)  # Store for test to commit
+
+                        # Build AccountMedia without accountId (test will set it)
+                        account_media = AccountMediaFactory.build(
+                            mediaId=media.id, accountId=None
+                        )
+                        account_media_items.append(account_media)
+
+            # Handle videos
+            for _i, page_num in enumerate(video_pages):
+                scene_result = await client.find_scenes(
+                    filter_={"per_page": 1, "page": page_num}
+                )
+                if scene_result.count > 0:
+                    real_scene = scene_result.scenes[0]
+                    # Handle both dict (GraphQL) and object responses (Pydantic transition)
+                    scene_id = _get_id(real_scene)
+
+                    # Extract path from video file if available
+                    video_path = None
+                    files = (
+                        real_scene.get("files")
+                        if isinstance(real_scene, dict)
+                        else getattr(real_scene, "files", None)
+                    )
+                    if files and len(files) > 0:
+                        video_file = files[0]
+                        video_path = _get_path(video_file)
+
+                    # Extract Fansly Media ID from filename (e.g., _id_626832468225302528)
+                    fansly_media_id = (
+                        extract_media_id(video_path) if video_path else None
+                    )
+                    used_fallback = fansly_media_id is None
+                    if used_fallback:
+                        # Fallback to using Stash ID if filename doesn't contain _id_ pattern
+                        fansly_media_id = int(scene_id)
+
+                    # Build Media object (not committed)
+                    # 33% chance to include stash_id (tests both code paths)
+                    # EXCEPTION: If fallback was used, MUST include stash_id since
+                    # Media.id won't be in file path for path-based lookups
+                    media_kwargs = {
+                        "id": fansly_media_id,  # Fansly API Media ID from filename
+                        "mimetype": "video/mp4",
+                        "type": 2,  # Video
+                        "is_downloaded": True,
+                        "local_filename": video_path
+                        or f"/stash/media/video_{scene_id}.mp4",
+                    }
+                    if used_fallback or faker.random.random() < 0.33:
+                        media_kwargs["stash_id"] = int(scene_id)
+
+                    media = MediaFactory.build(**media_kwargs)
+                    media_items.append(media)  # Store for test to commit
+
+                    # Build AccountMedia without accountId (test will set it)
+                    account_media = AccountMediaFactory.build(
+                        mediaId=media.id, accountId=None
+                    )
+                    account_media_items.append(account_media)
+
+            total_media = num_images + num_videos
+
+            # Clear caches so fixture setup queries don't pollute test call counts
+            _clear_stash_client_caches(client)
+
+            return MessageMediaMetadata(
+                num_images=num_images,
+                num_videos=num_videos,
+                total_media=total_media,
+                has_bundle=has_bundle,
+                media_items=media_items,  # Built Media objects (not committed)
+                account_media_items=account_media_items,  # Built AccountMedia objects
+                bundle=bundle,  # Built bundle (not committed)
+                bundle_media_links=bundle_media_links,  # Bundle linking metadata
+            )
+
+        # STEP 4: Build metadata for single or multiple objects
+        if spread_over_objs == 1:
+            # Single object - return MessageMediaMetadata directly (backward compatible)
+            return await build_media_metadata(obj_data_list[0])
+
+        # Multiple objects - build MultiObjectMediaMetadata
+        return_value = MultiObjectMediaMetadata(
+            total_images=0,
+            total_videos=0,
+            total_media=0,
+            distributions=[None] * spread_over_objs,  # type: ignore
+        )
+
+        # Build metadata for each object
+        for i, obj_data in enumerate(obj_data_list):
+            return_value[i] = await build_media_metadata(obj_data)
+
+        # Calculate totals across all distributions
+        return_value.total_images = sum(
+            d.num_images for d in return_value.distributions
+        )
+        return_value.total_videos = sum(
+            d.num_videos for d in return_value.distributions
+        )
+        return_value.total_media = sum(
+            d.total_media for d in return_value.distributions
+        )
+
+        return return_value
+
+    # Return the factory function
+    return _generate_media

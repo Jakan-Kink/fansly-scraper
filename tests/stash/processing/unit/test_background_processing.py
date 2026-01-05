@@ -305,7 +305,7 @@ class TestBackgroundProcessing:
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user (Fansly)"
-        assert studio_vars["url"] == "https://fansly.com/test_user"
+        assert studio_vars["urls"] == ["https://fansly.com/test_user"]
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_stash_id_update(
@@ -344,7 +344,7 @@ class TestBackgroundProcessing:
         creator_studio = create_studio_dict(
             id="456",
             name="test_user2 (Fansly)",
-            url="https://fansly.com/test_user2",
+            urls=["https://fansly.com/test_user2"],
             parent_studio=fansly_studio,
         )
         empty_galleries = {"count": 0, "galleries": []}
@@ -403,26 +403,26 @@ class TestBackgroundProcessing:
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user2 (Fansly)"
-        assert studio_vars["url"] == "https://fansly.com/test_user2"
+        assert studio_vars["urls"] == ["https://fansly.com/test_user2"]
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_missing_inputs(
         self, respx_stash_processor, session
     ):
-        """Test continue_stash_processing raises errors for missing account/performer.
+        """Test continue_stash_processing raises ValueError for missing account/performer.
 
-        Note: finally block tries to access performer.name, so AttributeError raised
-        instead of the initial ValueError.
+        Note: Fixed finally block now uses safe attribute access, so the proper
+        ValueError is raised instead of AttributeError.
         """
         # Case 1: Missing both
-        with pytest.raises(AttributeError):  # from finally block: performer.name
+        with pytest.raises(ValueError, match="Missing account or performer data"):
             await respx_stash_processor.continue_stash_processing(
                 None, None, session=session
             )
 
         # Case 2: Missing performer
         account = Account(id=1, username="test")
-        with pytest.raises(AttributeError):  # from finally block: performer.name
+        with pytest.raises(ValueError, match="Missing account or performer data"):
             await respx_stash_processor.continue_stash_processing(
                 account, None, session=session
             )
@@ -431,7 +431,7 @@ class TestBackgroundProcessing:
     async def test_continue_stash_processing_performer_dict(
         self, factory_async_session, respx_stash_processor, session
     ):
-        """Test continue_stash_processing converts dict performer to Performer object."""
+        """Test continue_stash_processing with Performer object."""
         # Create account
         account = AccountFactory(id=12347, username="test_user3", stash_id=789)
         factory_async_session.commit()
@@ -439,8 +439,10 @@ class TestBackgroundProcessing:
         result = await session.execute(select(Account).where(Account.id == 12347))
         account = result.scalar_one()
 
-        # Provide performer as dict
-        performer_dict = {"id": "789", "name": "test_user3"}
+        # Create Performer object (Pydantic-based library, not dicts)
+        from stash_graphql_client.types import Performer
+
+        performer = Performer(id="789", name="test_user3")
 
         # Mock GraphQL responses
         fansly_studio = create_studio_dict(
@@ -451,7 +453,7 @@ class TestBackgroundProcessing:
         creator_studio = create_studio_dict(
             id="789",
             name="test_user3 (Fansly)",
-            url="https://fansly.com/test_user3",
+            urls=["https://fansly.com/test_user3"],
             parent_studio=fansly_studio,
         )
         empty_galleries = {"count": 0, "galleries": []}
@@ -476,12 +478,12 @@ class TestBackgroundProcessing:
             ]
         )
 
-        # Act - dict should be converted internally via Performer.from_dict
+        # Act - Pass Performer object directly
         await respx_stash_processor.continue_stash_processing(
-            account, performer_dict, session=session
+            account, performer, session=session
         )
 
-        # Assert - if we got here, dict was successfully converted and processing completed
+        # Assert - if we got here, processing completed successfully
         assert True
 
         # Verify GraphQL call sequence (permanent assertion)
@@ -498,7 +500,7 @@ class TestBackgroundProcessing:
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user3 (Fansly)"
-        assert studio_vars["url"] == "https://fansly.com/test_user3"
+        assert studio_vars["urls"] == ["https://fansly.com/test_user3"]
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_invalid_performer_type(
@@ -516,7 +518,9 @@ class TestBackgroundProcessing:
         account = result.scalar_one()
 
         # Invalid performer type (string instead of Performer or dict)
-        with pytest.raises(AttributeError):  # from finally block: "invalid".name
+        with pytest.raises(
+            TypeError, match="performer must be a Stash Performer object"
+        ):
             await respx_stash_processor.continue_stash_processing(
                 account, "invalid", session=session
             )

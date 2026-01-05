@@ -3,7 +3,9 @@
 import contextlib
 import logging
 import os
+import warnings
 from collections.abc import AsyncGenerator, AsyncIterator
+from unittest.mock import patch
 
 # Removed: from unittest.mock import AsyncMock, MagicMock
 # No longer using MagicMock for GraphQL client mocking - use respx instead
@@ -13,6 +15,8 @@ import pytest_asyncio
 import respx
 from stash_graphql_client import StashClient, StashContext
 from stash_graphql_client.types import Scene, SceneCreateInput
+
+from errors import StashCleanupWarning
 
 
 # Export all fixtures for wildcard import
@@ -240,7 +244,16 @@ async def stash_cleanup_tracker():
     @contextlib.asynccontextmanager
     async def cleanup_context(
         client: StashClient,
+        auto_capture: bool = True,
     ) -> AsyncIterator[dict[str, list[str]]]:
+        """Context manager for tracking and cleaning up Stash objects.
+
+        Args:
+            client: StashClient instance to track
+            auto_capture: If True, automatically capture IDs from create mutations.
+                         If False, require manual tracking via cleanup[type].append(id).
+                         Default True for convenience, set False for performance.
+        """
         created_objects = {
             "scenes": [],
             "performers": [],
@@ -248,11 +261,75 @@ async def stash_cleanup_tracker():
             "tags": [],
             "galleries": [],
         }
+        capture_mode = "with auto-capture" if auto_capture else "manual tracking"
         print(f"\n{'=' * 60}")
-        print("CLEANUP TRACKER: Context entered")
+        print(f"CLEANUP TRACKER: Context entered ({capture_mode})")
         print(f"{'=' * 60}")
+        if auto_capture:
+            original_execute = client._session.execute
+
+            async def execute_with_capture(document, *args, **kwargs):
+                """Execute GraphQL and auto-capture created object IDs."""
+                result = await original_execute(document, *args, **kwargs)
+
+                # Quick check - only process if result is a dict and has data
+                # This avoids overhead for queries and failed mutations
+                if not (result and isinstance(result, dict)):
+                    return result
+
+                # Fast string check: only inspect if result contains "Create" mutations
+                # Check first key for pattern - create mutations start with lowercase + "Create"
+                result_keys = result.keys()
+                has_create = any("Create" in key for key in result_keys)
+                if not has_create:
+                    return result
+
+                # Now check specific create mutations
+                if "sceneCreate" in result:
+                    if (
+                        (obj_data := result["sceneCreate"])
+                        and (scene_id := obj_data.get("id"))
+                        and scene_id not in created_objects["scenes"]
+                    ):
+                        created_objects["scenes"].append(scene_id)
+                elif "performerCreate" in result:
+                    if (
+                        (obj_data := result["performerCreate"])
+                        and (performer_id := obj_data.get("id"))
+                        and performer_id not in created_objects["performers"]
+                    ):
+                        created_objects["performers"].append(performer_id)
+                elif "studioCreate" in result:
+                    if (
+                        (obj_data := result["studioCreate"])
+                        and (studio_id := obj_data.get("id"))
+                        and studio_id not in created_objects["studios"]
+                    ):
+                        created_objects["studios"].append(studio_id)
+                elif "tagCreate" in result:
+                    if (
+                        (obj_data := result["tagCreate"])
+                        and (tag_id := obj_data.get("id"))
+                        and tag_id not in created_objects["tags"]
+                    ):
+                        created_objects["tags"].append(tag_id)
+                elif "galleryCreate" in result and (
+                    (obj_data := result["galleryCreate"])
+                    and (gallery_id := obj_data.get("id"))
+                    and gallery_id not in created_objects["galleries"]
+                ):
+                    created_objects["galleries"].append(gallery_id)
+
+                return result
+
+        # Use patch.object for safer patching with automatic cleanup
         try:
-            yield created_objects
+            if auto_capture:
+                with patch.object(client._session, "execute", execute_with_capture):
+                    yield created_objects
+            else:
+                # No patching - manual tracking only
+                yield created_objects
         finally:
             print(f"\n{'=' * 60}")
             print("CLEANUP TRACKER: Finally block entered")
@@ -261,6 +338,21 @@ async def stash_cleanup_tracker():
                 if ids:
                     print(f"  - {obj_type}: {ids}")
             print(f"{'=' * 60}\n")
+
+            # Warn about auto-captured objects (visible in pytest warnings even when test passes)
+            if auto_capture and any(created_objects.values()):
+                tracked_items = []
+                for obj_type, ids in created_objects.items():
+                    if ids:
+                        tracked_items.append(f"  - {obj_type}: {ids}")
+
+                if tracked_items:
+                    warning_msg = "Auto-captured objects:\n" + "\n".join(tracked_items)
+                    warnings.warn(
+                        warning_msg,
+                        StashCleanupWarning,
+                        stacklevel=3,
+                    )
 
             # Clean up created objects in correct dependency order
             # Galleries reference scenes/performers/studios/tags - delete first
@@ -342,16 +434,50 @@ async def stash_cleanup_tracker():
 
                 # Report any errors that occurred
                 if errors:
-                    print(f"Warning: Cleanup had {len(errors)} error(s):")
-                    for error in errors:
-                        print(f"  - {error}")
+                    error_msg = f"Cleanup had {len(errors)} error(s):\n" + "\n".join(
+                        f"  - {error}" for error in errors
+                    )
+                    print(f"Warning: {error_msg}")
+
+                    warnings.warn(
+                        f"stash_cleanup_tracker: {error_msg}",
+                        StashCleanupWarning,
+                        stacklevel=3,
+                    )
                 else:
                     print("CLEANUP TRACKER: All objects deleted successfully")
             except Exception as e:
-                print(f"Warning: Cleanup failed catastrophically: {e}")
+                error_msg = f"Cleanup failed catastrophically: {e}"
+                print(f"Warning: {error_msg}")
+                warnings.warn(
+                    f"stash_cleanup_tracker: {error_msg}",
+                    StashCleanupWarning,
+                    stacklevel=3,
+                )
 
             print(f"\n{'=' * 60}")
             print("CLEANUP TRACKER: Finally block completed")
             print(f"{'=' * 60}\n")
 
     return cleanup_context
+
+
+@pytest.fixture
+def test_query():
+    """Sample GraphQL query for testing.
+
+    This fixture provides a simple GraphQL query string that can be used in tests
+    to verify GraphQL client behavior. It includes a query with variables and
+    nested fields to test different aspects of GraphQL execution.
+
+    Returns:
+        str: A sample GraphQL query string for testing
+    """
+    return """
+    query TestQuery($id: ID!) {
+        findScene(id: $id) {
+            id
+            title
+        }
+    }
+    """

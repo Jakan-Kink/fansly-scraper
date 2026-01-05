@@ -1,4 +1,7 @@
-"""Tests for tag processing methods in TagProcessingMixin."""
+"""Tests for tag processing methods in TagProcessingMixin.
+
+Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
+"""
 
 import httpx
 import pytest
@@ -24,25 +27,22 @@ def mock_stash_tag():
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_process_hashtags_to_tags_empty(tag_mixin):
+async def test_process_hashtags_to_tags_empty(respx_stash_processor):
     """Test processing an empty list of hashtags."""
-    # Initialize client with respx mock
+    # Note: respx_stash_processor already has respx.mock wrapper
     respx.post("http://localhost:9999/graphql").mock(
         return_value=httpx.Response(200, json={"data": {}})
     )
-    await tag_mixin.context.get_client()
 
     hashtags = []
-    tags = await tag_mixin._process_hashtags_to_tags(hashtags)
+    tags = await respx_stash_processor._process_hashtags_to_tags(hashtags)
 
     # Verify no tags were returned
     assert tags == []
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_process_hashtags_to_tags_single(tag_mixin):
+async def test_process_hashtags_to_tags_single(respx_stash_processor):
     """Test processing a single hashtag to tag."""
     # Create hashtag using factory
     hashtag = HashtagFactory.build(value="testTag")
@@ -67,11 +67,8 @@ async def test_process_hashtags_to_tags_single(tag_mixin):
         )
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Test processing hashtag
-    tags = await tag_mixin._process_hashtags_to_tags([hashtag])
+    tags = await respx_stash_processor._process_hashtags_to_tags([hashtag])
 
     # Verify tag was returned
     assert len(tags) == 1
@@ -80,8 +77,7 @@ async def test_process_hashtags_to_tags_single(tag_mixin):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_process_hashtags_to_tags_not_found_creates_new(tag_mixin):
+async def test_process_hashtags_to_tags_not_found_creates_new(respx_stash_processor):
     """Test processing a hashtag that doesn't exist creates a new tag."""
     # Create hashtag using factory
     hashtag = HashtagFactory.build(value="newTag")
@@ -94,7 +90,7 @@ async def test_process_hashtags_to_tags_not_found_creates_new(tag_mixin):
     )
 
     # Mock findTags (empty) and tagCreate responses
-    find_route = respx.post("http://localhost:9999/graphql").mock(
+    respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
             # First call: findTags by name returns empty
             httpx.Response(
@@ -116,11 +112,8 @@ async def test_process_hashtags_to_tags_not_found_creates_new(tag_mixin):
         ]
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Test processing hashtag
-    tags = await tag_mixin._process_hashtags_to_tags([hashtag])
+    tags = await respx_stash_processor._process_hashtags_to_tags([hashtag])
 
     # Verify tag was created and returned
     assert len(tags) == 1
@@ -129,8 +122,7 @@ async def test_process_hashtags_to_tags_not_found_creates_new(tag_mixin):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_process_hashtags_to_tags_multiple(tag_mixin):
+async def test_process_hashtags_to_tags_multiple(respx_stash_processor):
     """Test processing multiple hashtags."""
     # Create hashtags using factory
     hashtag1 = HashtagFactory.build(value="tag1")
@@ -151,11 +143,8 @@ async def test_process_hashtags_to_tags_multiple(tag_mixin):
         ]
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Test processing hashtags
-    tags = await tag_mixin._process_hashtags_to_tags([hashtag1, hashtag2])
+    tags = await respx_stash_processor._process_hashtags_to_tags([hashtag1, hashtag2])
 
     # Verify both tags were returned
     assert len(tags) == 2
@@ -166,8 +155,7 @@ async def test_process_hashtags_to_tags_multiple(tag_mixin):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_add_preview_tag_not_found(tag_mixin):
+async def test_add_preview_tag_not_found(respx_stash_processor):
     """Test add_preview_tag when Trailer tag doesn't exist."""
     # Create Scene using factory
     from tests.fixtures import SceneFactory
@@ -183,19 +171,15 @@ async def test_add_preview_tag_not_found(tag_mixin):
         )
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Test with scene
-    await tag_mixin._add_preview_tag(scene)
+    await respx_stash_processor._add_preview_tag(scene)
 
     # Verify no tag was added since not found
     assert scene.tags == []
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_add_preview_tag_found_adds_tag(tag_mixin):
+async def test_add_preview_tag_found_adds_tag(respx_stash_processor):
     """Test add_preview_tag when Trailer tag exists and is added."""
     # Create Scene using factory
     from tests.fixtures import SceneFactory
@@ -213,11 +197,8 @@ async def test_add_preview_tag_found_adds_tag(tag_mixin):
         )
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Test with scene
-    await tag_mixin._add_preview_tag(scene)
+    await respx_stash_processor._add_preview_tag(scene)
 
     # Verify the tag was added to scene
     assert len(scene.tags) == 1
@@ -226,8 +207,7 @@ async def test_add_preview_tag_found_adds_tag(tag_mixin):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_add_preview_tag_already_has_tag(tag_mixin):
+async def test_add_preview_tag_already_has_tag(respx_stash_processor):
     """Test add_preview_tag when scene already has the Trailer tag."""
     # Create Trailer tag using factory
     trailer_tag = TagFactory.build(id="trailer_tag_123", name="Trailer")
@@ -252,11 +232,8 @@ async def test_add_preview_tag_already_has_tag(tag_mixin):
         )
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Test with scene
-    await tag_mixin._add_preview_tag(scene)
+    await respx_stash_processor._add_preview_tag(scene)
 
     # Verify the tag was NOT added again (still only one)
     assert len(scene.tags) == 1

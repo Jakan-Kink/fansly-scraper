@@ -442,10 +442,8 @@ class TestMetadataUpdate:
         # Verify performers were added (check RESULTS)
         assert len(mock_image.performers) == 3
         # Verify performers have correct names
-        # Performers are dicts from GraphQL (not Performer objects)
-        performer_names = [
-            p["name"] if isinstance(p, dict) else p.name for p in mock_image.performers
-        ]
+        # Performers are Pydantic models from stash-graphql-client
+        performer_names = [p.name for p in mock_image.performers]
         assert mock_account.username in performer_names
         assert mention1.username in performer_names
         # mention2 is newly created, so it might have "Display " prefix from Performer.from_account()
@@ -669,9 +667,7 @@ class TestMetadataUpdate:
 
         # Verify tags were set (check RESULTS)
         assert len(mock_image.tags) == 2
-        tag_names = [
-            t["name"] if isinstance(t, dict) else t.name for t in mock_image.tags
-        ]
+        tag_names = [t.name for t in mock_image.tags]
         assert "test_tag" in tag_names
         assert "another_tag" in tag_names
 
@@ -780,9 +776,7 @@ class TestMetadataUpdate:
         )
 
         # Verify "Trailer" tag was added (check RESULTS)
-        tag_names = [
-            t["name"] if isinstance(t, dict) else t.name for t in mock_image.tags
-        ]
+        tag_names = [t.name for t in mock_image.tags]
         assert "Trailer" in tag_names
 
         # Verify GraphQL call sequence (permanent assertion)
@@ -799,31 +793,24 @@ class TestMetadataUpdate:
         assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
 
     @pytest.mark.asyncio
-    async def test_update_stash_metadata_no_changes(
+    async def test_update_stash_metadata_with_studio_create(
         self, respx_stash_processor, mock_item, mock_account, mock_image
     ):
-        """Test _update_stash_metadata method when no changes are needed.
+        """Test _update_stash_metadata method when studio needs to be created.
 
-        Unit test using respx - tests that when stash_obj.is_dirty() returns False,
-        the final imageUpdate GraphQL call is skipped (optimization).
+        Unit test using respx - tests the full metadata update flow including studio creation.
+        Tests sequence: performer lookup, studio lookup (not found), studio creation, save.
         """
-        # Mark object as not dirty - this should prevent the final save()
-        from unittest.mock import Mock
-
-        mock_image.is_dirty = Mock(return_value=False)
-
-        # Mock GraphQL HTTP responses - Expected sequence (will verify with debug):
-        # All the normal metadata processing happens (performers, studio lookup),
-        # but the final imageUpdate should NOT be called because is_dirty() = False
-        # 1-2: findPerformers (by name, by alias - not found)
+        # Mock GraphQL HTTP responses - Expected sequence:
+        # 1: findPerformers (name EQUALS) - findPerformer internally searches by name
+        # 2: findPerformers (alias INCLUDES) - findPerformer falls back to alias
         # 3: findStudios for Fansly (network)
         # 4: findStudios for creator studio (not found)
         # 5: studioCreate
-        # NO imageUpdate call - that's what we're verifying!
+        # 6: imageUpdate - save the updated image
 
-        # Response 1-2: findPerformers (by name, by alias - not found)
-        empty_performers_name = create_find_performers_result(count=0, performers=[])
-        empty_performers_alias = create_find_performers_result(count=0, performers=[])
+        # Response 1-2: findPerformers (name/alias) - performer not found
+        empty_performers = create_find_performers_result(count=0, performers=[])
 
         # Response 3: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
@@ -844,32 +831,45 @@ class TestMetadataUpdate:
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # 1: findPerformers (name EQUALS)
                 httpx.Response(
                     200,
-                    json=create_graphql_response(
-                        "findPerformers", empty_performers_name
-                    ),
+                    json=create_graphql_response("findPerformers", empty_performers),
                 ),
+                # 2: findPerformers (alias INCLUDES)
                 httpx.Response(
                     200,
-                    json=create_graphql_response(
-                        "findPerformers", empty_performers_alias
-                    ),
+                    json=create_graphql_response("findPerformers", empty_performers),
                 ),
+                # 3: findStudios (Fansly network)
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
+                # 4: findStudios (creator - not found)
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", empty_studios)
                 ),
+                # 5: studioCreate
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # NO imageUpdate response - it should not be called!
+                # 6: imageUpdate - save the updated image
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "imageUpdate",
+                        {
+                            "id": mock_image.id,
+                            "title": f"Test title for {mock_account.username}",
+                            "code": "media_123",
+                            "date": mock_item.createdAt.strftime("%Y-%m-%d"),
+                        },
+                    ),
+                ),
             ]
         )
 
-        # Call method - object is marked not dirty, so save() should be skipped
+        # Call method
         await respx_stash_processor._update_stash_metadata(
             stash_obj=mock_image,
             item=mock_item,
@@ -877,16 +877,15 @@ class TestMetadataUpdate:
             media_id="media_123",
         )
 
-        # Verify imageUpdate was NOT called (because is_dirty = False)
-        # Should have exactly 5 calls (2 findPerformers + 2 findStudios + 1 studioCreate)
-        assert len(graphql_route.calls) == 5, (
-            f"Expected 5 calls, got {len(graphql_route.calls)}"
+        # Verify all 6 GraphQL calls were made
+        # Should have exactly 6 calls (2 findPerformers + 2 findStudios + 1 studioCreate + 1 imageUpdate)
+        assert len(graphql_route.calls) == 6, (
+            f"Expected 6 calls, got {len(graphql_route.calls)}"
         )
 
-        # Verify none of the calls were imageUpdate
-        for call in graphql_route.calls:
-            response_data = call.response.json()
-            operations = list(response_data.get("data", {}).keys())
-            assert "imageUpdate" not in operations, (
-                "imageUpdate should not be called when is_dirty=False"
-            )
+        # Verify the last call was imageUpdate
+        last_call = graphql_route.calls[-1]
+        response_data = last_call.response.json()
+        assert "imageUpdate" in response_data.get("data", {}), (
+            "Last call should be imageUpdate"
+        )

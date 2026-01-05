@@ -56,9 +56,9 @@ class ContentProcessingMixin:
             session: Optional database session to use
         """
 
-        def get_message_url(group: Group) -> str:
+        def get_message_url(message: Message) -> str:
             """Get URL for a message in a group."""
-            return f"https://fansly.com/messages/{group.id}"
+            return f"https://fansly.com/messages/{message.groupId}/{message.id}"
 
         # Get a fresh account instance bound to the session
         stmt = select(Account).where(Account.id == account.id)

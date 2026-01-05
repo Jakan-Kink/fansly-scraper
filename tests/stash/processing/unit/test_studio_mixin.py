@@ -1,7 +1,13 @@
-"""Unit tests for StudioProcessingMixin."""
+"""Unit tests for StudioProcessingMixin.
 
-import contextlib
-from unittest.mock import AsyncMock, MagicMock, patch
+These tests mock at the HTTP boundary using respx, allowing real code execution
+through the entire processing pipeline. We verify that GraphQL calls are made
+with correct data from our test objects.
+"""
+
+import asyncio
+import json
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -14,43 +20,12 @@ from tests.fixtures import (
 )
 
 
-class MockDatabase:
-    """Minimal mock database to satisfy @with_session decorator.
-
-    The @with_session decorator requires self.database.async_session_scope()
-    but the session parameter is unused by process_creator_studio (ARG002).
-    This provides minimal infrastructure support without requiring PostgreSQL.
-    """
-
-    @contextlib.asynccontextmanager
-    async def async_session_scope(self):
-        """Provide async session context manager."""
-        # Yield a mock session (unused by process_creator_studio due to ARG002)
-        session = MagicMock()
-        yield session
-
-
 class TestStudioProcessingMixin:
     """Test the studio processing mixin functionality."""
 
     @pytest.mark.asyncio
-    async def test_find_existing_studio(self, studio_mixin, mock_account):
-        """Test _find_existing_studio method."""
-        # Mock process_creator_studio (internal method, not GraphQL)
-        studio_mixin.process_creator_studio = AsyncMock()
-
-        # Call _find_existing_studio
-        await studio_mixin._find_existing_studio(mock_account)
-
-        # Verify process_creator_studio was called with account and None performer
-        studio_mixin.process_creator_studio.assert_called_once_with(
-            account=mock_account, performer=None
-        )
-
-    @pytest.mark.asyncio
-    @respx.mock
     async def test_process_creator_studio_both_exist(
-        self, studio_mixin, mock_account, mock_performer
+        self, respx_stash_processor, mock_account, mock_performer
     ):
         """Test process_creator_studio when both Fansly and Creator studios exist."""
         # Create responses
@@ -68,8 +43,8 @@ class TestStudioProcessingMixin:
             count=1, studios=[creator_studio_dict]
         )
 
-        # Mock GraphQL responses
-        respx.post("http://localhost:9999/graphql").mock(
+        # Mock GraphQL responses (respx_stash_processor already has respx enabled)
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # First call: find Fansly studio
                 httpx.Response(
@@ -84,16 +59,25 @@ class TestStudioProcessingMixin:
             ]
         )
 
-        # Initialize client
-        await studio_mixin.context.get_client()
-
-        # Provide mock database for @with_session decorator
-        studio_mixin.database = MockDatabase()
-
-        # Call process_creator_studio
-        result = await studio_mixin.process_creator_studio(
+        # Call process_creator_studio (respx will intercept HTTP calls)
+        result = await respx_stash_processor.process_creator_studio(
             account=mock_account, performer=mock_performer
         )
+
+        # === PERMANENT GraphQL call sequence assertions ===
+        assert len(graphql_route.calls) == 2, (
+            f"Expected exactly 2 GraphQL calls, got {len(graphql_route.calls)}"
+        )
+
+        # Call 1: Find Fansly studio
+        call1_body = json.loads(graphql_route.calls[0].request.content)
+        assert "findStudios" in call1_body.get("query", "")
+        assert call1_body["variables"]["filter"]["q"] == "Fansly (network)"
+
+        # Call 2: Find Creator studio (found)
+        call2_body = json.loads(graphql_route.calls[1].request.content)
+        assert "findStudios" in call2_body.get("query", "")
+        assert call2_body["variables"]["filter"]["q"] == "test_user (Fansly)"
 
         # Verify result
         assert result is not None
@@ -101,9 +85,8 @@ class TestStudioProcessingMixin:
         assert result.name == "test_user (Fansly)"
 
     @pytest.mark.asyncio
-    @respx.mock
     async def test_process_creator_studio_create_new(
-        self, studio_mixin, mock_account, mock_performer, mock_studio
+        self, respx_stash_processor, mock_account, mock_performer, mock_studio
     ):
         """Test process_creator_studio when Creator studio doesn't exist and needs to be created."""
         # Create responses
@@ -123,8 +106,8 @@ class TestStudioProcessingMixin:
             urls=mock_studio.urls,
         )
 
-        # Mock GraphQL responses
-        respx.post("http://localhost:9999/graphql").mock(
+        # Mock GraphQL responses (respx_stash_processor already has respx enabled)
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # First call: find Fansly studio (found)
                 httpx.Response(
@@ -144,16 +127,34 @@ class TestStudioProcessingMixin:
             ]
         )
 
-        # Initialize client
-        await studio_mixin.context.get_client()
-
-        # Provide mock database for @with_session decorator
-        studio_mixin.database = MockDatabase()
-
-        # Call process_creator_studio
+        # Call process_creator_studio (respx will intercept HTTP calls)
         with patch("stash.processing.mixins.studio.print_info") as mock_print_info:
-            result = await studio_mixin.process_creator_studio(
+            result = await respx_stash_processor.process_creator_studio(
                 account=mock_account, performer=mock_performer
+            )
+
+            # === PERMANENT GraphQL call sequence assertions ===
+            assert len(graphql_route.calls) == 3, (
+                f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
+            )
+
+            # Call 1: Find Fansly studio
+            call1_body = json.loads(graphql_route.calls[0].request.content)
+            assert "findStudios" in call1_body.get("query", "")
+            assert call1_body["variables"]["filter"]["q"] == "Fansly (network)"
+
+            # Call 2: Find Creator studio (not found)
+            call2_body = json.loads(graphql_route.calls[1].request.content)
+            assert "findStudios" in call2_body.get("query", "")
+            assert call2_body["variables"]["filter"]["q"] == "test_user (Fansly)"
+
+            # Call 3: Create studio
+            call3_body = json.loads(graphql_route.calls[2].request.content)
+            assert "studioCreate" in call3_body.get("query", "")
+            assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
+            assert (
+                "https://fansly.com/test_user"
+                in call3_body["variables"]["input"]["urls"]
             )
 
             # Verify result
@@ -166,15 +167,14 @@ class TestStudioProcessingMixin:
             assert "Created studio" in str(mock_print_info.call_args)
 
     @pytest.mark.asyncio
-    @respx.mock
     async def test_process_creator_studio_fansly_not_found(
-        self, studio_mixin, mock_account, mock_performer
+        self, respx_stash_processor, mock_account, mock_performer
     ):
         """Test process_creator_studio when Fansly studio doesn't exist."""
         # Create empty response
         empty_result = create_find_studios_result(count=0, studios=[])
 
-        # Mock GraphQL response
+        # Mock GraphQL response (respx_stash_processor already has respx enabled)
         respx.post("http://localhost:9999/graphql").mock(
             return_value=httpx.Response(
                 200,
@@ -182,17 +182,11 @@ class TestStudioProcessingMixin:
             )
         )
 
-        # Initialize client
-        await studio_mixin.context.get_client()
-
-        # Provide mock database for @with_session decorator
-        studio_mixin.database = MockDatabase()
-
-        # Call process_creator_studio and expect error
+        # Call process_creator_studio and expect error (respx will intercept HTTP calls)
         with pytest.raises(
-            ValueError, match=r"Studio.*not found for account"
+            ValueError, match=r"Fansly Studio not found in Stash"
         ) as excinfo:
-            await studio_mixin.process_creator_studio(
+            await respx_stash_processor.process_creator_studio(
                 account=mock_account, performer=mock_performer
             )
 
@@ -200,9 +194,8 @@ class TestStudioProcessingMixin:
         assert "Fansly Studio not found in Stash" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    @respx.mock
     async def test_process_creator_studio_creation_fails_then_retry(
-        self, studio_mixin, mock_account, mock_performer
+        self, respx_stash_processor, mock_account, mock_performer
     ):
         """Test process_creator_studio when creation fails, then succeeds on retry."""
         # Create responses
@@ -227,8 +220,8 @@ class TestStudioProcessingMixin:
             count=1, studios=[creator_studio_dict]
         )
 
-        # Mock GraphQL responses
-        respx.post("http://localhost:9999/graphql").mock(
+        # Mock GraphQL responses (respx_stash_processor already has respx enabled)
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # First call: find Fansly studio (found)
                 httpx.Response(
@@ -256,13 +249,7 @@ class TestStudioProcessingMixin:
             ]
         )
 
-        # Initialize client
-        await studio_mixin.context.get_client()
-
-        # Provide mock database for @with_session decorator
-        studio_mixin.database = MockDatabase()
-
-        # Call process_creator_studio with error mocks
+        # Call process_creator_studio with error mocks (respx will intercept HTTP calls)
         with (
             patch("stash.processing.mixins.studio.print_error") as mock_print_error,
             patch(
@@ -270,9 +257,34 @@ class TestStudioProcessingMixin:
             ) as mock_logger_exception,
             patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
         ):
-            result = await studio_mixin.process_creator_studio(
+            result = await respx_stash_processor.process_creator_studio(
                 account=mock_account, performer=mock_performer
             )
+
+            # === PERMANENT GraphQL call sequence assertions ===
+            assert len(graphql_route.calls) == 4, (
+                f"Expected exactly 4 GraphQL calls, got {len(graphql_route.calls)}"
+            )
+
+            # Call 1: Find Fansly studio
+            call1_body = json.loads(graphql_route.calls[0].request.content)
+            assert "findStudios" in call1_body.get("query", "")
+            assert call1_body["variables"]["filter"]["q"] == "Fansly (network)"
+
+            # Call 2: Find Creator studio (first attempt)
+            call2_body = json.loads(graphql_route.calls[1].request.content)
+            assert "findStudios" in call2_body.get("query", "")
+            assert call2_body["variables"]["filter"]["q"] == "test_user (Fansly)"
+
+            # Call 3: Create studio (will fail)
+            call3_body = json.loads(graphql_route.calls[2].request.content)
+            assert "studioCreate" in call3_body.get("query", "")
+            assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
+
+            # Call 4: Retry find Creator studio
+            call4_body = json.loads(graphql_route.calls[3].request.content)
+            assert "findStudios" in call4_body.get("query", "")
+            assert call4_body["variables"]["filter"]["q"] == "test_user (Fansly)"
 
             # Verify result (should get the existing studio from retry)
             assert result is not None
@@ -285,3 +297,138 @@ class TestStudioProcessingMixin:
             # debug_print is called 3 times
             assert mock_debug_print.call_count == 3
             assert "studio_creation_failed" in str(mock_debug_print.call_args)
+
+    @pytest.mark.asyncio
+    async def test_process_creator_studio_creation_fails_retry_also_fails(
+        self, respx_stash_processor, mock_account, mock_performer
+    ):
+        """Test process_creator_studio when creation fails AND retry finds nothing (line 141).
+
+        This covers the branch where studio creation fails, then the retry query
+        also returns 0 studios, causing the method to return None.
+        """
+        # Create responses
+        fansly_studio_dict = create_studio_dict(
+            id="fansly_123", name="Fansly (network)"
+        )
+        fansly_studio_result = create_find_studios_result(
+            count=1, studios=[fansly_studio_dict]
+        )
+
+        empty_result = create_find_studios_result(count=0, studios=[])
+
+        # Mock GraphQL responses (respx_stash_processor already has respx enabled)
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # First call: find Fansly studio (found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", fansly_studio_result),
+                ),
+                # Second call: find Creator studio (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", empty_result),
+                ),
+                # Third call: studioCreate returns error
+                httpx.Response(
+                    200,
+                    json={
+                        "errors": [{"message": "Studio creation failed"}],
+                        "data": None,
+                    },
+                ),
+                # Fourth call: retry find Creator studio (STILL not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", empty_result),
+                ),
+            ]
+        )
+
+        # Call process_creator_studio with error mocks
+        with (
+            patch("stash.processing.mixins.studio.print_error") as mock_print_error,
+            patch(
+                "stash.processing.mixins.studio.logger.exception"
+            ) as mock_logger_exception,
+            patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
+        ):
+            result = await respx_stash_processor.process_creator_studio(
+                account=mock_account, performer=mock_performer
+            )
+
+            # Verify result is None (line 141)
+            assert result is None
+
+            # Verify error handling was called
+            mock_print_error.assert_called_once()
+            mock_logger_exception.assert_called_once()
+            assert mock_debug_print.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_get_studio_lock_race_condition(self, respx_stash_processor):
+        """Test _get_studio_lock double-check race condition (line 41->43).
+
+        This covers the branch where after acquiring the _studio_creation_locks_lock,
+        we find that another task already created the lock for this username.
+
+        Ultra-aggressive approach: Mock the dict to return False first time, True second time.
+        """
+        username = "race_test_user"
+
+        # Clear any existing locks
+        respx_stash_processor._studio_creation_locks.clear()
+
+        # Create the lock that will be "created by another task" during the race
+        pre_existing_lock = asyncio.Lock()
+
+        # Track how many times we've checked the dict
+        check_count = [0]
+
+        # Save the original dict for reference
+        original_dict = respx_stash_processor._studio_creation_locks
+
+        # Create a wrapper that intercepts __contains__ checks
+        class RaceConditionDict(dict):
+            def __contains__(self, key):
+                if key == username:
+                    check_count[0] += 1
+                    if check_count[0] == 1:
+                        # First check (line 38): Return False - pass outer if
+                        return False
+                    if check_count[0] == 2:
+                        # Second check (line 41): Inject lock and return True - fail inner if!
+                        super().__setitem__(username, pre_existing_lock)
+                        return True  # This triggers line 41->43!
+                return super().__contains__(key)
+
+        # Replace the dict with our race-injecting version
+        race_dict = RaceConditionDict()
+        respx_stash_processor._studio_creation_locks = race_dict
+
+        try:
+            # Call _get_studio_lock - it will:
+            # 1. Line 38: Check username in dict -> our __contains__ returns False (check 1)
+            # 2. Line 39: Enter lock
+            # 3. Line 41: Check username in dict -> our __contains__ injects lock & returns True (check 2)
+            # 4. Line 42: SKIPPED (double-check failed - username IS in dict!)
+            # 5. Line 43: Return pre_existing_lock
+            result_lock = await respx_stash_processor._get_studio_lock(username)
+
+            # Verify we got the pre-existing lock (not a new one)
+            assert result_lock is pre_existing_lock, (
+                f"Should return the pre-existing lock. Got {id(result_lock)}, expected {id(pre_existing_lock)}"
+            )
+
+            # Verify the double-check was actually triggered
+            assert check_count[0] == 2, (
+                f"Should have checked dict twice, got {check_count[0]} checks"
+            )
+
+            # Verify only ONE lock exists
+            assert len(race_dict) == 1
+
+        finally:
+            # Restore original dict
+            respx_stash_processor._studio_creation_locks = original_dict

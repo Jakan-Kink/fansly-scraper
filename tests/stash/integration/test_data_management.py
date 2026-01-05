@@ -30,7 +30,6 @@ async def create_test_data(
 
     # Create performer
     performer = Performer(
-        id="new",
         name=f"{prefix}_performer_{timestamp}",
         gender=GenderEnum.FEMALE,
         urls=["https://example.com/performer"],
@@ -40,7 +39,6 @@ async def create_test_data(
 
     # Create studio
     studio = Studio(
-        id="new",
         name=f"{prefix}_studio_{timestamp}",
     )
     studio = await stash_client.create_studio(studio)
@@ -49,7 +47,6 @@ async def create_test_data(
     tags = []
     for i in range(3):
         tag = Tag(
-            id="new",
             name=f"{prefix}_tag_{i}_{timestamp}",
         )
         tag = await stash_client.create_tag(tag)
@@ -59,7 +56,6 @@ async def create_test_data(
     scenes = []
     for i in range(2):
         scene = Scene(
-            id="new",
             title=f"{prefix}_scene_{i}_{timestamp}",
             date="2025-04-12",
             details=f"Test scene {i}",
@@ -99,7 +95,6 @@ class TestTagManagement:
 
                 # Create parent tag
                 parent_tag = Tag(
-                    id="new",
                     name=f"hierarchy_parent_{timestamp}",  # Add timestamp for uniqueness
                     description="Parent tag for hierarchy testing",
                 )
@@ -113,7 +108,6 @@ class TestTagManagement:
                 child_tags = []
                 for i in range(2):
                     child_tag = Tag(
-                        id="new",
                         name=f"hierarchy_child_{i}_{timestamp}",
                         description=f"Child tag {i} for hierarchy testing",
                     )
@@ -128,14 +122,14 @@ class TestTagManagement:
                 for child_tag in child_tags:
                     child_tag.parents = [parent_tag]
                     updated_child = await stash_client.update_tag(child_tag)
-                    assert updated_child.parents[0]["id"] == parent_tag.id
+                    assert updated_child.parents[0].id == parent_tag.id
 
                 # Verify hierarchy
                 refreshed_parent = await stash_client.find_tag(parent_tag.id)
 
                 # Core assertions that verify hierarchy worked
                 assert len(refreshed_parent.children) == len(child_tags)
-                child_ids = {child["id"] for child in refreshed_parent.children}
+                child_ids = {child.id for child in refreshed_parent.children}
                 for child_tag in child_tags:
                     assert child_tag.id in child_ids
 
@@ -179,7 +173,6 @@ class TestTagManagement:
                 duplicate_tags = []
                 for tag in tags:
                     dup_tag = Tag(
-                        id="new",
                         name=f"{tag.name}_duplicate",
                         description=tag.description,
                     )
@@ -206,7 +199,7 @@ class TestTagManagement:
                 # Verify scenes have original tags but not duplicate tags
                 for scene_id in [scene.id for scene in scenes]:
                     updated_scene = await stash_client.find_scene(scene_id)
-                    scene_tag_ids = {t["id"] for t in updated_scene.tags}
+                    scene_tag_ids = {t.id for t in updated_scene.tags}
 
                     # Verify original tags are present
                     for tag in tags:
@@ -248,7 +241,6 @@ class TestTagManagement:
                 unused_tags = []
                 for i in range(3):
                     tag = Tag(
-                        id="new",
                         name=f"unused_tag_{i}_{timestamp}",
                         description=f"Unused tag {i} for cleanup testing",
                     )
@@ -292,7 +284,6 @@ class TestPerformerManagement:
                 performers = []
                 for i in range(2):
                     performer = Performer(
-                        id="new",
                         name=f"merge_performer_{i}",
                         gender=GenderEnum.FEMALE,  # Pass enum directly, not its value
                         urls=[f"https://example.com/performer/merge_{i}"],
@@ -370,9 +361,8 @@ class TestStudioHierarchy:
 
                 # Create parent studio
                 parent_studio = Studio(
-                    id="new",
                     name=f"parent_studio_{timestamp}",
-                    url=f"https://example.com/studio/parent_{timestamp}",
+                    urls=[f"https://example.com/studio/parent_{timestamp}"],
                 )
                 parent_studio = await stash_client.create_studio(parent_studio)
                 cleanup["studios"].append(parent_studio.id)
@@ -381,9 +371,8 @@ class TestStudioHierarchy:
                 child_studios = []
                 for i in range(2):
                     child_studio = Studio(
-                        id="new",
                         name=f"child_studio_{i}_{timestamp}",
-                        url=f"https://example.com/studio/child_{i}_{timestamp}",
+                        urls=[f"https://example.com/studio/child_{i}_{timestamp}"],
                     )
                     child_studio = await stash_client.create_studio(child_studio)
 
@@ -398,7 +387,7 @@ class TestStudioHierarchy:
                     # Verify parent relationship
                     refreshed = await stash_client.find_studio(child_studio.id)
                     assert refreshed.parent_studio is not None
-                    assert refreshed.parent_studio["id"] == parent_studio.id
+                    assert refreshed.parent_studio.id == parent_studio.id
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
@@ -459,10 +448,10 @@ class TestStudioHierarchy:
                 # Verify child studio scenes have proper parent relationship
                 for scene in child_scenes:
                     # Get the scene's studio
-                    scene_studio = await stash_client.find_studio(scene.studio["id"])
+                    scene_studio = await stash_client.find_studio(scene.studio.id)
                     # Verify studio has correct parent
                     assert scene_studio.parent_studio is not None
-                    assert scene_studio.parent_studio["id"] == parent_studio.id
+                    assert scene_studio.parent_studio.id == parent_studio.id
 
         except (ConnectionError, TimeoutError) as e:
             pytest.skip(
@@ -534,7 +523,7 @@ class TestStudioHierarchy:
                 for scene in child_scenes:
                     scene.studio = parent_studio
                     updated = await stash_client.update_scene(scene)
-                    assert updated.studio["id"] == parent_studio.id
+                    assert updated.studio.id == parent_studio.id
 
                 # Verify all content moved to parent studio
                 final_parent_scenes = await stash_client.find_scenes(
@@ -598,7 +587,6 @@ class TestDuplicateManagement:
                 original_scenes = []
                 for i in range(2):
                     scene = Scene(
-                        id="new",
                         title=f"original_scene_{i}_{test_id}",
                         details=f"Original test scene {i}",
                         date=datetime.now(UTC).strftime("%Y-%m-%d"),
@@ -616,7 +604,6 @@ class TestDuplicateManagement:
                 duplicate_scenes = []
                 for i in range(2):
                     scene = Scene(
-                        id="new",
                         title=f"duplicate_scene_{i}_{test_id}",
                         details=f"Duplicate of test scene {i}",  # Similar content
                         date=datetime.now(UTC).strftime("%Y-%m-%d"),  # Same date
@@ -711,7 +698,6 @@ class TestDuplicateManagement:
 
                 # Create original scene
                 original = Scene(
-                    id="new",
                     title=f"original_{test_id}",
                     details="Original content for duplicate detection test",
                     date=datetime.now(UTC).strftime("%Y-%m-%d"),
@@ -726,7 +712,6 @@ class TestDuplicateManagement:
 
                 # Create duplicate scene
                 duplicate = Scene(
-                    id="new",
                     title=f"duplicate_{test_id}",
                     details="Duplicate content for detection test",
                     date=datetime.now(UTC).strftime("%Y-%m-%d"),
@@ -827,7 +812,6 @@ class TestDuplicateManagement:
 
                 # Create primary scene
                 primary = Scene(
-                    id="new",
                     title=f"primary_{test_id}",
                     details="Primary content",
                     date=datetime.now(UTC).strftime("%Y-%m-%d"),
@@ -844,7 +828,6 @@ class TestDuplicateManagement:
                 duplicates = []
                 for i in range(2):
                     scene = Scene(
-                        id="new",
                         title=f"duplicate_{i}_{test_id}",
                         details=f"Duplicate {i} content",
                         date=datetime.now(UTC).strftime("%Y-%m-%d"),

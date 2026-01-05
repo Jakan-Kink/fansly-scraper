@@ -2,6 +2,8 @@
 
 This module tests the BatchProcessingMixin which provides producer/consumer
 worker pool patterns for concurrent processing using asyncio.
+
+Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 """
 
 import asyncio
@@ -13,7 +15,7 @@ class TestWorkerPoolProcessing:
     """Test worker pool processing methods."""
 
     @pytest.mark.asyncio
-    async def test_setup_worker_pool(self, batch_mixin):
+    async def test_setup_worker_pool(self, respx_stash_processor):
         """Test _setup_worker_pool creates necessary infrastructure."""
         # Create test items
         items = [{"id": i} for i in range(10)]
@@ -24,7 +26,7 @@ class TestWorkerPoolProcessing:
             process_name,
             semaphore,
             queue,
-        ) = await batch_mixin._setup_worker_pool(
+        ) = await respx_stash_processor._setup_worker_pool(
             items=items,
             item_type="post",
         )
@@ -45,7 +47,7 @@ class TestWorkerPoolProcessing:
         assert queue.maxsize == 0  # Unlimited
 
     @pytest.mark.asyncio
-    async def test_run_worker_pool_basic(self, batch_mixin):
+    async def test_run_worker_pool_basic(self, respx_stash_processor):
         """Test _run_worker_pool processes items correctly."""
         # Create test items
         items = [{"id": i, "value": i * 2} for i in range(5)]
@@ -65,13 +67,13 @@ class TestWorkerPoolProcessing:
             process_name,
             semaphore,
             queue,
-        ) = await batch_mixin._setup_worker_pool(
+        ) = await respx_stash_processor._setup_worker_pool(
             items=items,
             item_type="test",
         )
 
         # Run worker pool
-        await batch_mixin._run_worker_pool(
+        await respx_stash_processor._run_worker_pool(
             items=items,
             task_name=task_name,
             process_name=process_name,
@@ -86,7 +88,7 @@ class TestWorkerPoolProcessing:
         assert processed_ids == {0, 1, 2, 3, 4}
 
     @pytest.mark.asyncio
-    async def test_run_worker_pool_concurrent(self, batch_mixin):
+    async def test_run_worker_pool_concurrent(self, respx_stash_processor):
         """Test _run_worker_pool processes items concurrently."""
         # Create more items to demonstrate concurrency
         items = [{"id": i} for i in range(20)]
@@ -111,13 +113,13 @@ class TestWorkerPoolProcessing:
             process_name,
             semaphore,
             queue,
-        ) = await batch_mixin._setup_worker_pool(
+        ) = await respx_stash_processor._setup_worker_pool(
             items=items,
             item_type="test",
         )
 
         # Run worker pool
-        await batch_mixin._run_worker_pool(
+        await respx_stash_processor._run_worker_pool(
             items=items,
             task_name=task_name,
             process_name=process_name,
@@ -136,7 +138,7 @@ class TestWorkerPoolProcessing:
         assert len(set(processing_started) - set(first_10_finished)) > 0
 
     @pytest.mark.asyncio
-    async def test_run_worker_pool_error_handling(self, batch_mixin):
+    async def test_run_worker_pool_error_handling(self, respx_stash_processor):
         """Test _run_worker_pool continues processing despite errors."""
         # Create test items
         items = [{"id": i} for i in range(10)]
@@ -162,13 +164,13 @@ class TestWorkerPoolProcessing:
             process_name,
             semaphore,
             queue,
-        ) = await batch_mixin._setup_worker_pool(
+        ) = await respx_stash_processor._setup_worker_pool(
             items=items,
             item_type="test",
         )
 
         # Run worker pool (should not raise despite errors)
-        await batch_mixin._run_worker_pool(
+        await respx_stash_processor._run_worker_pool(
             items=items,
             task_name=task_name,
             process_name=process_name,
@@ -188,7 +190,7 @@ class TestWorkerPoolProcessing:
         assert 7 in failed
 
     @pytest.mark.asyncio
-    async def test_run_worker_pool_empty_list(self, batch_mixin):
+    async def test_run_worker_pool_empty_list(self, respx_stash_processor):
         """Test _run_worker_pool handles empty item list gracefully."""
         # Create empty list
         items = []
@@ -205,13 +207,13 @@ class TestWorkerPoolProcessing:
             process_name,
             semaphore,
             queue,
-        ) = await batch_mixin._setup_worker_pool(
+        ) = await respx_stash_processor._setup_worker_pool(
             items=items,
             item_type="test",
         )
 
         # Run worker pool
-        await batch_mixin._run_worker_pool(
+        await respx_stash_processor._run_worker_pool(
             items=items,
             task_name=task_name,
             process_name=process_name,
@@ -224,7 +226,7 @@ class TestWorkerPoolProcessing:
         assert len(processed) == 0
 
     @pytest.mark.asyncio
-    async def test_run_worker_pool_large_batch(self, batch_mixin):
+    async def test_run_worker_pool_large_batch(self, respx_stash_processor):
         """Test _run_worker_pool handles large batches efficiently."""
         # Create large batch (triggers delayed consumer start)
         items = [{"id": i} for i in range(100)]
@@ -245,13 +247,13 @@ class TestWorkerPoolProcessing:
             process_name,
             semaphore,
             queue,
-        ) = await batch_mixin._setup_worker_pool(
+        ) = await respx_stash_processor._setup_worker_pool(
             items=items,
             item_type="test",
         )
 
         # Run worker pool
-        await batch_mixin._run_worker_pool(
+        await respx_stash_processor._run_worker_pool(
             items=items,
             task_name=task_name,
             process_name=process_name,

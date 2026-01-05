@@ -1,4 +1,7 @@
-"""Tests for edge cases in TagProcessingMixin."""
+"""Tests for edge cases in TagProcessingMixin.
+
+Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
+"""
 
 import httpx
 import pytest
@@ -16,9 +19,9 @@ from tests.fixtures import (
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_process_hashtags_to_tags_alias_match(tag_mixin):
+async def test_process_hashtags_to_tags_alias_match(respx_stash_processor):
     """Test finding a tag by alias when exact name match fails."""
+    # Note: respx_stash_processor already has respx.mock wrapper
     # Create real hashtag using factory
     hashtag = HashtagFactory.build(value="alias_name")
 
@@ -43,11 +46,8 @@ async def test_process_hashtags_to_tags_alias_match(tag_mixin):
         ]
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Process the hashtag
-    tags = await tag_mixin._process_hashtags_to_tags([hashtag])
+    tags = await respx_stash_processor._process_hashtags_to_tags([hashtag])
 
     assert len(tags) == 1
     assert tags[0].id == "tag_123"
@@ -55,13 +55,13 @@ async def test_process_hashtags_to_tags_alias_match(tag_mixin):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_process_hashtags_to_tags_creation_error_exists(tag_mixin):
+async def test_process_hashtags_to_tags_creation_error_exists(respx_stash_processor):
     """Test handling when client's create_tag returns existing tag.
 
     The client now handles "already exists" errors internally and returns
     the existing tag, so we just verify the tag is returned correctly.
     """
+    # Note: respx_stash_processor already has respx.mock wrapper
     # Create real hashtag using factory
     hashtag = HashtagFactory.build(value="test_tag")
 
@@ -92,11 +92,8 @@ async def test_process_hashtags_to_tags_creation_error_exists(tag_mixin):
         ]
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Process the hashtag
-    tags = await tag_mixin._process_hashtags_to_tags([hashtag])
+    tags = await respx_stash_processor._process_hashtags_to_tags([hashtag])
 
     assert len(tags) == 1
     assert tags[0].id == "tag_123"
@@ -104,9 +101,9 @@ async def test_process_hashtags_to_tags_creation_error_exists(tag_mixin):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_process_hashtags_to_tags_creation_error_other(tag_mixin):
+async def test_process_hashtags_to_tags_creation_error_other(respx_stash_processor):
     """Test handling of tag creation with other errors."""
+    # Note: respx_stash_processor already has respx.mock wrapper
     # Create real hashtag using factory
     hashtag = HashtagFactory.build(value="test_tag")
 
@@ -137,20 +134,17 @@ async def test_process_hashtags_to_tags_creation_error_other(tag_mixin):
         ]
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Process the hashtag and expect the error to be raised
     with pytest.raises(Exception, match="Some other error") as exc_info:
-        await tag_mixin._process_hashtags_to_tags([hashtag])
+        await respx_stash_processor._process_hashtags_to_tags([hashtag])
 
     assert "Some other error" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_add_preview_tag_existing_tag(tag_mixin):
+async def test_add_preview_tag_existing_tag(respx_stash_processor):
     """Test _add_preview_tag when tag is already present."""
+    # Note: respx_stash_processor already has respx.mock wrapper
     # Create preview tag using factory
     preview_tag = TagFactory.build(
         id="preview_tag_123",
@@ -176,15 +170,12 @@ async def test_add_preview_tag_existing_tag(tag_mixin):
         )
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Verify tag is already present
     assert len(scene.tags) == 1
     assert scene.tags[0].id == "preview_tag_123"
 
     # Add the tag again
-    await tag_mixin._add_preview_tag(scene)
+    await respx_stash_processor._add_preview_tag(scene)
 
     # Verify tag wasn't duplicated
     assert len(scene.tags) == 1
@@ -192,9 +183,9 @@ async def test_add_preview_tag_existing_tag(tag_mixin):
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_add_preview_tag_no_tag_found(tag_mixin):
+async def test_add_preview_tag_no_tag_found(respx_stash_processor):
     """Test _add_preview_tag when preview tag doesn't exist."""
+    # Note: respx_stash_processor already has respx.mock wrapper
     # Create Scene without tags
     scene = SceneFactory.build(
         id="scene_123",
@@ -211,11 +202,8 @@ async def test_add_preview_tag_no_tag_found(tag_mixin):
         )
     )
 
-    # Initialize client
-    await tag_mixin.context.get_client()
-
     # Add the tag
-    await tag_mixin._add_preview_tag(scene)
+    await respx_stash_processor._add_preview_tag(scene)
 
     # Verify no tag was added since none was found
     assert len(scene.tags) == 0

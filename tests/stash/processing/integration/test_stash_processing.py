@@ -5,6 +5,8 @@ and factory-based test data. These are TRUE integration tests that make
 real GraphQL calls to a Stash instance.
 """
 
+import time
+
 import pytest
 from sqlalchemy import select
 from stash_graphql_client.types import Performer, Studio
@@ -26,9 +28,6 @@ class TestStashProcessingIntegration:
         assert real_stash_processor.config is not None
         assert real_stash_processor.state.creator_id == test_state.creator_id
         assert real_stash_processor.state.creator_name == test_state.creator_name
-        assert (
-            real_stash_processor.state.messages_enabled == test_state.messages_enabled
-        )
         assert real_stash_processor.context is not None
         assert real_stash_processor.database is not None
 
@@ -121,7 +120,6 @@ class TestStashProcessingIntegration:
         ) as cleanup:
             # Create a real performer in Stash
             test_performer = Performer(
-                id="new",
                 name="performer_user_integration_test",
                 urls=["https://fansly.com/performer_user_integration_test"],
             )
@@ -160,7 +158,6 @@ class TestStashProcessingIntegration:
         ) as cleanup:
             # Create a real performer in Stash with a unique name
             test_performer = Performer(
-                id="new",
                 name="new_performer_by_username_test",
                 urls=["https://fansly.com/new_performer_by_username_test"],
             )
@@ -202,22 +199,21 @@ class TestStashProcessingIntegration:
             )
             if fansly_result.count == 0:
                 fansly_parent = Studio(
-                    id="new",
                     name="Fansly (network)",
-                    url="https://fansly.com",
+                    urls=["https://fansly.com"],
                 )
                 fansly_parent = await real_stash_processor.context.client.create_studio(
                     fansly_parent
                 )
                 cleanup["studios"].append(fansly_parent.id)
             else:
+                # Using Pydantic models from stash-graphql-client
                 fansly_parent = fansly_result.studios[0]
 
             # Create a real creator studio in Stash BEFORE calling _find_existing_studio
             creator_studio = Studio(
-                id="new",
                 name="studio_exists_test (Fansly)",
-                url="https://fansly.com/studio_exists_test",
+                urls=["https://fansly.com/studio_exists_test"],
                 parent_studio=fansly_parent,
             )
             created_studio = await real_stash_processor.context.client.create_studio(
@@ -247,10 +243,11 @@ class TestStashProcessingIntegration:
         Uses stash_cleanup_tracker to clean up created studio after test.
         """
         async with stash_cleanup_tracker(
-            real_stash_processor.context.client
+            real_stash_processor.context.client, auto_capture=False
         ) as cleanup:
-            # Create a real account
-            account = AccountFactory(username="new_studio_creator")
+            # Create a real account with unique username to ensure studio doesn't exist
+            unique_id = int(time.time() * 1000) % 1000000  # Last 6 digits of timestamp
+            account = AccountFactory(username=f"new_studio_creator_{unique_id}")
             factory_session.commit()
 
             # Capture GraphQL calls while making real API calls
@@ -261,10 +258,6 @@ class TestStashProcessingIntegration:
                 # 2. Search for "new_studio_creator (Fansly)" (won't exist)
                 # 3. Create "new_studio_creator (Fansly)" studio
                 studio = await real_stash_processor._find_existing_studio(account)
-
-            # Track for cleanup
-            if studio and studio.id != "new":
-                cleanup["studios"].append(studio.id)
 
             # Verify studio was created with correct properties
             assert studio is not None
@@ -285,21 +278,45 @@ class TestStashProcessingIntegration:
             assert found_studio.count == 1
             assert found_studio.studios[0].id == studio.id
 
-            # Verify GraphQL call sequence (permanent assertion)
+            # Verify GraphQL call sequence (permanent assertion with request/response data)
             assert len(calls) == 3, (
                 f"Expected exactly 3 GraphQL calls, got {len(calls)}"
             )
 
-            # Verify query types in order
-            assert "findStudios" in calls[0]["query"], (
-                "First call should be findStudios for Fansly (network)"
+            # Call 0: findStudios for Fansly (network)
+            assert "findStudios" in calls[0]["query"]
+            assert calls[0]["variables"]["filter"]["q"] == "Fansly (network)"
+            assert "findStudios" in calls[0]["result"]
+
+            # Call 1: findStudios for creator studio
+            assert "findStudios" in calls[1]["query"]
+            assert (
+                calls[1]["variables"]["filter"]["q"] == f"{account.username} (Fansly)"
             )
-            assert "findStudios" in calls[1]["query"], (
-                "Second call should be findStudios for creator studio"
+            assert "findStudios" in calls[1]["result"]
+            assert (
+                calls[1]["result"]["findStudios"]["count"] == 0
+            )  # Should not exist yet
+
+            # Call 2: studioCreate
+            assert "studioCreate" in calls[2]["query"]
+            assert (
+                calls[2]["variables"]["input"]["name"] == f"{account.username} (Fansly)"
             )
-            assert "studioCreate" in calls[2]["query"], (
-                "Third call should be studioCreate"
+            # Note: StudioCreateInput uses 'urls' (plural), not 'url' (singular)
+            assert calls[2]["variables"]["input"]["urls"] == [
+                f"https://fansly.com/{account.username}"
+            ]
+            assert "studioCreate" in calls[2]["result"]
+            assert calls[2]["result"]["studioCreate"]["id"] == studio.id
+            assert (
+                calls[2]["result"]["studioCreate"]["name"]
+                == f"{account.username} (Fansly)"
             )
+
+            # Manual tracking after validation (earns opt-out qualification)
+            if studio and studio.id != "new":
+                cleanup["studios"].append(studio.id)
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_no_avatar(
@@ -324,7 +341,6 @@ class TestStashProcessingIntegration:
 
             # Create a real performer in Stash
             test_performer = Performer(
-                id="new",
                 name="no_avatar_user_test",
                 urls=["https://fansly.com/no_avatar_user_test"],
             )

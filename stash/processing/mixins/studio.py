@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import traceback
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy.orm import Session
 from stash_graphql_client.types import Performer, Studio
@@ -22,6 +23,24 @@ if TYPE_CHECKING:
 
 class StudioProcessingMixin:
     """Studio processing functionality."""
+
+    # Class-level locks for studio creation, keyed by username
+    # Prevents TOCTOU race condition when concurrent workers try to create
+    # the same studio simultaneously
+    _studio_creation_locks: ClassVar[dict[str, asyncio.Lock]] = {}
+    _studio_creation_locks_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
+
+    async def _get_studio_lock(self, username: str) -> asyncio.Lock:
+        """Get or create a lock for studio creation for a specific username.
+
+        Uses double-checked locking to minimize lock contention.
+        """
+        if username not in self._studio_creation_locks:
+            async with self._studio_creation_locks_lock:
+                # Double-check after acquiring lock
+                if username not in self._studio_creation_locks:
+                    self._studio_creation_locks[username] = asyncio.Lock()
+        return self._studio_creation_locks[username]
 
     async def _find_existing_studio(self, account: Account) -> Studio | None:
         """Find existing studio in Stash.
@@ -59,7 +78,7 @@ class StudioProcessingMixin:
         debug_print(
             {
                 "method": "StashProcessing - process_creator_studio",
-                "fansly_studio_dict": fansly_studio_result.__dict__,
+                "fansly_studio_result": fansly_studio_result,
             }
         )
         if fansly_studio_result.count == 0:
@@ -74,48 +93,55 @@ class StudioProcessingMixin:
             }
         )
         creator_studio_name = f"{account.username} (Fansly)"
-        studio_data = await self.context.client.find_studios(q=creator_studio_name)
-        if studio_data.count == 0:
-            # Create new studio with required fields
-            studio = Studio(
-                id="new",  # Special value indicating new object
-                name=creator_studio_name,
-                parent_studio=fansly_studio,
-                urls=[f"https://fansly.com/{account.username}"],  # urls is plural, list
-            )
 
-            # Add performer if provided
-            if performer:
-                studio.performers = [performer]
+        # Use lock to prevent TOCTOU race condition when concurrent workers
+        # try to create the same studio simultaneously
+        studio_lock = await self._get_studio_lock(account.username)
+        async with studio_lock:
+            # Query inside lock to get fresh data (no caching in stash-graphql-client)
+            studio_data = await self.context.client.find_studios(q=creator_studio_name)
 
-            # Create in Stash
-            try:
-                studio = await self.context.client.create_studio(studio)
-                print_info(f"Created studio: {studio.name}")
-            except Exception as e:
-                print_error(f"Failed to create studio: {e}")
-                logger.exception("Failed to create studio", exc_info=e)
-                debug_print(
-                    {
-                        "method": "StashProcessing - process_creator_studio",
-                        "status": "studio_creation_failed",
-                        "error": str(e),
-                        "traceback": traceback.format_exc(),
-                    }
+            if studio_data.count == 0:
+                # Create new studio with required fields (library auto-generates UUID for id)
+                studio = Studio(
+                    name=creator_studio_name,
+                    parent_studio=fansly_studio,
+                    urls=[f"https://fansly.com/{account.username}"],
                 )
-                # If we failed to create the studio, re-check if it already exists
-                # This can happen with parallel processing
-                # Invalidate Studio cache to force a fresh query
-                Studio._store.invalidate_type(Studio)
-                studio_data = await self.context.client.find_studios(
-                    q=creator_studio_name
-                )
-                if studio_data.count == 0:
-                    # If still not found, return None
-                    return None
-                # Fall through to return existing studio
+
+                # Add performer if provided
+                if performer:
+                    studio.performers = [performer]
+
+                # Create in Stash
+                try:
+                    studio = await self.context.client.create_studio(studio)
+                    print_info(f"Created studio: {studio.name}")
+                except Exception as e:
+                    print_error(f"Failed to create studio: {e}")
+                    logger.exception("Failed to create studio", exc_info=e)
+                    debug_print(
+                        {
+                            "method": "StashProcessing - process_creator_studio",
+                            "status": "studio_creation_failed",
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                        }
+                    )
+                    # If we failed to create the studio, re-check if it already exists
+                    # This can happen with parallel processing
+                    # Invalidate Studio cache to force a fresh query
+                    Studio._store.invalidate_type(Studio)
+                    studio_data = await self.context.client.find_studios(
+                        q=creator_studio_name
+                    )
+                    if studio_data.count == 0:
+                        # If still not found, return None
+                        return None
+                    # Fall through to return existing studio from retry query
+                    return studio_data.studios[0]
+                else:
+                    return studio
             else:
-                return studio
-
-        # Return first matching studio (already deserialized by client)
-        return studio_data.studios[0]
+                # Studio already exists, return first matching studio
+                return studio_data.studios[0]

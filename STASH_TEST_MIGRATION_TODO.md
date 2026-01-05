@@ -37,20 +37,20 @@ All tests organized by directory location. Each needs migration to one of two pa
 **Files**: 12 | **Functions**: ~119
 **Migration**: → `stash_client` + `stash_cleanup_tracker` (integration) OR respx (unit)
 
-| File                      | Violations | Status |
-| ------------------------- | ---------- | ------ |
-| `test_gallery_mixin.py`   | 30         | ✅     |
-| `test_tag_mixin_new.py`   | 30         | ✅     |
-| `test_scene_mixin.py`     | 21         | ✅     |
-| `test_marker_mixin.py`    | 18         | ✅     |
-| `test_image_mixin.py`     | 16         | ✅     |
-| `test_studio_mixin.py`    | 15         | ✅     |
-| `test_tag_mixin.py`       | 14         | ✅     |
-| `test_performer_mixin.py` | 7          | ✅     |
-| `test_subscription.py`    | 5          | ✅     |
-| `test_client_base.py`     | 1          | ✅     |
+| File                      | Violations | Status                    |
+| ------------------------- | ---------- | ------------------------- |
+| `test_gallery_mixin.py`   | 30         | ✅                        |
+| `test_tag_mixin_new.py`   | 30         | ✅                        |
+| `test_scene_mixin.py`     | 21         | ✅                        |
+| `test_marker_mixin.py`    | 18         | ✅                        |
+| `test_image_mixin.py`     | 16         | ✅                        |
+| `test_studio_mixin.py`    | 15         | ✅                        |
+| `test_tag_mixin.py`       | 14         | ✅                        |
+| `test_performer_mixin.py` | 7          | ✅                        |
+| `test_subscription.py`    | 5          | ✅                        |
+| `test_client_base.py`     | 1          | ✅                        |
 | `client_test_helpers.py`  | 4          | ✅ (deleted - was unused) |
-| `test_client.py`          | -          | ✅ (already using respx) |
+| `test_client.py`          | -          | ✅ (already using respx)  |
 
 ### Category B: Processing Unit Tests
 
@@ -58,56 +58,57 @@ All tests organized by directory location. Each needs migration to one of two pa
 **Files**: 25 | **Functions**: ~138
 **Migration**: → `respx_stash_processor` with HTTP mocking
 
-| File                                   | Violations | Status |
-| -------------------------------------- | ---------- | ------ |
-| `test_media_variants.py`               | -          | ✅     |
-| `test_background_processing.py`        | 14         | ✅     |
-| `test_stash_processing.py`             | 23         | ✅     |
-| `test_base.py`                         | 20         | ✅     |
-| `content/test_message_processing.py`   | 37         | ✅     |
-| `content/test_post_processing.py`      | 36         | ✅     |
-| `media_mixin/test_metadata_update.py`  | 30         | ✅     |
-| `gallery/test_gallery_creation.py`     | 26         | ✅     |
-| `content/test_content_collection.py`   | 15         | ✅     |
-| `test_gallery_methods.py`              | 13         | ✅     |
-| `media_mixin/async_mock_helper.py`     | 13         | ✅ (deleted - was unused) |
-| `gallery/test_gallery_lookup.py`       | 11         | ✅     |
-| `content/test_batch_processing.py`     | 9          | ❌     |
-| `gallery/test_media_detection.py`      | 8          | ❌     |
-| `media_mixin/test_file_handling.py`    | 7          | ❌     |
-| `test_media_mixin.py`                  | 6          | ❌     |
-| `test_account_mixin.py`                | 6          | ❌     |
-| `test_studio_mixin.py`                 | 5          | ❌     |
-| `test_creator_processing.py`           | 5          | ❌     |
-| `test_tag_mixin.py`                    | 4          | ❌     |
-| `gallery/test_process_item_gallery.py` | 3          | ❌     |
-| `test_gallery_mixin.py`                | 1          | ❌     |
+| File                                   | Violations | Status                       |
+| -------------------------------------- | ---------- | ---------------------------- |
+| `test_media_variants.py`               | -          | ✅                           |
+| `test_background_processing.py`        | 14         | ✅                           |
+| `test_stash_processing.py`             | 23         | ✅                           |
+| `test_base.py`                         | 20         | ✅                           |
+| `content/test_message_processing.py`   | 37         | ✅                           |
+| `content/test_post_processing.py`      | 36         | ✅                           |
+| `media_mixin/test_metadata_update.py`  | 30         | ✅                           |
+| `gallery/test_gallery_creation.py`     | 26         | ✅                           |
+| `content/test_content_collection.py`   | 15         | ✅                           |
+| `test_gallery_methods.py`              | 13         | ✅                           |
+| `media_mixin/async_mock_helper.py`     | 13         | ✅ (deleted - was unused)    |
+| `gallery/test_gallery_lookup.py`       | 11         | ✅                           |
+| `content/test_batch_processing.py`     | 9          | ✅ (respx + spy pattern)     |
+| `gallery/test_media_detection.py`      | 8          | ✅ (spy pattern innovation)  |
+| `media_mixin/test_file_handling.py`    | 7          | ✅ (already using factories) |
+| `test_media_mixin.py`                  | 6          | ✅                           |
+| `test_account_mixin.py`                | 6          | ✅                           |
+| `test_studio_mixin.py`                 | 5          | ✅                           |
+| `test_creator_processing.py`           | 5          | ✅                           |
+| `test_tag_mixin.py`                    | 4          | ✅                           |
+| `gallery/test_process_item_gallery.py` | 3          | ✅                           |
+| `test_gallery_mixin.py`                | 1          | ✅                           |
 
 ### Category C: Processing Integration Tests
 
 **Location**: `tests/stash/processing/integration/`
-**Files**: 10 | **Functions**: ~48
+**Files**: 7 | **Functions**: ~41
 **Migration**: → `real_stash_processor` + `stash_cleanup_tracker`
 
-| File                                     | Violations | Status |
-| ---------------------------------------- | ---------- | ------ |
-| `test_base_processing.py`                | -          | ✅     |
-| `test_metadata_update_integration.py`    | 3          | ✅     |
-| `test_media_processing.py`               | 22         | ❌     |
-| `test_message_processing.py`             | 18         | ❌     |
-| `test_timeline_processing.py`            | 17         | ❌     |
-| `test_full_workflow/test_integration.py` | 14         | ❌     |
-| `test_media_variants.py`                 | 12         | ❌     |
-| `test_content_processing.py`             | 9          | ❌     |
-| `test_stash_processing.py`               | 5          | ❌     |
+| File                                         | Violations | Status                                           |
+| -------------------------------------------- | ---------- | ------------------------------------------------ |
+| `test_base_processing.py`                    | -          | ✅                                               |
+| `test_metadata_update_integration.py`        | 3          | ✅                                               |
+| `test_media_processing.py`                   | 22         | ✅                                               |
+| `test_message_processing.py`                 | 18         | ✅                                               |
+| `test_timeline_processing.py`                | 17         | ✅                                               |
+| `test_stash_processing.py`                   | 5          | ✅                                               |
+| `test_content_processing.py`                 | 9          | ✅ (debug cleanup completed)                     |
+| `test_stash_processing_integration.py`       | -          | ✅ (moved from integration/ - see Category D)    |
+| ~~`test_media_variants.py`~~                 | 12         | ✅ (in unit/, not integration/ - see Category B) |
+| ~~`test_full_workflow/test_integration.py`~~ | 14         | ✅ (file/directory deleted)                      |
 
 ### Category D: Other
 
 **Location**: `tests/stash/integration/`
 
-| File                                   | Violations | Status |
-| -------------------------------------- | ---------- | ------ |
-| `test_stash_processing_integration.py` | 14         | ❌     |
+| File                                       | Violations | Status                                          |
+| ------------------------------------------ | ---------- | ----------------------------------------------- |
+| ~~`test_stash_processing_integration.py`~~ | 4          | ✅ (deleted - complete duplicate of unit tests) |
 
 ---
 
@@ -151,6 +152,39 @@ async def test_example(stash_client, stash_cleanup_tracker):
         # Automatic cleanup on exit
 ```
 
+### Spy Pattern for Internal Orchestration Tests
+
+For unit tests that verify internal method coordination (e.g., early returns, call counts):
+
+```python
+# BEFORE: Mocking internal method with return_value/side_effect ❌
+with patch.object(gallery_mixin, "_has_media_content", AsyncMock(return_value=False)):
+    result = await gallery_mixin._check_aggregated_posts([post1, post2])
+
+# AFTER: Spy pattern with wraps - real code executes ✅
+original_has_media = respx_stash_processor._has_media_content
+call_count = 0
+
+async def spy_has_media(item):
+    nonlocal call_count
+    call_count += 1
+    return await original_has_media(item)  # Real code executes!
+
+with patch.object(respx_stash_processor, "_has_media_content", wraps=spy_has_media):
+    result = await respx_stash_processor._check_aggregated_posts([post1, post2])
+
+    # Verify orchestration
+    assert result is False
+    assert call_count == 2  # Both posts checked
+```
+
+**Why this matters:**
+
+- Real code path executes (not mocked behavior)
+- Tests actual orchestration logic (early returns, loops, error handling)
+- Catches regressions in internal coordination
+- Similar concept to `capture_graphql_calls` but for internal methods
+
 ---
 
 ## Critical Technical Patterns
@@ -177,9 +211,13 @@ respx.post("http://localhost:9999/graphql").mock(
 )
 ```
 
-### 2. Permanent GraphQL Call Assertions (REQUIRED)
+### 2. Auto-Capture with `stash_cleanup_tracker`
 
-**Every respx test MUST verify both request AND response for each GraphQL call.**
+The cleanup tracker auto-captures IDs from create mutations (default: `auto_capture=True`). Fast-path optimization checks for "Create" in response keys before detailed inspection. Tests can opt-out (`auto_capture=False`) only if using `capture_graphql_calls` with proper request/response validation and manual ID tracking.
+
+### 3. Permanent GraphQL Call Assertions (REQUIRED)
+
+**Every respx and real stash test MUST verify both request AND response for each GraphQL call.**
 
 This is NOT debug code - it's permanent regression protection that:
 
@@ -230,7 +268,7 @@ assert len(performer_calls_after_first) == 0, (
 )
 ```
 
-### 3. VideoFile/ImageFile Schema Validation
+### 4. VideoFile/ImageFile Schema Validation
 
 Stash types have strict required fields:
 
@@ -269,7 +307,7 @@ visual_files=[{
 }]
 ```
 
-### 4. Testing Real Constraint Violations
+### 5. Testing Real Constraint Violations
 
 For integration tests, test REAL constraint violations that trigger actual GraphQL errors:
 
@@ -322,6 +360,86 @@ test_media.variants = {variant}  # Now safe
 ```
 
 **Impact**: Migration caught this production bug on first test run. This validates the entire migration effort.
+
+### The GIF Processing Bugs (Chain of 4)
+
+**What happened**: Animated GIFs in Stash are stored as `VideoFile` type, not `ImageFile`. This caused a cascade of 4 interrelated bugs that were never caught because mocked tests never executed real GraphQL deserialization or type handling.
+
+**Bug 1: int/str Type Mismatch in stash_id_map**
+
+```python
+# ❌ WRONG: Production code used int keys
+stash_id_map = {media.stash_id: media.id for media in media_objects}
+# But GraphQL returns string IDs: "123" not 123
+stash_id = stash_obj.id  # Returns "123" (str)
+media_id = stash_id_map.get(stash_id)  # None! Key mismatch
+
+# ✅ FIX: Convert to str when building map
+stash_id_map = {str(media.stash_id): media.id for media in media_objects}
+```
+
+**Why mocks hid it**: Mocks returned pre-constructed objects, never testing real dict→object serialization where GraphQL always returns string IDs.
+
+**Bug 2: GraphQL Fragments Missing VideoFile for Images**
+
+```python
+# ❌ WRONG: IMAGE_FIELDS only queried ImageFile fields
+IMAGE_FIELDS = """
+    visual_files {
+        ...ImageFileFields
+    }
+"""
+# GIFs returned: {"visual_files": [{}]}  # Empty! VideoFile fields not requested
+
+# ✅ FIX: Query both file types
+IMAGE_FIELDS = """
+    visual_files {
+        ...ImageFileFields
+        ...VideoFileFields
+    }
+"""
+```
+
+**Why mocks hid it**: Mocked GraphQL responses were hand-crafted with correct data. Real Stash returns empty objects when fragments don't match the actual type.
+
+**Bug 3: Image.from_dict() Crashed on VideoFile Data**
+
+```python
+# ❌ WRONG: Assumed all visual_files are ImageFile
+for f in filtered_data["visual_files"]:
+    image.visual_files.append(ImageFile(**f))
+# TypeError: ImageFile.__init__() got an unexpected keyword argument 'format'
+# ('format' is a VideoFile-only field)
+
+# ✅ FIX: Detect type and create appropriate object
+for f in filtered_data["visual_files"]:
+    if "format" in f or "duration" in f or "video_codec" in f:
+        visual_files.append(VideoFile(**f))  # GIF stored as video
+    else:
+        visual_files.append(ImageFile(**f))
+```
+
+**Why mocks hid it**: Tests used `MagicMock(spec=Image)` or factory objects - never exercised `from_dict()` deserialization with real GraphQL responses.
+
+**Bug 4: \_get_image_file_from_stash_obj Rejected VideoFile**
+
+```python
+# ❌ WRONG: Only accepted ImageFile type
+if hasattr(file_data, "__type_name__") and file_data.__type_name__ == "ImageFile":
+    return file_data
+# GIFs have __type_name__ == "VideoFile" → returned None → lookup failed
+
+# ✅ FIX: Accept both types
+if hasattr(file_data, "__type_name__") and file_data.__type_name__ in (
+    "ImageFile",
+    "VideoFile",  # Animated GIFs in Stash
+):
+    return file_data
+```
+
+**Why mocks hid it**: Mocked `_find_stash_files_by_path` returned pre-built objects, bypassing the type-checking code path entirely.
+
+**Impact**: These 4 bugs formed a chain - fixing one revealed the next. Real integration tests with Docker Stash exposed all 4 in one debugging session. Mocked tests had passed for months while GIF files silently failed in production.
 
 ### Why This Migration Matters
 
@@ -389,9 +507,10 @@ This is exactly why exceptions require user review - the human sees solutions th
 
 ## Progress Summary
 
-### Completed: 24 files
+### Completed: 34 files
 
 **Category A (StashClient) - COMPLETE ✅**
+
 - `tests/stash/client/test_gallery_mixin.py`
 - `tests/stash/client/test_tag_mixin_new.py`
 - `tests/stash/client/test_scene_mixin.py`
@@ -405,7 +524,8 @@ This is exactly why exceptions require user review - the human sees solutions th
 - `tests/stash/client/client_test_helpers.py` (deleted - was unused)
 - `tests/stash/client/test_client.py` (already using respx)
 
-**Categories B/C (Processing)**
+**Category B (Processing Unit) - COMPLETE ✅**
+
 - `tests/stash/processing/unit/test_media_variants.py`
 - `tests/stash/processing/unit/test_background_processing.py`
 - `tests/stash/processing/unit/test_stash_processing.py`
@@ -413,23 +533,81 @@ This is exactly why exceptions require user review - the human sees solutions th
 - `tests/stash/processing/unit/content/test_message_processing.py`
 - `tests/stash/processing/unit/content/test_post_processing.py`
 - `tests/stash/processing/unit/content/test_content_collection.py`
+- `tests/stash/processing/unit/content/test_batch_processing.py` (respx + spy pattern)
 - `tests/stash/processing/unit/gallery/test_gallery_creation.py`
 - `tests/stash/processing/unit/gallery/test_gallery_lookup.py`
+- `tests/stash/processing/unit/gallery/test_media_detection.py` (spy pattern innovation)
+- `tests/stash/processing/unit/gallery/test_process_item_gallery.py`
 - `tests/stash/processing/unit/test_gallery_methods.py`
+- `tests/stash/processing/unit/test_gallery_mixin.py`
+- `tests/stash/processing/unit/test_tag_mixin.py`
+- `tests/stash/processing/unit/test_studio_mixin.py`
+- `tests/stash/processing/unit/test_account_mixin.py`
+- `tests/stash/processing/unit/test_media_mixin.py`
+- `tests/stash/processing/unit/test_creator_processing.py`
 - `tests/stash/processing/unit/media_mixin/test_metadata_update.py`
+- `tests/stash/processing/unit/media_mixin/test_file_handling.py` (already using factories)
 - `tests/stash/processing/unit/media_mixin/async_mock_helper.py` (deleted - was unused)
+
+**Category C (Processing Integration)**
+
 - `tests/stash/processing/integration/test_base_processing.py`
 - `tests/stash/processing/integration/test_metadata_update_integration.py`
+- `tests/stash/processing/integration/test_media_processing.py`
+- `tests/stash/processing/integration/test_message_processing.py`
+- `tests/stash/processing/integration/test_timeline_processing.py`
+- `tests/stash/processing/integration/test_stash_processing.py`
+- `tests/stash/processing/integration/test_stash_processing_integration.py` (added stash_cleanup_tracker to test_missing_account_handling)
+- `tests/stash/processing/integration/test_content_processing.py` (debug cleanup completed)
 
-### Remaining: ~21 files
+**Category D (Other)**
 
-| Category        | Files  | Est. Effort     |
-| --------------- | ------ | --------------- |
-| A (Client)      | 0      | ✅ COMPLETE     |
-| B (Unit)        | 13     | 18-24 hours     |
-| C (Integration) | 7      | 10-20 hours     |
-| D (Other)       | 1      | 1-2 hours       |
-| **Total**       | **21** | **29-46 hours** |
+- ~~`tests/stash/integration/test_stash_processing_integration.py`~~ (deleted - complete duplicate)
+
+### Pass 1: Complete ✅ - All Documented Files Migrated
+
+| Category        | Files | Status                  |
+| --------------- | ----- | ----------------------- |
+| A (Client)      | 0     | ✅ COMPLETE             |
+| B (Unit)        | 0     | ✅ COMPLETE             |
+| C (Integration) | 0     | ✅ COMPLETE             |
+| D (Other)       | 0     | ✅ COMPLETE             |
+| **Total**       | **0** | **🎉 PASS 1 COMPLETE!** |
+
+**Pass 1 Final Actions:**
+
+- Fixed worker crash: Added `stash_cleanup_tracker` to `test_missing_account_handling`
+- Removed broken import in `tests/stash/processing/test_integration.py`
+- Deleted redundant file: `tests/stash/integration/test_stash_processing_integration.py` (all 3 tests were complete duplicates)
+
+### Pass 2: GraphQL Assertion Compliance (IN PROGRESS)
+
+**Status**: As the first pass progressed, the GraphQL assertion rules (Section 3) evolved and were elaborated on. Many tests migrated during Pass 1 don't fully comply with the current state of the rules.
+
+**Known Issues** (Manual audit completed 2025-11-30):
+
+- **53+ violations found** across multiple test files
+- Common patterns:
+  - Meaningless assertions: `assert len(calls) >= 0` (always true)
+  - Incomplete request verification: Only checks query name, not request variables
+  - Missing response verification: Some tests only verify requests
+
+**Files with Known Violations**:
+
+- `tests/stash/client/test_tag_mixin_new.py` - 3 meaningless assertions + multiple incomplete
+- `tests/stash/client/test_tag_mixin.py` - 8 incomplete request checks
+- `tests/stash/client/test_scene_mixin.py` - 13 incomplete request checks
+- `tests/stash/client/test_marker_mixin.py` - 6 incomplete request checks
+- `tests/stash/client/test_gallery_mixin.py` - 5 incomplete request checks
+- `tests/stash/processing/integration/test_media_processing.py` - 11 incomplete request checks
+- `tests/stash/processing/integration/test_message_processing.py` - 1 incomplete request check
+- `tests/stash/processing/integration/test_timeline_processing.py` - 1 incomplete request check
+
+**Next Steps**:
+
+1. Systematic review and fix of all 53+ violations
+2. Focus on files with highest violation counts first
+3. Ensure all GraphQL assertions verify BOTH request variables AND response data
 
 ---
 
@@ -444,4 +622,4 @@ This is exactly why exceptions require user review - the human sees solutions th
 
 **Enforcement Hook**: `tests/conftest.py:50-100`
 
-**Last Updated**: 2025-11-19
+**Last Updated**: 2025-11-30 (Pass 1 complete - Pass 2 GraphQL assertion compliance in progress)

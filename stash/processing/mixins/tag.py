@@ -71,16 +71,17 @@ class TagProcessingMixin:
             else:
                 # Create new tag if not found
                 # Client handles "already exists" and "is alias" errors automatically
+                # Note: create_tag() never returns None - it returns Tag or raises exception
                 new_tag = Tag(name=tag_name, id="new")
-                if created_tag := await self.context.client.create_tag(new_tag):
-                    tags.append(created_tag)
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_hashtags_to_tags",
-                            "status": "tag_created_or_found",
-                            "tag_name": hashtag.value,
-                        }
-                    )
+                created_tag = await self.context.client.create_tag(new_tag)
+                tags.append(created_tag)
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_hashtags_to_tags",
+                        "status": "tag_created_or_found",
+                        "tag_name": hashtag.value,
+                    }
+                )
 
         return tags
 

@@ -10,13 +10,16 @@ Key improvements:
 - Maintains test isolation with proper cleanup
 """
 
+import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
+from stash_graphql_client.types.job import JobStatus
 
 from tests.fixtures import (
     create_find_performers_result,
@@ -26,6 +29,7 @@ from tests.fixtures import (
     create_studio_dict,
 )
 from tests.fixtures.metadata.metadata_factories import AccountFactory
+from tests.fixtures.stash.stash_type_factories import JobFactory
 
 
 # ============================================================================
@@ -112,16 +116,15 @@ class TestCreatorProcessing:
         # Verify the variables match what we expect
         variables = request_body.get("variables", {})
 
-        # get_or_create_performer uses fuzzy search with filter.q, not performer_filter
+        # New library: find_performer uses performer_filter with name/alias searches
         filter_params = variables.get("filter", {})
-        assert filter_params.get("q") == "Test User"  # displayName from Account
-        assert (
-            filter_params.get("per_page") == 40
-        )  # Default from get_or_create_performer
+        assert filter_params.get("per_page") == -1  # Get all results
 
-        # performer_filter should be None or empty for fuzzy search
-        performer_filter = variables.get("performer_filter")
-        assert performer_filter is None or performer_filter == {}
+        # First call should be name search with EQUALS modifier
+        performer_filter = variables.get("performer_filter", {})
+        name_filter = performer_filter.get("name", {})
+        assert name_filter.get("value") == "Test User"  # displayName from Account
+        assert name_filter.get("modifier") == "EQUALS"
 
     @pytest.mark.asyncio
     async def test_process_creator_no_account_raises_error(
@@ -140,7 +143,7 @@ class TestCreatorProcessing:
 
         # Expect ValueError when account not found
         with pytest.raises(
-            ValueError, match=r"Account.*not found in database"
+            ValueError, match=r"No account found for creator"
         ) as excinfo:
             async with processor.database.async_session_scope() as session:
                 await processor.process_creator(session=session)
@@ -176,9 +179,10 @@ class TestCreatorProcessing:
         )
 
         # Mock GraphQL HTTP responses
+        # v0.7.x: find_performer() makes 3 calls (name + alias + URL search)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # First call: findPerformers (not found)
+                # First call: findPerformers by name (not found)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -186,7 +190,23 @@ class TestCreatorProcessing:
                         create_find_performers_result(count=0, performers=[]),
                     ),
                 ),
-                # Second call: performerCreate (creates new)
+                # Second call: findPerformers by alias (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        create_find_performers_result(count=0, performers=[]),
+                    ),
+                ),
+                # Third call: findPerformers by URL (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        create_find_performers_result(count=0, performers=[]),
+                    ),
+                ),
+                # Fourth call: performerCreate (creates new)
                 httpx.Response(
                     200, json=create_graphql_response("performerCreate", performer_dict)
                 ),
@@ -205,16 +225,16 @@ class TestCreatorProcessing:
         assert performer is not None
         assert performer.name == "New User"
 
-        # Verify respx was hit twice (find then create)
-        assert graphql_route.call_count == 2
+        # Verify respx was hit 4 times (3 findPerformers: name/alias/URL + 1 performerCreate)
+        assert graphql_route.call_count == 4
 
         # Verify first call was findPerformers
         first_request = json.loads(graphql_route.calls[0].request.content)
         assert "findPerformers" in first_request.get("query", "")
 
-        # Verify second call was performerCreate
-        second_request = json.loads(graphql_route.calls[1].request.content)
-        assert "performerCreate" in second_request.get("query", "")
+        # Verify fourth call was performerCreate
+        fourth_request = json.loads(graphql_route.calls[3].request.content)
+        assert "performerCreate" in fourth_request.get("query", "")
 
     @pytest.mark.asyncio
     async def test_find_existing_studio(self, factory_session, respx_stash_processor):
@@ -366,27 +386,40 @@ class TestCreatorProcessing:
         # Initialize client
         await processor.context.get_client()
 
-        # Mock _safe_background_processing to prevent actual background work
-        with patch.object(
-            processor, "_safe_background_processing", new=AsyncMock()
-        ) as mock_background:
-            # Ensure config has background tasks list
-            if not hasattr(processor.config, "_background_tasks"):
-                processor.config._background_tasks = []
+        # Ensure config has background tasks list
+        if not hasattr(processor.config, "_background_tasks"):
+            processor.config._background_tasks = []
 
-            # Call start_creator_processing - orchestration under test
-            await processor.start_creator_processing()
+        # Call start_creator_processing - orchestration under test
+        await processor.start_creator_processing()
 
-            # Verify orchestration completed successfully
-            # 1. GraphQL calls were made (connect_async + scan + process)
-            assert graphql_route.call_count == 4
+        # === PERMANENT GraphQL call sequence assertions ===
+        assert len(graphql_route.calls) == 4, (
+            f"Expected exactly 4 GraphQL calls, got {len(graphql_route.calls)}"
+        )
 
-            # 2. Background task was created
-            assert processor._background_task is not None
-            assert processor._background_task in processor.config._background_tasks
+        # Call 1: connect_async
+        # Call 2: metadataScan
+        call2_body = json.loads(graphql_route.calls[1].request.content)
+        assert "metadataScan" in call2_body.get("query", "")
 
-            # 3. Background processing was started (mock prevents actual work)
-            assert mock_background.call_count == 1  # Called once to start
+        # Call 3: findJob
+        call3_body = json.loads(graphql_route.calls[2].request.content)
+        assert "findJob" in call3_body.get("query", "")
+
+        # Call 4: findPerformers
+        call4_body = json.loads(graphql_route.calls[3].request.content)
+        assert "findPerformers" in call4_body.get("query", "")
+
+        # Verify orchestration: background task was created
+        assert processor._background_task is not None
+        assert processor._background_task in processor.config._background_tasks
+
+        # Clean up background task to avoid warnings
+        if processor._background_task and not processor._background_task.done():
+            processor._background_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await processor._background_task
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder(self, respx_stash_processor, tmp_path):
@@ -487,7 +520,7 @@ class TestCreatorProcessing:
 
         # Expect ValueError with specific message (actual error type from code)
         with pytest.raises(
-            ValueError, match=r"Account.*not found in database"
+            ValueError, match=r"Failed to start metadata scan"
         ) as excinfo:
             await processor.scan_creator_folder()
 
@@ -502,50 +535,73 @@ class TestCreatorProcessing:
     async def test_scan_creator_folder_no_base_path(
         self, respx_stash_processor, tmp_path
     ):
-        """Test scan_creator_folder creates download path when base_path is None.
-
-        Note: The actual code has a logical issue - it creates download_path but
-        still uses base_path for the scan, which will be None. This test verifies
-        the current behavior (early return) rather than ideal behavior.
-        """
+        """Test scan_creator_folder creates and uses download_path when base_path is None."""
         processor = respx_stash_processor
         # Setup: No base_path
         processor.state.base_path = None
         processor.state.download_path = None
 
-        # Mock successful path creation
-        mock_path = tmp_path / "created_path"
-        mock_path.mkdir(parents=True, exist_ok=True)
+        # Create real path for testing
+        created_path = tmp_path / "created_path"
+        created_path.mkdir(parents=True, exist_ok=True)
 
-        # The function will create download_path but then try to use base_path
-        # which is still None, so it won't call metadata_scan (base_path is used)
-        # This test documents current behavior
+        # Create Job instances using factory
+        finished_job = JobFactory(
+            id="job_456",
+            status=JobStatus.FINISHED,
+            description="Scanning metadata",
+            progress=100.0,
+        )
+        # Convert Pydantic model to dict for JSON response
+        finished_job_dict = json.loads(finished_job.model_dump_json())
+
+        # Mock GraphQL HTTP responses
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # First call: connect_async() connection establishment
+                httpx.Response(200, json={"data": {}}),
+                # Second call: metadataScan mutation
+                httpx.Response(200, json={"data": {"metadataScan": "job_456"}}),
+                # Third call: findJob query (finished)
+                httpx.Response(
+                    200, json=create_graphql_response("findJob", finished_job_dict)
+                ),
+            ]
+        )
+
+        # Initialize client
+        await processor.context.get_client()
+
+        # Mock path creation utility (OK to patch utility functions)
         with (
             patch("stash.processing.base.print_info") as mock_print_info,
             patch(
                 "stash.processing.base.set_create_directory_for_download"
             ) as mock_set_path,
         ):
-            mock_set_path.return_value = mock_path
-
-            # Mock client methods
-            processor.context.client.metadata_scan = AsyncMock(return_value=123)
-            processor.context.client.wait_for_job = AsyncMock(return_value=True)
+            mock_set_path.return_value = created_path
 
             # Call scan_creator_folder
             await processor.scan_creator_folder()
 
-            # Verify path creation attempt was made
+            # === PERMANENT GraphQL call sequence assertions ===
+            assert len(graphql_route.calls) == 3, (
+                f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
+            )
+
+            # Call 2: metadataScan mutation with created path
+            call2_body = json.loads(graphql_route.calls[1].request.content)
+            assert "metadataScan" in call2_body.get("query", "")
+            assert str(created_path) in call2_body["variables"]["input"]["paths"]
+
+            # Verify path creation and state updates
             mock_print_info.assert_any_call(
                 "No download path set, attempting to create one..."
             )
             mock_set_path.assert_called_once_with(processor.config, processor.state)
-            assert processor.state.download_path == mock_path
-
-            # Since base_path is still None after download_path is set,
-            # the metadata_scan would try to use base_path which is None
-            # This will cause issues, but test documents current behavior
-            # In reality, the state should update base_path = download_path
+            assert processor.state.download_path == created_path
+            # After fix: base_path should be updated to download_path
+            assert processor.state.base_path == created_path
 
     @pytest.mark.asyncio
     async def test_scan_creator_folder_wait_for_job_exception_handling(

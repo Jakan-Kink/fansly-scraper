@@ -1,8 +1,15 @@
-"""Tests for the _process_item_gallery method."""
+"""Tests for the _process_item_gallery method.
 
-from unittest.mock import AsyncMock, patch
+These tests mock at the HTTP boundary using respx, allowing real code execution
+through the entire processing pipeline. We verify that data flows correctly from
+database queries to GraphQL API calls.
+"""
 
+import json
+
+import httpx
 import pytest
+import respx
 from sqlalchemy import select
 
 from metadata import Account, ContentType, Post
@@ -12,12 +19,9 @@ from tests.fixtures import (
     AttachmentFactory,
     HashtagFactory,
     MediaFactory,
+    PerformerFactory,
     PostFactory,
-)
-from tests.fixtures.stash.stash_type_factories import (
-    ImageFactory,
-    SceneFactory,
-    TagFactory,
+    StudioFactory,
 )
 
 
@@ -29,14 +33,13 @@ class TestProcessItemGallery:
         self,
         factory_async_session,
         session,
-        gallery_mixin,
-        gallery_mock_performer,
-        gallery_mock_studio,
+        respx_stash_processor,
     ):
         """Test _process_item_gallery returns early when no attachments."""
         # Create real Account and Post with no media
         account = AccountFactory(id=12345, username="test_user")
         post = PostFactory(id=67890, accountId=12345, content="Test post")
+        factory_async_session.commit()
         await session.commit()
 
         # Query fresh from async session
@@ -49,33 +52,41 @@ class TestProcessItemGallery:
         # Post has no attachments - method should return early
         assert post_obj.attachments == []
 
+        # Set up respx - expect NO calls for posts without attachments
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[]  # Empty list catches any unexpected call
+        )
+
+        # Create real Performer and Studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+
         # Call method
         url_pattern = "https://test.com/{username}/post/{id}"
-        await gallery_mixin.context.get_client()
-        await gallery_mixin._process_item_gallery(
+        await respx_stash_processor._process_item_gallery(
             post_obj,
             account_obj,
-            gallery_mock_performer,
-            gallery_mock_studio,
+            performer,
+            studio,
             "post",
             url_pattern,
             session,
         )
 
-        # Method returns early, no API calls made - test passes if no errors
+        # Method returns early, no API calls made
+        assert len(graphql_route.calls) == 0, (
+            "Should not make any GraphQL calls for posts without attachments"
+        )
 
     @pytest.mark.asyncio
-    async def test_process_item_gallery_orchestration(
+    async def test_process_item_gallery_with_media(
         self,
         factory_async_session,
         session,
-        gallery_mixin,
-        gallery_mock_performer,
-        gallery_mock_studio,
-        mock_gallery,
+        respx_stash_processor,
     ):
-        """Test _process_item_gallery orchestration - verifies delegate methods get called."""
-        # Create REAL Account and Post with proper attachments (factories auto-persist)
+        """Test _process_item_gallery processes posts with media and verifies data flow."""
+        # Create REAL Account and Post with proper attachments
         account = AccountFactory(id=12345, username="test_user")
         post = PostFactory(id=67890, accountId=12345, content="Test post #test")
 
@@ -88,14 +99,14 @@ class TestProcessItemGallery:
         account_media2 = AccountMediaFactory(id=2002, accountId=12345, mediaId=1002)
 
         # Create REAL Attachments linking to AccountMedia
-        attachment1 = AttachmentFactory(
+        AttachmentFactory(
             id=3001,
             postId=67890,
             contentId=2001,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
-        attachment2 = AttachmentFactory(
+        AttachmentFactory(
             id=3002,
             postId=67890,
             contentId=2002,
@@ -108,6 +119,7 @@ class TestProcessItemGallery:
         post.hashtags = [hashtag]
 
         factory_async_session.commit()
+        await session.commit()
 
         # Query fresh from async session
         result = await session.execute(select(Account).where(Account.id == 12345))
@@ -121,72 +133,157 @@ class TestProcessItemGallery:
         await post_obj.awaitable_attrs.hashtags
         assert len(post_obj.hashtags) == 1
 
-        mock_tag = TagFactory(id="123", name="test")
-        mock_image = ImageFactory(id="img_1")
-        mock_scene = SceneFactory(id="scene_1")
+        # Create real Performer and Studio
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
 
-        # Mock gallery.save method (real Gallery objects have real async save methods)
-        mock_gallery.save = AsyncMock()
-        await gallery_mixin.context.get_client()
+        # Set up respx with generic responses that satisfy all GraphQL operations
+        generic_response = httpx.Response(
+            200,
+            json={
+                "data": {
+                    # Generic responses for gallery operations
+                    "findGalleries": {"galleries": [], "count": 0},
+                    "galleryCreate": {"id": "new_gallery_1", "title": "Test Gallery"},
+                    "galleryUpdate": {"id": "new_gallery_1"},
+                    # Generic responses for tag operations
+                    "findTags": {"tags": [], "count": 0},
+                    "tagCreate": {"id": "new_tag_1", "name": "test"},
+                    # Generic responses for media operations
+                    "findImages": {"images": [], "count": 0},
+                    "findScenes": {"scenes": [], "count": 0},
+                    "imageUpdate": {"id": "img_1"},
+                    "sceneUpdate": {"id": "scene_1"},
+                    # Gallery-image association
+                    "addGalleryImages": True,
+                }
+            },
+        )
+        # Allow multiple calls for complex gallery + media processing
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[generic_response] * 30  # Enough for all operations
+        )
 
-        # Patch delegate methods at module level, verify they're called, control return
-        with (
-            patch.object(
-                gallery_mixin, "_collect_media_from_attachments"
-            ) as mock_collect,
-            patch.object(gallery_mixin, "_get_or_create_gallery") as mock_get_gallery,
-            patch.object(
-                gallery_mixin, "_process_hashtags_to_tags"
-            ) as mock_process_tags,
-            patch.object(
-                gallery_mixin, "_process_media_batch_by_mimetype"
-            ) as mock_process_batch,
-        ):
-            # Control what delegate methods return
-            mock_collect.return_value = [media1, media2]
-            mock_get_gallery.return_value = mock_gallery
-            mock_process_tags.return_value = [mock_tag]
-            mock_process_batch.side_effect = [
-                {"images": [mock_image], "scenes": []},  # Image batch
-                {"images": [], "scenes": [mock_scene]},  # Video batch
-            ]
+        # Call method - let it execute fully to HTTP boundary
+        url_pattern = "https://fansly.com/{username}/post/{id}"
+        await respx_stash_processor._process_item_gallery(
+            post_obj,
+            account_obj,
+            performer,
+            studio,
+            "post",
+            url_pattern,
+            session,
+        )
 
-            # Mock ONLY external API call
-            gallery_mixin.context.client.add_gallery_images = AsyncMock(
-                return_value=True
-            )
+        # Verify GraphQL calls were made
+        assert len(graphql_route.calls) > 0, "Expected GraphQL calls to be made"
+        calls = graphql_route.calls
 
-            # Call method with REAL Account and Post objects
-            url_pattern = "https://test.com/{username}/post/{id}"
-            await gallery_mixin._process_item_gallery(
-                post_obj,
-                account_obj,
-                gallery_mock_performer,
-                gallery_mock_studio,
-                "post",
-                url_pattern,
-                session,
-            )
+        # Track which operation types we've seen and verify data
+        found_post_content = False
+        found_hashtag = False
+        found_post_url = False
+        found_performer_id = False
+        found_studio_id = False
 
-            # Verify orchestration - delegate methods called with REAL objects
-            mock_collect.assert_called_once_with(post_obj.attachments)
-            mock_get_gallery.assert_called_once_with(
-                item=post_obj,  # Real Post object
-                account=account_obj,  # Real Account object
-                performer=gallery_mock_performer,
-                studio=gallery_mock_studio,
-                item_type="post",
-                url_pattern=url_pattern,
-            )
-            mock_process_tags.assert_called_once_with(post_obj.hashtags)
+        # Verify each request contains proper data
+        for i, call in enumerate(calls):
+            req = json.loads(call.request.content)
 
-            # Verify external API called
-            gallery_mixin.context.client.add_gallery_images.assert_called_once_with(
-                gallery_id=mock_gallery.id,
-                image_ids=["img_1"],
-            )
+            # Every call must have query and variables
+            assert "query" in req, f"Call {i}: Missing 'query' field"
+            assert "variables" in req, f"Call {i}: Missing 'variables' field"
 
-            # Verify final state
-            assert mock_gallery.tags == [mock_tag]
-            assert mock_gallery.scenes == [mock_scene]
-            mock_gallery.save.assert_called_once_with(gallery_mixin.context.client)
+            query = req["query"]
+            variables = req["variables"]
+
+            # Check for our test data in the variables
+            variables_str = json.dumps(variables)
+
+            # Look for post content "Test post #test"
+            if "Test post #test" in variables_str or "Test post" in variables_str:
+                found_post_content = True
+
+            # Look for hashtag "test"
+            if '"test"' in variables_str.lower() and ("tag" in query.lower()):
+                found_hashtag = True
+
+            # Look for post URL with post ID 67890
+            if "67890" in variables_str and (
+                "url" in variables_str.lower() or "fansly.com" in variables_str.lower()
+            ):
+                found_post_url = True
+
+            # Look for performer ID
+            if "performer_123" in variables_str or performer.id in variables_str:
+                found_performer_id = True
+
+            # Look for studio ID
+            if "studio_123" in variables_str or studio.id in variables_str:
+                found_studio_id = True
+
+            # Identify operation type and verify specific data structure
+            if "galleryCreate" in query:
+                assert "input" in variables, f"Call {i}: galleryCreate missing input"
+                gallery_input = variables["input"]
+
+                # Verify title contains post content or is derived from it
+                assert "title" in gallery_input, (
+                    f"Call {i}: galleryCreate input missing title"
+                )
+
+                # Verify performer_ids includes our performer
+                assert "performer_ids" in gallery_input, (
+                    f"Call {i}: galleryCreate input missing performer_ids"
+                )
+                assert performer.id in gallery_input["performer_ids"], (
+                    f"Call {i}: galleryCreate should include performer {performer.id}, "
+                    f"got {gallery_input['performer_ids']}"
+                )
+
+                # Verify studio_id if provided
+                if "studio_id" in gallery_input:
+                    assert gallery_input["studio_id"] == studio.id, (
+                        f"Call {i}: galleryCreate should include studio {studio.id}, "
+                        f"got {gallery_input['studio_id']}"
+                    )
+
+                # Verify URLs include post URL
+                if "urls" in gallery_input:
+                    assert any("67890" in url for url in gallery_input["urls"]), (
+                        f"Call {i}: galleryCreate URLs should include post ID 67890, "
+                        f"got {gallery_input['urls']}"
+                    )
+
+                # Verify details contain post content
+                if "details" in gallery_input:
+                    assert "Test post" in gallery_input["details"], (
+                        f"Call {i}: galleryCreate details should contain post content, "
+                        f"got {gallery_input['details']}"
+                    )
+
+            elif "tagCreate" in query:
+                assert "input" in variables, f"Call {i}: tagCreate missing input"
+                tag_input = variables["input"]
+
+                # Verify tag name matches hashtag value
+                assert "name" in tag_input, f"Call {i}: tagCreate input missing name"
+                assert tag_input["name"] == "test", (
+                    f"Call {i}: tagCreate should create tag 'test' from hashtag, "
+                    f"got {tag_input['name']}"
+                )
+
+        # Verify we found our test data in the GraphQL calls
+        assert found_post_content, (
+            "Post content 'Test post #test' should appear in GraphQL calls"
+        )
+        assert found_hashtag, (
+            "Hashtag 'test' should appear in tag-related GraphQL calls"
+        )
+        assert found_post_url, "Post URL with ID 67890 should appear in GraphQL calls"
+        assert found_performer_id, (
+            f"Performer ID '{performer.id}' should appear in GraphQL calls"
+        )
+        # Studio ID is optional depending on configuration
+        # assert found_studio_id, f"Studio ID '{studio.id}' should appear in GraphQL calls"

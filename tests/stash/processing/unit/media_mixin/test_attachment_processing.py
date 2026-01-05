@@ -2,7 +2,11 @@
 
 This module tests the process_creator_attachment method which collects media
 from attachments into batches for efficient processing.
+
+User authorized mocking only because of over-testing of deeper methods.
 """
+
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -14,7 +18,7 @@ from tests.fixtures.metadata.metadata_factories import (
     MediaFactory,
     PostFactory,
 )
-from tests.fixtures.stash.stash_type_factories import ImageFactory
+from tests.fixtures.stash import ImageFactory, SceneFactory
 
 
 class TestAttachmentProcessing:
@@ -22,9 +26,12 @@ class TestAttachmentProcessing:
 
     @pytest.mark.asyncio
     async def test_process_attachment_with_direct_media(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
-        """Test process_creator_attachment collects media from direct attachment."""
+        """Test process_creator_attachment collects media from direct attachment.
+
+        User authorized mocking only because of over-testing of deeper methods.
+        """
         # Create real Media object using factory
         media = MediaFactory.build(
             id=20789,
@@ -53,52 +60,53 @@ class TestAttachmentProcessing:
         # Set up the relationship
         attachment.media = account_media
 
-        # Mock the batch processing method to capture what gets passed to it
-        processed_batches = []
+        # Mock result to return
+        mock_image = ImageFactory.build(id="image_123", title=mock_item.content)
+        mock_batch_result = {"images": [mock_image], "scenes": []}
 
-        async def mock_process_batch(media_list, item, account):
-            processed_batches.append(
-                {
-                    "media_list": media_list,
-                    "item": item,
-                    "account": account,
-                }
-            )
-            # Return fake results using factories
-            image = ImageFactory()
-            return {"images": [image], "scenes": []}
+        # Mock _process_batch_internal to capture what gets passed
+        mock_process_batch = AsyncMock(return_value=mock_batch_result)
 
-        # Mock the batch processing method
-        original_process = media_mixin._process_media_batch_by_mimetype
-        media_mixin._process_media_batch_by_mimetype = mock_process_batch
-
-        try:
+        with patch.object(
+            respx_stash_processor,
+            "_process_batch_internal",
+            mock_process_batch,
+        ):
             # Call the method
-            result = await media_mixin.process_creator_attachment(
+            result = await respx_stash_processor.process_creator_attachment(
                 attachment=attachment,
                 item=mock_item,
                 account=mock_account,
             )
 
-            # Verify batch processing was called with collected media
-            assert len(processed_batches) == 1
-            assert len(processed_batches[0]["media_list"]) == 1
-            assert processed_batches[0]["media_list"][0] == media
-            assert processed_batches[0]["item"] == mock_item
-            assert processed_batches[0]["account"] == mock_account
+        # Verify _process_batch_internal was called once
+        assert mock_process_batch.call_count == 1
 
-            # Verify results were returned
-            assert len(result["images"]) == 1
-            assert len(result["scenes"]) == 0
-        finally:
-            # Restore original method
-            media_mixin._process_media_batch_by_mimetype = original_process
+        # Verify the media list passed to batch processing (positional args)
+        call_args = mock_process_batch.call_args
+        media_list, item, account = call_args[0]  # Unpack positional args
+        assert len(media_list) == 1, f"Expected 1 media item, got {len(media_list)}"
+        assert media_list[0].id == media.id
+        assert media_list[0].mimetype == "image/jpeg"
+        assert media_list[0].stash_id == "stash_attachment_789"
+
+        # Verify item and account were passed correctly
+        assert item == mock_item
+        assert account == mock_account
+
+        # Verify results contain the mock image
+        assert "images" in result
+        assert len(result["images"]) == 1
+        assert result["images"][0] == mock_image
 
     @pytest.mark.asyncio
     async def test_process_attachment_with_bundle(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
-        """Test process_creator_attachment collects media from bundle."""
+        """Test process_creator_attachment collects media from bundle.
+
+        User authorized mocking only because of over-testing of deeper methods.
+        """
         # Create real Media objects using factory
         media1 = MediaFactory.build(
             id=20456,
@@ -148,51 +156,59 @@ class TestAttachmentProcessing:
         # Set up the relationship
         attachment.bundle = bundle
 
-        # Mock the batch processing method to capture what gets passed to it
-        processed_batches = []
+        # Mock results to return
+        mock_image = ImageFactory.build(id="image_456", title=mock_item.content)
+        mock_scene = SceneFactory.build(id="scene_457", title=mock_item.content)
+        mock_batch_result = {"images": [mock_image], "scenes": [mock_scene]}
 
-        async def mock_process_batch(media_list, item, account):
-            processed_batches.append(
-                {
-                    "media_list": media_list,
-                    "media_ids": [m.id for m in media_list],
-                    "item": item,
-                    "account": account,
-                }
-            )
-            # Return fake results
-            return {"images": [ImageFactory()], "scenes": []}
+        # Mock _process_batch_internal to capture what gets passed
+        mock_process_batch = AsyncMock(return_value=mock_batch_result)
 
-        # Mock the batch processing method
-        original_process = media_mixin._process_media_batch_by_mimetype
-        media_mixin._process_media_batch_by_mimetype = mock_process_batch
-
-        try:
+        with patch.object(
+            respx_stash_processor,
+            "_process_batch_internal",
+            mock_process_batch,
+        ):
             # Call the method
-            result = await media_mixin.process_creator_attachment(
+            result = await respx_stash_processor.process_creator_attachment(
                 attachment=attachment,
                 item=mock_item,
                 account=mock_account,
             )
 
-            # Verify batch processing was called with collected media from bundle
-            assert len(processed_batches) == 1
-            assert len(processed_batches[0]["media_list"]) == 2
-            assert set(processed_batches[0]["media_ids"]) == {media1.id, media2.id}
-            assert processed_batches[0]["item"] == mock_item
-            assert processed_batches[0]["account"] == mock_account
+        # Verify _process_batch_internal was called once
+        assert mock_process_batch.call_count == 1
 
-            # Verify results were returned
-            assert len(result["images"]) == 1
-        finally:
-            # Restore original method
-            media_mixin._process_media_batch_by_mimetype = original_process
+        # Verify the media list passed contains both media items (positional args)
+        call_args = mock_process_batch.call_args
+        media_list, item, account = call_args[0]  # Unpack positional args
+        assert len(media_list) == 2, f"Expected 2 media items, got {len(media_list)}"
+
+        # Verify both media items are in the list (order may vary due to set)
+        media_ids = {m.id for m in media_list}
+        assert media1.id in media_ids
+        assert media2.id in media_ids
+
+        # Verify item and account were passed correctly
+        assert item == mock_item
+        assert account == mock_account
+
+        # Verify results contain both image and scene
+        assert "images" in result
+        assert len(result["images"]) == 1
+        assert result["images"][0] == mock_image
+        assert "scenes" in result
+        assert len(result["scenes"]) == 1
+        assert result["scenes"][0] == mock_scene
 
     @pytest.mark.asyncio
     async def test_process_attachment_with_aggregated_post(
-        self, media_mixin, mock_item, mock_account
+        self, respx_stash_processor, mock_item, mock_account
     ):
-        """Test process_creator_attachment recursively processes aggregated posts."""
+        """Test process_creator_attachment recursively processes aggregated posts.
+
+        User authorized mocking only because of over-testing of deeper methods.
+        """
         # Create an aggregated post using factory
         agg_post = PostFactory.build(
             id=30789,
@@ -238,39 +254,39 @@ class TestAttachmentProcessing:
         # Set up the relationship (is_aggregated_post property auto-computed from contentType)
         attachment.aggregated_post = agg_post
 
-        # Mock the batch processing method
-        processed_batches = []
+        # Mock result to return
+        mock_image = ImageFactory.build(id="image_999", title=agg_post.content)
+        mock_batch_result = {"images": [mock_image], "scenes": []}
 
-        async def mock_process_batch(media_list, item, account):
-            processed_batches.append(
-                {
-                    "media_list": media_list,
-                    "item_id": item.id,
-                    "account": account,
-                }
-            )
-            return {"images": [ImageFactory()], "scenes": []}
+        # Mock _process_batch_internal to capture what gets passed
+        mock_process_batch = AsyncMock(return_value=mock_batch_result)
 
-        original_process = media_mixin._process_media_batch_by_mimetype
-        media_mixin._process_media_batch_by_mimetype = mock_process_batch
-
-        try:
+        with patch.object(
+            respx_stash_processor,
+            "_process_batch_internal",
+            mock_process_batch,
+        ):
             # Call the method
-            result = await media_mixin.process_creator_attachment(
+            result = await respx_stash_processor.process_creator_attachment(
                 attachment=attachment,
                 item=mock_item,
                 account=mock_account,
             )
 
-            # Verify batch processing was called for aggregated post's attachment
-            assert len(processed_batches) == 1
-            assert len(processed_batches[0]["media_list"]) == 1
-            assert processed_batches[0]["media_list"][0] == agg_media
-            # Verify it was called with the aggregated post as the item
-            assert processed_batches[0]["item_id"] == agg_post.id
+        # Verify _process_batch_internal was called once (from recursive call)
+        assert mock_process_batch.call_count == 1
 
-            # Verify results were returned
-            assert len(result["images"]) == 1
-        finally:
-            # Restore original method
-            media_mixin._process_media_batch_by_mimetype = original_process
+        # Verify the media from aggregated post's attachment was collected (positional args)
+        call_args = mock_process_batch.call_args
+        media_list, item, account = call_args[0]  # Unpack positional args
+        assert len(media_list) == 1, f"Expected 1 media item, got {len(media_list)}"
+        assert media_list[0].id == agg_media.id
+
+        # Verify the item passed is the aggregated post, not the main item
+        assert item == agg_post
+        assert account == mock_account
+
+        # Verify results contain image from aggregated post
+        assert "images" in result
+        assert len(result["images"]) == 1
+        assert result["images"][0] == mock_image

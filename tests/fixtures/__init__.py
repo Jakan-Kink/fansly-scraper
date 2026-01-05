@@ -139,6 +139,7 @@ from .stash import (
     gallery_mock_performer,
     gallery_mock_studio,
     media_mixin,
+    message_media_generator,
     mock_gallery,  # From stash_type_factories (real factory)
     mock_image,  # From stash_type_factories (real factory)
     mock_image_file,  # From stash_type_factories (real factory)
@@ -146,7 +147,6 @@ from .stash import (
     mock_performer,  # From stash_type_factories (real factory)
     mock_scene,  # From stash_type_factories (real factory)
     mock_studio,  # From stash_type_factories (real factory)
-    mock_studio_finder,
     mock_tag,
     mock_video_file,  # From stash_type_factories (real factory)
     real_stash_processor,
@@ -348,7 +348,8 @@ mod_stash_api_fixtures = [
 mod_stash_integration_fixtures = [
     "fansly_network_studio",
     "test_state",  # was "mock_state" - already a real object, not a mock
-    "mock_studio_finder",
+    # Removed: mock_studio_finder, mock_permissions (deleted during stash-graphql-client migration)
+    "message_media_generator",
     "real_stash_processor",  # Hits real Docker Stash (true integration tests)
     "respx_stash_processor",  # Has respx.mock wrapper (unit tests with mocked HTTP)
 ]
