@@ -374,11 +374,11 @@ async def get_or_create_media(
                 )
             ):
                 preserve_existing = True
-                print_warning(
-                    "Preserving existing filename for media "
-                    f"{media_id} because it exists on disk: "
-                    f"{media_by_id.local_filename}"
-                )
+                # print_warning(
+                #     "Preserving existing filename for media "
+                #     f"{media_id} because it exists on disk: "
+                #     f"{media_by_id.local_filename}"
+                # )
 
             # Update filename and mark as downloaded
             if not preserve_existing:
@@ -474,11 +474,11 @@ async def get_or_create_media(
             )
         ):
             preserve_existing = True
-            print_warning(
-                "Preserving existing filename for media "
-                f"{media_id} because it exists on disk: "
-                f"{media_by_id.local_filename}"
-            )
+            # print_warning(
+            #     "Preserving existing filename for media "
+            #     f"{media_id} because it exists on disk: "
+            #     f"{media_by_id.local_filename}"
+            # )
 
         # Update existing record
         media_by_id.content_hash = file_hash
