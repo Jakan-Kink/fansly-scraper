@@ -469,6 +469,9 @@ class GalleryProcessingMixin:
                     self.database.get_async_session()
                 )
 
+            # Refresh account to prevent expired attribute access errors
+            await session.refresh(account)
+
             attachments = await item.awaitable_attrs.attachments or []
             debug_print(
                 {
