@@ -6,6 +6,7 @@ import asyncio
 import traceback
 from typing import TYPE_CHECKING
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func, select
 from stash_graphql_client.types import Performer, is_set
@@ -338,8 +339,11 @@ class AccountProcessingMixin:
             performer: Performer containing the stash ID
             session: Optional database session
         """
+        # Get account ID safely without triggering lazy loading
+        account_id = inspect(account).identity[0]
+
         # Get a fresh account instance bound to the session
-        stmt = select(Account).where(Account.id == account.id)
+        stmt = select(Account).where(Account.id == account_id)
         result = await session.execute(stmt)
         account = result.scalar_one()
 

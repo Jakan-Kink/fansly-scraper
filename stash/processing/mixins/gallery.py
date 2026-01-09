@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pprint import pformat
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 from stash_graphql_client.types import Gallery, GalleryChapter, Studio, is_set
 
@@ -510,7 +511,7 @@ class GalleryProcessingMixin:
                     "status": "collected_media_batch",
                     "item_id": item.id,
                     "media_count": len(media_batch),
-                    "account_id": account.id,
+                    "account_id": inspect(account).identity[0] if account else None,
                 }
             )
 
