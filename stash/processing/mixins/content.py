@@ -60,11 +60,17 @@ class ContentProcessingMixin:
             """Get URL for a message in a group."""
             return f"https://fansly.com/messages/{message.groupId}/{message.id}"
 
-        # Refresh account to ensure it's attached to the session and not expired
-        await session.refresh(account)
+        # Get a fresh account instance bound to the session
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
 
         # Get all messages with attachments in one query with relationships
+        # For an awaitable account, we need to get the id properly
         account_id = account.id
+        if hasattr(account, "__await__") and hasattr(account, "id"):
+            # This might be an awaitable, try to access the id directly
+            account_id = account.id
 
         stmt = (
             select(Message)
@@ -166,11 +172,20 @@ class ContentProcessingMixin:
         Note: This method requires a session and will ensure all objects are properly bound to it.
         The performer and studio objects are Stash GraphQL types, not SQLAlchemy models.
         """
-        # Refresh account to ensure it's attached to the session and not expired
-        await session.refresh(account)
+        # Ensure account is bound to the session
+        session.add(account)
 
         # Get all posts with attachments in one query with relationships
+        # First ensure we have a fresh account instance
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
+
+        # Get account ID properly for query
         account_id = account.id
+        if hasattr(account, "__await__") and hasattr(account, "id"):
+            # This might be an awaitable, try to access the id directly
+            account_id = account.id
 
         # Now get posts with proper eager loading
         stmt = (
@@ -366,8 +381,12 @@ class ContentProcessingMixin:
             }
         )
 
-        # Refresh account to ensure it's attached to the session and not expired
-        await session.refresh(account)
+        # Merge items into current session
+        # First ensure we have a fresh account instance
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
+        session.add(account)
 
         # Process each item (already merged in process_creator_posts)
         for item in items:

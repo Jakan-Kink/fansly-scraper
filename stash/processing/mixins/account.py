@@ -338,8 +338,10 @@ class AccountProcessingMixin:
             performer: Performer containing the stash ID
             session: Optional database session
         """
-        # Refresh account to ensure it's attached to the session and not expired
-        await session.refresh(account)
+        # Get a fresh account instance bound to the session
+        stmt = select(Account).where(Account.id == account.id)
+        result = await session.execute(stmt)
+        account = result.scalar_one()
 
         # Update stash ID (convert from string to int)
         account.stash_id = int(performer.id)
