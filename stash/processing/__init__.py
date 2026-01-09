@@ -6,7 +6,7 @@ import asyncio
 import traceback
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from stash_graphql_client import StashContext
 from stash_graphql_client.types import Performer
@@ -116,8 +116,11 @@ class StashProcessing(
             if not isinstance(performer, Performer):
                 raise TypeError("performer must be a Stash Performer object")
 
+            # Get account ID safely without triggering lazy loading
+            account_id = inspect(account).identity[0]
+
             # Ensure we have a fresh account instance bound to the session
-            stmt = select(Account).where(Account.id == account.id)
+            stmt = select(Account).where(Account.id == account_id)
             result = await session.execute(stmt)
             account = result.scalar_one()
 

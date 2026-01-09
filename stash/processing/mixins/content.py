@@ -5,6 +5,7 @@ from __future__ import annotations
 import traceback
 from typing import TYPE_CHECKING
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import select
 from stash_graphql_client.types import Performer, Studio
@@ -60,17 +61,13 @@ class ContentProcessingMixin:
             """Get URL for a message in a group."""
             return f"https://fansly.com/messages/{message.groupId}/{message.id}"
 
+        # Get account ID safely without triggering lazy loading
+        account_id = inspect(account).identity[0]
+
         # Get a fresh account instance bound to the session
-        stmt = select(Account).where(Account.id == account.id)
+        stmt = select(Account).where(Account.id == account_id)
         result = await session.execute(stmt)
         account = result.scalar_one()
-
-        # Get all messages with attachments in one query with relationships
-        # For an awaitable account, we need to get the id properly
-        account_id = account.id
-        if hasattr(account, "__await__") and hasattr(account, "id"):
-            # This might be an awaitable, try to access the id directly
-            account_id = account.id
 
         stmt = (
             select(Message)
@@ -92,7 +89,7 @@ class ContentProcessingMixin:
         debug_print(
             {
                 "status": "building_message_query",
-                "account_id": account.id,
+                "account_id": account_id,
                 "statement": str(stmt.compile(compile_kwargs={"literal_binds": True})),
             }
         )
@@ -175,17 +172,14 @@ class ContentProcessingMixin:
         # Ensure account is bound to the session
         session.add(account)
 
+        # Get account ID safely without triggering lazy loading
+        account_id = inspect(account).identity[0]
+
         # Get all posts with attachments in one query with relationships
-        # First ensure we have a fresh account instance
-        stmt = select(Account).where(Account.id == account.id)
+        # Get a fresh account instance bound to the session
+        stmt = select(Account).where(Account.id == account_id)
         result = await session.execute(stmt)
         account = result.scalar_one()
-
-        # Get account ID properly for query
-        account_id = account.id
-        if hasattr(account, "__await__") and hasattr(account, "id"):
-            # This might be an awaitable, try to access the id directly
-            account_id = account.id
 
         # Now get posts with proper eager loading
         stmt = (
@@ -209,7 +203,7 @@ class ContentProcessingMixin:
         debug_print(
             {
                 "status": "building_post_query",
-                "account_id": account.id,
+                "account_id": account_id,
                 "statement": str(stmt.compile(compile_kwargs={"literal_binds": True})),
             }
         )
@@ -381,9 +375,12 @@ class ContentProcessingMixin:
             }
         )
 
+        # Get account ID safely without triggering lazy loading
+        account_id = inspect(account).identity[0]
+
         # Merge items into current session
-        # First ensure we have a fresh account instance
-        stmt = select(Account).where(Account.id == account.id)
+        # Get a fresh account instance bound to the session
+        stmt = select(Account).where(Account.id == account_id)
         result = await session.execute(stmt)
         account = result.scalar_one()
         session.add(account)
