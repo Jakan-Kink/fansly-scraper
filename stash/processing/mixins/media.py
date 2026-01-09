@@ -341,21 +341,21 @@ class MediaProcessingMixin:
                         image_filter=path_filter,
                         filter_=filter_params,
                     )
-                    logger.info("Raw find_images results: %s", results)
+                    logger.info(f"Raw find_images results: {results}")
 
                     if results and results.count > 0:
                         valid_files_found = False
                         for image_data in results.images:
-                            logger.info("Processing image data: %s", image_data)
+                            logger.info(f"Processing image data: {image_data}")
 
                             try:
                                 # Library returns Image objects directly (Pydantic)
                                 image = image_data
-                                logger.info("Using image object: %s", image)
+                                logger.info(f"Using image object: {image}")
 
                                 # Try to get a file from the image object
                                 if file := self._get_file_from_stash_obj(image):
-                                    logger.info("Found file in image: %s", file)
+                                    logger.info(f"Found file in image: {file}")
                                     found.append((image, file))
                                     valid_files_found = True
                                 else:
