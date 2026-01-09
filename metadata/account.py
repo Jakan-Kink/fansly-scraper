@@ -511,6 +511,7 @@ class AccountMediaBundle(Base):
 async def _process_bundle_content(
     session: AsyncSession,
     bundle: dict,
+    account_id: int,
 ) -> None:
     """Process bundle content items.
 
@@ -538,6 +539,7 @@ async def _process_bundle_content(
                 bundle["id"],
                 media_id,
                 content["pos"],
+                account_id=account_id,
             )
         except (ValueError, KeyError) as e:
             json_output(
@@ -559,6 +561,7 @@ async def _process_bundle_content(
 async def _process_bundle_media_items(
     bundle: dict,
     config: FanslyConfig,
+    account_id: int,
     session: AsyncSession | None = None,
 ) -> None:
     """Process media items in a bundle.
@@ -587,6 +590,7 @@ async def _process_bundle_media_items(
             bundle["id"],
             media_id,
             pos,
+            account_id=account_id,
         )
 
 
@@ -656,8 +660,12 @@ async def _process_single_bundle(
     await session.flush()
 
     # Process bundle content and media items
-    await _process_bundle_content(bundle=bundle, session=session)
-    await _process_bundle_media_items(bundle=bundle, config=config, session=session)
+    await _process_bundle_content(
+        bundle=bundle, session=session, account_id=account_id
+    )
+    await _process_bundle_media_items(
+        bundle=bundle, config=config, session=session, account_id=account_id
+    )
     await session.flush()
 
 
