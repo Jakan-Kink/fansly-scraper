@@ -178,3 +178,6 @@ config.ini
 # GitHub Actions local testing (act)
 .actrc
 .secrets
+
+#ignore possible download folders
+*_fansly/
