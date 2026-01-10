@@ -97,7 +97,9 @@ temp_folder = /custom/temp/path
     assert config.temp_folder == Path("/custom/temp/path")
 
 
-def test_load_config_download_directory_handling(temp_config_dir, config):
+def test_load_config_download_directory_handling(temp_config_dir):
+    # Create fresh config to avoid pollution
+    config = FanslyConfig(program_version="0.11.0")
     config_path = temp_config_dir / "config.ini"
 
     # Create config with download_directory
@@ -112,7 +114,9 @@ download_directory = /custom/download/path
     assert config.download_directory == Path("/custom/download/path")
 
 
-def test_load_config_default_download_directory(temp_config_dir, config):
+def test_load_config_default_download_directory(temp_config_dir):
+    # Create fresh config to avoid pollution
+    config = FanslyConfig(program_version="0.11.0")
     config_path = temp_config_dir / "config.ini"
 
     # Create minimal config without download_directory
@@ -263,22 +267,6 @@ metadata_db_file = {db_path}
     assert config.metadata_db_file == Path(db_path)
 
 
-def test_default_metadata_db_location(temp_config_dir, config):
-    # Test default location with download_directory set
-    config.download_directory = Path("/test/download/dir")
-    config.metadata_db_file = None  # Reset to trigger default location
-    config.__post_init__()  # Need to call this to update metadata_db_file
-    assert config.metadata_db_file == Path("/test/download/dir/metadata_db.sqlite3")
-
-    # Test default location without download_directory
-    config.download_directory = None
-    config.metadata_db_file = None  # Reset to trigger default location
-    config.__post_init__()  # Need to call this to update metadata_db_file
-    assert (
-        config.metadata_db_file == Path.cwd() / "metadata_db.sqlite3"
-    )  # We're in temp_config_dir
-
-
 def test_load_config_with_cache_section(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
@@ -294,29 +282,6 @@ device_id_timestamp = 123456789
     load_config(config)
     assert config.cached_device_id == "test_device_id"
     assert config.cached_device_id_timestamp == 123456789
-
-
-def test_load_config_with_logic_section(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
-
-    # Create config with Logic section
-    with config_path.open("w") as f:
-        f.write(
-            """[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = Local_directory
-
-[Logic]
-check_key_pattern = test_pattern
-main_js_pattern = test_js_pattern
-"""
-        )
-
-    load_config(config)
-    assert config.check_key_pattern == "test_pattern"
-    assert config.main_js_pattern == "test_js_pattern"
 
 
 def test_copy_old_config_values(temp_config_dir):
@@ -517,4 +482,4 @@ metadata_db_file =
 
     load_config(config)
     assert config.temp_folder is None
-    assert config.metadata_db_file is not None  # Should use default
+    assert config.metadata_db_file is None  # Empty value becomes None

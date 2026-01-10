@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from config.args import map_args_to_config
+from config.logging import init_logging_config
 
 
 @pytest.fixture
@@ -16,6 +17,8 @@ def config_with_path(mock_config, tmp_path):
     """
     config_path = tmp_path / "config.ini"
     mock_config.config_path = config_path
+    # Initialize logging config to set global _config variable
+    init_logging_config(mock_config)
     return mock_config
 
 

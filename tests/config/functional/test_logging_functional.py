@@ -108,7 +108,9 @@ def test_textio_logger_output(logging_config, log_dir):
         assert any("Debug message with debug enabled" in line for line in log_lines), (
             f"Log content: {log_lines}"
         )
-        assert any("[DEBUG]" in line for line in log_lines)
+        assert any(
+            "DEBUG" in line for line in log_lines
+        )  # Format uses [DEBUG   ] with padding
     finally:
         set_debug_enabled(False)
 
@@ -122,7 +124,9 @@ def test_json_logger_output(logging_config, log_dir):
     assert any("Info message" in line for line in log_lines), (
         f"Log content: {log_lines}"
     )
-    assert any("[INFO]" in line for line in log_lines)
+    assert any(
+        "INFO" in line for line in log_lines
+    )  # Format uses [INFO    ] with padding
 
     # DEBUG level should be filtered out by default
     json_logger.debug("Debug message")
@@ -139,7 +143,9 @@ def test_json_logger_output(logging_config, log_dir):
         assert any("Debug message with debug enabled" in line for line in log_lines), (
             f"Log content: {log_lines}"
         )
-        assert any("[DEBUG]" in line for line in log_lines)
+        assert any(
+            "DEBUG" in line for line in log_lines
+        )  # Format uses [DEBUG   ] with padding
     finally:
         set_debug_enabled(False)
 
@@ -217,7 +223,7 @@ def test_trace_logger_output(logging_config, log_dir, mock_config):
 
     # With trace enabled, TRACE should appear
     config.trace = True
-    init_logging_config(logging_config)
+    init_logging_config(config)  # Use config, not logging_config
     try:
         trace_logger.trace("Trace message with trace enabled")
         logger.complete()
@@ -289,10 +295,10 @@ def test_debug_mode_all_loggers(logging_config, log_dir):
 
 
 def test_trace_mode_only_affects_trace_logger(logging_config, log_dir, mock_config):
-    """Test that trace mode only affects trace_logger."""
+    """Test that trace mode affects trace_logger and sqlalchemy (for db_logger.trace())."""
     config = mock_config
     config.trace = True
-    init_logging_config(logging_config)
+    init_logging_config(config)  # Use config, not logging_config
     try:
         # trace_logger should output TRACE
         trace_logger.trace("Trace message")
@@ -301,14 +307,15 @@ def test_trace_mode_only_affects_trace_logger(logging_config, log_dir, mock_conf
             "Trace message" in line for line in read_log_file(log_dir, "trace.log")
         ), f"Log content: {read_log_file(log_dir, 'trace.log')}"
 
-        # Other loggers should still filter out DEBUG
+        # Non-db loggers should still filter out DEBUG
         textio_logger.debug("Debug textio")
         json_logger.debug("Debug json")
         stash_logger.debug("Debug stash")
+        # But db_logger should allow DEBUG (since trace mode sets sqlalchemy to TRACE level)
         db_logger.debug("Debug db")
         logger.complete()
 
-        # Check each log file
+        # Check each log file - non-db loggers filter DEBUG
         assert not any(
             "Debug" in line
             for line in read_log_file(log_dir, "fansly_downloader_ng.log")
@@ -318,8 +325,9 @@ def test_trace_mode_only_affects_trace_logger(logging_config, log_dir, mock_conf
             for line in read_log_file(log_dir, "fansly_downloader_ng_json.log")
         )
         assert not any("Debug" in line for line in read_log_file(log_dir, "stash.log"))
-        assert not any(
-            "Debug" in line for line in read_log_file(log_dir, "sqlalchemy.log")
+        # But sqlalchemy.log should contain DEBUG (trace mode enables TRACE level)
+        assert any(
+            "Debug db" in line for line in read_log_file(log_dir, "sqlalchemy.log")
         )
     finally:
         config.trace = False
@@ -476,6 +484,9 @@ def test_console_level_format(logging_config, caplog):
 
 def test_trace_logger_errors(config):
     """Test that trace_logger raises InvalidTraceLogError for non-TRACE levels."""
+    # Initialize logging config first
+    init_logging_config(config)
+
     # Each of these should raise InvalidTraceLogError
     for level_func in [
         trace_logger.debug,
@@ -514,7 +525,7 @@ def test_custom_log_levels(logging_config, log_dir, mock_config):
         "stash_file": "DEBUG",
         "sqlalchemy": "INFO",
     }
-    init_logging_config(logging_config)
+    init_logging_config(config)  # Use config, not logging_config
     try:
         # Test each logger at various levels
         textio_logger.info("Info textio")  # Should be filtered

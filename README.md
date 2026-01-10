@@ -275,16 +275,36 @@ If your operating system is not compatible with executable versions of **Fansly 
 3. **Install Python Dependencies:**
 
    ```bash
-   # Install all dependencies (recommended - includes browser token extraction)
-   poetry install --no-root
-
-   # OR install with specific optional features:
-   # With browser authentication support (extracts tokens from Chrome, Firefox, etc.)
+   # Option A: Install with browser authentication support (RECOMMENDED)
    poetry install --no-root --with browser-auth
 
-   # Without browser authentication (requires username/password login)
+   # Option B: Install without browser authentication (username/password only)
    poetry install --no-root
    ```
+
+   #### Understanding `--with browser-auth`
+
+   The `browser-auth` optional dependency group enables **automatic token extraction** from your browser's storage:
+
+   **What it does:**
+   - Extracts your Fansly authentication token directly from browser storage (LevelDB for Chromium browsers, SQLite for Firefox)
+   - **No need to manually copy tokens or enter credentials**
+   - Supports: Chrome, Edge, Opera, Opera GX, Brave (via `plyvel-ci`), and Firefox (via built-in `sqlite3`)
+
+   **When to use it:**
+   - ✅ **Recommended** - Most convenient authentication method
+   - ✅ You regularly use a supported browser to access Fansly
+   - ✅ You want automatic, secure token extraction without manual steps
+
+   **When you DON'T need it:**
+   - ❌ You prefer to use username/password authentication
+   - ❌ You use an unsupported browser (Safari, etc.)
+   - ❌ You want minimal dependencies
+
+   **Technical Details:**
+   - Adds `plyvel-ci` (LevelDB reader for Chromium-based browsers)
+   - Firefox support works without browser-auth (uses Python's built-in `sqlite3`)
+   - All token extraction happens **locally** on your machine - nothing is sent to external servers
 
    **Note:** The `javascript` package (JSPyBridge) is automatically installed by Poetry and provides efficient Python-JavaScript communication for checkKey extraction.
 
@@ -334,23 +354,34 @@ Follow these steps to quickly get started with either the [Python](https://githu
 
    **Option A: Browser Token Extraction (Recommended)**
 
-   - Requires installing browser-auth support: `poetry install --no-root --with browser-auth`
-   - Ensure you have recently logged into your Fansly account and accessed the Fansly website using one of the following web browsers: **Chrome, Firefox, Microsoft Edge, Brave, Opera, or Opera GX** on **Windows 10/11, macOS or Linux**
-   - The application will automatically extract your authorization token from browser storage
-   - **No credentials needed** - tokens are extracted locally from your browser
+   - **Requires:** `poetry install --no-root --with browser-auth` (see [Setup](#-setup) for details)
+   - **Supported Browsers:** Chrome, Firefox, Microsoft Edge, Brave, Opera, Opera GX
+   - **Platforms:** Windows 10/11, macOS, Linux
+   - **How it works:**
+     1. Log into your Fansly account using a supported browser
+     2. Visit the Fansly website at least once to establish a session
+     3. Run Fansly Downloader NG - it will automatically extract your token from browser storage
+   - **Benefits:**
+     - ✅ Most convenient - no manual token copying
+     - ✅ Secure - tokens extracted locally, never transmitted
+     - ✅ Automatic - no credentials needed in config file
 
    **Option B: Username/Password Login**
 
-   - Add your Fansly credentials to `config.ini`:
+   - **Requires:** Basic installation: `poetry install --no-root` (no browser-auth needed)
+   - **How it works:** Add your Fansly credentials to `config.ini`:
 
      ```ini
-     [Targeted Creator]
+     [MyAccount]
      username = your_fansly_account_username
      password = your_fansly_account_password
      ```
 
-   - The application will automatically log in and obtain a token
-   - **Works without browser-auth dependency** - just run `poetry install --no-root`
+   - **Benefits:**
+     - ✅ Works without browser dependencies
+     - ✅ Minimal installation requirements
+     - ✅ Good for servers/headless systems
+   - **Note:** The application will automatically log in and obtain a token for you
 
 3. Open and run the `Fansly Downloader NG.exe` file by clicking on it or run `poetry run python fansly_downloader_ng.py` from a terminal. This will initiate the interactive setup tutorial for the configuration file called [`config.ini`](https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#explanation-of-configini).
 4. After values for the targeted creators [Username](https://github.com/prof79/fansly-downloader-ng/blob/fc7c6734061f6b61ddf3ef3ae29618aedc21e052/config.ini#L2), your Fansly account [Authorization Token](https://github.com/prof79/fansly-downloader-ng/blob/fc7c6734061f6b61ddf3ef3ae29618aedc21e052/config.ini#L5) and your web browser's [User-Agent](https://github.com/prof79/fansly-downloader-ng/blob/fc7c6734061f6b61ddf3ef3ae29618aedc21e052/config.ini#L6) are filled you're good to go 🎉!

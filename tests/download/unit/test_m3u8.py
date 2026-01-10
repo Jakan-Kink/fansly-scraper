@@ -64,7 +64,7 @@ class TestM3U8Progress:
         progress = get_m3u8_progress(disable_loading_bar=False)
         assert progress.disable is False
         assert progress.expand is True
-        assert progress.transient is True
+        # Note: transient is a constructor parameter but not exposed as an attribute
 
     def test_progress_bar_disabled(self):
         """Test progress bar is disabled when requested."""
@@ -81,7 +81,8 @@ class TestFetchM3U8SegmentPlaylist:
         config = MagicMock(spec=FanslyConfig)
         mock_api = MagicMock()
         mock_response = MagicMock(spec=httpx.Response)
-        mock_api.get_with_ngsw.return_value.__enter__.return_value = mock_response
+        # get_with_ngsw returns httpx.Response directly, not a context manager
+        mock_api.get_with_ngsw.return_value = mock_response
         config.get_api.return_value = mock_api
         return config, mock_api, mock_response
 
@@ -137,8 +138,8 @@ segment1.ts
 segment2.ts
 #EXT-X-ENDLIST"""
 
-        # Setup for second request
-        mock_api.get_with_ngsw.return_value.__enter__.side_effect = [
+        # Setup for second request - use side_effect for multiple calls
+        mock_api.get_with_ngsw.side_effect = [
             mock_response,  # First call returns master playlist
             second_response,  # Second call returns segment playlist
         ]
@@ -183,8 +184,8 @@ segment1.ts
 segment2.ts
 #EXT-X-ENDLIST"""
 
-        # Setup for second request
-        mock_api.get_with_ngsw.return_value.__enter__.side_effect = [
+        # Setup for second request - use side_effect for multiple calls
+        mock_api.get_with_ngsw.side_effect = [
             mock_response,  # First call returns empty playlist
             second_response,  # Second call returns segment playlist
         ]
@@ -371,9 +372,9 @@ class TestDownloadM3U8TwoTierStrategy:
         mock_direct_download.assert_called_once()
         mock_segment_download.assert_called_once()
 
-        # Check that created_at was passed to segment download
-        _, kwargs = mock_segment_download.call_args
-        assert kwargs.get("created_at") == created_at
+        # Check that created_at was passed to segment download (as 5th positional arg)
+        args, _ = mock_segment_download.call_args
+        assert args[4] == created_at  # created_at is the 5th positional argument
 
 
 @patch("download.m3u8.ffmpeg")

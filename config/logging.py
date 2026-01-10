@@ -466,8 +466,8 @@ def init_logging_config(config: Any) -> None:
 
     # Set debug mode based on config settings (important for IPython sessions)
     if config:
-        # Check both debug and trace settings
-        debug_enabled = config.trace
+        # Check debug setting (trace is separate and only affects trace_logger)
+        debug_enabled = config.debug
         _debug_enabled = debug_enabled
 
     # IMPORTANT: Set up handlers FIRST so db_logger has somewhere to write

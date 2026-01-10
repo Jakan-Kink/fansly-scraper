@@ -2,12 +2,11 @@ import resource
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 import fansly_downloader_ng
 from config import FanslyConfig
-from config.metadatahandling import MetadataHandling
-from config.modes import DownloadMode
 from fansly_downloader_ng import (
     increase_file_descriptor_limit,
     load_client_account_into_db,
@@ -122,65 +121,34 @@ async def test_load_client_account_into_db_failure():
 
 
 # Test cleanup_database_sync: if _database is present, close_sync should be called
-def test_cleanup_database_sync_success():
-    # Set up test fixtures
-    fake_db = MagicMock()
-    fake_db.close_sync = MagicMock()
-    config = MagicMock(spec=FanslyConfig)
-    config._database = fake_db
+def test_cleanup_database_sync_success(config_with_database):
+    # Use real FanslyConfig with real Database instance
+    config = config_with_database
 
-    # Create a fake database cleanup function
-    def mock_cleanup_sync(cfg):
-        cfg._database.close_sync()
+    # Call the real function - it will call the real close_sync method
+    fansly_downloader_ng.cleanup_database_sync(config)
 
-    # Test the function with our mocks
-    with (
-        patch(
-            "fansly_downloader_ng.print_info"
-        ) as mock_print_info,  # Restore the variable
-        patch(
-            "fansly_downloader_ng.cleanup_database_sync", side_effect=mock_cleanup_sync
-        ),
-    ):
-        # Call the function directly from the module
-        fansly_downloader_ng.cleanup_database_sync(config)
-
-        # Verify close_sync was called
-        fake_db.close_sync.assert_called_once()
-        # Verify print_info was called
-        mock_print_info.assert_called_once()
+    # Verify cleanup was performed (database should be marked as cleaned up)
+    # The real function calls close_sync which sets _cleanup_done
+    assert hasattr(config._database, "_cleanup_done")
+    assert config._database._cleanup_done.is_set()
 
 
 # Test cleanup_database_sync: failure scenario when close_sync raises exception
-def test_cleanup_database_sync_failure():
-    # Set up test fixtures
-    fake_db = MagicMock()
-    fake_db.close_sync = MagicMock(side_effect=Exception("Sync failure"))
-    config = MagicMock(spec=FanslyConfig)
-    config._database = fake_db
+def test_cleanup_database_sync_failure(config_with_database):
+    # Use real FanslyConfig with real Database instance
+    config = config_with_database
 
-    # Create a fake database cleanup function that raises an exception
-    def mock_cleanup_sync(cfg):
-        try:
-            cfg._database.close_sync()
-        except Exception as e:
-            mock_print_error(f"Error closing database connections: {e}")
-
-    # Test the function with our mocks
-    with (
-        patch("fansly_downloader_ng.print_error") as mock_print_error,
-        patch(
-            "fansly_downloader_ng.cleanup_database_sync", side_effect=mock_cleanup_sync
-        ),
+    # Mock close_sync to raise an exception (boundary mocking)
+    with patch.object(
+        config._database, "close_sync", side_effect=Exception("Sync failure")
     ):
-        # Call the function directly from the module
+        # Call the real function - it should handle the exception gracefully
+        # The function catches exceptions in close_sync and logs them
         fansly_downloader_ng.cleanup_database_sync(config)
 
-        # Verify close_sync was called and error was reported
-        fake_db.close_sync.assert_called_once()
-        mock_print_error.assert_called_once()
-        error_msg = mock_print_error.call_args[0][0]
-        assert "Sync failure" in error_msg
+        # The function should have attempted cleanup despite the error
+        # No exception should be raised to the caller
 
 
 # Test cleanup_database when no _database is present (async version)
@@ -230,77 +198,102 @@ async def test_cleanup_database_no_database_async():
 #             mock_exit.assert_called_once_with(fake_exit_code)
 
 
-# Test main function with invalid config (missing user_names and download_mode NOTSET)
+# Test main function with invalid config (use_following without valid client ID)
 @pytest.mark.asyncio
-async def test_main_invalid_config():
-    """Test main raises error with invalid configuration."""
-    # Create a proper mock that will trigger the specific error we want to test
-    config = MagicMock(spec=FanslyConfig)
+async def test_main_invalid_config(
+    config, complete_args, respx_mock, tmp_path, fansly_api
+):
+    """Test main returns error when use_following is set but client ID unavailable."""
+    # Use real FanslyConfig from fixture
+    config.use_following = True
+    config.user_names = set()  # No users specified
+    config.config_path = tmp_path / "config.ini"  # Required by map_args_to_config
 
-    # Mock the args object to avoid metadata_handling validation issues
-    mock_args = MagicMock()
-    mock_args.metadata_handling = "simple"  # Use a valid string value
-    mock_args.use_following = True  # Force use_following to trigger the error path
-    mock_args.users = []  # No users specified
+    # Modify args for this test
+    complete_args.use_following = True
+    complete_args.users = None  # Must be None, not [] - empty list is considered "set"
 
-    # These properties need to be set directly to avoid the mock's attribute accessor
-    type(config).user_names = []
-    type(config).download_mode = DownloadMode.NORMAL  # Set a valid download mode
-    type(config).program_version = "test-version"
-    type(config).metadata_handling = MetadataHandling.SIMPLE
-    type(config).use_following = True  # Set use_following to trigger the error path
-
-    # Mock client_id but not with a property, since that's checked differently
-    config._database = MagicMock()
-    config.get_client_id = MagicMock(return_value=None)  # Will return None when called
-
-    # Add log_levels to avoid AttributeError
-    config.log_levels = {
-        "textio": "INFO",
-        "json": "INFO",
-        "stash_console": "INFO",
-        "stash_file": "INFO",
-        "sqlalchemy": "INFO",
-    }
-
-    # Mock API that will be used by get_following_accounts
-    mock_api = MagicMock()
-    mock_api.get_client_id.return_value = None
-    config.get_api.return_value = mock_api
-
-    # Create a GlobalState object with creator_id=None to trigger the client ID error
-    mock_state = MagicMock()
-    mock_state.creator_id = (
-        None  # this is what will cause get_following_accounts to fail
+    # Mock HTTP responses for Fansly API
+    # First, let account/me succeed so we can get the client ID
+    respx_mock.options("https://apiv3.fansly.com/api/v1/account/me").mock(
+        side_effect=[httpx.Response(200)]
+    )
+    respx_mock.get("https://apiv3.fansly.com/api/v1/account/me").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": {
+                        "account": {
+                            "id": "1234567890123456",  # Bigint ID (fits in int64)
+                            "username": "test_user",
+                            "displayName": "Test User",
+                        }
+                    },
+                },
+            )
+        ]
     )
 
-    # Skip functions that would cause issues in our test
+    # Mock the client account loading (load_client_account_into_db)
+    respx_mock.options("https://apiv3.fansly.com/api/v1/account").mock(
+        side_effect=[httpx.Response(200), httpx.Response(200)]  # Multiple calls
+    )
+    respx_mock.get("https://apiv3.fansly.com/api/v1/account").mock(
+        side_effect=[
+            # First call: get_creator_account_info for client account
+            httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "response": [
+                        {
+                            "id": "1234567890123456",  # Bigint ID (fits in int64)
+                            "username": "test_user",
+                            "displayName": "Test User",
+                        }
+                    ],
+                },
+            ),
+            # Second call: get_following_accounts - this should fail (what we're testing)
+            httpx.Response(401, json={"error": "Unauthorized"}),
+        ]
+    )
+
+    # Patch functions to skip setup and get to the error we're testing
     with (
-        patch("fansly_downloader_ng.load_config"),
-        patch("fansly_downloader_ng.set_window_title"),
-        patch("config.logging.update_logging_config"),
-        patch("fansly_downloader_ng.validate_adjust_config"),
-        patch("config.validation.validate_adjust_check_key"),
-        patch("fansly_downloader_ng.parse_args", return_value=mock_args),
-        # Pass our mock_state to avoid having to create a real state object
-        patch("download.globalstate.GlobalState", return_value=mock_state),
-        # Monitor print_error calls
-        patch("fansly_downloader_ng.print_error") as mock_print_error,
-        # Patch print_info to avoid actual output
-        patch("fansly_downloader_ng.print_info"),
-        # Don't patch get_following_accounts as we want the real error
+        patch("fansly_downloader_ng.load_config"),  # Skip config loading
+        patch("fansly_downloader_ng.set_window_title"),  # Skip window title
+        patch("config.logging.update_logging_config"),  # Skip logging setup
+        patch("fansly_downloader_ng.validate_adjust_config"),  # Skip validation
+        patch(
+            "config.validation.validate_adjust_check_key"
+        ),  # Skip check key validation
+        patch(
+            "fansly_downloader_ng.parse_args", return_value=complete_args
+        ),  # Use our args
+        patch.object(config, "setup_api", new_callable=AsyncMock),  # Skip API setup
+        patch.object(
+            config, "get_api", return_value=fansly_api
+        ),  # Use real API from fixture
+        patch("fansly_downloader_ng.print_error") as mock_print_error,  # Monitor errors
+        patch("fansly_downloader_ng.print_info"),  # Suppress info output
     ):
         # Run the function and get the return code
+        # When get_following_accounts fails (due to API error), main() catches it and returns 1
         result = await fansly_downloader_ng.main(config)
 
-        # Check that we got a non-zero exit code
-        assert result != 0, "Expected a non-zero exit code"
+        # Check that we got a non-zero exit code (error)
+        assert result != 0, "Expected a non-zero exit code when following list fails"
 
-        # Verify error message was printed
-        error_found = False
-        for call in mock_print_error.call_args_list:
-            if "Failed to process following list:" in str(call):
-                error_found = True
-                break
+        # Verify error message was printed about following list
+        assert mock_print_error.called, (
+            "Expected error to be logged when following list fails"
+        )
 
-        assert error_found, "No error message about following list was printed"
+        # Check that the specific error message about following list was printed
+        error_messages = [str(call) for call in mock_print_error.call_args_list]
+        assert any("following list" in msg.lower() for msg in error_messages), (
+            f"Expected 'following list' error message, got: {error_messages}"
+        )

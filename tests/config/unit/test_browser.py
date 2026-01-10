@@ -57,8 +57,8 @@ def test_get_browser_config_paths_windows(mock_getenv, mock_expanduser, mock_pla
     """Test browser config paths resolution on Windows."""
     mock_platform.return_value = "Windows"
     mock_getenv.side_effect = lambda x: {
-        "appdata": "C:\\Users\\test\\AppData\\Roaming",
-        "localappdata": "C:\\Users\\test\\AppData\\Local",
+        "APPDATA": "C:\\Users\\test\\AppData\\Roaming",
+        "LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local",
     }.get(x)
 
     paths = get_browser_config_paths()
