@@ -373,7 +373,7 @@ class TestFanslyConfig:
             "apikey": "test_key",
         }
 
-        with patch("stash.StashContext") as mock_stash_context_class:
+        with patch("config.fanslyconfig.StashContext") as mock_stash_context_class:
             mock_stash_context = MagicMock()
             mock_stash_context_class.return_value = mock_stash_context
 

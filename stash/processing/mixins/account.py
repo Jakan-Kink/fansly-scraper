@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import traceback
 from typing import TYPE_CHECKING
 
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func, select
-from stash_graphql_client.types import Performer, is_set
+from stash_graphql_client.types import Image, Performer
 
 from metadata import Account, Media, account_avatar
 from metadata.decorators import with_session
@@ -86,11 +85,9 @@ class AccountProcessingMixin:
     async def _get_or_create_performer(self, account: Account) -> Performer:
         """Get existing performer from Stash or create from account if not found.
 
-        Uses intelligent fuzzy search to find performers by:
-        1. Exact name match (displayName or username)
-        2. Alias match (username)
-        3. URL match (Fansly profile URL)
-        4. Creates new performer from account if no match found
+        IMPORTANT: Performs deduplication checks (name→alias→URL) BEFORE creating.
+        Pattern 1 migration: Use store.find_one() for identity map caching,
+        preserving critical sequential deduplication logic.
 
         Args:
             account: Account database model to search for or create from
@@ -99,43 +96,40 @@ class AccountProcessingMixin:
             Performer object from Stash (either found or newly created)
 
         Note:
-            This searches Stash BEFORE creating a Performer object to avoid
-            polluting the StashEntityStore with temporary UUID placeholders.
+            Migrated to use store for identity map benefits (cached lookups).
+            Preserves sequential name/alias/URL checks to prevent duplicates.
         """
         # Determine search criteria from account
         search_name = account.displayName or account.username
         fansly_url = f"https://fansly.com/{account.username}"
 
-        # Try exact name match
-        result = await self.context.client.find_performers(
-            performer_filter={"name": {"value": search_name, "modifier": "EQUALS"}}
-        )
-        if is_set(result.count) and result.count > 0:
+        # Try exact name match first (identity map returns instantly if cached)
+        performer = await self.store.find_one(Performer, name__exact=search_name)
+        if performer:
             logger.debug(f"Found existing performer by name: {search_name}")
-            return result.performers[0]
+            return performer
 
-        # Try alias match with username
-        result = await self.context.client.find_performers(
-            performer_filter={
-                "aliases": {"value": account.username, "modifier": "INCLUDES"}
-            }
+        # Try alias match (critical for deduplication!)
+        # Using Django-style filter syntax (stash-graphql-client v0.10.6+)
+        # Both Django-style and raw GraphQL syntax tested in:
+        #   tests/stash/processing/unit/test_account_mixin.py
+        performer = await self.store.find_one(
+            Performer, aliases__contains=account.username
         )
-        if is_set(result.count) and result.count > 0:
+        if performer:
             logger.debug(f"Found existing performer by alias: {account.username}")
-            return result.performers[0]
+            return performer
 
-        # Try URL match
-        result = await self.context.client.find_performers(
-            performer_filter={"url": {"value": fansly_url, "modifier": "INCLUDES"}}
-        )
-        if is_set(result.count) and result.count > 0:
+        # Try URL match (catches edge cases)
+        performer = await self.store.find_one(Performer, url__contains=fansly_url)
+        if performer:
             logger.debug(f"Found existing performer by URL: {fansly_url}")
-            return result.performers[0]
+            return performer
 
-        # Not found - create from account
+        # Not found after all deduplication checks - create new performer
         logger.debug(f"Creating new performer for account: {account.username}")
         performer = self._performer_from_account(account)
-        return await self.context.client.create_performer(performer)
+        return await self.store.save(performer)
 
     @with_session()
     async def process_creator(
@@ -242,20 +236,9 @@ class AccountProcessingMixin:
         # Only update if current image is default
         if not performer.image_path or "default=true" in performer.image_path:
             # Get avatar file path
-            avatar_stash_obj = await self.context.client.find_images(
-                image_filter={
-                    "path": {
-                        "modifier": "INCLUDES",
-                        "value": avatar.local_filename,
-                    }
-                },
-                filter_={
-                    "per_page": -1,
-                    "sort": "created_at",
-                    "direction": "DESC",
-                },
-            )
-            if avatar_stash_obj.count == 0:
+            # Pattern 5: Migrated to use store.find() with Django-style filtering
+            images = await self.store.find(Image, path__contains=avatar.local_filename)
+            if not images:
                 debug_print(
                     {
                         "method": "StashProcessing - _update_performer_avatar",
@@ -264,8 +247,8 @@ class AccountProcessingMixin:
                     }
                 )
                 return
-            # Library returns Image objects directly - no conversion needed
-            avatar = avatar_stash_obj.images[0]
+            # Use first image (sorted by created_at in Stash)
+            avatar = images[0]
             avatar_path = avatar.visual_files[0].path
             try:
                 await performer.update_avatar(self.context.client, avatar_path)
@@ -289,41 +272,46 @@ class AccountProcessingMixin:
                 )
 
     async def _find_existing_performer(self, account: Account) -> Performer | None:
-        """Find existing performer in Stash.
+        """Find existing performer in Stash using identity map.
 
         Args:
             account: Account to find performer for
 
         Returns:
             Performer data if found, None otherwise
+
+        Note:
+            Migrated to use store.get() for identity map caching.
+            Same ID = same object instance, instant return if cached.
         """
-        # Try finding by stash_id first
+        # Try finding by stash_id first (uses identity map - O(1) if cached)
         if account.stash_id:
-            performer_data = await self.context.client.find_performer(account.stash_id)
-            if performer_data:
-                debug_print(
-                    {
-                        "method": "StashProcessing - _find_existing_performer",
-                        "stash_id": account.stash_id,
-                        "performer_data": performer_data,
-                    }
-                )
-                # Await the coroutine if we got one
-                if asyncio.iscoroutine(performer_data):
-                    performer_data = await performer_data
-                return performer_data or None
-        performer_data = await self.context.client.find_performer(account.username)
-        debug_print(
-            {
-                "method": "StashProcessing - _find_existing_performer",
-                "username": account.username,
-                "performer_data": performer_data,
-            }
-        )
-        # Await the coroutine if we got one
-        if asyncio.iscoroutine(performer_data):
-            performer_data = await performer_data
-        return performer_data or None
+            try:
+                performer = await self.store.get(Performer, str(account.stash_id))
+                if performer:
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _find_existing_performer",
+                            "stash_id": account.stash_id,
+                            "performer": performer,
+                            "cached": "identity_map",
+                        }
+                    )
+                    return performer
+            except Exception as e:
+                logger.debug(f"Failed to get performer by stash_id: {e}")
+
+        # Fallback to username search (also checks cache)
+        performer = await self.store.find_one(Performer, name=account.username)
+        if performer:
+            debug_print(
+                {
+                    "method": "StashProcessing - _find_existing_performer",
+                    "username": account.username,
+                    "performer": performer,
+                }
+            )
+        return performer
 
     @with_session()
     async def _update_account_stash_id(
@@ -340,7 +328,8 @@ class AccountProcessingMixin:
             session: Optional database session
         """
         # Get account ID safely without triggering lazy loading
-        account_id = inspect(account).identity[0]
+        identity = inspect(account).identity
+        account_id = account.id if identity is None else identity[0]
 
         # Get a fresh account instance bound to the session
         stmt = select(Account).where(Account.id == account_id)

@@ -82,7 +82,7 @@ class TestErrorHandlers:
             return_value=httpx.Response(
                 200,
                 json=create_graphql_response(
-                    "findScenesByPathRegex",
+                    "FindScenes",
                     create_find_scenes_result(count=0, scenes=[]),
                 ),
             )
@@ -159,7 +159,7 @@ class TestErrorHandlers:
             return_value=httpx.Response(
                 200,
                 json=create_graphql_response(
-                    "findScenesByPathRegex",
+                    "FindScenes",
                     create_find_scenes_result(count=0, scenes=[]),
                 ),
             )
@@ -185,7 +185,7 @@ class TestErrorHandlers:
             return_value=httpx.Response(
                 200,
                 json=create_graphql_response(
-                    "findScenesByPathRegex",
+                    "FindScenes",
                     create_find_scenes_result(count=1, scenes=[scene_dict]),
                 ),
             )

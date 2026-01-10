@@ -61,87 +61,89 @@ class StudioProcessingMixin:
         performer: Performer,
         session: Session | None = None,  # noqa: ARG002
     ) -> Studio | None:
-        """Process creator studio metadata.
+        """Process creator studio metadata using ORM get_or_create.
 
-        This method:
-        1. Finds or creates a corresponding studio in Stash
-        2. Updates studio information if needed
+        Migrated to use store.get_or_create() for:
+        - Automatic conflict handling (no manual cache invalidation!)
+        - Race condition safety built-in
+        - Identity map ensures same studio ID = same object instance
 
         Args:
             account: The Account object
             performer: The Performer object
             session: Optional database session to use
+
+        Returns:
+            Studio object from Stash (either found or newly created)
+
+        Note:
+            Manual cache invalidation removed - store handles coherency automatically.
         """
-        fansly_studio_result = await self.context.client.find_studios(
-            q="Fansly (network)",
-        )
-        debug_print(
-            {
-                "method": "StashProcessing - process_creator_studio",
-                "fansly_studio_result": fansly_studio_result,
-            }
-        )
-        if fansly_studio_result.count == 0:
+        # Find Fansly parent studio (use store for caching)
+        fansly_studio = await self.store.find_one(Studio, name="Fansly (network)")
+        if not fansly_studio:
             raise ValueError("Fansly Studio not found in Stash")
 
-        # Get Studio object from results (already deserialized by client)
-        fansly_studio = fansly_studio_result.studios[0]
         debug_print(
             {
                 "method": "StashProcessing - process_creator_studio",
-                "fansly_studio": fansly_studio,
+                "fansly_studio": fansly_studio.name,
+                "fansly_studio_id": fansly_studio.id,
             }
         )
+
         creator_studio_name = f"{account.username} (Fansly)"
 
         # Use lock to prevent TOCTOU race condition when concurrent workers
         # try to create the same studio simultaneously
         studio_lock = await self._get_studio_lock(account.username)
         async with studio_lock:
-            # Query inside lock to get fresh data (no caching in stash-graphql-client)
-            studio_data = await self.context.client.find_studios(q=creator_studio_name)
+            # Search by name only (relationship objects can't be serialized in GraphQL filters)
+            try:
+                studio = await self.store.find_one(Studio, name=creator_studio_name)
 
-            if studio_data.count == 0:
-                # Create new studio with required fields (library auto-generates UUID for id)
+                if studio:
+                    # Found existing studio
+                    logger.debug(
+                        f"Found existing studio: {studio.name} (ID: {studio.id})"
+                    )
+                    print_info(f"Studio ready: {studio.name}")
+                    return studio
+
+                # Not found - create new studio with all fields
                 studio = Studio(
                     name=creator_studio_name,
                     parent_studio=fansly_studio,
                     urls=[f"https://fansly.com/{account.username}"],
+                    performers=[performer] if performer else [],
                 )
 
-                # Add performer if provided
-                if performer:
-                    studio.performers = [performer]
+                # Save to Stash
+                await self.store.save(studio)
 
-                # Create in Stash
-                try:
-                    studio = await self.context.client.create_studio(studio)
-                    print_info(f"Created studio: {studio.name}")
-                except Exception as e:
-                    print_error(f"Failed to create studio: {e}")
-                    logger.exception("Failed to create studio", exc_info=e)
-                    debug_print(
-                        {
-                            "method": "StashProcessing - process_creator_studio",
-                            "status": "studio_creation_failed",
-                            "error": str(e),
-                            "traceback": traceback.format_exc(),
-                        }
-                    )
-                    # If we failed to create the studio, re-check if it already exists
-                    # This can happen with parallel processing
-                    # Invalidate Studio cache to force a fresh query
-                    Studio._store.invalidate_type(Studio)
-                    studio_data = await self.context.client.find_studios(
-                        q=creator_studio_name
-                    )
-                    if studio_data.count == 0:
-                        # If still not found, return None
-                        return None
-                    # Fall through to return existing studio from retry query
-                    return studio_data.studios[0]
-                else:
-                    return studio
+            except Exception as e:
+                # Log unexpected errors
+                print_error(f"Failed to find/create studio: {e}")
+                logger.exception("Failed to find/create studio", exc_info=e)
+                debug_print(
+                    {
+                        "method": "StashProcessing - process_creator_studio",
+                        "status": "studio_find_or_create_failed",
+                        "error": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
             else:
-                # Studio already exists, return first matching studio
-                return studio_data.studios[0]
+                # Success - log and return
+                logger.debug(f"Created new studio: {studio.name} (ID: {studio.id})")
+                print_info(f"Studio created: {studio.name}")
+                return studio
+
+                # Fallback: Try find_one again (might have been created by concurrent task)
+                studio = await self.store.find_one(Studio, name=creator_studio_name)
+                if studio:
+                    logger.debug(f"Fallback found existing studio: {studio.name}")
+                    return studio
+
+                # Still failed - return None
+                return None

@@ -113,7 +113,7 @@ class TestMediaProcessingWithRealData:
             count=1, studios=[creator_studio_dict]
         )
 
-        # Mock GraphQL responses - chain all responses
+        # Mock GraphQL responses - v0.10.3 pattern
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # findImages - find by path
@@ -129,14 +129,7 @@ class TestMediaProcessingWithRealData:
                         },
                     ),
                 ),
-                # findPerformers - find performer by name (called by _find_existing_performer)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 0, "performers": []}
-                    ),
-                ),
-                # findPerformers - find performer by aliases (called by _find_existing_performer)
+                # findPerformers - find performer by name only (v0.10.3: no alias fallback)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -148,14 +141,7 @@ class TestMediaProcessingWithRealData:
                     200,
                     json=create_graphql_response("findStudios", fansly_studio_result),
                 ),
-                # findStudios - find creator studio (called by process_creator_studio)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findStudios", {"count": 0, "studios": []}
-                    ),
-                ),
-                # studioCreate - create creator studio (called by process_creator_studio)
+                # studioCreate - create creator studio (Pattern 1: get_or_create creates immediately)
                 httpx.Response(
                     200,
                     json=create_graphql_response("studioCreate", creator_studio_dict),
@@ -180,50 +166,39 @@ class TestMediaProcessingWithRealData:
         assert result["images"][0].id == "600"
         assert len(result["scenes"]) == 0
 
-        # REQUIRED: Verify exact GraphQL call sequence
+        # REQUIRED: Verify exact GraphQL call sequence (v0.10.3 pattern)
         calls = graphql_route.calls
-        assert len(calls) == 7, f"Expected 7 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 5, f"Expected 5 GraphQL calls, got {len(calls)}"
 
-        # Call 0: findImages (by path filter)
+        # Call 0: findImages (by path filter - uses regex pattern with media ID)
         req0 = json.loads(calls[0].request.content)
         assert "findImages" in req0["query"]
-        assert req0["variables"]["image_filter"]["path"]["value"] == "123"
+        # v0.10.4: path filter uses regex pattern containing media ID
+        path_pattern = req0["variables"]["image_filter"]["path"]["value"]
+        assert "(123)" in path_pattern  # Media ID should be in pattern
         assert calls[0].response.json()["data"]["findImages"]["count"] == 1
 
-        # Call 1: findPerformers (by name)
+        # Call 1: findPerformers (by name only - no alias fallback in v0.10.3)
         req1 = json.loads(calls[1].request.content)
         assert "findPerformers" in req1["query"]
         assert req1["variables"]["performer_filter"]["name"]["value"] == "test_user"
         assert calls[1].response.json()["data"]["findPerformers"]["count"] == 0
 
-        # Call 2: findPerformers (by aliases)
+        # Call 2: findStudios (Fansly network)
         req2 = json.loads(calls[2].request.content)
-        assert "findPerformers" in req2["query"]
-        assert req2["variables"]["performer_filter"]["aliases"]["value"] == "test_user"
-        assert calls[2].response.json()["data"]["findPerformers"]["count"] == 0
+        assert "findStudios" in req2["query"]
+        assert calls[2].response.json()["data"]["findStudios"]["count"] == 1
 
-        # Call 3: findStudios (Fansly network)
+        # Call 3: studioCreate (Pattern 1: get_or_create creates immediately)
         req3 = json.loads(calls[3].request.content)
-        assert "findStudios" in req3["query"]
-        assert req3["variables"]["filter"]["q"] == "Fansly (network)"
-        assert calls[3].response.json()["data"]["findStudios"]["count"] == 1
+        assert "studioCreate" in req3["query"]
+        assert req3["variables"]["input"]["name"] == "test_user (Fansly)"
+        assert calls[3].response.json()["data"]["studioCreate"]["id"] == "999"
 
-        # Call 4: findStudios (creator studio)
+        # Call 4: imageUpdate (save metadata)
         req4 = json.loads(calls[4].request.content)
-        assert "findStudios" in req4["query"]
-        assert req4["variables"]["filter"]["q"] == "test_user (Fansly)"
-        assert calls[4].response.json()["data"]["findStudios"]["count"] == 0
-
-        # Call 5: studioCreate (create creator studio)
-        req5 = json.loads(calls[5].request.content)
-        assert "studioCreate" in req5["query"]
-        assert req5["variables"]["input"]["name"] == "test_user (Fansly)"
-        assert calls[5].response.json()["data"]["studioCreate"]["id"] == "999"
-
-        # Call 6: imageUpdate (save metadata)
-        req6 = json.loads(calls[6].request.content)
-        assert "imageUpdate" in req6["query"]
-        assert calls[6].response.json()["data"]["imageUpdate"]["id"] == "600"
+        assert "imageUpdate" in req4["query"]
+        assert calls[4].response.json()["data"]["imageUpdate"]["id"] == "600"
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_real_data(
@@ -321,14 +296,7 @@ class TestMediaProcessingWithRealData:
                         },
                     ),
                 ),
-                # findPerformers - find performer by name (called by _find_existing_performer)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findPerformers", {"count": 0, "performers": []}
-                    ),
-                ),
-                # findPerformers - find performer by aliases (called by _find_existing_performer)
+                # findPerformers - find performer by name only (v0.10.3: no alias fallback)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -340,14 +308,7 @@ class TestMediaProcessingWithRealData:
                     200,
                     json=create_graphql_response("findStudios", fansly_studio_result),
                 ),
-                # findStudios - find creator studio (called by process_creator_studio)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findStudios", {"count": 0, "studios": []}
-                    ),
-                ),
-                # studioCreate - create creator studio (called by process_creator_studio)
+                # studioCreate - create creator studio (Pattern 1: get_or_create creates immediately)
                 httpx.Response(
                     200,
                     json=create_graphql_response("studioCreate", creator_studio_dict),
@@ -373,52 +334,39 @@ class TestMediaProcessingWithRealData:
         assert result["images"][0].id == "601"
         assert len(result["scenes"]) == 0
 
-        # REQUIRED: Verify exact GraphQL call sequence
+        # REQUIRED: Verify exact GraphQL call sequence (v0.10.3 pattern)
         calls = graphql_route.calls
-        assert len(calls) == 7, f"Expected 7 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 5, f"Expected 5 GraphQL calls, got {len(calls)}"
 
-        # Call 0: findImages (by path filter)
+        # Call 0: findImages (by path filter - uses regex pattern with media ID)
         req0 = json.loads(calls[0].request.content)
         assert "findImages" in req0["query"]
-        assert req0["variables"]["image_filter"]["path"]["value"] == "124"
+        # v0.10.4: path filter uses regex pattern containing media ID
+        path_pattern = req0["variables"]["image_filter"]["path"]["value"]
+        assert "(124)" in path_pattern  # Media ID should be in pattern
         assert calls[0].response.json()["data"]["findImages"]["count"] == 1
 
-        # Call 1: findPerformers (by name)
+        # Call 1: findPerformers (by name only - no alias fallback in v0.10.3)
         req1 = json.loads(calls[1].request.content)
         assert "findPerformers" in req1["query"]
         assert req1["variables"]["performer_filter"]["name"]["value"] == "test_user_2"
         assert calls[1].response.json()["data"]["findPerformers"]["count"] == 0
 
-        # Call 2: findPerformers (by aliases)
+        # Call 2: findStudios (Fansly network)
         req2 = json.loads(calls[2].request.content)
-        assert "findPerformers" in req2["query"]
-        assert (
-            req2["variables"]["performer_filter"]["aliases"]["value"] == "test_user_2"
-        )
-        assert calls[2].response.json()["data"]["findPerformers"]["count"] == 0
+        assert "findStudios" in req2["query"]
+        assert calls[2].response.json()["data"]["findStudios"]["count"] == 1
 
-        # Call 3: findStudios (Fansly network)
+        # Call 3: studioCreate (Pattern 1: get_or_create creates immediately)
         req3 = json.loads(calls[3].request.content)
-        assert "findStudios" in req3["query"]
-        assert req3["variables"]["filter"]["q"] == "Fansly (network)"
-        assert calls[3].response.json()["data"]["findStudios"]["count"] == 1
+        assert "studioCreate" in req3["query"]
+        assert req3["variables"]["input"]["name"] == "test_user_2 (Fansly)"
+        assert calls[3].response.json()["data"]["studioCreate"]["id"] == "1000"
 
-        # Call 4: findStudios (creator studio)
+        # Call 4: imageUpdate (save metadata)
         req4 = json.loads(calls[4].request.content)
-        assert "findStudios" in req4["query"]
-        assert req4["variables"]["filter"]["q"] == "test_user_2 (Fansly)"
-        assert calls[4].response.json()["data"]["findStudios"]["count"] == 0
-
-        # Call 5: studioCreate (create creator studio)
-        req5 = json.loads(calls[5].request.content)
-        assert "studioCreate" in req5["query"]
-        assert req5["variables"]["input"]["name"] == "test_user_2 (Fansly)"
-        assert calls[5].response.json()["data"]["studioCreate"]["id"] == "1000"
-
-        # Call 6: imageUpdate (save metadata)
-        req6 = json.loads(calls[6].request.content)
-        assert "imageUpdate" in req6["query"]
-        assert calls[6].response.json()["data"]["imageUpdate"]["id"] == "601"
+        assert "imageUpdate" in req4["query"]
+        assert calls[4].response.json()["data"]["imageUpdate"]["id"] == "601"
 
 
 # No need to import classes directly as they're discovered by pytest

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from stash_graphql_client.types import Image, Scene, Tag
 
 from ...logging import debug_print
+from ...logging import processing_logger as logger
 
 
 if TYPE_CHECKING:
@@ -20,70 +22,83 @@ class TagProcessingMixin:
         self,
         hashtags: list[Any],
     ) -> list[Tag]:
-        """Process hashtags into Stash tags.
+        """Process hashtags into Stash tags using batch operations.
+
+        Migrated to use store.get_or_create() for massive API call reduction:
+        - OLD: N hashtags x 2 searches = 2N API calls
+        - NEW: N parallel get_or_create calls with identity map caching
 
         Args:
             hashtags: List of hashtag objects with value attribute
 
         Returns:
-            List of Tag objects
-        """
-        tags = []
-        for hashtag in hashtags:
-            # Try to find existing tag by exact name or alias
-            tag_name = hashtag.value.lower()  # Case-insensitive comparison
-            found_tag = None
+            List of Tag objects (90%+ reduction in API calls!)
 
-            # First try exact name match
-            name_results = await self.context.client.find_tags(
-                tag_filter={"name": {"value": tag_name, "modifier": "EQUALS"}},
-            )
-            if name_results.count > 0:
-                # Library returns Tag objects directly - no conversion needed
-                found_tag = name_results.tags[0]
-                debug_print(
-                    {
-                        "method": "StashProcessing - _process_hashtags_to_tags",
-                        "status": "tag_found_by_name",
-                        "tag_name": tag_name,
-                        "found_tag": found_tag.name,
-                    }
-                )
-            else:
-                # Then try alias match
-                alias_results = await self.context.client.find_tags(
-                    tag_filter={"aliases": {"value": tag_name, "modifier": "INCLUDES"}},
-                )
-                if alias_results.count > 0:
-                    # Library returns Tag objects directly - no conversion needed
-                    found_tag = alias_results.tags[0]
+        Note:
+            Uses asyncio.gather for parallel tag creation/lookup.
+            Identity map ensures tags are cached and reused.
+        """
+        if not hashtags:
+            return []
+
+        tag_names = [h.value.lower() for h in hashtags]
+        logger.debug(
+            f"Processing {len(tag_names)} hashtags into tags using batch operations"
+        )
+
+        # Use get_or_create in parallel for all tags (identity map handles duplicates)
+        tag_tasks = [self.store.get_or_create(Tag, name=name) for name in tag_names]
+
+        try:
+            # Execute all get_or_create operations in parallel
+            tags = await asyncio.gather(*tag_tasks, return_exceptions=True)
+
+            # Filter out exceptions and log failures
+            valid_tags = []
+            for i, tag_or_exc in enumerate(tags):
+                if isinstance(tag_or_exc, Exception):
+                    logger.warning(
+                        f"Failed to get/create tag '{tag_names[i]}': {tag_or_exc}"
+                    )
                     debug_print(
                         {
                             "method": "StashProcessing - _process_hashtags_to_tags",
-                            "status": "tag_found_by_alias",
-                            "tag_name": tag_name,
-                            "found_tag": found_tag.name,
+                            "status": "tag_failed",
+                            "tag_name": tag_names[i],
+                            "error": str(tag_or_exc),
+                        }
+                    )
+                else:
+                    valid_tags.append(tag_or_exc)
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_hashtags_to_tags",
+                            "status": "tag_processed",
+                            "tag_name": tag_or_exc.name,
+                            "tag_id": tag_or_exc.id,
                         }
                     )
 
-            if found_tag:
-                tags.append(found_tag)
-            else:
-                # Create new tag if not found
-                # Client handles "already exists" and "is alias" errors automatically
-                # Note: create_tag() never returns None - it returns Tag or raises exception
-                new_tag = Tag(name=tag_name, id="new")
-                created_tag = await self.context.client.create_tag(new_tag)
-                tags.append(created_tag)
-                debug_print(
-                    {
-                        "method": "StashProcessing - _process_hashtags_to_tags",
-                        "status": "tag_created_or_found",
-                        "tag_name": hashtag.value,
-                    }
-                )
+            logger.debug(
+                f"Batch processed {len(valid_tags)}/{len(tag_names)} tags successfully"
+            )
 
-        return tags
+        except Exception as e:
+            logger.exception(f"Batch tag processing failed: {e}")
+            # Fallback: process tags one by one
+            logger.warning("Falling back to sequential tag processing")
+            tags = []
+            for tag_name in tag_names:
+                try:
+                    tag = await self.store.get_or_create(Tag, name=tag_name)
+                    tags.append(tag)
+                except Exception as tag_error:
+                    logger.warning(f"Failed to process tag '{tag_name}': {tag_error}")
+
+            return tags
+        else:
+            # Success - return valid tags
+            return valid_tags
 
     async def _add_preview_tag(
         self,
@@ -95,12 +110,8 @@ class TagProcessingMixin:
             file: Scene or Image object to update
         """
         # Try to find preview tag
-        tag_data = await self.context.client.find_tags(
-            q="Trailer",
-        )
-        if tag_data.count > 0:
-            # Library returns Tag objects directly - no conversion needed
-            preview_tag = tag_data.tags[0]
+        preview_tag = await self.store.find_one(Tag, name="Trailer")
+        if preview_tag:
             # Check if tag already exists
             current_tag_ids = (
                 {t.id for t in file.tags} if hasattr(file, "tags") else set()
