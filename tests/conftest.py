@@ -615,6 +615,13 @@ def performance_tracker(performance_log_dir, request):
 
             return result
 
+        # Add async context manager support
+        async def __aenter__(self):
+            return self.__enter__()
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return self.__exit__(exc_type, exc_val, exc_tb)
+
     return PerformanceContextManager
 
 

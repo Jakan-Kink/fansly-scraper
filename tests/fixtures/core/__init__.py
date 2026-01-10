@@ -2,6 +2,7 @@
 
 from .config_factories import FanslyConfigFactory
 from .config_fixtures import (
+    complete_args,
     config_parser,
     mock_config_file,
     temp_config_dir,
@@ -12,6 +13,7 @@ from .config_fixtures import (
 
 __all__ = [
     "FanslyConfigFactory",
+    "complete_args",
     "config_parser",
     "mock_config_file",
     "temp_config_dir",

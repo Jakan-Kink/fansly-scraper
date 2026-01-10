@@ -61,7 +61,9 @@ class FanslyConfig:
     updated_to: str | None = None
 
     # Objects
-    _parser = ConfigParser(interpolation=None)
+    _parser: ConfigParser = field(
+        default_factory=lambda: ConfigParser(interpolation=None)
+    )
     _background_tasks: list[asyncio.Task] = field(default_factory=list)
 
     # endregion File-Independent

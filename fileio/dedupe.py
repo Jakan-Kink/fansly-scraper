@@ -1079,11 +1079,43 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
 
             # Handle missing filename
             if existing_by_id.local_filename is None:
-                existing_by_id.local_filename = get_filename_only(filename)
-                existing_by_id.is_downloaded = True
                 file_hash = None
                 if not file_hash:
                     file_hash = await _calculate_hash_for_file(filename, mimetype)
+
+                # Before marking as not duplicate, check if hash matches another media
+                if file_hash:
+                    result = await session.execute(
+                        select(Media).filter(
+                            Media.content_hash == file_hash,
+                            Media.id != existing_by_id.id,
+                            Media.is_downloaded.is_(True),
+                        )
+                    )
+                    duplicate_media = result.scalar_one_or_none()
+                    if duplicate_media:
+                        # Found duplicate by hash - check if its file exists
+                        db_file_exists = await _check_file_exists(
+                            state.download_path, duplicate_media.local_filename
+                        )
+                        if db_file_exists:
+                            # Duplicate exists - update this record to reference it
+                            existing_by_id.content_hash = file_hash
+                            existing_by_id.local_filename = (
+                                duplicate_media.local_filename
+                            )
+                            existing_by_id.is_downloaded = True
+                            session.add(existing_by_id)
+                            await session.flush()
+                            # Remove the new file since it's a duplicate
+                            await asyncio.get_running_loop().run_in_executor(
+                                None, filename.unlink
+                            )
+                            return True
+
+                # No duplicate found - update with new file info
+                existing_by_id.local_filename = get_filename_only(filename)
+                existing_by_id.is_downloaded = True
                 if file_hash:
                     existing_by_id.content_hash = file_hash
                 session.add(existing_by_id)

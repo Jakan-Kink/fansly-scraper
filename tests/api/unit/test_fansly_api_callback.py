@@ -28,12 +28,19 @@ class TestFanslyApiCallback:
             on_device_updated=mock_callback,
         )
 
+        # Mock CORS OPTIONS request
+        respx.options("https://apiv3.fansly.com/api/v1/device/id").mock(
+            side_effect=[httpx.Response(200)]
+        )
+
         # Mock the HTTP response for get_device_id at the edge
-        respx.get(url__regex=r".*api/v1/check/device.*").mock(
-            return_value=httpx.Response(
-                200,
-                json={"success": True, "response": {"deviceId": "new_device_id"}},
-            )
+        respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"success": "true", "response": "new_device_id"},
+                )
+            ]
         )
 
         # Set timestamp to a very old value to trigger update

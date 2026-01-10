@@ -150,6 +150,9 @@ async def test_check_page_duplicates_wall(mock_config, test_async_session):
 @pytest.mark.asyncio
 async def test_check_page_duplicates_all_existing(mock_config, test_async_session):
     """Test duplicate checking when all posts exist."""
+    # Enable pagination duplication checking
+    mock_config.use_pagination_duplication = True
+
     page_data = {"posts": [{"id": 1}]}
 
     class ExistingPostSession(test_async_session.__class__):

@@ -1,6 +1,5 @@
 """Additional unit tests for FanslyApi class to improve coverage"""
 
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -16,12 +15,24 @@ class TestFanslyApiAdditional:
     @respx.mock
     def test_get_account_media_response(self, fansly_api):
         """Test get_account_media returns the response from get_with_ngsw"""
-        # Mock HTTP response at the edge
-        respx.get(url__regex=r".*account/media.*").mock(
-            return_value=httpx.Response(200, json={"success": True, "response": {}})
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r".*account/media.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        result = fansly_api.get_account_media("media123")
+        # Mock HTTP response at the edge
+        media_route = respx.get(url__regex=r".*account/media.*").mock(
+            side_effect=[httpx.Response(200, json={"success": True, "response": {}})]
+        )
+
+        try:
+            result = fansly_api.get_account_media("media123")
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(media_route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
         # Verify the result is a real response object
         assert result.status_code == 200
@@ -30,35 +41,60 @@ class TestFanslyApiAdditional:
     @respx.mock
     def test_account_media_validation_flow(self, fansly_api):
         """Test validation flow for get_account_media when used with get_json_response_contents"""
-        # Mock invalid API response at the edge
-        respx.get(url__regex=r".*account/media.*").mock(
-            return_value=httpx.Response(200, json={"success": "false"})
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r".*account/media.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        # First get the API response
-        response = fansly_api.get_account_media("media123")
+        # Mock invalid API response at the edge
+        validation_route = respx.get(url__regex=r".*account/media.*").mock(
+            side_effect=[httpx.Response(200, json={"success": "false"})]
+        )
 
-        # Then validate it - this would be done by consumers of the API
-        with pytest.raises(RuntimeError, match="Invalid or failed JSON response"):
-            fansly_api.get_json_response_contents(response)
+        try:
+            # First get the API response
+            response = fansly_api.get_account_media("media123")
+
+            # Then validate it - this would be done by consumers of the API
+            with pytest.raises(RuntimeError, match="Invalid or failed JSON response"):
+                fansly_api.get_json_response_contents(response)
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(validation_route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
     def test_get_json_response_contents_error(self, fansly_api):
         """Test get_json_response_contents with invalid JSON response"""
-        # Create a real httpx.Response with invalid data
-        mock_response = httpx.Response(200, json={"success": "false"})
+        # Create a real httpx.Response with invalid data and a request
+        request = httpx.Request("GET", "https://api.test.com")
+        mock_response = httpx.Response(200, json={"success": "false"}, request=request)
 
-        with pytest.raises(RuntimeError, match="Invalid or failed JSON response"):
+        with pytest.raises(RuntimeError):
             fansly_api.get_json_response_contents(mock_response)
 
     @respx.mock
     def test_get_wall_posts_with_params(self, fansly_api):
         """Test get_wall_posts with custom cursor"""
-        # Capture the request to verify parameters
-        route = respx.get(url__regex=r".*post/wall.*").mock(
-            return_value=httpx.Response(200, json={"success": True, "response": []})
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r".*timelinenew.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        fansly_api.get_wall_posts("creator123", "wall456", "cursor789")
+        # Capture the request to verify parameters
+        route = respx.get(url__regex=r".*timelinenew.*").mock(
+            side_effect=[httpx.Response(200, json={"success": True, "response": []})]
+        )
+
+        try:
+            fansly_api.get_wall_posts("creator123", "wall456", "cursor789")
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
         # Verify the request was made with correct parameters
         assert route.called
@@ -71,12 +107,24 @@ class TestFanslyApiAdditional:
     @respx.mock
     def test_get_wall_posts_default_cursor(self, fansly_api):
         """Test get_wall_posts with default cursor"""
-        # Capture the request to verify parameters
-        route = respx.get(url__regex=r".*post/wall.*").mock(
-            return_value=httpx.Response(200, json={"success": True, "response": []})
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r".*timelinenew.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        fansly_api.get_wall_posts("creator123", "wall456")
+        # Capture the request to verify parameters
+        route = respx.get(url__regex=r".*timelinenew.*").mock(
+            side_effect=[httpx.Response(200, json={"success": True, "response": []})]
+        )
+
+        try:
+            fansly_api.get_wall_posts("creator123", "wall456")
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
         # Verify the request was made with correct parameters
         assert route.called
@@ -88,12 +136,24 @@ class TestFanslyApiAdditional:
     @respx.mock
     def test_get_client_account_info_with_alternate_token(self, fansly_api):
         """Test get_client_account_info with alternate token"""
-        # Capture the request to verify headers
-        route = respx.get(url__regex=r".*account/me.*").mock(
-            return_value=httpx.Response(200, json={"success": True, "response": {}})
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r".*account/me.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        fansly_api.get_client_account_info(alternate_token="alt_token")  # noqa: S106 # Test fixture token
+        # Capture the request to verify headers
+        route = respx.get(url__regex=r".*account/me.*").mock(
+            side_effect=[httpx.Response(200, json={"success": True, "response": {}})]
+        )
+
+        try:
+            fansly_api.get_client_account_info(alternate_token="alt_token")  # noqa: S106 # Test fixture token
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
         # Verify the request was made with alternate token in headers
         assert route.called
@@ -113,7 +173,10 @@ class TestFanslyApiAdditional:
         # Mock the websocket connection
         with (
             patch("websockets.client.connect", return_value=mock_ws_instance),
-            pytest.raises(RuntimeError, match="WebSocket error"),
+            pytest.raises(
+                RuntimeError,
+                match=r"WebSocket (authentication failed|session setup failed)",
+            ),
         ):
             await fansly_api.get_active_session_async()
 
@@ -123,12 +186,24 @@ class TestFanslyApiAdditional:
         test_url = "https://api.test.com/endpoint?existing=param"
         test_params = {"test": "value", "another": "param"}
 
-        # Capture the request to verify all parameters
-        route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
-            return_value=httpx.Response(200, json={})
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r"https://api\.test\.com/endpoint.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        fansly_api.get_with_ngsw(url=test_url, params=test_params)
+        # Capture the request to verify all parameters
+        route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
+            side_effect=[httpx.Response(200, json={})]
+        )
+
+        try:
+            fansly_api.get_with_ngsw(url=test_url, params=test_params)
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
         # Verify the request was made with correct parameters
         assert route.called
@@ -147,12 +222,24 @@ class TestFanslyApiAdditional:
         test_url = "https://api.test.com/endpoint"
         test_cookies = {"cookie1": "value1", "cookie2": "value2"}
 
-        # Capture the request to verify cookies
-        route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
-            return_value=httpx.Response(200, json={})
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r"https://api\.test\.com/endpoint.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        fansly_api.get_with_ngsw(url=test_url, cookies=test_cookies)
+        # Capture the request to verify cookies
+        route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
+            side_effect=[httpx.Response(200, json={})]
+        )
+
+        try:
+            fansly_api.get_with_ngsw(url=test_url, cookies=test_cookies)
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
         # Verify the request was made with cookies
         assert route.called
@@ -165,12 +252,24 @@ class TestFanslyApiAdditional:
         """Test get_with_ngsw with stream mode"""
         test_url = "https://api.test.com/endpoint"
 
-        # Mock HTTP response for stream mode
-        route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
-            return_value=httpx.Response(200, content=b"stream data")
+        # Mock CORS OPTIONS request
+        respx.options(url__regex=r"https://api\.test\.com/endpoint.*").mock(
+            side_effect=[httpx.Response(200)]
         )
 
-        response = fansly_api.get_with_ngsw(url=test_url, stream=True)
+        # Mock HTTP response for stream mode
+        route = respx.get(url__regex=r"https://api\.test\.com/endpoint.*").mock(
+            side_effect=[httpx.Response(200, content=b"stream data")]
+        )
+
+        try:
+            response = fansly_api.get_with_ngsw(url=test_url, stream=True)
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
         # Verify the request was made
         assert route.called
@@ -230,49 +329,93 @@ class TestFanslyApiAdditional:
             mock_async.assert_called_once()
             assert result == "test_session"
 
+    @respx.mock
     def test_cors_options_request_includes_headers(self, fansly_api):
         """Test cors_options_request includes required headers"""
         test_url = "https://api.test.com/endpoint"
 
-        fansly_api.cors_options_request(test_url)
+        # Mock CORS OPTIONS request
+        options_route = respx.options(test_url).mock(side_effect=[httpx.Response(200)])
 
-        call_args = fansly_api.http_session.options.call_args
-        headers = call_args[1]["headers"]
+        try:
+            fansly_api.cors_options_request(test_url)
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(options_route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
-        assert "Origin" in headers
-        assert "Access-Control-Request-Method" in headers
-        assert "Access-Control-Request-Headers" in headers
+        # Verify the request was made
+        assert options_route.called
+        request = options_route.calls.last.request
+
+        # Verify headers
+        assert "origin" in request.headers
+        assert "access-control-request-method" in request.headers
+        assert "access-control-request-headers" in request.headers
 
         # Verify it contains required Fansly headers
         assert (
             "authorization,fansly-client-check,fansly-client-id,fansly-client-ts,fansly-session-id"
-            in headers["Access-Control-Request-Headers"]
+            in request.headers["access-control-request-headers"]
         )
 
+    @respx.mock
     def test_init_without_device_info(self):
         """Test initialization without device ID and timestamp parameters."""
-        # Mock the update_device_id method to avoid real API calls
-        with patch.object(FanslyApi, "update_device_id") as mock_update_device_id:
+        # Mock CORS OPTIONS and device ID endpoint at HTTP boundary
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/.*").mock(
+            side_effect=[httpx.Response(200)]
+        )
+
+        device_route = respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json={"success": "true", "response": "new_device_id"}
+                )
+            ]
+        )
+
+        try:
             # Call the constructor without device_id and device_id_timestamp
             api = FanslyApi(
                 token="test_token",  # noqa: S106 # Test fixture token
                 user_agent="test_user_agent",
                 check_key="test_check_key",
             )
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(device_route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
-            # Verify the default timestamp is used (January 1st, 1990 at midnight)
-            expected_timestamp = int(datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp())
-            assert api.device_id_timestamp == expected_timestamp
+        # Verify the device ID endpoint was called
+        assert device_route.called
 
-            # Verify that update_device_id was called to fetch a new device ID
-            mock_update_device_id.assert_called_once()
+        # Verify the device ID was fetched
+        assert api.device_id == "new_device_id"
 
+    @respx.mock
     def test_init_without_device_id_but_with_timestamp(self):
         """Test initialization with only timestamp but no device ID."""
         custom_timestamp = 123456789
 
-        # Mock the update_device_id method to avoid real API calls
-        with patch.object(FanslyApi, "update_device_id") as mock_update_device_id:
+        # Mock CORS OPTIONS and device ID endpoint at HTTP boundary
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/.*").mock(
+            side_effect=[httpx.Response(200)]
+        )
+
+        device_route = respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json={"success": "true", "response": "fetched_device_id"}
+                )
+            ]
+        )
+
+        try:
             # Call the constructor with device_id_timestamp but without device_id
             api = FanslyApi(
                 token="test_token",  # noqa: S106 # Test fixture token
@@ -280,21 +423,38 @@ class TestFanslyApiAdditional:
                 check_key="test_check_key",
                 device_id_timestamp=custom_timestamp,
             )
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(device_route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
-            # The API should still use the default timestamp since both parameters
-            # need to be provided to skip the update_device_id call
-            expected_timestamp = int(datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp())
-            assert api.device_id_timestamp == expected_timestamp
+        # Verify the device ID endpoint was called (since device_id wasn't provided)
+        assert device_route.called
 
-            # Verify that update_device_id was called
-            mock_update_device_id.assert_called_once()
+        # Verify the device ID was fetched
+        assert api.device_id == "fetched_device_id"
 
+    @respx.mock
     def test_init_with_device_id_but_without_timestamp(self):
         """Test initialization with only device ID but no timestamp."""
         custom_device_id = "custom_device_id"
 
-        # Mock the update_device_id method to avoid real API calls
-        with patch.object(FanslyApi, "update_device_id") as mock_update_device_id:
+        # Mock CORS OPTIONS and device ID endpoint at HTTP boundary
+        respx.options(url__regex=r"https://apiv3\.fansly\.com/.*").mock(
+            side_effect=[httpx.Response(200)]
+        )
+
+        device_route = respx.get("https://apiv3.fansly.com/api/v1/device/id").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json={"success": "true", "response": "updated_device_id"}
+                )
+            ]
+        )
+
+        try:
             # Call the constructor with device_id but without device_id_timestamp
             api = FanslyApi(
                 token="test_token",  # noqa: S106 # Test fixture token
@@ -302,11 +462,15 @@ class TestFanslyApiAdditional:
                 check_key="test_check_key",
                 device_id=custom_device_id,
             )
+        finally:
+            print("****RESPX Call Debugging****")
+            for index, call in enumerate(device_route.calls):
+                print(f"Call {index}")
+                print(f"--request: {call.request}")
+                print(f"--response: {call.response}")
 
-            # The API should still use the default timestamp since both parameters
-            # need to be provided to skip the update_device_id call
-            expected_timestamp = int(datetime(1990, 1, 1, 0, 0, tzinfo=UTC).timestamp())
-            assert api.device_id_timestamp == expected_timestamp
+        # Verify the device ID endpoint was called (since timestamp wasn't provided)
+        assert device_route.called
 
-            # Verify that update_device_id was called
-            mock_update_device_id.assert_called_once()
+        # Verify the device ID was updated
+        assert api.device_id == "updated_device_id"

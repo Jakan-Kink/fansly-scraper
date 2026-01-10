@@ -97,8 +97,10 @@ def test_check_for_update_up_to_date(monkeypatch):
         program_version = "1.1.0"
 
     config = DummyConfig()
+    # Use the same platform name conversion as the code
+    current_platform = "macOS" if platform.system() == "Darwin" else platform.system()
     asset = {
-        "name": f"{platform.system()}_build",
+        "name": f"{current_platform}_build",
         "created_at": "2025-01-01T00:00:00Z",
         "download_count": 50,
         "browser_download_url": "http://example.com/download",
@@ -122,8 +124,10 @@ def test_check_for_update_outdated(monkeypatch):
         program_version = "1.0.0"
 
     config = DummyConfig()
+    # Use the same platform name conversion as the code
+    current_platform = "macOS" if platform.system() == "Darwin" else platform.system()
     asset = {
-        "name": f"{platform.system()}_build",
+        "name": f"{current_platform}_build",
         "created_at": "2025-01-01T00:00:00Z",
         "download_count": 50,
         "browser_download_url": "http://example.com/download",

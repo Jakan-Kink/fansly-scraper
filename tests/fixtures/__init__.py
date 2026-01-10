@@ -29,6 +29,7 @@ from .api import (
 )
 from .core import (
     FanslyConfigFactory,
+    complete_args,
     config_parser,
     mock_config_file,
     temp_config_dir,
@@ -66,7 +67,12 @@ from .download import (
     DownloadStateFactory,
     download_state,
     mock_download_dir,
+    mock_download_media,
     mock_metadata_dir,
+    mock_parse_media_info,
+    mock_process_media_bundles,
+    mock_process_media_download,
+    mock_process_media_info,
     mock_temp_dir,
     test_downloads_dir,
 )
@@ -178,6 +184,7 @@ mod_core_factories = [
 ]
 
 mod_core_fixtures = [
+    "complete_args",
     "config_parser",
     "mock_config_file",
     "temp_config_dir",
@@ -192,7 +199,12 @@ mod_download_factories = [
 mod_download_fixtures = [
     "download_state",
     "mock_download_dir",
+    "mock_download_media",
     "mock_metadata_dir",
+    "mock_parse_media_info",
+    "mock_process_media_bundles",
+    "mock_process_media_download",
+    "mock_process_media_info",
     "mock_temp_dir",
     "test_downloads_dir",
 ]

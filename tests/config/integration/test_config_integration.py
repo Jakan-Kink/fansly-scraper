@@ -227,8 +227,8 @@ async def test_config_with_check_key_validation(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
     # Test old check keys that should be replaced
-    old_keys = ["negwij-zyZnek-wavje1", "negwij-zyZnak-wavje1"]
-    default_key = "qybZy9-fyszis-bybxyf"
+    old_keys = ["negwij-zyZnek-wavje1", "negwij-zyZnak-wavje1", "qybZy9-fyszis-bybxyf"]
+    default_key = "oybZy8-fySzis-bubayf"  # Current default as of 2025-10-25
 
     for old_key in old_keys:
         with config_path.open("w") as f:

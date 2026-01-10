@@ -223,9 +223,11 @@ def _try_direct_download(
         stderr = e.stderr.decode() if e.stderr else str(e)
         print_debug(f"Direct HLS download failed: {stderr}")
         print_info("Fast path failed, falling back to segment download...")
+        return False
     except Exception as e:
         print_debug(f"Direct HLS download failed: {e!s}")
         print_info("Fast path failed, falling back to segment download...")
+        return False
     else:
         return False
 

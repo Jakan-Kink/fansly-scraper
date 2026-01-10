@@ -23,10 +23,13 @@ def setup_loggers():
     # Initialize logging config
     config = FanslyConfig(program_version="test")
     init_logging_config(config)
+    # Ensure debug mode is disabled for clean test state
+    set_debug_enabled(False)
 
     yield
-    # Clean up handlers
+    # Clean up handlers and reset global state
     logger.remove()
+    set_debug_enabled(False)
 
 
 def test_loggers_have_correct_bindings():
@@ -107,7 +110,7 @@ def test_get_log_level_with_debug_enabled():
 
 
 def test_get_log_level_with_trace_enabled(tmp_path):
-    """Test that trace mode only affects trace_logger."""
+    """Test that trace mode affects trace_logger and sqlalchemy (for db_logger.trace())."""
     config = FanslyConfig(program_version="test")
     config.trace = True
     init_logging_config(config)
@@ -116,12 +119,14 @@ def test_get_log_level_with_trace_enabled(tmp_path):
         # trace_logger should accept TRACE level
         assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
 
+        # sqlalchemy should also use TRACE level (for db_logger.trace())
+        assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
+
         # Other loggers should still be at default levels
         assert get_log_level("textio") == _LEVEL_VALUES["INFO"]
         assert get_log_level("json") == _LEVEL_VALUES["INFO"]
         assert get_log_level("stash_console") == _LEVEL_VALUES["INFO"]
         assert get_log_level("stash_file") == _LEVEL_VALUES["INFO"]
-        assert get_log_level("sqlalchemy") == _LEVEL_VALUES["INFO"]
     finally:
         config.trace = False
         init_logging_config(config)
@@ -138,12 +143,14 @@ def test_get_log_level_with_debug_and_trace(tmp_path):
         # trace_logger should accept TRACE level
         assert get_log_level("trace") == _LEVEL_VALUES["TRACE"]
 
+        # sqlalchemy should use TRACE level (trace check happens before debug check)
+        assert get_log_level("sqlalchemy") == _LEVEL_VALUES["TRACE"]
+
         # Other loggers should be at DEBUG level
         assert get_log_level("textio") == _LEVEL_VALUES["DEBUG"]
         assert get_log_level("json") == _LEVEL_VALUES["DEBUG"]
         assert get_log_level("stash_console") == _LEVEL_VALUES["DEBUG"]
         assert get_log_level("stash_file") == _LEVEL_VALUES["DEBUG"]
-        assert get_log_level("sqlalchemy") == _LEVEL_VALUES["DEBUG"]
     finally:
         config.trace = False
         init_logging_config(config)
