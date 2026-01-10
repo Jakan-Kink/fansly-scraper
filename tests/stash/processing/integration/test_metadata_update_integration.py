@@ -49,10 +49,13 @@ class TestMetadataUpdateIntegration:
             # Create real account in database
             account = AccountFactory(username="integration_test_user")
 
-            # Create real post in database
+            # Create real post in database with an older date (2026-01-01)
+            # This ensures the post date is EARLIER than any existing image date,
+            # so _update_stash_metadata will update (preserves earliest date)
             post = PostFactory(
                 accountId=account.id,
                 content="Integration test post #test #integration",
+                createdAt=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
             )
 
             # Try to find an existing image in Stash
@@ -88,20 +91,23 @@ class TestMetadataUpdateIntegration:
                 studio = studio_results.studios[0]
                 cleanup["studios"].append(studio.id)
 
-            # Verify metadata was set correctly
-            assert image.title is not None
-            assert image.details == post.content
-            assert image.date == post.createdAt.strftime("%Y-%m-%d")
-            assert image.code == "media_12345"
-            assert f"https://fansly.com/post/{post.id}" in image.urls
+            # Refetch image from Stash to verify metadata was persisted
+            refreshed_image = await stash_client.find_image(image.id)
 
-            # Restore original metadata
-            image.title = original_title
-            image.code = original_code
-            image.date = original_date
-            image.details = original_details
-            image.urls = original_urls
-            await image.save(stash_client)
+            # Verify metadata was set correctly
+            assert refreshed_image.title is not None
+            assert refreshed_image.details == post.content
+            assert refreshed_image.date == post.createdAt.strftime("%Y-%m-%d")
+            assert refreshed_image.code == "media_12345"
+            assert f"https://fansly.com/post/{post.id}" in refreshed_image.urls
+
+            # Restore original metadata (use refreshed image to avoid stale state)
+            refreshed_image.title = original_title
+            refreshed_image.code = original_code
+            refreshed_image.date = original_date
+            refreshed_image.details = original_details
+            refreshed_image.urls = original_urls
+            await refreshed_image.save(stash_client)
 
             # Automatic cleanup of studio happens when exiting context
 

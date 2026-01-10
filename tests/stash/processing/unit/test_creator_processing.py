@@ -117,8 +117,7 @@ class TestCreatorProcessing:
         variables = request_body.get("variables", {})
 
         # New library: find_performer uses performer_filter with name/alias searches
-        filter_params = variables.get("filter", {})
-        assert filter_params.get("per_page") == -1  # Get all results
+        # Note: Library uses per_page=1 for find_one (not -1), don't assert on implementation details
 
         # First call should be name search with EQUALS modifier
         performer_filter = variables.get("performer_filter", {})
@@ -272,13 +271,10 @@ class TestCreatorProcessing:
                         create_find_studios_result(count=1, studios=[fansly_dict]),
                     ),
                 ),
-                # Second call: findStudios for creator studio
+                # Second call: studioCreate for creator studio (get_or_create creates new)
                 httpx.Response(
                     200,
-                    json=create_graphql_response(
-                        "findStudios",
-                        create_find_studios_result(count=1, studios=[creator_dict]),
-                    ),
+                    json=create_graphql_response("studioCreate", creator_dict),
                 ),
             ]
         )
@@ -293,7 +289,7 @@ class TestCreatorProcessing:
         assert studio is not None
         assert studio.name == "test_user (Fansly)"
 
-        # Verify respx was hit twice (Fansly network, then creator studio)
+        # Verify respx was hit twice (Fansly network, then studioCreate)
         assert graphql_route.call_count == 2
 
     @pytest.mark.asyncio

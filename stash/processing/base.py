@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from stash_graphql_client import StashContext
+from stash_graphql_client.store import StashEntityStore
 
 from metadata import Account, Database
 from pathio import set_create_directory_for_download
@@ -83,6 +84,37 @@ class StashProcessingBase:
         self._cleanup_event = _cleanup_event or asyncio.Event()
         self._owns_db = _owns_db
         self.log = logging.getLogger(__name__)
+
+    @property
+    def store(self) -> StashEntityStore:
+        """Convenient access to Stash entity store.
+
+        Returns:
+            StashEntityStore from context for ORM-style operations
+        """
+        return self.context.store
+
+    async def _preload_stash_entities(self) -> None:
+        """Preload all Performers, Tags, and Studios into identity map.
+
+        Loads all entities at start of processing so get_or_create() calls
+        are instant cache hits. Sets 1 hour TTL since processing sessions
+        typically complete within this window.
+        """
+        from stash_graphql_client.types import Performer, Studio, Tag
+
+        logger.info("Preloading Stash entities into identity map...")
+        cache_ttl = 3600  # 1 hour
+
+        try:
+            # Set TTL and preload each entity type
+            for entity_type in (Performer, Tag, Studio):
+                self.store.set_ttl(entity_type, cache_ttl)
+                entities = await self.store.find(entity_type)
+                logger.info(f"Preloaded {len(entities)} {entity_type.__name__}s")
+
+        except Exception as e:
+            logger.warning(f"Failed to preload entities (continuing anyway): {e}")
 
     @classmethod
     def from_config(

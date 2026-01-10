@@ -45,11 +45,16 @@ class GalleryProcessingMixin:
         self,
         item: HasMetadata,
     ) -> Gallery | None:
-        """Try to find gallery by stash_id."""
+        """Try to find gallery by stash_id using identity map.
+
+        Note:
+            Migrated to use store.get() for O(1) cached lookups.
+        """
         if not hasattr(item, "stash_id") or not item.stash_id:
             return None
 
-        gallery = await self.context.client.find_gallery(str(item.stash_id))
+        # Use store.get() for identity map caching (instant if cached)
+        gallery = await self.store.get(Gallery, str(item.stash_id))
         if gallery:
             debug_print(
                 {
@@ -57,6 +62,7 @@ class GalleryProcessingMixin:
                     "status": "found",
                     "item_id": item.id,
                     "gallery_id": gallery.id,
+                    "cached": "identity_map",
                 }
             )
         return gallery
@@ -67,98 +73,82 @@ class GalleryProcessingMixin:
         title: str,
         studio: Studio | None,
     ) -> Gallery | None:
-        """Try to find gallery by title and metadata."""
-        galleries = await self.context.client.find_galleries(
-            gallery_filter={
-                "title": {
-                    "value": title,
-                    "modifier": "EQUALS",
-                }
-            }
-        )
-        if not galleries or galleries.count == 0:
+        """Try to find gallery by title and metadata.
+
+        Pattern 5: Migrated to use store.find() with Django-style filtering.
+        Additional filtering (date, studio) done in-memory for complex conditions.
+        """
+        # Use store.find() for identity map caching
+        galleries = await self.store.find(Gallery, title__exact=title)
+        if not galleries:
             return None
 
-        # Library returns Gallery objects directly (Pydantic)
-        for gallery in galleries.galleries:
+        # Filter for matching date and studio
+        target_date = item.createdAt.strftime("%Y-%m-%d")
+        gallery = next(
+            (
+                g
+                for g in galleries
+                if g.date == target_date
+                and (not studio or (g.studio and g.studio.id == studio.id))
+            ),
+            None,
+        )
+
+        if gallery:
             debug_print(
                 {
                     "method": "StashProcessing - _get_gallery_by_title",
-                    "gallery_studio_type": (
-                        type(gallery.studio).__name__ if gallery.studio else None
-                    ),
-                    "gallery_studio": gallery.studio,
+                    "status": "found",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
                 }
             )
-            if (
-                gallery.title == title
-                and gallery.date == item.createdAt.strftime("%Y-%m-%d")
-                and (not studio or (gallery.studio and gallery.studio.id == studio.id))
-            ):
-                debug_print(
-                    {
-                        "method": "StashProcessing - _get_gallery_by_title",
-                        "status": "found",
-                        "item_id": item.id,
-                        "gallery_id": gallery.id,
-                    }
-                )
-                if hasattr(item, "stash_id"):
-                    item.stash_id = int(gallery.id)
-                return gallery
-        return None
+            if hasattr(item, "stash_id"):
+                item.stash_id = int(gallery.id)
+        return gallery
 
     async def _get_gallery_by_code(
         self,
         item: HasMetadata,
     ) -> Gallery | None:
-        """Try to find gallery by code (post/message ID)."""
-        galleries = await self.context.client.find_galleries(
-            gallery_filter={
-                "code": {
-                    "value": str(item.id),
-                    "modifier": "EQUALS",
-                }
-            }
-        )
-        if not galleries or galleries.count == 0:
-            return None
+        """Try to find gallery by code (post/message ID).
 
-        # Library returns Gallery objects directly (Pydantic)
-        for gallery in galleries.galleries:
-            if gallery.code == str(item.id):
-                debug_print(
-                    {
-                        "method": "StashProcessing - _get_gallery_by_code",
-                        "status": "found",
-                        "item_id": item.id,
-                        "gallery_id": gallery.id,
-                    }
-                )
-                if hasattr(item, "stash_id"):
-                    item.stash_id = int(gallery.id)
-                return gallery
-        return None
+        Pattern 5: Migrated to use store.find_one() with Django-style filtering.
+        Since code should be unique, use find_one() instead of find().
+        """
+        # Use store.find_one() for identity map caching (code is unique)
+        gallery = await self.store.find_one(Gallery, code=str(item.id))
+        if gallery:
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_gallery_by_code",
+                    "status": "found",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
+                }
+            )
+            if hasattr(item, "stash_id"):
+                item.stash_id = int(gallery.id)
+        return gallery
 
     async def _get_gallery_by_url(
         self,
         item: HasMetadata,
         url: str,
     ) -> Gallery | None:
-        """Try to find gallery by URL."""
-        galleries = await self.context.client.find_galleries(
-            gallery_filter={
-                "url": {
-                    "value": url,
-                    "modifier": "EQUALS",
-                }
-            }
-        )
-        if not galleries or galleries.count == 0:
+        """Try to find gallery by URL.
+
+        Pattern 5: Migrated to use store.find() with Django-style filtering.
+        Uses url__contains to search, then filters in-memory for exact match in urls list.
+        """
+        # Use store.find() for identity map caching
+        galleries = await self.store.find(Gallery, url__contains=url)
+        if not galleries:
             return None
 
-        # Library returns Gallery objects directly (Pydantic)
-        for gallery in galleries.galleries:
+        # Filter results in-memory for exact URL match in list
+        for gallery in galleries:
             # Check if url matches in urls list (url field is deprecated)
             if is_set(gallery.urls) and url in gallery.urls:
                 debug_print(
@@ -266,9 +256,9 @@ class GalleryProcessingMixin:
             # Item doesn't have accountMentions attribute (e.g., Messages)
             pass
 
-        # Set performers if we have any
-        if performers:
-            gallery.performers = performers
+        # Add performers using relationship helper for bidirectional sync
+        for perf in performers:
+            await gallery.add_performer(perf)
 
     async def _check_aggregated_posts(self, posts: list[Post]) -> bool:
         """Check if any aggregated posts have media content.
@@ -548,23 +538,13 @@ class GalleryProcessingMixin:
                 }
             )
 
-            # Add hashtags as tags
+            # Add hashtags as tags using relationship helper
             try:
                 hashtags = await item.awaitable_attrs.hashtags
                 if hashtags:
                     tags = await self._process_hashtags_to_tags(hashtags)
-                    if tags:
-                        # TODO: Re-enable this code after testing
-                        # This code will update tags instead of overwriting them
-                        # For now, we overwrite to test tag matching behavior
-                        #
-                        # # Preserve existing tags
-                        # existing_tags = set(stash_obj.tags) if hasattr(stash_obj, "tags") else set()
-                        # existing_tags.update(tags)
-                        # stash_obj.tags = list(existing_tags)
-
-                        # Temporarily overwrite tags for testing
-                        gallery.tags = tags
+                    for tag in tags:
+                        await gallery.add_tag(tag)
             except AttributeError:
                 # Item doesn't have hashtags attribute (e.g., Messages)
                 pass
@@ -680,75 +660,59 @@ class GalleryProcessingMixin:
 
             # Link images and scenes to gallery
             # Link images using the special API endpoint
+            # Note: Manual retry logic removed - HTTPXAsyncTransport has built-in retry
             if all_images:
-                images_added_successfully = False
-                last_error = None
-
-                # Try up to 3 times with increasing delays
-                for attempt in range(3):
-                    try:
-                        success = await self.context.client.add_gallery_images(
-                            gallery_id=gallery.id,
-                            image_ids=[img.id for img in all_images],
+                try:
+                    success = await self.context.client.add_gallery_images(
+                        gallery_id=gallery.id,
+                        image_ids=[img.id for img in all_images],
+                    )
+                    if success:
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _process_item_gallery",
+                                "status": "gallery_images_added",
+                                "item_id": item.id,
+                                "gallery_id": gallery.id,
+                                "image_count": len(all_images),
+                            }
                         )
-                        if success:
-                            images_added_successfully = True
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _process_item_gallery",
-                                    "status": "gallery_images_added",
-                                    "item_id": item.id,
-                                    "gallery_id": gallery.id,
-                                    "success": success,
-                                    "image_count": len(all_images),
-                                    "attempt": attempt + 1,
-                                }
-                            )
-                            break
+                    else:
+                        logger.error(
+                            f"Failed to add {len(all_images)} images to gallery {gallery.id}"
+                        )
                         debug_print(
                             {
                                 "method": "StashProcessing - _process_item_gallery",
                                 "status": "gallery_images_add_failed",
                                 "item_id": item.id,
                                 "gallery_id": gallery.id,
-                                "attempt": attempt + 1,
                                 "image_count": len(all_images),
                             }
                         )
-                        if attempt < 2:  # Don't sleep on last attempt
-                            await asyncio.sleep(2**attempt)  # Exponential backoff
-                    except Exception as e:
-                        last_error = e
-                        logger.exception(
-                            f"Failed to add gallery images for {item_type} {item.id} (attempt {attempt + 1}/3)",
-                            exc_info=e,
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _process_item_gallery",
-                                "status": "gallery_images_add_error",
-                                "item_id": item.id,
-                                "gallery_id": gallery.id,
-                                "attempt": attempt + 1,
-                                "error": str(e),
-                                "traceback": traceback.format_exc(),
-                            }
-                        )
-                        if attempt < 2:  # Don't sleep on last attempt
-                            await asyncio.sleep(2**attempt)  # Exponential backoff
-
-                # Log warning if all retries failed, but continue processing
-                if not images_added_successfully:
-                    print_error(
-                        f"Failed to add {len(all_images)} images to gallery {gallery.id} "
-                        f"for {item_type} {item.id} after 3 attempts. Continuing with scenes..."
+                except Exception as e:
+                    logger.exception(
+                        f"Error adding images to gallery for {item_type} {item.id}: {e}"
                     )
-                    if last_error:
-                        logger.error(f"Last error: {last_error}")
+                    debug_print(
+                        {
+                            "method": "StashProcessing - _process_item_gallery",
+                            "status": "gallery_images_add_error",
+                            "item_id": item.id,
+                            "gallery_id": gallery.id,
+                            "error": str(e),
+                            "traceback": traceback.format_exc(),
+                        }
+                    )
+                    print_error(
+                        f"Failed to add {len(all_images)} images to gallery {gallery.id}. "
+                        f"Continuing with scenes..."
+                    )
 
-            # Link scenes using the standard gallery update
+            # Link scenes using relationship helper
+            for scene in all_scenes:
+                await gallery.add_scene(scene)
             if all_scenes:
-                gallery.scenes = all_scenes
                 debug_print(
                     {
                         "method": "StashProcessing - _process_item_gallery",

@@ -127,26 +127,30 @@ class TestFileHandling:
         # Verify first file returned
         assert file == mock_video_file
 
-    def test_create_nested_path_or_conditions(self, respx_stash_processor):
-        """Test _create_nested_path_or_conditions method.
+    def test_create_targeted_regex_pattern(self, respx_stash_processor):
+        """Test _create_targeted_regex_pattern method.
 
-        Unit test - tests utility method that builds GraphQL path filter conditions.
+        After ORM migration: Tests utility method that builds regex patterns
+        for Django-style path__regex filtering (replaces nested OR conditions).
         """
         # Test with single ID
         media_ids = ["123456"]
-        result = respx_stash_processor._create_nested_path_or_conditions(media_ids)
+        result = respx_stash_processor._create_targeted_regex_pattern(media_ids)
 
-        # Basic verification
-        assert isinstance(result, dict)
-        assert "path" in result
+        # Should return regex pattern string
+        assert isinstance(result, str)
+        assert "123456" in result
 
-        # Test with multiple IDs
+        # Test with multiple IDs - should be OR'ed in regex
         media_ids = ["123456", "789012"]
-        result = respx_stash_processor._create_nested_path_or_conditions(media_ids)
+        result = respx_stash_processor._create_targeted_regex_pattern(media_ids)
 
-        # Basic verification - should have OR structure
-        assert isinstance(result, dict)
-        assert "OR" in result
+        # Should contain both IDs in regex pattern
+        assert isinstance(result, str)
+        assert "123456" in result
+        assert "789012" in result
+        # Regex OR pattern uses pipe
+        assert "|" in result
 
     @pytest.mark.asyncio
     async def test_find_stash_files_by_id(self, respx_stash_processor):

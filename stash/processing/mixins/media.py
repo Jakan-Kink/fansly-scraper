@@ -4,9 +4,15 @@ This mixin handles processing of media objects into Stash. It includes:
 
 1. Optimized regex-based scene lookup (single query vs batched ORs)
 2. Batching by mimetype to separate image and scene processing
-3. Hybrid approach: regex for scenes, batched ORs for images (with fallback)
-4. Performance: 4-10x faster than nested OR conditions for large datasets
-5. Graceful degradation with automatic fallback to batched approach on errors
+3. Django-style filtering with targeted regex patterns
+4. Performance: 4-10x faster than nested OR conditions
+5. Lazy iteration with find_iter for memory efficiency
+
+Pattern 5 Migration Complete:
+- Replaced 40-line _create_nested_path_or_conditions with Django-style regex
+- Uses targeted regex: base_path.*(code1|code2|code3) for precision
+- Leverages find_iter for lazy iteration (doesn't fetch all pages upfront)
+- Dramatic code reduction and improved maintainability
 """
 
 from __future__ import annotations
@@ -95,50 +101,36 @@ class MediaProcessingMixin:
         logger.debug(f"Found VideoFile in scene {stash_obj.id}: {file_data}")
         return file_data
 
-    def _create_nested_path_or_conditions(
+    def _create_targeted_regex_pattern(
         self,
         media_ids: Sequence[str],
-    ) -> dict[str, dict[str, Any]]:
-        """Create nested OR conditions for path filters properly formatted for Stash GraphQL.
+    ) -> str:
+        """Create targeted regex pattern for path filtering.
+
+        Pattern 5: Replaces 40-line nested OR construction with simple regex.
+        Uses base_path for precision: /creator/path/.*(code1|code2|code3)
 
         Args:
             media_ids: List of media IDs to search for
 
         Returns:
-            Nested OR conditions for path filter
+            Regex pattern string for Django-style path__regex filter
         """
-        # Handle the single media ID case
-        if len(media_ids) == 1:
-            return {
-                "path": {
-                    "modifier": "INCLUDES",
-                    "value": media_ids[0],
-                }
-            }
+        # Escape codes for regex safety
+        escaped_codes = [re.escape(code) for code in media_ids]
 
-        # For multiple IDs, create a nested structure compatible with Stash's GraphQL schema
-        # The first condition
-        result = {
-            "path": {
-                "modifier": "INCLUDES",
-                "value": media_ids[0],
-            }
-        }
+        # Build targeted regex with base path if available
+        if (
+            hasattr(self, "state")
+            and hasattr(self.state, "base_path")
+            and self.state.base_path
+        ):
+            base_path_str = str(self.state.base_path)
+            # Match: /base/path/.*(code1|code2|code3)
+            return f"{re.escape(base_path_str)}.*({'|'.join(escaped_codes)})"
 
-        # Add remaining conditions as nested OR
-        for media_id in media_ids[1:]:
-            # Each OR needs to have a single condition and can have another OR
-            result = {
-                "OR": {
-                    "path": {
-                        "modifier": "INCLUDES",
-                        "value": media_id,
-                    },
-                    "OR": result,
-                }
-            }
-
-        return result
+        # Fallback: match any of the codes without path constraint
+        return "|".join(escaped_codes)
 
     @with_session()
     async def _find_stash_files_by_id(
@@ -205,7 +197,7 @@ class MediaProcessingMixin:
 
                 for stash_id in batch_ids:
                     try:
-                        image = await self.context.client.find_image(stash_id)
+                        image = await self.store.get(Image, stash_id)
                         if image and (file := self._get_file_from_stash_obj(image)):
                             found.append((image, file))
                     except Exception as e:
@@ -244,7 +236,7 @@ class MediaProcessingMixin:
 
                 for stash_id in batch_ids:
                     try:
-                        scene = await self.context.client.find_scene(stash_id)
+                        scene = await self.store.get(Scene, stash_id)
                         if scene and (file := self._get_file_from_stash_obj(scene)):
                             found.append((scene, file))
                     except Exception as e:
@@ -290,12 +282,6 @@ class MediaProcessingMixin:
         Returns:
             List of (raw stash object, processed file object) tuples
         """
-        filter_params = {
-            "per_page": -1,
-            "sort": "created_at",
-            "direction": "DESC",
-        }
-
         # Group media IDs by mime type
         image_ids: list[str] = []
         scene_ids: list[str] = []  # Both video and application use find_scenes
@@ -324,9 +310,9 @@ class MediaProcessingMixin:
                 }
             )
 
-            # Process each batch separately
+            # Pattern 5: Use Django-style path__regex with find_iter (3 lines vs 40!)
             for batch_index, batch_ids in enumerate(image_id_batches):
-                path_filter = self._create_nested_path_or_conditions(batch_ids)
+                regex_pattern = self._create_targeted_regex_pattern(batch_ids)
                 debug_print(
                     {
                         "method": "StashProcessing - _find_stash_files_by_path",
@@ -334,60 +320,60 @@ class MediaProcessingMixin:
                         "batch_index": batch_index + 1,
                         "batch_size": len(batch_ids),
                         "media_ids": batch_ids,
+                        "regex_pattern": regex_pattern[:100] + "..."
+                        if len(regex_pattern) > 100
+                        else regex_pattern,
                     }
                 )
                 try:
-                    results = await self.context.client.find_images(
-                        image_filter=path_filter,
-                        filter_=filter_params,
-                    )
-                    logger.info(f"Raw find_images results: {results}")
+                    # Use find_iter for lazy iteration (doesn't fetch all pages upfront)
+                    valid_files_found = False
+                    async for image_data in self.store.find_iter(
+                        Image,
+                        path__regex=regex_pattern,
+                    ):
+                        logger.info(f"Processing image from find_iter: {image_data}")
 
-                    if results and results.count > 0:
-                        valid_files_found = False
-                        for image_data in results.images:
-                            logger.info(f"Processing image data: {image_data}")
+                        try:
+                            # Library returns Image objects directly (Pydantic)
+                            image = image_data
+                            logger.info(f"Using image object: {image}")
 
-                            try:
-                                # Library returns Image objects directly (Pydantic)
-                                image = image_data
-                                logger.info(f"Using image object: {image}")
+                            # Try to get a file from the image object
+                            if file := self._get_file_from_stash_obj(image):
+                                logger.info(f"Found file in image: {file}")
+                                found.append((image, file))
+                                valid_files_found = True
+                            else:
+                                logger.info("No file found in image object")
 
-                                # Try to get a file from the image object
-                                if file := self._get_file_from_stash_obj(image):
-                                    logger.info(f"Found file in image: {file}")
-                                    found.append((image, file))
-                                    valid_files_found = True
-                                else:
-                                    logger.info("No file found in image object")
-
-                            except Exception as e:
-                                logger.error(f"Error processing image data: {e}")
-                                debug_print(
-                                    {
-                                        "method": "StashProcessing - _find_stash_files_by_path",
-                                        "status": "image_processing_failed",
-                                        "error": str(e),
-                                        "image_data": (
-                                            str(image_data)[:100] + "..."
-                                            if len(str(image_data)) > 100
-                                            else str(image_data)
-                                        ),
-                                    }
-                                )
-
-                        if not valid_files_found:
-                            logger.warning(
-                                f"Found {results.count} images but no valid image files could be extracted in batch {batch_index + 1}"
-                            )
+                        except Exception as e:
+                            logger.error(f"Error processing image data: {e}")
                             debug_print(
                                 {
                                     "method": "StashProcessing - _find_stash_files_by_path",
-                                    "status": "no_valid_files_found_in_batch",
-                                    "batch_index": batch_index + 1,
-                                    "image_count": results.count,
+                                    "status": "image_processing_failed",
+                                    "error": str(e),
+                                    "image_data": (
+                                        str(image_data)[:100] + "..."
+                                        if len(str(image_data)) > 100
+                                        else str(image_data)
+                                    ),
                                 }
                             )
+
+                    # Check after async for loop completes
+                    if not valid_files_found:
+                        logger.warning(
+                            f"No valid image files could be extracted in batch {batch_index + 1}"
+                        )
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_files_by_path",
+                                "status": "no_valid_files_found_in_batch",
+                                "batch_index": batch_index + 1,
+                            }
+                        )
                 except Exception as e:
                     debug_print(
                         {
@@ -399,78 +385,66 @@ class MediaProcessingMixin:
                         }
                     )
 
-        # Process scenes using regex path matching (optimized single query)
+        # Pattern 5: Process scenes using targeted regex with find_iter
         if scene_ids:
-            # Build regex pattern for all scene IDs
-            escaped_ids = [re.escape(media_id) for media_id in scene_ids]
-            regex_pattern = "|".join(escaped_ids)
+            # Build targeted regex pattern with base path
+            regex_pattern = self._create_targeted_regex_pattern(scene_ids)
 
             debug_print(
                 {
                     "method": "StashProcessing - _find_stash_files_by_path",
                     "status": "processing_scenes_regex",
                     "total_scenes": len(scene_ids),
-                    "regex_pattern_length": len(regex_pattern),
+                    "regex_pattern": regex_pattern[:100] + "..."
+                    if len(regex_pattern) > 100
+                    else regex_pattern,
                 }
             )
 
             try:
-                # Use findScenesByPathRegex for single-query lookup
-                result = await self.context.client.find_scenes_by_path_regex(
-                    filter_={"q": regex_pattern}
-                )
+                # Use store.find_iter for lazy iteration
+                found_count = 0
+                valid_files_found = False
+                async for scene in self.store.find_iter(
+                    Scene,
+                    path__regex=regex_pattern,
+                ):
+                    found_count += 1
+                    try:
+                        if file := self._get_file_from_stash_obj(scene):
+                            found.append((scene, file))
+                            valid_files_found = True
+                        else:
+                            logger.info(f"No file found in scene object: {scene.id}")
+
+                    except Exception as e:
+                        logger.error(f"Error processing scene data: {e}")
+                        debug_print(
+                            {
+                                "method": "StashProcessing - _find_stash_files_by_path",
+                                "status": "scene_processing_failed",
+                                "error": str(e),
+                                "scene_id": getattr(scene, "id", "unknown"),
+                            }
+                        )
 
                 logger.info(
-                    "Scene regex search results: found %s scenes for %s media IDs",
-                    result.count,
+                    "Scene regex search completed: found %d scenes for %d media IDs",
+                    found_count,
                     len(scene_ids),
                 )
 
-                if result.count == 0:
+                if not valid_files_found:
                     logger.warning(
-                        f"No scenes found for {len(scene_ids)} media IDs via regex"
+                        f"Found {found_count} scenes but no valid scene files could be extracted"
                     )
                     debug_print(
                         {
                             "method": "StashProcessing - _find_stash_files_by_path",
-                            "status": "no_scenes_found_regex",
-                            "media_id_count": len(scene_ids),
+                            "status": "no_valid_scene_files_found",
+                            "scene_count": found_count,
                         }
                     )
-                else:
-                    valid_files_found = False
-                    for scene in result.scenes:
-                        try:
-                            if file := self._get_file_from_stash_obj(scene):
-                                found.append((scene, file))
-                                valid_files_found = True
-                            else:
-                                logger.info(
-                                    f"No file found in scene object: {scene.id}"
-                                )
-
-                        except Exception as e:
-                            logger.error(f"Error processing scene data: {e}")
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _find_stash_files_by_path",
-                                    "status": "scene_processing_failed",
-                                    "error": str(e),
-                                    "scene_id": getattr(scene, "id", "unknown"),
-                                }
-                            )
-
-                    if not valid_files_found:
-                        logger.warning(
-                            f"Found {result.count} scenes but no valid scene files could be extracted"
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_files_by_path",
-                                "status": "no_valid_scene_files_found",
-                                "scene_count": result.count,
-                            }
-                        )
 
             except Exception as e:
                 # Fallback to batched OR approach if regex fails
@@ -486,20 +460,18 @@ class MediaProcessingMixin:
                     }
                 )
 
-                # Fallback: Use original batched approach
+                # Fallback: Use batched regex approach
                 scene_id_batches = self._chunk_list(scene_ids, max_batch_size)
                 for batch_index, batch_ids in enumerate(scene_id_batches):
-                    path_filter = self._create_nested_path_or_conditions(batch_ids)
+                    batch_regex = self._create_targeted_regex_pattern(batch_ids)
                     try:
-                        results = await self.context.client.find_scenes(
-                            scene_filter=path_filter,
-                            filter_=filter_params,
-                        )
-
-                        if results and results.count > 0:
-                            for scene in results.scenes:
-                                if file := self._get_file_from_stash_obj(scene):
-                                    found.append((scene, file))  # noqa: PERF401
+                        # Use store.find_iter for each batch
+                        async for scene in self.store.find_iter(
+                            Scene,
+                            path__regex=batch_regex,
+                        ):
+                            if file := self._get_file_from_stash_obj(scene):
+                                found.append((scene, file))  # noqa: PERF401
 
                     except Exception as fallback_error:
                         logger.error(
@@ -624,6 +596,9 @@ class MediaProcessingMixin:
             if hasattr(account, "awaitable_attrs")
             else account.username
         )
+
+        # Pattern 6: Only update fields we explicitly want to change
+        # Use UNSET for fields we don't touch to preserve server values
         stash_obj.title = self._generate_title_from_content(
             content=item.content,
             username=username,
@@ -632,6 +607,7 @@ class MediaProcessingMixin:
         stash_obj.details = item.content
         stash_obj.date = item_date.strftime("%Y-%m-%d")
         stash_obj.code = str(media_id)
+        # organized field left as-is (UNSET if not loaded)
         debug_print(
             {
                 "method": "StashProcessing - _update_stash_metadata",
@@ -658,98 +634,51 @@ class MediaProcessingMixin:
                 if post_url not in stash_obj.urls:
                     stash_obj.urls.append(post_url)
 
-        # Add performers (we already have the account)
-        performers = []
+        # Add main performer (bidirectional sync automatic)
         if main_performer := await self._find_existing_performer(account):
-            performers.append(main_performer)
+            await stash_obj.add_performer(main_performer)
 
-        # Add mentioned performers if any
+        # Add mentioned performers with simplified creation
         try:
             mentions = await item.awaitable_attrs.accountMentions
         except AttributeError:
             mentions = None
+
         if mentions:
             for mention in mentions:
-                # Try to find existing performer
-                mention_performer = await self._find_existing_performer(mention)
+                # Use get_or_create for automatic conflict handling
+                mention_performer = await self._get_or_create_performer(mention)
+                if mention_performer:
+                    # Update stash_id in database
+                    await self._update_account_stash_id(mention, mention_performer)
 
-                # Create new performer if not found
-                if not mention_performer:
+                    # Use relationship helper for bidirectional sync
+                    await stash_obj.add_performer(mention_performer)
+
                     debug_print(
                         {
                             "method": "StashProcessing - _update_stash_metadata",
-                            "status": "creating_mentioned_performer",
+                            "status": "mention_performer_added",
                             "username": mention.username,
+                            "stash_id": mention_performer.id,
                         }
                     )
-                    try:
-                        mention_performer = self._performer_from_account(mention)
-                        if mention_performer:
-                            await mention_performer.save(self.context.client)
-                            await self._update_account_stash_id(
-                                mention, mention_performer
-                            )
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _update_stash_metadata",
-                                    "status": "performer_created",
-                                    "username": mention.username,
-                                    "stash_id": mention_performer.id,
-                                }
-                            )
-                    except Exception as e:
-                        error_message = str(e)
-                        if (
-                            "performer with name" in error_message
-                            and "already exists" in error_message
-                        ):
-                            # Try to find the performer again - it may have been created by another thread
-                            mention_performer = await self._find_existing_performer(
-                                mention
-                            )
-                            if mention_performer:
-                                debug_print(
-                                    {
-                                        "method": "StashProcessing - _update_stash_metadata",
-                                        "status": "performer_found_after_create_failed",
-                                        "username": mention.username,
-                                        "stash_id": mention_performer.id,
-                                    }
-                                )
-                            else:
-                                # If we still can't find it, something is wrong
-                                raise
-                        else:
-                            # Re-raise if it's not a "performer already exists" error
-                            raise
-
-                if mention_performer:
-                    performers.append(mention_performer)
-
-        if performers:
-            stash_obj.performers = performers
 
         # Add studio (we already have the account)
         if studio := await self._find_existing_studio(account):
-            stash_obj.studio = studio
+            # Scene has set_studio() helper, Image doesn't
+            if hasattr(stash_obj, "set_studio"):
+                stash_obj.set_studio(studio)
+            else:
+                stash_obj.studio = studio
 
-        # Add hashtags as tags
+        # Add hashtags as tags using relationship helper
         try:
             hashtags = await item.awaitable_attrs.hashtags
             if hashtags:
                 tags = await self._process_hashtags_to_tags(hashtags)
-                if tags:
-                    # TODO: Re-enable this code after testing
-                    # This code will update tags instead of overwriting them
-                    # For now, we overwrite to test tag matching behavior
-                    #
-                    # # Preserve existing tags
-                    # existing_tags = set(stash_obj.tags) if hasattr(stash_obj, "tags") else set()
-                    # existing_tags.update(tags)
-                    # stash_obj.tags = list(existing_tags)
-
-                    # Temporarily overwrite tags for testing
-                    stash_obj.tags = tags
+                for tag in tags:
+                    await stash_obj.add_tag(tag)
         except AttributeError:
             # Item doesn't have hashtags attribute (e.g., Messages)
             pass

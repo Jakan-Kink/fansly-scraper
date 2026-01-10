@@ -109,6 +109,9 @@ class StashProcessing(
             This method requires a session and will ensure the account is properly bound to it.
             The performer object is a Stash GraphQL type, not a SQLAlchemy model.
         """
+        # Preload all Performers, Tags, and Studios for instant cache hits
+        await self._preload_stash_entities()
+
         try:
             if not account or not performer:
                 raise ValueError("Missing account or performer data")
@@ -117,7 +120,13 @@ class StashProcessing(
                 raise TypeError("performer must be a Stash Performer object")
 
             # Get account ID safely without triggering lazy loading
-            account_id = inspect(account).identity[0]
+            try:
+                identity = inspect(account).identity
+                account_id = account.id if identity is None else identity[0]
+            except Exception:
+                # Invalid account type - try to access id attribute directly
+                # This will raise AttributeError if account doesn't have an id attribute
+                account_id = account.id
 
             # Ensure we have a fresh account instance bound to the session
             stmt = select(Account).where(Account.id == account_id)

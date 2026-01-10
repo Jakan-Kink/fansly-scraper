@@ -148,10 +148,12 @@ async def test_process_timeline_post(
             assert "galleryCreate" in calls[3]["result"]
             cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
 
-            # Call 4: findScenesByPathRegex (looking for scenes with media path)
-            assert "findScenesByPathRegex" in calls[4]["query"]
-            assert str(media.id) in calls[4]["variables"]["filter"]["q"]
-            assert "findScenesByPathRegex" in calls[4]["result"]
+            # Call 4: FindScenes (looking for scenes with media path)
+            assert "FindScenes" in calls[4]["query"]
+            assert (
+                str(media.id) in calls[4]["variables"]["scene_filter"]["path"]["value"]
+            )
+            assert "findScenes" in calls[4]["result"]
 
 
 @pytest.mark.asyncio
@@ -298,13 +300,12 @@ async def test_process_timeline_bundle(
 
             # Call 4: findImages (looking for images with media paths from bundle)
             assert "findImages" in calls[4]["query"]
-            # The OR filter contains paths for both media items in the bundle
+            # The regex pattern contains both media IDs (Pattern 5: base_path.*(code1|code2))
             image_filter = calls[4]["variables"]["image_filter"]
-            assert "OR" in image_filter
-            # Verify both media IDs are included in the path filters
-            assert str(media1.id) in str(image_filter) or str(media2.id) in str(
-                image_filter
-            )
+            assert "path" in image_filter
+            # Verify both media IDs are included in the regex pattern
+            assert str(media1.id) in str(image_filter)
+            assert str(media2.id) in str(image_filter)
             assert "findImages" in calls[4]["result"]
 
 
@@ -596,9 +597,11 @@ async def test_process_timeline_account_mentions(
             assert "galleryCreate" in calls[5]["result"]
             cleanup["galleries"].append(calls[5]["result"]["galleryCreate"]["id"])
 
-            # Call 6: findScenesByPathRegex for video media
-            assert "findScenesByPathRegex" in calls[6]["query"]
-            assert str(media.id) in calls[6]["variables"]["filter"]["q"]
+            # Call 6: FindScenes for video media
+            assert "FindScenes" in calls[6]["query"]
+            assert (
+                str(media.id) in calls[6]["variables"]["scene_filter"]["path"]["value"]
+            )
 
 
 @pytest.mark.asyncio
@@ -723,7 +726,9 @@ async def test_process_expired_timeline_post(
             assert "galleryCreate" in calls[3]["result"]
             cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
 
-            # Call 4: findScenesByPathRegex (looking for scenes with media path)
-            assert "findScenesByPathRegex" in calls[4]["query"]
-            assert str(media.id) in calls[4]["variables"]["filter"]["q"]
-            assert "findScenesByPathRegex" in calls[4]["result"]
+            # Call 4: FindScenes (looking for scenes with media path)
+            assert "FindScenes" in calls[4]["query"]
+            assert (
+                str(media.id) in calls[4]["variables"]["scene_filter"]["path"]["value"]
+            )
+            assert "findScenes" in calls[4]["result"]

@@ -84,10 +84,7 @@ class TestBackgroundProcessing:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # 2. Creator studio not found initially
-        empty_studios = create_find_studios_result(count=0, studios=[])
-
-        # 3. Create creator studio with Fansly as parent
+        # 2. Create creator studio with Fansly as parent (get_or_create creates immediately)
         creator_studio = create_studio_dict(
             id="123",
             name="test_user (Fansly)",
@@ -95,7 +92,7 @@ class TestBackgroundProcessing:
             parent_studio=fansly_studio,
         )
 
-        # 4. Empty galleries result (process_creator_posts checks for existing galleries)
+        # 3. Empty galleries result (process_creator_posts checks for existing galleries)
         empty_galleries = {"count": 0, "galleries": []}
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -104,11 +101,7 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
-                # process_creator_studio: creator studio not found
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
-                ),
-                # process_creator_studio: create creator studio
+                # process_creator_studio: create creator studio (get_or_create + save)
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
@@ -130,15 +123,14 @@ class TestBackgroundProcessing:
         assert result.scalar_one() is not None
 
         # Verify GraphQL call sequence (permanent assertion)
-        # 4 calls: 3 for studio setup + 1 for post processing (no messages in this test)
-        assert len(graphql_route.calls) == 4, "Expected exactly 4 GraphQL calls"
+        # 3 calls: 2 for studio setup + 1 for post processing (no messages in this test)
+        assert len(graphql_route.calls) == 3, "Expected exactly 3 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[3].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[1].request.content)["query"]
+        assert "findGalleries" in json.loads(calls[2].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_cancelled(
@@ -250,7 +242,6 @@ class TestBackgroundProcessing:
             id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
-        empty_studios = create_find_studios_result(count=0, studios=[])
         creator_studio = create_studio_dict(
             id="123",
             name="test_user (Fansly)",
@@ -265,11 +256,7 @@ class TestBackgroundProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
-                # process_creator_studio: creator studio not found
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
-                ),
-                # process_creator_studio: create creator studio
+                # process_creator_studio: create creator studio (get_or_create + save)
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
@@ -290,18 +277,17 @@ class TestBackgroundProcessing:
         )
 
         # Assert - verify correct GraphQL requests were sent
-        # Note: Only 3 calls because account has no posts/messages in database
+        # Note: Only 2 calls because account has no posts/messages in database
         # (process_creator_posts/messages only call findGalleries if there's content)
-        assert len(graphql_route.calls) == 3
+        assert len(graphql_route.calls) == 2
 
         # Verify GraphQL call sequence (permanent assertion)
         calls = graphql_route.calls
         assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[1].request.content)["query"]
 
         # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(graphql_route.calls[2].request.content)
+        studio_create_request = json.loads(graphql_route.calls[1].request.content)
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user (Fansly)"
@@ -340,7 +326,6 @@ class TestBackgroundProcessing:
             id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
-        empty_studios = create_find_studios_result(count=0, studios=[])
         creator_studio = create_studio_dict(
             id="456",
             name="test_user2 (Fansly)",
@@ -353,9 +338,6 @@ class TestBackgroundProcessing:
             side_effect=[
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -390,16 +372,15 @@ class TestBackgroundProcessing:
         assert account.stash_id == 456  # int, not str
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 3, "Expected exactly 3 GraphQL calls"
+        assert len(graphql_route.calls) == 2, "Expected exactly 2 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[1].request.content)["query"]
 
         # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[2].request.content)
+        studio_create_request = json.loads(calls[1].request.content)
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user2 (Fansly)"
@@ -449,7 +430,6 @@ class TestBackgroundProcessing:
             id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
-        empty_studios = create_find_studios_result(count=0, studios=[])
         creator_studio = create_studio_dict(
             id="789",
             name="test_user3 (Fansly)",
@@ -462,9 +442,6 @@ class TestBackgroundProcessing:
             side_effect=[
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -487,16 +464,15 @@ class TestBackgroundProcessing:
         assert True
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 3, "Expected exactly 3 GraphQL calls"
+        assert len(graphql_route.calls) == 2, "Expected exactly 2 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findStudios" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[1].request.content)["query"]
 
         # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[2].request.content)
+        studio_create_request = json.loads(calls[1].request.content)
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user3 (Fansly)"

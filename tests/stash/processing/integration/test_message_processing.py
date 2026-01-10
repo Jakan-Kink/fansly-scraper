@@ -828,11 +828,11 @@ async def test_process_message_with_variants(
         assert str(studio.id) == calls[3]["variables"]["input"]["studio_id"]
         assert "galleryCreate" in calls[3]["result"]
 
-        # Call 4: findScenesByPathRegex - checking for HLS video
-        assert "findScenesByPathRegex" in calls[4]["query"]
-        assert str(media.id) in calls[4]["variables"]["filter"]["q"]
+        # Call 4: FindScenes - checking for HLS video
+        assert "FindScenes" in calls[4]["query"]
+        assert str(media.id) in calls[4]["variables"]["scene_filter"]["path"]["value"]
         assert (
-            calls[4]["result"]["findScenesByPathRegex"]["count"] == 0
+            calls[4]["result"]["findScenes"]["count"] == 0
         )  # Not found (synthetic path)
 
         # Verify gallery was created

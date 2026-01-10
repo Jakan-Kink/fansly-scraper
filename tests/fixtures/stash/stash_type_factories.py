@@ -1,21 +1,86 @@
-"""FactoryBoy factories for Stash API types.
+"""FactoryBoy factories for stash-graphql-client Pydantic types (v0.10.4+).
 
-This module provides factories for creating test instances of Stash API types
-(Performer, Studio, Scene, etc.) using FactoryBoy. These are NOT SQLAlchemy models,
-but rather Strawberry GraphQL types used to interact with the Stash API.
+This module provides factories for creating test instances of Stash entity types
+(Performer, Studio, Scene, etc.) that are returned by stash-graphql-client v0.10.4+.
 
-Usage:
-    from tests.fixtures import PerformerFactory, StudioFactory
+IMPORTANT: These are fully typed Pydantic models from the library, NOT Strawberry types.
+Strawberry was used in the old local implementation and has been removed.
 
-    # Create a test performer
-    performer = PerformerFactory(name="Test Performer")
+Key Patterns in v0.10.4+
+========================
 
-    # Create a performer with specific attributes
-    performer = PerformerFactory(
-        id="123",
-        name="Jane Doe",
-        gender=GenderEnum.FEMALE,
-    )
+1. UUID Auto-Generation
+-----------------------
+Pydantic models automatically generate temporary UUIDs on creation. DO NOT manually
+assign IDs in factories - let Pydantic handle it.
+
+    # Factory creates object with temp UUID
+    performer = PerformerFactory(name="Jane Doe")
+    print(performer.id)  # e.g., "f47ac10b-58cc-4372-a567-0e02b2c3d479" (temp UUID)
+
+    # Save to server, get real ID back
+    saved = await performer.save(client)
+    print(saved.id)  # e.g., "123" (real ID from Stash server)
+
+    # Simulate server-returned object (override temp UUID)
+    existing = PerformerFactory(id="123", name="Jane Doe")
+
+2. UNSET Pattern (Three-State Fields)
+--------------------------------------
+Fields have three possible states in v0.10.4:
+    - Set to value:  field = "value"
+    - Set to null:   field = None
+    - Not touched:   field not assigned = UNSET (automatic)
+
+DO NOT explicitly set `field = UNSET`. Just omit the field from factory definition,
+and Pydantic will automatically treat it as UNSET.
+
+    # Factory omits optional fields (automatic UNSET)
+    scene = SceneFactory(title="Test")  # Only title set
+    # scene.details is UNSET (not included in mutation)
+    # scene.rating100 is UNSET (not included in mutation)
+
+    # To explicitly set null (different from UNSET):
+    scene = SceneFactory(title="Test", details=None)  # details=null in mutation
+
+3. Relationship Helpers (ActiveRecord-style)
+--------------------------------------------
+Use helper methods for many-to-many relationships with bidirectional sync:
+
+    scene = SceneFactory()
+    await scene.add_performer(performer)  # Auto-syncs performer.scenes
+    await scene.add_tag(tag)  # Auto-syncs tag.scenes
+    scene.studio = studio  # Direct assignment for one-to-one
+
+4. StashEntityStore (Identity Map + Repository)
+-----------------------------------------------
+The store ensures same ID = same object instance (identity map):
+
+    p1 = await store.get(Performer, "123")
+    p2 = await store.get(Performer, "123")
+    assert p1 is p2  # Same object instance!
+
+    p1.name = "Updated"
+    print(p2.name)  # "Updated" (same object)
+
+Usage Examples
+==============
+
+    from tests.fixtures import PerformerFactory, SceneFactory, StudioFactory
+
+    # Create new object (temp UUID, for testing creation)
+    new_performer = PerformerFactory(name="Jane Doe")
+    saved = await new_performer.save(client)  # Gets real ID from server
+
+    # Simulate existing object (override temp UUID)
+    existing_studio = StudioFactory(id="123", name="Test Studio")
+
+    # Test relationships
+    scene = SceneFactory(title="Test Scene")
+    await scene.add_performer(existing_studio)
+
+    # Test partial updates (omitted fields are UNSET)
+    update_scene = SceneFactory(title="New Title")  # Only title sent in mutation
 """
 
 from datetime import UTC, datetime
@@ -24,7 +89,6 @@ import pytest
 from factory.base import Factory
 from factory.declarations import LazyAttribute, LazyFunction, Sequence
 from stash_graphql_client.types import (
-    UNSET,
     Gallery,
     Group,
     Image,
@@ -38,29 +102,29 @@ from stash_graphql_client.types.job import Job, JobStatus
 
 
 class PerformerFactory(Factory):
-    """Factory for Performer Stash API type.
+    """Factory for Performer Pydantic type from stash-graphql-client.
 
-    Creates Performer instances with realistic defaults for testing Stash API
-    interactions without needing a real Stash server.
+    Creates Performer instances for testing. Pydantic automatically generates a
+    temporary UUID on creation. Override with id="123" to simulate server-returned objects.
 
-    Example:
-        # Create a basic performer
+    Examples:
+        # New performer (temp UUID auto-generated)
+        performer = PerformerFactory(name="Jane Doe")
+        print(performer.id)  # Temp UUID like "f47ac10b-..."
+
+        # Simulate existing performer (override temp UUID with server ID)
+        existing = PerformerFactory(id="123", name="Jane Doe")
+        print(existing.id)  # "123"
+
+        # With relationships (use helpers after creation)
         performer = PerformerFactory()
-
-        # Create a performer with specific values
-        performer = PerformerFactory(
-            id="123",
-            name="Jane Doe",
-            gender=GenderEnum.FEMALE,
-            urls=["https://example.com/performer"]
-        )
+        await performer.add_tag(tag)  # Bidirectional sync
     """
 
     class Meta:
         model = Performer
 
-    # Required fields
-    id = Sequence(lambda n: str(100 + n))
+    # Required fields (ID auto-generated by Pydantic, don't set here)
     name = Sequence(lambda n: f"Performer_{n}")
 
     # Lists with default factories (required fields)
@@ -71,51 +135,33 @@ class PerformerFactory(Factory):
     groups = LazyFunction(list)
     urls = LazyFunction(list)
 
-    # Optional fields
-    disambiguation = None
-    gender = None
-    birthdate = None
-    ethnicity = None
-    country = None
-    eye_color = None
-    height_cm = None
-    measurements = None
-    fake_tits = None
-    penis_length = None
-    circumcised = None
-    career_length = None
-    tattoos = None
-    piercings = None
-    image_path = None
-    details = None
-    death_date = None
-    hair_color = None
-    weight = None
+    # Optional fields (omitted = UNSET, can override in tests)
+    # disambiguation, gender, birthdate, ethnicity, country, eye_color,
+    # height_cm, measurements, fake_tits, penis_length, circumcised,
+    # career_length, tattoos, piercings, image_path, details,
+    # death_date, hair_color, weight
 
 
 class StudioFactory(Factory):
-    """Factory for Studio Stash API type.
+    """Factory for Studio Pydantic type from stash-graphql-client.
 
-    Creates Studio instances with realistic defaults for testing Stash API
-    interactions without needing a real Stash server.
+    Creates Studio instances for testing. Pydantic auto-generates temp UUID.
 
-    Example:
-        # Create a basic studio
-        studio = StudioFactory()
+    Examples:
+        # New studio (temp UUID)
+        studio = StudioFactory(name="Test Studio")
 
-        # Create a studio with specific values
-        studio = StudioFactory(
-            id="456",
-            name="Test Studio",
-            urls=["https://example.com/studio"]
-        )
+        # Simulate existing studio (override temp UUID)
+        existing = StudioFactory(id="123", name="Test Studio")
+
+        # With parent relationship
+        child = StudioFactory(parent_studio=parent_studio)
     """
 
     class Meta:
         model = Studio
 
-    # Required fields
-    id = Sequence(lambda n: str(200 + n))
+    # Required fields (ID auto-generated by Pydantic)
     name = Sequence(lambda n: f"Studio_{n}")
 
     # Optional fields with defaults
@@ -123,34 +169,30 @@ class StudioFactory(Factory):
     aliases = LazyAttribute(lambda _: [])
     tags = LazyAttribute(lambda _: [])
     stash_ids = LazyAttribute(lambda _: [])
-    parent_studio = None
-    details = None
-    image_path = None
+
+    # Optional fields (omitted = UNSET): parent_studio, details, image_path
 
 
 class TagFactory(Factory):
-    """Factory for Tag Stash API type.
+    """Factory for Tag Pydantic type from stash-graphql-client.
 
-    Creates Tag instances with realistic defaults for testing Stash API
-    interactions without needing a real Stash server.
+    Creates Tag instances for testing. Pydantic auto-generates temp UUID.
 
-    Example:
-        # Create a basic tag
-        tag = TagFactory()
+    Examples:
+        # New tag (temp UUID)
+        tag = TagFactory(name="Documentary")
 
-        # Create a tag with specific values
-        tag = TagFactory(
-            id="789",
-            name="Test Tag",
-            description="A test tag description"
-        )
+        # Simulate existing tag
+        existing = TagFactory(id="789", name="Documentary")
+
+        # With parent/child relationships
+        child_tag = TagFactory(parents=[parent_tag])
     """
 
     class Meta:
         model = Tag
 
-    # Required fields
-    id = Sequence(lambda n: str(300 + n))
+    # Required fields (ID auto-generated by Pydantic)
     name = Sequence(lambda n: f"Tag_{n}")
 
     # Lists with default factories (required fields)
@@ -158,34 +200,35 @@ class TagFactory(Factory):
     parents = LazyFunction(list)
     children = LazyFunction(list)
 
-    # Optional fields
-    description = None
-    image_path = None
+    # Optional fields (omitted = UNSET): description, image_path
 
 
 class SceneFactory(Factory):
-    """Factory for Scene Stash API type.
+    """Factory for Scene Pydantic type from stash-graphql-client.
 
-    Creates Scene instances with realistic defaults for testing Stash API
-    interactions without needing a real Stash server.
+    Creates Scene instances for testing. Pydantic auto-generates temp UUID.
 
-    Example:
-        # Create a basic scene
+    Examples:
+        # New scene (temp UUID)
+        scene = SceneFactory(title="Test Scene")
+
+        # Simulate existing scene
+        existing = SceneFactory(id="1001", title="Test Scene")
+
+        # With relationships (use helpers after creation)
         scene = SceneFactory()
+        await scene.add_performer(performer)  # Bidirectional sync
+        await scene.add_tag(tag)
+        scene.studio = studio  # Direct assignment for one-to-one
 
-        # Create a scene with specific values
-        scene = SceneFactory(
-            id="1001",
-            title="Test Scene",
-            studio=StudioFactory()
-        )
+        # Partial update (only title sent to server)
+        update = SceneFactory(title="New Title")  # Other fields UNSET
     """
 
     class Meta:
         model = Scene
 
-    # Required fields
-    id = Sequence(lambda n: str(400 + n))
+    # Required fields (ID auto-generated by Pydantic)
     title = Sequence(lambda n: f"Scene_{n}")
 
     # Lists with default factories
@@ -200,41 +243,31 @@ class SceneFactory(Factory):
     sceneStreams = LazyFunction(list)
     captions = LazyFunction(list)
 
-    # Optional fields
-    code = None
-    details = None
-    director = None
-    date = None
-    rating100 = None
-    o_counter = None
-    organized = False
-    studio = None
-    paths = UNSET  # Must be UNSET not None - Pydantic validator expects UnsetType
+    # Optional fields (omitted = UNSET, can override in tests)
+    # code, details, director, date, rating100, o_counter, organized, studio, paths
 
 
 class GalleryFactory(Factory):
-    """Factory for Gallery Stash API type.
+    """Factory for Gallery Pydantic type from stash-graphql-client.
 
-    Creates Gallery instances with realistic defaults for testing Stash API
-    interactions without needing a real Stash server.
+    Creates Gallery instances for testing. Pydantic auto-generates temp UUID.
 
-    Example:
-        # Create a basic gallery
+    Examples:
+        # New gallery (temp UUID)
+        gallery = GalleryFactory(title="Test Gallery")
+
+        # Simulate existing gallery
+        existing = GalleryFactory(id="2001", title="Test Gallery", image_count=50)
+
+        # With relationships
         gallery = GalleryFactory()
-
-        # Create a gallery with specific values
-        gallery = GalleryFactory(
-            id="2001",
-            title="Test Gallery",
-            image_count=50
-        )
+        await gallery.add_performer(performer)
     """
 
     class Meta:
         model = Gallery
 
-    # Required fields
-    id = Sequence(lambda n: str(500 + n))
+    # Required fields (ID auto-generated by Pydantic)
     title = Sequence(lambda n: f"Gallery_{n}")
 
     # Lists with default factories
@@ -245,41 +278,31 @@ class GalleryFactory(Factory):
     urls = LazyFunction(list)
     chapters = LazyFunction(list)
 
-    # Optional fields
-    code = None
-    date = None
-    details = None
-    photographer = None
-    rating100 = None
-    organized = False
-    studio = None
-    image_count = 0
-    folder = None
+    # Optional fields (omitted = UNSET): code, date, details, photographer,
+    # rating100, organized, studio, image_count, folder
 
 
 class ImageFactory(Factory):
-    """Factory for Image Stash API type.
+    """Factory for Image Pydantic type from stash-graphql-client.
 
-    Creates Image instances with realistic defaults for testing Stash API
-    interactions without needing a real Stash server.
+    Creates Image instances for testing. Pydantic auto-generates temp UUID.
 
-    Example:
-        # Create a basic image
+    Examples:
+        # New image (temp UUID)
+        image = ImageFactory(title="Test Image")
+
+        # Simulate existing image
+        existing = ImageFactory(id="3001", title="Test Image", organized=True)
+
+        # With relationships
         image = ImageFactory()
-
-        # Create an image with specific values
-        image = ImageFactory(
-            id="3001",
-            title="Test Image",
-            organized=True
-        )
+        await image.add_performer(performer)
     """
 
     class Meta:
         model = Image
 
-    # Required fields
-    id = Sequence(lambda n: str(600 + n))
+    # Required fields (ID auto-generated by Pydantic)
     title = Sequence(lambda n: f"Image_{n}")
 
     # Lists with default factories
@@ -289,39 +312,30 @@ class ImageFactory(Factory):
     galleries = LazyFunction(list)
     urls = LazyFunction(list)
 
-    # Optional fields
-    code = None
-    date = None
-    details = None
-    photographer = None
-    organized = False
-    studio = None
-    paths = UNSET  # Must be UNSET not None - Pydantic validator expects UnsetType
+    # Optional fields (omitted = UNSET): code, date, details, photographer,
+    # organized, studio, paths
 
 
 class GroupFactory(Factory):
-    """Factory for Group Stash API type.
+    """Factory for Group Pydantic type from stash-graphql-client.
 
-    Creates Group instances with realistic defaults for testing Stash API
-    interactions without needing a real Stash server.
+    Creates Group instances for testing. Pydantic auto-generates temp UUID.
 
-    Example:
-        # Create a basic group
-        group = GroupFactory()
+    Examples:
+        # New group (temp UUID)
+        group = GroupFactory(name="Test Series")
 
-        # Create a group with specific values
-        group = GroupFactory(
-            id="4001",
-            name="Test Series",
-            duration=7200
-        )
+        # Simulate existing group
+        existing = GroupFactory(id="4001", name="Test Series", duration=7200)
+
+        # With relationships
+        group = GroupFactory(studio=studio)
     """
 
     class Meta:
         model = Group
 
-    # Required fields
-    id = Sequence(lambda n: str(700 + n))
+    # Required fields (ID auto-generated by Pydantic)
     name = Sequence(lambda n: f"Group_{n}")
 
     # Lists with default factories
@@ -331,34 +345,23 @@ class GroupFactory(Factory):
     containing_groups = LazyFunction(list)
     sub_groups = LazyFunction(list)
 
-    # Optional fields
-    aliases = None
-    duration = None
-    date = None
-    studio = None
-    director = None
-    synopsis = None
-    front_image_path = None
-    back_image_path = None
+    # Optional fields (omitted = UNSET): aliases, duration, date, studio,
+    # director, synopsis, front_image_path, back_image_path
 
 
 class ImageFileFactory(Factory):
-    """Factory for ImageFile Stash API type.
+    """Factory for ImageFile Pydantic type from stash-graphql-client.
 
-    Creates ImageFile instances representing image files in Stash, with realistic
-    defaults for testing file operations without needing a real Stash server.
+    Creates ImageFile instances for testing. Pydantic auto-generates temp UUID.
 
-    Based on GraphQL schema: schema/types/file.graphql (ImageFile type)
+    Examples:
+        # New image file (temp UUID)
+        image_file = ImageFileFactory(path="/test/images/img.jpg")
 
-    Example:
-        # Create a basic image file
-        image_file = ImageFileFactory()
-
-        # Create an image file with specific values
-        image_file = ImageFileFactory(
+        # Simulate existing file (override temp UUID)
+        existing = ImageFileFactory(
             id="8001",
             path="/path/to/image.jpg",
-            basename="image.jpg",
             width=1920,
             height=1080
         )
@@ -367,8 +370,7 @@ class ImageFileFactory(Factory):
     class Meta:
         model = ImageFile
 
-    # Required fields from BaseFile (inherited via StashObject)
-    id = Sequence(lambda n: str(800 + n))
+    # Required fields from BaseFile (ID auto-generated by Pydantic)
     path = Sequence(lambda n: f"/test/images/image_{n}.jpg")
     basename = Sequence(lambda n: f"image_{n}.jpg")
     parent_folder_id = "folder_1"
@@ -378,31 +380,26 @@ class ImageFileFactory(Factory):
     # Required fields - fingerprints list
     fingerprints = LazyFunction(list[Fingerprint])
 
-    # Optional BaseFile fields
-    zip_file_id = None
-
     # ImageFile specific required fields
     width = 1920
     height = 1080
 
+    # Optional fields (omitted = UNSET): zip_file_id
+
 
 class VideoFileFactory(Factory):
-    """Factory for VideoFile Stash API type.
+    """Factory for VideoFile Pydantic type from stash-graphql-client.
 
-    Creates VideoFile instances representing video files in Stash, with realistic
-    defaults for testing file operations without needing a real Stash server.
+    Creates VideoFile instances for testing. Pydantic auto-generates temp UUID.
 
-    Based on GraphQL schema: schema/types/file.graphql (VideoFile type)
+    Examples:
+        # New video file (temp UUID)
+        video_file = VideoFileFactory(path="/test/videos/video.mp4")
 
-    Example:
-        # Create a basic video file
-        video_file = VideoFileFactory()
-
-        # Create a video file with specific values
-        video_file = VideoFileFactory(
+        # Simulate existing file (override temp UUID)
+        existing = VideoFileFactory(
             id="9001",
             path="/path/to/video.mp4",
-            basename="video.mp4",
             duration=3600.0,
             video_codec="h264"
         )
@@ -411,8 +408,7 @@ class VideoFileFactory(Factory):
     class Meta:
         model = VideoFile
 
-    # Required fields from BaseFile (inherited via StashObject)
-    id = Sequence(lambda n: str(900 + n))
+    # Required fields from BaseFile (ID auto-generated by Pydantic)
     path = Sequence(lambda n: f"/test/videos/video_{n}.mp4")
     basename = Sequence(lambda n: f"video_{n}.mp4")
     parent_folder_id = "folder_1"
@@ -421,9 +417,6 @@ class VideoFileFactory(Factory):
 
     # Required fields - fingerprints list
     fingerprints = LazyFunction(list[Fingerprint])
-
-    # Optional BaseFile fields
-    zip_file_id = None
 
     # VideoFile specific required fields
     format = "mp4"
@@ -435,21 +428,20 @@ class VideoFileFactory(Factory):
     frame_rate = 30.0
     bit_rate = 5000000  # 5 Mbps
 
+    # Optional fields (omitted = UNSET): zip_file_id
+
 
 class JobFactory(Factory):
-    """Factory for Job Stash API type.
+    """Factory for Job Pydantic type from stash-graphql-client.
 
-    Creates Job instances representing Stash background jobs, with realistic
-    defaults for testing job operations without needing a real Stash server.
+    Creates Job instances for testing. Pydantic auto-generates temp UUID.
 
-    Based on GraphQL schema: schema/types/job.graphql (Job type)
-
-    Example:
-        # Create a finished job
+    Examples:
+        # New job (temp UUID, finished status)
         job = JobFactory(status=JobStatus.FINISHED)
 
-        # Create a running job with progress
-        job = JobFactory(
+        # Simulate running job (override temp UUID)
+        running = JobFactory(
             id="job_123",
             status=JobStatus.RUNNING,
             progress=50.0,
@@ -460,18 +452,13 @@ class JobFactory(Factory):
     class Meta:
         model = Job
 
-    # Required fields
-    id = Sequence(lambda n: f"job_{n}")
+    # Required fields (ID auto-generated by Pydantic)
     status = JobStatus.FINISHED
     subTasks = LazyFunction(list)
     description = Sequence(lambda n: f"Job_{n}")
     addTime = LazyFunction(lambda: datetime.now(UTC))
 
-    # Optional fields
-    progress = None
-    startTime = None
-    endTime = None
-    error = None
+    # Optional fields (omitted = UNSET): progress, startTime, endTime, error
 
 
 # ============================================================================

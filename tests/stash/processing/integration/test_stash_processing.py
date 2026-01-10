@@ -285,13 +285,23 @@ class TestStashProcessingIntegration:
 
             # Call 0: findStudios for Fansly (network)
             assert "findStudios" in calls[0]["query"]
-            assert calls[0]["variables"]["filter"]["q"] == "Fansly (network)"
+            assert (
+                calls[0]["variables"]["studio_filter"]["name"]["value"]
+                == "Fansly (network)"
+            )
+            assert calls[0]["result"] is not None, (
+                f"Call 0 raised exception: {calls[0]['exception']}"
+            )
             assert "findStudios" in calls[0]["result"]
 
             # Call 1: findStudios for creator studio
             assert "findStudios" in calls[1]["query"]
             assert (
-                calls[1]["variables"]["filter"]["q"] == f"{account.username} (Fansly)"
+                calls[1]["variables"]["studio_filter"]["name"]["value"]
+                == f"{account.username} (Fansly)"
+            )
+            assert calls[1]["result"] is not None, (
+                f"Call 1 raised exception: {calls[1]['exception']}"
             )
             assert "findStudios" in calls[1]["result"]
             assert (
@@ -308,11 +318,10 @@ class TestStashProcessingIntegration:
                 f"https://fansly.com/{account.username}"
             ]
             assert "studioCreate" in calls[2]["result"]
+            # Mutation result only includes ID (GraphQL query only requests id field)
             assert calls[2]["result"]["studioCreate"]["id"] == studio.id
-            assert (
-                calls[2]["result"]["studioCreate"]["name"]
-                == f"{account.username} (Fansly)"
-            )
+            # Verify name in the returned Studio object (not in GraphQL result)
+            assert studio.name == f"{account.username} (Fansly)"
 
             # Manual tracking after validation (earns opt-out qualification)
             if studio and studio.id != "new":

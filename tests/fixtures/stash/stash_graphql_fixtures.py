@@ -310,6 +310,7 @@ def create_scene_dict(
         Dict matching Scene type
     """
     base = {
+        "__typename": "Scene",
         "id": id,
         "title": title,
         "studio": studio,

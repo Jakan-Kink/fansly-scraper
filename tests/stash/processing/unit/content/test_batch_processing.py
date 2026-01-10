@@ -604,7 +604,7 @@ async def test_batch_timeout_with_completed_task(respx_stash_processor):
     original_wait_for = asyncio.wait_for
     call_count = [0]
 
-    async def patched_wait_for(coro, timeout_seconds):
+    async def patched_wait_for(coro, timeout_seconds=None):
         call_count[0] += 1
         if call_count[0] == 1:
             # Let it run briefly so first item can complete
