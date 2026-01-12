@@ -59,7 +59,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          poetry install --no-interaction --no-root
+          poetry install --no-interaction --no-root --with dev
 
       - name: Run pre-commit hooks
         run: |
@@ -110,7 +110,7 @@ jobs:
 
       - name: Try to install dependencies
         run: |
-          poetry install --no-interaction --no-root || echo "Dependencies may not be compatible with Python 3.14 yet"
+          poetry install --no-interaction --no-root --with dev || echo "Dependencies may not be compatible with Python 3.14 yet"
 
       - name: Run pre-commit hooks (if deps installed)
         run: |
