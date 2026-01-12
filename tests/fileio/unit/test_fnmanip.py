@@ -1,7 +1,7 @@
 """Unit tests for the fnmanip module."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -113,117 +113,70 @@ class TestExtractors:
 class TestImageHash:
     """Tests for the image hashing functions."""
 
-    @patch("fileio.fnmanip.Image")
-    def test_get_hash_for_image(self, mock_image_module):
-        """Test get_hash_for_image with a valid image."""
-        # Create a mock image and hash
-        mock_verify_image = MagicMock()
-        mock_hash_image = MagicMock()
+    def test_get_hash_for_image(self, tmp_path):
+        """Test get_hash_for_image with a real image file."""
+        # Create a real 1x1 pixel PNG image
+        from PIL import Image
 
-        # Set up context managers to return different mock images for verify and hash
-        mock_verify_ctx = MagicMock()
-        mock_verify_ctx.__enter__ = MagicMock(return_value=mock_verify_image)
-        mock_verify_ctx.__exit__ = MagicMock(return_value=None)
+        image_path = tmp_path / "test_image.png"
+        img = Image.new("RGB", (1, 1), color="red")
+        img.save(image_path)
 
-        mock_hash_ctx = MagicMock()
-        mock_hash_ctx.__enter__ = MagicMock(return_value=mock_hash_image)
-        mock_hash_ctx.__exit__ = MagicMock(return_value=None)
+        # Only mock imagehash.phash to control the return value
+        with patch("fileio.fnmanip.imagehash.phash", return_value="test_hash_value"):
+            result = get_hash_for_image(image_path)
+            assert result == "test_hash_value"
 
-        # Make Image.open return different context managers for each call
-        mock_image_module.open.side_effect = [mock_verify_ctx, mock_hash_ctx]
+    def test_get_hash_for_image_verify_fails(self, tmp_path):
+        """Test get_hash_for_image when image file is corrupted."""
+        # Create a file with invalid image data
+        invalid_image = tmp_path / "invalid.jpg"
+        invalid_image.write_bytes(b"This is not a valid image file")
 
-        # Mock the imagehash.phash function
-        mock_phash = MagicMock(return_value="mock_hash_value")
+        # Real PIL will fail to verify this
+        with pytest.raises(RuntimeError, match="Failed to verify image"):
+            get_hash_for_image(invalid_image)
 
-        with patch("fileio.fnmanip.imagehash.phash", mock_phash):
-            # Call the function with a mock path
-            path = Path("test_image.jpg")
-            result = get_hash_for_image(path)
+    def test_get_hash_for_image_hash_returns_none(self, tmp_path):
+        """Test get_hash_for_image when imagehash.phash returns None."""
+        # Create a real image
+        from PIL import Image
 
-            # Verify the result
-            assert result == "mock_hash_value"
+        image_path = tmp_path / "test_image.png"
+        img = Image.new("RGB", (1, 1), color="blue")
+        img.save(image_path)
 
-            # Verify Image.open was called twice with the path
-            assert mock_image_module.open.call_count == 2
-            mock_image_module.open.assert_has_calls(
-                [
-                    call(path),  # First call for verification
-                    call(path),  # Second call for hashing
-                ]
-            )
+        # Mock imagehash.phash to return None
+        with (
+            patch("fileio.fnmanip.imagehash.phash", return_value=None),
+            pytest.raises(RuntimeError, match="Hash generation returned None"),
+        ):
+            get_hash_for_image(image_path)
 
-            # Verify verify() was called on first image
-            mock_verify_image.verify.assert_called_once()
+    def test_get_hash_for_image_hash_fails(self, tmp_path):
+        """Test get_hash_for_image when imagehash.phash raises exception."""
+        # Create a real image
+        from PIL import Image
 
-            # Verify imagehash.phash was called with second image
-            mock_phash.assert_called_once_with(mock_hash_image, hash_size=16)
-
-    @patch("fileio.fnmanip.Image")
-    def test_get_hash_for_image_verify_fails(self, mock_image_module):
-        """Test get_hash_for_image when image verification fails."""
-        # Set up mock for verification
-        mock_image = MagicMock()
-        mock_image.verify.side_effect = Exception("Verification failed")
-
-        # Set up context manager that should raise during verify
-        mock_ctx = MagicMock()
-        mock_ctx.__enter__ = MagicMock(return_value=mock_image)
-        mock_ctx.__exit__ = MagicMock(return_value=None)
-
-        # Make Image.open return our failing context manager
-        mock_image_module.open.return_value = mock_ctx
-
-        # Call the function with a mock path
-        path = Path("test_image.jpg")
-        with pytest.raises(RuntimeError) as excinfo:
-            get_hash_for_image(path)
-
-        # Verify the error message
-        assert "Failed to verify image" in str(excinfo.value)
-        assert "Verification failed" in str(excinfo.value)
-
-    @patch("fileio.fnmanip.Image")
-    def test_get_hash_for_image_hash_fails(self, mock_image_module):
-        """Test get_hash_for_image when hashing fails."""
-        # Set up mock for verification - should succeed
-        mock_verify_image = MagicMock()
-        mock_verify_ctx = MagicMock()
-        mock_verify_ctx.__enter__ = MagicMock(return_value=mock_verify_image)
-        mock_verify_ctx.__exit__ = MagicMock(return_value=None)
-
-        # Set up mock for hashing - should succeed opening but fail hash
-        mock_hash_image = MagicMock()
-        mock_hash_ctx = MagicMock()
-        mock_hash_ctx.__enter__ = MagicMock(return_value=mock_hash_image)
-        mock_hash_ctx.__exit__ = MagicMock(return_value=None)
-
-        # Make Image.open return our mocks in sequence
-        mock_image_module.open.side_effect = [mock_verify_ctx, mock_hash_ctx]
+        image_path = tmp_path / "test_image.png"
+        img = Image.new("RGB", (1, 1), color="green")
+        img.save(image_path)
 
         # Mock imagehash.phash to raise an exception
-        mock_phash = MagicMock(side_effect=Exception("Hash generation failed"))
+        with (
+            patch(
+                "fileio.fnmanip.imagehash.phash", side_effect=Exception("Hash failed")
+            ),
+            pytest.raises(RuntimeError, match="Failed to hash image"),
+        ):
+            get_hash_for_image(image_path)
 
-        with patch("fileio.fnmanip.imagehash.phash", mock_phash):
-            path = Path("test_image.jpg")
-            with pytest.raises(RuntimeError) as excinfo:
-                get_hash_for_image(path)
+    def test_get_hash_for_image_file_not_found(self, tmp_path):
+        """Test get_hash_for_image when the image file doesn't exist."""
+        nonexistent_path = tmp_path / "does_not_exist.png"
 
-            assert "Failed to hash image" in str(excinfo.value)
-            assert "Hash generation failed" in str(excinfo.value)
-
-    @patch("fileio.fnmanip.Image")
-    def test_get_hash_for_image_open_fails(self, mock_image_module):
-        """Test get_hash_for_image when the image cannot be opened."""
-        # Make Image.open raise an OSError
-        error_msg = "Failed to open file"
-        mock_image_module.open.side_effect = OSError(error_msg)
-
-        path = Path("test_image.jpg")
-        with pytest.raises(RuntimeError) as excinfo:
-            get_hash_for_image(path)
-
-        assert "Failed to open" in str(excinfo.value)
-        assert error_msg in str(excinfo.value)
+        with pytest.raises(RuntimeError, match="Failed to verify image"):
+            get_hash_for_image(nonexistent_path)
 
 
 class TestVideoHash:

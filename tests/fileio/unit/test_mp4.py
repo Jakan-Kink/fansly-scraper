@@ -44,11 +44,19 @@ class TestMP4Box:
         assert result == "moov"
 
     def test_convert_to_fourcc_non_ascii(self):
-        """Test conversion of non-ASCII bytes to FourCC."""
-        # Non-printable ASCII bytes should be preserved as-is
-        fourcc_bytes = bytes([0x00, 0x41, 0x03, 0x42])  # [NUL, 'A', ETX, 'B']
+        """Test conversion of non-ASCII bytes to FourCC (UnicodeDecodeError path)."""
+        # Bytes > 127 cannot be decoded as ASCII, triggering UnicodeDecodeError
+        # This tests lines 44-49: the exception handler that formats non-ASCII bytes
+        fourcc_bytes = bytes([0xFF, 0x41, 0x80, 0x42])  # Non-ASCII bytes 0xFF and 0x80
+
         result = MP4Box.convert_to_fourcc(fourcc_bytes)
-        assert result == "\x00A\x03B"  # Raw bytes preserved
+
+        # Bytes < 32 or > 126 are wrapped in [brackets], printable ASCII chars pass through
+        # 0xFF (255) -> "[255]"
+        # 0x41 (65 = 'A') -> "A"
+        # 0x80 (128) -> "[128]"
+        # 0x42 (66 = 'B') -> "B"
+        assert result == "[255]A[128]B"
 
 
 class TestGetBoxes:

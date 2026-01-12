@@ -116,6 +116,14 @@ class TestNormalizeFilename:
         filename = ""
         assert normalize_filename(filename, config=config) == filename
 
+    def test_normalize_filename_malformed_timestamp(self, config):
+        """Test normalize_filename with malformed timestamp (line 51)."""
+        # Has ID but timestamp doesn't match expected format
+        filename = "not_a_timestamp_id_12345.jpg"
+        result = normalize_filename(filename, config=config)
+        # Should return unchanged when timestamp format doesn't match
+        assert result == filename
+
     def test_normalize_filename_hash_pattern(self, config):
         """Test normalize_filename with hash patterns."""
         # Hash patterns should be preserved exactly as is
@@ -127,3 +135,27 @@ class TestNormalizeFilename:
 
         filename = "2023-01-01_at_12-30_hash2_abc123_id_123456.jpg"
         assert normalize_filename(filename, config=config) == filename
+
+    def test_normalize_filename_invalid_date_format(self, config):
+        """Test normalize_filename with invalid date format (ValueError exception)."""
+        # Invalid date format should return filename unchanged
+        filename = "2023-13-45_at_99-99_id_12345.jpg"  # Invalid month and time
+        result = normalize_filename(filename, config=config)
+        assert result == filename
+
+    @pytest.mark.asyncio
+    async def test_normalize_filename_with_timezone_no_db_match(
+        self, config_with_database, session_sync
+    ):
+        """Test normalize_filename with timezone but no database match (else block)."""
+        # Filename with timezone (not UTC) but no database match
+        # This triggers the else block (lines 104-106)
+        filename = "2023-01-01_at_10-30_EST_id_99999.jpg"
+
+        # No media in database for ID 99999
+        # EST timezone indicator means line 92 condition fails (not tz_str is False)
+        # So no return in try block, reaching else block
+        result = normalize_filename(filename, config=config_with_database)
+
+        # Should return original filename unchanged (else block behavior)
+        assert result == filename

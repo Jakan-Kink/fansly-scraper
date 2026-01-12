@@ -25,6 +25,11 @@ from errors import (
     M3U8Error,
     MediaError,
     MediaHashMismatchError,
+    StashCleanupWarning,
+    StashConnectionError,
+    StashError,
+    StashGraphQLError,
+    StashServerError,
 )
 from errors.mp4 import InvalidMP4Error
 
@@ -227,3 +232,50 @@ class TestInvalidMP4Error:
 
         assert str(error) == ""
         assert isinstance(error, RuntimeError)
+
+
+class TestStashErrors:
+    """Test Stash-related exceptions."""
+
+    def test_stash_error(self):
+        """Test base StashError."""
+        message = "Stash error occurred"
+        error = StashError(message)
+
+        assert str(error) == message
+        assert isinstance(error, RuntimeError)
+
+    def test_stash_graphql_error(self):
+        """Test StashGraphQLError."""
+        message = "GraphQL query failed"
+        error = StashGraphQLError(message)
+
+        assert str(error) == message
+        assert isinstance(error, StashError)
+        assert isinstance(error, RuntimeError)
+
+    def test_stash_connection_error(self):
+        """Test StashConnectionError."""
+        message = "Cannot connect to Stash"
+        error = StashConnectionError(message)
+
+        assert str(error) == message
+        assert isinstance(error, StashError)
+        assert isinstance(error, RuntimeError)
+
+    def test_stash_server_error(self):
+        """Test StashServerError."""
+        message = "Stash server error 500"
+        error = StashServerError(message)
+
+        assert str(error) == message
+        assert isinstance(error, StashError)
+        assert isinstance(error, RuntimeError)
+
+    def test_stash_cleanup_warning(self):
+        """Test StashCleanupWarning."""
+        message = "Failed to cleanup test data"
+        warning = StashCleanupWarning(message)
+
+        assert str(warning) == message
+        assert isinstance(warning, UserWarning)

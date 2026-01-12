@@ -78,10 +78,10 @@ def get_hash_for_image(filename: Path) -> str:
     # Then open again for hashing (verify closes the file)
     try:
         with Image.open(filename) as img:
-            file_hash = str(imagehash.phash(img, hash_size=16))
-            if file_hash is None:
+            hash_result = imagehash.phash(img, hash_size=16)
+            if hash_result is None:
                 raise RuntimeError("Hash generation returned None")
-            return file_hash
+            return str(hash_result)
     except Exception as e:
         raise RuntimeError(f"Failed to hash image {filename}: {e}")
 

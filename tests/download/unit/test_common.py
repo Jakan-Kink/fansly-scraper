@@ -132,6 +132,17 @@ async def test_check_page_duplicates_empty_posts(mock_config, download_state):
 
 
 @pytest.mark.asyncio
+async def test_check_page_duplicates_missing_posts_key(mock_config, download_state):
+    """Test handling of page_data without posts key (line 103)."""
+    # Enable pagination duplication to reach line 103
+    mock_config.use_pagination_duplication = True
+    page_data = {"other_data": "value"}  # No "posts" key
+
+    # Should not raise any exceptions (early return at line 103)
+    await check_page_duplicates(mock_config, page_data, "timeline")
+
+
+@pytest.mark.asyncio
 async def test_check_page_duplicates_wall(mock_config, test_async_session):
     """Test duplicate checking for wall pages."""
     page_data = {"posts": [{"id": 1}]}
@@ -324,6 +335,39 @@ async def test_process_download_accessible_media_general_error(
     )
 
     assert result is True  # Should continue processing
+
+
+@pytest.mark.asyncio
+async def test_process_download_accessible_media_parse_error(
+    mock_config_update,
+    download_state,
+    media_infos,
+    test_async_session,
+    mock_process_media,
+    mock_parse_media,
+    mock_download_media,
+    mock_set_create_directory,
+):
+    """Test handling of errors during media parsing (lines 188-193)."""
+    # Mock process_media_info to raise exception during batch processing
+    mock_process_media.side_effect = Exception("Parse error during processing")
+
+    with (
+        patch("download.common.print_error") as mock_print_error,
+        patch("download.common.input_enter_continue") as mock_input,
+    ):
+        result = await process_download_accessible_media(
+            mock_config_update, download_state, media_infos, session=test_async_session
+        )
+
+        # Should catch exception and print error (lines 188-193)
+        mock_print_error.assert_called_once()
+        assert "Unexpected error parsing" in mock_print_error.call_args[0][0]
+
+        # Should call input_enter_continue if interactive
+        mock_input.assert_called_once_with(mock_config_update.interactive)
+
+        assert result is True  # Should continue processing after error
 
 
 def test_print_download_info(mock_config):
