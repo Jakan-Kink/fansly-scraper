@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Python dependencies via Poetry
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -11,4 +12,42 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "chore(deps):"
+    rebase-strategy: auto
+    # Group minor and patch updates together to reduce PR noise
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # npm dependencies (acorn, acorn-walk for checkKey extraction)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    assignees:
+      - "Jakan-Kink"
+    labels:
+      - "dependencies"
+      - "javascript"
+    commit-message:
+      prefix: "chore(deps):"
+    rebase-strategy: auto
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    assignees:
+      - "Jakan-Kink"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci):"
     rebase-strategy: auto
