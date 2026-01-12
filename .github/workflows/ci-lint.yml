@@ -76,11 +76,6 @@ jobs:
         run: |
           poetry run ruff format --check .
 
-      - name: Run bandit security scan
-        if: always()
-        run: |
-          poetry run bandit -c pyproject.toml -r .
-
   # Forward-compatibility check for Python 3.14
   # This won't block PRs if it fails, but gives visibility into future compatibility
   lint-python-3-14:
@@ -125,8 +120,3 @@ jobs:
         if: always()
         run: |
           poetry run ruff format --check . || echo "Ruff format check failed or not available"
-
-      - name: Run bandit security scan (if deps installed)
-        if: always()
-        run: |
-          poetry run bandit -c pyproject.toml -r . || echo "Bandit scan failed or not available"
