@@ -162,6 +162,9 @@ cython_debug/
 # Visual Studio Code
 .vscode/
 
+# Node.js
+node_modules/
+
 # User-specific
 config_args.ini
 config.ini
@@ -178,3 +181,6 @@ config.ini
 # GitHub Actions local testing (act)
 .actrc
 .secrets
+
+#ignore possible download folders
+*_fansly/

@@ -115,6 +115,25 @@ async def safe_rglob(base_path: Path, pattern: str) -> list[Path]:
     return await loop.run_in_executor(None, lambda: list(base_path.rglob(filename)))
 
 
+async def file_exists_in_download_path(
+    base_path: Path | None,
+    filename: str | None,
+) -> bool:
+    """Check if a filename exists anywhere under the download path."""
+    if not base_path or not filename:
+        return False
+
+    loop = asyncio.get_running_loop()
+    direct_path = base_path / filename
+    if await loop.run_in_executor(None, direct_path.is_file):
+        return True
+
+    for found_file in await safe_rglob(base_path, filename):
+        if await loop.run_in_executor(None, found_file.is_file):
+            return True
+    return False
+
+
 async def find_media_records(
     session: AsyncSession,
     conditions: dict[str, Any],
@@ -346,8 +365,24 @@ async def get_or_create_media(
     if trust_filename and media_id:
         media_by_id = next((m for m in existing_media if m.id == media_id), None)
         if media_by_id:
+            preserve_existing = False
+            if (
+                media_by_id.local_filename
+                and media_by_id.local_filename != filename
+                and await file_exists_in_download_path(
+                    state.download_path, media_by_id.local_filename
+                )
+            ):
+                preserve_existing = True
+                # print_warning(
+                #     "Preserving existing filename for media "
+                #     f"{media_id} because it exists on disk: "
+                #     f"{media_by_id.local_filename}"
+                # )
+
             # Update filename and mark as downloaded
-            media_by_id.local_filename = filename
+            if not preserve_existing:
+                media_by_id.local_filename = filename
             media_by_id.is_downloaded = True
             media_by_id.mimetype = mimetype
             if not media_by_id.accountId:
@@ -430,9 +465,25 @@ async def get_or_create_media(
                 f"DB has {media_by_id.content_hash}, file has {file_hash}"
             )
 
+        preserve_existing = False
+        if (
+            media_by_id.local_filename
+            and media_by_id.local_filename != filename
+            and await file_exists_in_download_path(
+                state.download_path, media_by_id.local_filename
+            )
+        ):
+            preserve_existing = True
+            # print_warning(
+            #     "Preserving existing filename for media "
+            #     f"{media_id} because it exists on disk: "
+            #     f"{media_by_id.local_filename}"
+            # )
+
         # Update existing record
         media_by_id.content_hash = file_hash
-        media_by_id.local_filename = filename
+        if not preserve_existing:
+            media_by_id.local_filename = filename
         media_by_id.is_downloaded = True
         media_by_id.mimetype = mimetype
         if not media_by_id.accountId:

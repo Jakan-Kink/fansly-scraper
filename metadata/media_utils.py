@@ -6,6 +6,7 @@ and media bundles across different models in the application.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -156,6 +157,7 @@ async def link_media_to_bundle(
     media_id: int,
     pos: int,
     table: str = "account_media_bundle_media",
+    account_id: int | None = None,
 ) -> None:
     """Link media to bundle with position.
 
@@ -166,7 +168,43 @@ async def link_media_to_bundle(
         pos: Position in the bundle
         table: Name of the junction table
     """
+    from .account import AccountMedia
     from .base import Base
+    from .media import Media
+
+    media_obj = await session.get(Media, media_id)
+    if account_id is None and media_obj:
+        account_id = media_obj.accountId
+
+    if account_id is None:
+        json_output(
+            2,
+            "meta/media - bundle_media_missing_account",
+            {
+                "bundle_id": bundle_id,
+                "media_id": media_id,
+                "pos": pos,
+            },
+        )
+        return
+
+    if media_obj is None:
+        session.add(Media(id=media_id, accountId=account_id))
+        await session.flush()
+
+    account_media_obj = await session.get(AccountMedia, media_id)
+    if account_media_obj is None:
+        session.add(
+            AccountMedia(
+                id=media_id,
+                accountId=account_id,
+                mediaId=media_id,
+                createdAt=datetime.now(UTC),
+                deleted=False,
+                access=False,
+            )
+        )
+        await session.flush()
 
     # Get the table object
     bundle_media_table = Base.metadata.tables[table]

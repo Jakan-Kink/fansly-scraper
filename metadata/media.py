@@ -441,6 +441,10 @@ async def _process_media_batch(
                 phase_name = "parent" if phase == 0 else "variant"
                 await _get_or_create_media(session, items, phase_name)
 
+        # Flush media records to database before processing relationships
+        # This ensures media IDs exist for foreign key constraints
+        await session.flush()
+
         # Process relationships
         await _sync_relationships(session, batch)
 

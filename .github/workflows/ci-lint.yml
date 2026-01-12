@@ -1,0 +1,122 @@
+# CI workflow for code quality checks on pull requests
+# Runs pre-commit hooks, ruff linting/formatting, and bandit security checks
+
+name: CI - Code Quality
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Lint & Format Check (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.12', '3.13']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml', '**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: ${{ runner.os }}-poetry-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          poetry install --no-interaction --no-root --with dev
+
+      - name: Run pre-commit hooks
+        run: |
+          poetry run pre-commit run --all-files --show-diff-on-failure
+        continue-on-error: false
+
+      - name: Run ruff check
+        if: always()
+        run: |
+          poetry run ruff check . --output-format=github
+
+      - name: Run ruff format check
+        if: always()
+        run: |
+          poetry run ruff format --check .
+
+  # Forward-compatibility check for Python 3.14
+  # This won't block PRs if it fails, but gives visibility into future compatibility
+  lint-python-3-14:
+    name: Lint & Format Check (Python 3.14 - Forward Compatibility)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          allow-prereleases: true
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+
+      - name: Try to install dependencies
+        run: |
+          poetry install --no-interaction --no-root --with dev || echo "Dependencies may not be compatible with Python 3.14 yet"
+
+      - name: Run pre-commit hooks (if deps installed)
+        run: |
+          poetry run pre-commit run --all-files --show-diff-on-failure || echo "Pre-commit hooks failed or dependencies not installed"
+
+      - name: Run ruff check (if deps installed)
+        if: always()
+        run: |
+          poetry run ruff check . --output-format=github || echo "Ruff check failed or not available"
+
+      - name: Run ruff format check (if deps installed)
+        if: always()
+        run: |
+          poetry run ruff format --check . || echo "Ruff format check failed or not available"
