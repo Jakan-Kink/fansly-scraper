@@ -12,14 +12,21 @@ import argparse
 import asyncio
 import configparser
 import getpass
+import mimetypes
 import os
 import re
 import sys
-import mimetypes
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote_plus, unquote, urlparse
 
 from sqlalchemy import create_engine, text
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
+
+    from config import FanslyConfig
 
 
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -147,23 +154,36 @@ def resolve_db_settings(args: argparse.Namespace) -> dict[str, str]:
     env_user = os.getenv("FANSLY_PG_USER")
     env_password = os.getenv("FANSLY_PG_PASSWORD")
 
-    host = first_non_empty(args.pg_host, env_host, config_values.get("pg_host")) or "localhost"
-    port = first_non_empty(
-        str(args.pg_port) if args.pg_port is not None else None,
-        env_port,
-        config_values.get("pg_port"),
-    ) or "5432"
+    host = (
+        first_non_empty(args.pg_host, env_host, config_values.get("pg_host"))
+        or "localhost"
+    )
+    port = (
+        first_non_empty(
+            str(args.pg_port) if args.pg_port is not None else None,
+            env_port,
+            config_values.get("pg_port"),
+        )
+        or "5432"
+    )
     database = (
-        first_non_empty(args.pg_database, env_database, config_values.get("pg_database"))
+        first_non_empty(
+            args.pg_database, env_database, config_values.get("pg_database")
+        )
         or "fansly_metadata"
     )
-    user = first_non_empty(args.pg_user, env_user, config_values.get("pg_user")) or "fansly_user"
+    user = (
+        first_non_empty(args.pg_user, env_user, config_values.get("pg_user"))
+        or "fansly_user"
+    )
 
-    password = first_non_empty(args.pg_password, env_password, config_values.get("pg_password"))
+    password = first_non_empty(
+        args.pg_password, env_password, config_values.get("pg_password")
+    )
     if password is None and sys.stdin.isatty():
         password = getpass.getpass("PostgreSQL password (leave blank for none): ")
     if password is None:
-        password = ""
+        password = ""  # nosec B105  # Empty string for no password is acceptable
 
     return {
         "pg_host": host,
@@ -270,15 +290,19 @@ def print_safe_db_url(db_url: str) -> None:
     print(f"Using database: {safe_url}")
 
 
-def ensure_tables_exist(conn, schema: str) -> None:
+def ensure_tables_exist(conn: Connection, schema: str) -> None:
     schema = validate_identifier(schema)
     for table in ("media", "accounts"):
-        result = conn.execute(text("SELECT to_regclass(:name)"), {"name": f"{schema}.{table}"})
+        result = conn.execute(
+            text("SELECT to_regclass(:name)"), {"name": f"{schema}.{table}"}
+        )
         if result.scalar() is None:
-            raise RuntimeError(f"Missing table: {schema}.{table}. Run migrations first.")
+            raise RuntimeError(
+                f"Missing table: {schema}.{table}. Run migrations first."
+            )
 
 
-def run_statements(conn, statements: list[str], dry_run: bool) -> None:
+def run_statements(conn: Connection, statements: list[str], dry_run: bool) -> None:
     for statement in statements:
         if dry_run:
             print(statement)
@@ -290,7 +314,10 @@ def run_statements(conn, statements: list[str], dry_run: bool) -> None:
 def parse_creator_names(raw: str | None) -> list[str]:
     if not raw:
         return []
-    from config import parse_items_from_line, sanitize_creator_names
+    from config import (  # noqa: PLC0415  # Avoid circular import
+        parse_items_from_line,
+        sanitize_creator_names,
+    )
 
     return sorted(sanitize_creator_names(parse_items_from_line(raw)))
 
@@ -319,7 +346,7 @@ def describe_files(base_path: Path) -> dict[str, int]:
     total = 0
     hash2 = 0
     id_tag = 0
-    for root, _dirs, files in os.walk(base_path):
+    for _root, _dirs, files in os.walk(base_path):
         for name in files:
             total += 1
             if hash2_re.search(name):
@@ -336,7 +363,7 @@ def collect_hash2_entries(base_path: Path) -> list[dict[str, str | int | None]]:
     id_re = re.compile(r"_id_(\d+)")
     entries: list[dict[str, str | int | None]] = []
     seen_ids: set[int] = set()
-    for root, _dirs, files in os.walk(base_path):
+    for _root, _dirs, files in os.walk(base_path):
         for name in files:
             hash_match = hash2_re.search(name)
             id_match = id_re.search(name)
@@ -369,7 +396,7 @@ def confirm_destructive(action: str, assume_yes: bool) -> None:
         raise SystemExit("Aborted by user.")
 
 
-def list_schema_tables(conn, schema: str) -> list[str]:
+def list_schema_tables(conn: Connection, schema: str) -> list[str]:
     schema = validate_identifier(schema)
     result = conn.execute(
         text(
@@ -386,7 +413,9 @@ def list_schema_tables(conn, schema: str) -> list[str]:
     return [row[0] for row in result.fetchall()]
 
 
-def clean_database(conn, schema: str, dry_run: bool, assume_yes: bool) -> None:
+def clean_database(
+    conn: Connection, schema: str, dry_run: bool, assume_yes: bool
+) -> None:
     tables = [t for t in list_schema_tables(conn, schema) if t != "alembic_version"]
     if not tables:
         print("No tables to clean (excluding alembic_version).")
@@ -400,18 +429,19 @@ def clean_database(conn, schema: str, dry_run: bool, assume_yes: bool) -> None:
     table_idents = []
     for table in tables:
         validate_identifier(table)
-        table_idents.append(f"{schema_ident}.\"{table}\"")
-    truncate_sql = (
-        f"TRUNCATE TABLE {', '.join(table_idents)} RESTART IDENTITY CASCADE;"
-    )
+        table_idents.append(f'{schema_ident}."{table}"')
+    truncate_sql = f"TRUNCATE TABLE {', '.join(table_idents)} RESTART IDENTITY CASCADE;"
     run_statements(conn, [truncate_sql], dry_run=dry_run)
 
 
-def ensure_media_locations_unique(conn, schema: str, dry_run: bool) -> None:
+def ensure_media_locations_unique(conn: Connection, schema: str, dry_run: bool) -> None:
     schema = validate_identifier(schema)
-    if conn.execute(
-        text("SELECT to_regclass(:name)"), {"name": f"{schema}.media_locations"}
-    ).scalar() is None:
+    if (
+        conn.execute(
+            text("SELECT to_regclass(:name)"), {"name": f"{schema}.media_locations"}
+        ).scalar()
+        is None
+    ):
         print("media_locations table not found; skipping unique constraint check.")
         return
 
@@ -440,13 +470,15 @@ def ensure_media_locations_unique(conn, schema: str, dry_run: bool) -> None:
 
     schema_ident = f'"{schema}"'
     add_sql = (
-        f'ALTER TABLE {schema_ident}.media_locations '
+        f"ALTER TABLE {schema_ident}.media_locations "
         'ADD CONSTRAINT uq_media_locations UNIQUE ("mediaId", "locationId");'
     )
     run_statements(conn, [add_sql], dry_run=dry_run)
 
 
-def ensure_media_locations_fk_deferrable(conn, schema: str, dry_run: bool) -> None:
+def ensure_media_locations_fk_deferrable(
+    conn: Connection, schema: str, dry_run: bool
+) -> None:
     ensure_fk_deferrable(
         conn=conn,
         schema=schema,
@@ -461,7 +493,7 @@ def ensure_media_locations_fk_deferrable(conn, schema: str, dry_run: bool) -> No
 
 def ensure_fk_deferrable(
     *,
-    conn,
+    conn: Connection,
     schema: str,
     table: str,
     column: str,
@@ -474,9 +506,12 @@ def ensure_fk_deferrable(
     for ident in (table, column, ref_table, ref_column):
         validate_identifier(ident)
 
-    if conn.execute(
-        text("SELECT to_regclass(:name)"), {"name": f"{schema}.{table}"}
-    ).scalar() is None:
+    if (
+        conn.execute(
+            text("SELECT to_regclass(:name)"), {"name": f"{schema}.{table}"}
+        ).scalar()
+        is None
+    ):
         print(f"{table} table not found; skipping FK deferrable check.")
         return
 
@@ -520,8 +555,7 @@ def ensure_fk_deferrable(
         if is_deferrable and is_deferred:
             return
         drop_sql = (
-            f'ALTER TABLE {schema_ident}."{table}" '
-            f'DROP CONSTRAINT "{constraint_name}";'
+            f'ALTER TABLE {schema_ident}."{table}" DROP CONSTRAINT "{constraint_name}";'
         )
     else:
         drop_sql = None
@@ -531,16 +565,23 @@ def ensure_fk_deferrable(
         f'ALTER TABLE {schema_ident}."{table}" '
         f'ADD CONSTRAINT "{constraint_name}" FOREIGN KEY ("{column}") '
         f'REFERENCES {schema_ident}."{ref_table}" ("{ref_column}") '
-        f'DEFERRABLE INITIALLY DEFERRED;'
+        f"DEFERRABLE INITIALLY DEFERRED;"
     )
     statements = [s for s in [drop_sql, add_sql] if s]
     run_statements(conn, statements, dry_run=dry_run)
 
 
-def build_config_for_dedupe(args: argparse.Namespace, settings: dict[str, str]):
-    from config import FanslyConfig, load_config
-    from fansly_downloader_ng import __version__
-    from metadata import Database
+def build_config_for_dedupe(
+    _args: argparse.Namespace, settings: dict[str, str]
+) -> FanslyConfig:
+    from config import (  # noqa: PLC0415  # Avoid circular import
+        FanslyConfig,
+        load_config,
+    )
+    from fansly_downloader_ng import (  # noqa: PLC0415  # Avoid circular import
+        __version__,
+    )
+    from metadata import Database  # noqa: PLC0415  # Avoid circular import
 
     config = FanslyConfig(program_version=__version__)
     config.interactive = False
@@ -558,7 +599,7 @@ def build_config_for_dedupe(args: argparse.Namespace, settings: dict[str, str]):
 
 
 async def resolve_creator_id(
-    config,
+    config: FanslyConfig,
     creator: str,
     creator_id_map: dict[str, str],
     allow_api: bool,
@@ -569,30 +610,37 @@ async def resolve_creator_id(
 
     # Try existing DB accounts (case-insensitive username match).
     try:
-        from metadata.account import Account
-        from sqlalchemy import func, select
+        from sqlalchemy import func, select  # noqa: PLC0415  # Avoid circular import
+
+        from metadata.account import Account  # noqa: PLC0415  # Avoid circular import
 
         async with config._database.async_session_scope() as session:
             result = await session.execute(
-                select(Account.id).where(func.lower(Account.username) == creator.lower())
+                select(Account.id).where(
+                    func.lower(Account.username) == creator.lower()
+                )
             )
             account_id = result.scalar_one_or_none()
             if account_id is not None:
                 return str(account_id)
-    except Exception as exc:  # noqa: BLE001 - best-effort lookup only
+    except Exception as exc:
         print(f"Account lookup failed for {creator}: {exc}")
 
     # Fall back to API lookup when token/config is present.
     if allow_api:
         try:
-            from download.account import get_creator_account_info
-            from download.downloadstate import DownloadState
+            from download.account import (  # noqa: PLC0415  # Avoid circular import
+                get_creator_account_info,
+            )
+            from download.downloadstate import (  # noqa: PLC0415  # Avoid circular import
+                DownloadState,
+            )
 
             state = DownloadState(creator_name=creator)
             await get_creator_account_info(config, state)
             if state.creator_id:
                 return str(state.creator_id)
-        except Exception as exc:  # noqa: BLE001 - API lookup may fail offline
+        except Exception as exc:
             print(f"API lookup failed for {creator}: {exc}")
 
     return None
@@ -602,10 +650,14 @@ async def run_dedupe_init(
     args: argparse.Namespace,
     settings: dict[str, str],
 ) -> None:
-    from download.downloadstate import DownloadState
-    from fileio.dedupe import dedupe_init
-    from pathio import set_create_directory_for_download
-    from metadata.media import Media
+    from download.downloadstate import (  # noqa: PLC0415  # Avoid circular import
+        DownloadState,
+    )
+    from fileio.dedupe import dedupe_init  # noqa: PLC0415  # Avoid circular import
+    from metadata.media import Media  # noqa: PLC0415  # Avoid circular import
+    from pathio import (  # noqa: PLC0415  # Avoid circular import
+        set_create_directory_for_download,
+    )
 
     config = build_config_for_dedupe(args, settings)
 
@@ -636,7 +688,7 @@ async def run_dedupe_init(
                 print(f"Skipping {creator}: {exc}")
                 continue
 
-            counts = describe_files(state.download_path or Path("."))
+            counts = describe_files(state.download_path or Path())
             print(
                 f"Dedupe init: {creator} ({creator_id}) -> {state.download_path} "
                 f"(files={counts['total']}, hash2={counts['hash2']}, id_tag={counts['id_tag']})"
@@ -698,11 +750,15 @@ def main() -> int:
         with engine.begin() as conn:
             ensure_tables_exist(conn, args.schema)
             if not args.drop and args.clean:
-                clean_database(conn, args.schema, dry_run=args.dry_run, assume_yes=args.yes)
+                clean_database(
+                    conn, args.schema, dry_run=args.dry_run, assume_yes=args.yes
+                )
             if not args.drop:
                 # Fix constraints before the app writes any data.
                 ensure_media_locations_unique(conn, args.schema, dry_run=args.dry_run)
-                ensure_media_locations_fk_deferrable(conn, args.schema, dry_run=args.dry_run)
+                ensure_media_locations_fk_deferrable(
+                    conn, args.schema, dry_run=args.dry_run
+                )
                 ensure_fk_deferrable(
                     conn=conn,
                     schema=args.schema,
@@ -731,6 +787,7 @@ def main() -> int:
     print(f"{action} media stub trigger successfully.")
 
     if args.print_creator_ids and not args.dry_run:
+
         async def _print_ids() -> None:
             config = build_config_for_dedupe(args, settings)
             try:
