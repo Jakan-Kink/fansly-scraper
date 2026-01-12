@@ -2959,14 +2959,14 @@ sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
 name = "stash-graphql-client"
-version = "0.10.4"
+version = "0.10.9"
 description = "Async Python client for Stash GraphQL API"
 optional = false
 python-versions = "<4.0,>=3.12"
 groups = ["main"]
 files = [
-    {file = "stash_graphql_client-0.10.4-py3-none-any.whl", hash = "sha256:6249f8bcc619e5a8b6f9ce9f2d574b28023bfbf3fcd0d431eeefdb3ae89f677c"},
-    {file = "stash_graphql_client-0.10.4.tar.gz", hash = "sha256:fa0f7770082f871f30a21e33541522d84a475b4ab3721edd155b8ec89dadc08b"},
+    {file = "stash_graphql_client-0.10.9-py3-none-any.whl", hash = "sha256:93c360912d54c25d31f376baa9b2b164395d18c86139b371971f79ea4f660aff"},
+    {file = "stash_graphql_client-0.10.9.tar.gz", hash = "sha256:092ff836f13e079e6257929a2b7adfecabe28dee5df961e7f9c7c29c9196688c"},
 ]
 
 [package.dependencies]
