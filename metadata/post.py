@@ -420,7 +420,7 @@ async def _process_post_mentions(
     )
 
     await session.execute(stmt)
-    await session.commit()
+    await session.flush()
 
 
 async def _process_post_attachments(
