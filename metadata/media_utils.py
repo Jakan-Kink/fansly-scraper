@@ -168,8 +168,8 @@ async def link_media_to_bundle(
         pos: Position in the bundle
         table: Name of the junction table
     """
-    from .base import Base
     from .account import AccountMedia
+    from .base import Base
     from .media import Media
 
     media_obj = await session.get(Media, media_id)

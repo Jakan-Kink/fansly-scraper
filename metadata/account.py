@@ -660,9 +660,7 @@ async def _process_single_bundle(
     await session.flush()
 
     # Process bundle content and media items
-    await _process_bundle_content(
-        bundle=bundle, session=session, account_id=account_id
-    )
+    await _process_bundle_content(bundle=bundle, session=session, account_id=account_id)
     await _process_bundle_media_items(
         bundle=bundle, config=config, session=session, account_id=account_id
     )
