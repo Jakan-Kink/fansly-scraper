@@ -265,6 +265,8 @@ class MediaBatch:
 
         # Set account ID if provided
         filtered_media["accountId"] = filtered_media.get("accountId", account_id)
+        if isinstance(filtered_media.get("accountId"), str):
+            filtered_media["accountId"] = int(filtered_media["accountId"])
 
         # Process metadata for video dimensions and duration
         if "metadata" in media_item:

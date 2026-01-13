@@ -6,7 +6,6 @@ Create Date: 2025-01-09 00:33:29.442274
 
 """
 
-import contextlib
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -69,16 +68,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Check for existing constraints
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    unique_constraints = {
+        uc["name"] for uc in inspector.get_unique_constraints("post_mentions")
+    }
+    pk_constraint = inspector.get_pk_constraint("post_mentions")
+    has_pk = (
+        pk_constraint.get("name") == "post_mentions_pkey" if pk_constraint else False
+    )
+
     # Revert post_mentions structure using batch_alter_table
     with op.batch_alter_table(
         "post_mentions", schema=None, recreate="always"
     ) as batch_op:
         # Drop new constraints
-        with contextlib.suppress(Exception):
+        if "uix_post_mentions_handle" in unique_constraints:
             batch_op.drop_constraint("uix_post_mentions_handle", type_="unique")
-        with contextlib.suppress(Exception):
+        if "uix_post_mentions_account" in unique_constraints:
             batch_op.drop_constraint("uix_post_mentions_account", type_="unique")
-        with contextlib.suppress(Exception):
+        if has_pk:
             batch_op.drop_constraint("post_mentions_pkey", type_="primary")
 
         # Revert accountId to be non-nullable

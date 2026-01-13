@@ -60,7 +60,7 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
                         messages_response
                     )
 
-                    await process_messages_metadata(config, state, messages["messages"])
+                    await process_messages_metadata(config, state, messages)
 
                     all_media_ids = get_unique_media_ids(messages)
                     media_infos = await download_media_infos(

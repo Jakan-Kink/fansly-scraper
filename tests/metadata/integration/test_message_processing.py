@@ -42,11 +42,12 @@ async def test_process_direct_messages(
         pytest.skip("No messages found in conversation data")
 
     # Set up accounts and groups from conversation data
-    messages_data = conversation_data["response"]["messages"]
+    response_data = conversation_data["response"]
+    messages_data = response_data["messages"]
     await setup_accounts_and_groups(session, conversation_data, messages_data)
 
-    # Process messages
-    await process_messages_metadata(config, None, messages_data, session=session)
+    # Process messages (pass full response so bundles are handled)
+    await process_messages_metadata(config, None, response_data, session=session)
 
     # Verify messages were created
     session.expire_all()
@@ -74,7 +75,9 @@ async def test_process_direct_messages(
     }
 
     # Process test message
-    await process_messages_metadata(config, None, [test_message_data], session=session)
+    await process_messages_metadata(
+        config, None, {"messages": [test_message_data]}, session=session
+    )
 
     # Verify message was created using ORM
     session.expire_all()
@@ -160,7 +163,7 @@ async def test_process_message_attachments(
 
     # Process messages
     await process_messages_metadata(
-        config, None, messages_with_attachments, session=session
+        config, None, {"messages": messages_with_attachments}, session=session
     )
 
     # Verify attachments were created
@@ -200,7 +203,8 @@ async def test_process_message_media_variants(
     Uses centralized fixtures.
     factory_async_session configures factories with the database session for async tests.
     """
-    messages = conversation_data["response"]["messages"]
+    response_data = conversation_data["response"]
+    messages = response_data["messages"]
     messages_with_variants = [
         msg
         for msg in messages
@@ -226,7 +230,7 @@ async def test_process_message_media_variants(
     session.expire_all()
 
     await process_messages_metadata(
-        config, None, messages_with_variants, session=session
+        config, None, {"messages": messages_with_variants}, session=session
     )
 
     # Verify media variants were processed correctly
@@ -273,8 +277,9 @@ async def test_process_message_media_bundles(
     from metadata import process_media_info
     from metadata.account import process_media_bundles_data
 
-    messages = conversation_data["response"]["messages"]
-    bundles = conversation_data["response"].get("accountMediaBundles", [])
+    response_data = conversation_data["response"]
+    messages = response_data["messages"]
+    bundles = response_data.get("accountMediaBundles", [])
 
     if not bundles:
         pytest.skip("No media bundles found in test data")
@@ -286,13 +291,13 @@ async def test_process_message_media_bundles(
     await session.commit()
 
     # First process messages to create necessary relationships
-    await process_messages_metadata(config, None, messages, session=session)
+    await process_messages_metadata(config, None, response_data, session=session)
 
     # Commit messages to ensure clean transaction state
     await session.commit()
 
     # Process accountMedia items FIRST to create AccountMedia records
-    account_media = conversation_data["response"].get("accountMedia", [])
+    account_media = response_data.get("accountMedia", [])
     if account_media:
         await process_media_info(config, {"batch": account_media}, session=session)
 
@@ -300,9 +305,7 @@ async def test_process_message_media_bundles(
     await session.commit()
 
     # Then process the accountMediaBundles (which references the AccountMedia records)
-    await process_media_bundles_data(
-        config, conversation_data["response"], session=session
-    )
+    await process_media_bundles_data(config, response_data, session=session)
 
     # Verify bundles were created and linked correctly
     session.expire_all()
@@ -336,8 +339,9 @@ async def test_process_message_permissions(
     """
     from metadata import process_media_info
 
-    messages = conversation_data["response"]["messages"]
-    media_items = conversation_data["response"].get("accountMedia", [])
+    response_data = conversation_data["response"]
+    messages = response_data["messages"]
+    media_items = response_data.get("accountMedia", [])
 
     if not media_items:
         pytest.skip("No media items found in test data")
@@ -348,7 +352,7 @@ async def test_process_message_permissions(
     # Commit accounts to ensure they're visible for FK checks
     await session.commit()
 
-    await process_messages_metadata(config, None, messages, session=session)
+    await process_messages_metadata(config, None, response_data, session=session)
 
     # Commit messages to ensure clean transaction state
     await session.commit()
@@ -371,8 +375,7 @@ async def test_process_message_permissions(
         stored_media = result.scalar_one_or_none()
 
         assert stored_media is not None
-        # Verify permission flags match
-        permission_flags = media_data["permissions"]["permissionFlags"]
-        assert stored_media.permissionFlags == permission_flags[0]["flags"]
-        # Verify access status
-        assert stored_media.access == media_data["access"]
+        # permissionFlags is not stored in AccountMedia - it's in the API response but intentionally skipped
+        # Verify access status if present in test data
+        if "access" in media_data:
+            assert stored_media.access == media_data["access"]

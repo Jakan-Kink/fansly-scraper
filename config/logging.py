@@ -81,9 +81,17 @@ class InterceptHandler(logging.Handler):
             frame = frame.f_back  # type: ignore[assignment]
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+        exc_info = record.exc_info
+        try:
+            logger.opt(depth=depth, exception=exc_info).log(level, record.getMessage())
+        finally:
+            # Explicitly clear references to prevent ResourceWarning
+            # from coverage.py's SQLite connection being held in call stack
+            del frame
+            if exc_info:
+                # Clear traceback reference which holds all exception frames
+                del exc_info
+            record.exc_info = None
 
 
 class SQLAlchemyInterceptHandler(logging.Handler):
@@ -104,10 +112,20 @@ class SQLAlchemyInterceptHandler(logging.Handler):
             frame = frame.f_back  # type: ignore[assignment]
             depth += 1
 
-        # Use db_logger to ensure proper logger binding for SQLAlchemy
-        db_logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+        exc_info = record.exc_info
+        try:
+            # Use db_logger to ensure proper logger binding for SQLAlchemy
+            db_logger.opt(depth=depth, exception=exc_info).log(
+                level, record.getMessage()
+            )
+        finally:
+            # Explicitly clear references to prevent ResourceWarning
+            # from coverage.py's SQLite connection being held in call stack
+            del frame
+            if exc_info:
+                # Clear traceback reference which holds all exception frames
+                del exc_info
+            record.exc_info = None
 
 
 # Standard level values (loguru's default scale)

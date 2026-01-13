@@ -94,6 +94,7 @@ async def process_media_bundles_data(
                 break
 
     if account_id:
+        account_id = int(account_id)
         await process_media_bundles(
             config=config,
             account_id=account_id,

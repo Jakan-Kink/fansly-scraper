@@ -91,9 +91,9 @@ async def test_media_location(session, session_sync, factory_session):
     # Create media using factory
     media = MediaFactory(id=1, accountId=123)
 
-    # Create location using sync session
+    # Create location using sync session - locationId must be integer
     location = MediaLocationFactory(
-        mediaId=1, locationId="loc1", location="https://example.com/video.mp4"
+        mediaId=1, locationId=102, location="https://example.com/video.mp4"
     )
 
     # Commit to ensure data is persisted
@@ -104,7 +104,7 @@ async def test_media_location(session, session_sync, factory_session):
     stmt = select(Media).where(Media.id == 1).options(selectinload(Media.locations))
     saved_media = (await session.execute(stmt)).unique().scalar_one_or_none()
     assert len(saved_media.locations) == 1
-    assert saved_media.locations["loc1"].location == "https://example.com/video.mp4"
+    assert saved_media.locations[102].location == "https://example.com/video.mp4"
 
 
 @pytest.mark.asyncio

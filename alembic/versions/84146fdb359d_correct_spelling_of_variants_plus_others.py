@@ -81,9 +81,15 @@ def downgrade() -> None:
     """
     # PostgreSQL: No PRAGMA equivalent needed
 
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+
     # Revert changes to the "groups" table
+    groups_fks = [fk["name"] for fk in inspector.get_foreign_keys("groups")]
+
     with op.batch_alter_table("groups", schema=None) as batch_op:
-        batch_op.drop_constraint("group_lastMessageId_fkey", type_="foreignkey")
+        if "group_lastMessageId_fkey" in groups_fks:
+            batch_op.drop_constraint("group_lastMessageId_fkey", type_="foreignkey")
         batch_op.drop_column("lastMessageId")
 
     # Recreate the old "media_varients" table

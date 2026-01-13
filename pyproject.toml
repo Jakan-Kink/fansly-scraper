@@ -301,7 +301,6 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--tb=short",
-    "--cov=.",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
     "--cov-config=pyproject.toml",

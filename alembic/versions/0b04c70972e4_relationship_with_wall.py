@@ -10,6 +10,7 @@ import contextlib
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -60,18 +61,27 @@ def downgrade() -> None:
     """Revert account_media foreign key and media defaults."""
     # PostgreSQL: No PRAGMA equivalent needed
 
+    conn = op.get_bind()
+    inspector = inspect(conn)
+
     # Revert foreign key constraint on account_media table
-    with op.batch_alter_table("account_media") as batch_op:
-        # Drop CASCADE foreign key
-        with contextlib.suppress(Exception):
+    # Check if the constraint exists before dropping
+    fks = inspector.get_foreign_keys("account_media")
+    fk_names = [fk["name"] for fk in fks]
+
+    if "fk_account_media_mediaId_cascade" in fk_names:
+        with op.batch_alter_table("account_media") as batch_op:
             batch_op.drop_constraint(
                 "fk_account_media_mediaId_cascade", type_="foreignkey"
             )
 
-        # Create original foreign key without CASCADE
-        batch_op.create_foreign_key(
-            "account_media_mediaId_fkey", "media", ["mediaId"], ["id"]
-        )
+    # Check if the original constraint exists before creating (idempotency)
+    if "account_media_mediaId_fkey" not in fk_names:
+        with op.batch_alter_table("account_media") as batch_op:
+            # Create original foreign key without CASCADE
+            batch_op.create_foreign_key(
+                "account_media_mediaId_fkey", "media", ["mediaId"], ["id"]
+            )
 
     # Revert media defaults
     with op.batch_alter_table("media") as batch_op:

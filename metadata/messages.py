@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     BigInteger,
@@ -219,22 +219,30 @@ async def _process_single_message(
 async def process_messages_metadata(
     config: FanslyConfig,
     _state: DownloadState,
-    messages: list[dict[str, any]],
+    data: dict[str, Any] | list[dict[str, Any]],
     session: AsyncSession | None = None,
 ) -> None:
     """Process message metadata and store in the database.
 
-    Processes a list of messages, creating or updating message records and their
-    attachments. Handles message timestamps and content relationships.
+    Processes message payloads, creating or updating message records and their
+    attachments. Handles message timestamps and content relationships. Accepts
+    either the full API response (preferred, to include bundles) or a bare list
+    of message dictionaries for backward compatibility.
 
     Args:
         config: FanslyConfig instance for database access
         state: Current download state
-        messages: List of message data dictionaries
+        data: Full response dict containing messages (and optionally bundles),
+            or a list of message dictionaries
         session: Optional AsyncSession for database operations
     """
-    # Create a deep copy of messages to avoid modifying the original
-    messages = copy.deepcopy(messages)
+    # Normalize input to a dict so bundle processing can see accountMediaBundles
+    if isinstance(data, list):
+        data = {"messages": data}
+
+    # Create a deep copy to avoid mutating caller data
+    data = copy.deepcopy(data)
+    messages = data.get("messages", [])
 
     # Known attributes that are handled separately
     known_relations = {
@@ -277,7 +285,7 @@ async def process_messages_metadata(
     }
 
     # Process any media bundles if present
-    await process_media_bundles_data(config, messages, session=session)
+    await process_media_bundles_data(config, data, session=session)
     from .attachment import Attachment
 
     # Process messages

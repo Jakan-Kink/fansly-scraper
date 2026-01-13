@@ -6,11 +6,11 @@ from datetime import UTC, datetime
 class TestStashProcessingBase:
     """Test pure logic methods of StashProcessingBase class."""
 
-    def test_generate_title_from_content(self, respx_stash_processor):
+    def test_generate_title_from_content(self, respx_stash_processor, faker):
         """Test _generate_title_from_content method - pure logic test."""
         # Test case 1: Content with a short first line
         content = "This is the title\nThis is the rest of the content"
-        username = "test_user"
+        username = faker.user_name()
         created_at = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
 
         # Call method on real processor (inherits from StashProcessingBase)
@@ -37,7 +37,7 @@ class TestStashProcessingBase:
         )
 
         # Verify fallback format
-        assert title == "test_user - 2023/01/01"
+        assert title == f"{username} - 2023/01/01"
 
         # Test case 4: With position indicators
         title = respx_stash_processor._generate_title_from_content(
