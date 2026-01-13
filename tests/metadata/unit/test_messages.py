@@ -105,7 +105,7 @@ def test_group_message(session_sync: Session, factory_session):
 
     # Update group's last message
     group.lastMessageId = message_id
-    session_sync.commit()
+    factory_session.commit()
 
     saved_group = session_sync.execute(select(Group)).scalar_one_or_none()
     assert saved_group is not None
