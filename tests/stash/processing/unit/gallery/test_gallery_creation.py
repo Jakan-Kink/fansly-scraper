@@ -75,10 +75,13 @@ class TestGalleryCreation:
         factory_async_session,
         session,
         respx_stash_processor: StashProcessing,
+        faker,
     ):
         """Test _get_gallery_metadata method extracts correct metadata."""
         # Create real Account and Post with factories
-        AccountFactory(id=12345, username="test_user")
+        expected_username = faker.user_name()
+
+        AccountFactory(id=12345, username=expected_username)
         PostFactory(
             id=67890,
             accountId=12345,
@@ -103,9 +106,9 @@ class TestGalleryCreation:
         )
 
         # Verify results
-        assert username == "test_user"
+        assert username == expected_username
         assert title == "Test content #test"
-        assert url == "https://test.com/test_user/post/67890"
+        assert url == f"https://test.com/{expected_username}/post/67890"
 
     @pytest.mark.asyncio
     async def test_setup_gallery_performers(
@@ -113,16 +116,17 @@ class TestGalleryCreation:
         factory_async_session,
         session,
         respx_stash_processor: StashProcessing,
+        faker,
     ):
         """Test _setup_gallery_performers adds main and mentioned performers."""
         # Create post author account (FK requirement)
-        AccountFactory(id=10000, username="post_author")
+        AccountFactory(id=10000, username=faker.user_name())
 
         # Create account for mention
-        AccountFactory(id=20001, username="mention1")
+        AccountFactory(id=20001, username=faker.user_name())
 
         # Create main post for testing
-        PostFactory(id=77777, accountId=10000, content="Test post")
+        PostFactory(id=77777, accountId=10000, content=faker.sentence())
 
         factory_async_session.commit()
 

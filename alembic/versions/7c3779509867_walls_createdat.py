@@ -10,6 +10,7 @@ import contextlib
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -64,10 +65,15 @@ def downgrade() -> None:
             existing_nullable=False,
         )
 
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    am_fks = [fk["name"] for fk in inspector.get_foreign_keys("account_media")]
+
     with op.batch_alter_table("account_media") as batch_op:
-        batch_op.drop_constraint(
-            "fk_account_media_accountId_accounts", type_="foreignkey"
-        )
+        if "fk_account_media_accountId_accounts" in am_fks:
+            batch_op.drop_constraint(
+                "fk_account_media_accountId_accounts", type_="foreignkey"
+            )
         batch_op.create_foreign_key(
             "fk_account_media_accountId_accounts", "accounts", ["accountId"], ["id"]
         )

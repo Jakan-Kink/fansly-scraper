@@ -682,7 +682,9 @@ async def create_groups_from_messages(session, messages: list[dict]) -> None:
         await create_groups_from_messages(session, conversation_data["response"]["messages"])
 
         # Finally process messages
-        await process_messages_metadata(config, None, messages, session=session)
+        await process_messages_metadata(
+            config, None, {"messages": messages}, session=session
+        )
     """
     from sqlalchemy import select
 
@@ -731,7 +733,9 @@ async def setup_accounts_and_groups(
 
     Example:
         await setup_accounts_and_groups(session, conversation_data)
-        await process_messages_metadata(config, None, messages, session=session)
+        await process_messages_metadata(
+            config, None, {"messages": messages}, session=session
+        )
     """
 
     if messages is None:

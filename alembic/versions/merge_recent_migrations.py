@@ -222,6 +222,10 @@ def downgrade() -> None:
     )
 
     # Drop index
-    op.drop_index(op.f("ix_account_media_accountId"), table_name="account_media")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    am_indexes = [i["name"] for i in inspector.get_indexes("account_media")]
+    if "ix_account_media_accountId" in am_indexes:
+        op.drop_index(op.f("ix_account_media_accountId"), table_name="account_media")
 
     # Note: Foreign keys are intentionally left disabled

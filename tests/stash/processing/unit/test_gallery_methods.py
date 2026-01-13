@@ -754,10 +754,11 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_short(
         self,
         respx_stash_processor: StashProcessing,
+        faker,
     ):
         """Test _generate_title_from_content with short content."""
         content = "Short content"
-        username = "test_user"
+        username = faker.user_name()
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
 
         # Call method
@@ -772,10 +773,11 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_long(
         self,
         respx_stash_processor: StashProcessing,
+        faker,
     ):
         """Test _generate_title_from_content truncates long content."""
         content = "A" * 200  # Very long content
-        username = "test_user"
+        username = faker.user_name()
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
 
         # Call method
@@ -791,10 +793,11 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_with_newlines(
         self,
         respx_stash_processor: StashProcessing,
+        faker,
     ):
         """Test _generate_title_from_content uses first line."""
         content = "First line\nSecond line\nThird line"
-        username = "test_user"
+        username = faker.user_name()
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
 
         # Call method
@@ -809,9 +812,10 @@ class TestTitleGeneration:
     async def test_generate_title_from_content_no_content(
         self,
         respx_stash_processor: StashProcessing,
+        faker,
     ):
         """Test _generate_title_from_content with no content."""
-        username = "test_user"
+        username = faker.user_name()
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
 
         # Call method with None content
@@ -820,16 +824,17 @@ class TestTitleGeneration:
         )
 
         # Verify result uses date format
-        assert result == "test_user - 2023/01/01"
+        assert result == f"{username} - 2023/01/01"
 
     @pytest.mark.asyncio
     async def test_generate_title_from_content_with_position(
         self,
         respx_stash_processor: StashProcessing,
+        faker,
     ):
         """Test _generate_title_from_content with position info."""
         content = "Short content"
-        username = "test_user"
+        username = faker.user_name()
         created_at = datetime(2023, 1, 1, 12, 0, tzinfo=UTC)
 
         # Call method with position

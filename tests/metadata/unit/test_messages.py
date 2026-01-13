@@ -189,7 +189,9 @@ async def test_process_messages_metadata(
         }
     ]
 
-    await process_messages_metadata(config, None, messages_data, session=session)
+    await process_messages_metadata(
+        config, None, {"messages": messages_data}, session=session
+    )
     await session.commit()
 
     # Verify the message was created with eager loading for attachments

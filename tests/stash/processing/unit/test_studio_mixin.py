@@ -367,7 +367,7 @@ class TestStudioProcessingMixin:
             assert mock_debug_print.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_get_studio_lock_race_condition(self, respx_stash_processor):
+    async def test_get_studio_lock_race_condition(self, respx_stash_processor, faker):
         """Test _get_studio_lock double-check race condition (line 41->43).
 
         This covers the branch where after acquiring the _studio_creation_locks_lock,
@@ -375,7 +375,7 @@ class TestStudioProcessingMixin:
 
         Ultra-aggressive approach: Mock the dict to return False first time, True second time.
         """
-        username = "race_test_user"
+        username = faker.user_name()
 
         # Clear any existing locks
         respx_stash_processor._studio_creation_locks.clear()

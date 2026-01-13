@@ -36,8 +36,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    indexes = [i["name"] for i in inspector.get_indexes("media")]
+
     with op.batch_alter_table("media") as batch_op:
-        batch_op.drop_index("ix_media_content_hash")
+        if "ix_media_content_hash" in indexes:
+            batch_op.drop_index("ix_media_content_hash")
         batch_op.drop_column("is_downloaded")
         batch_op.drop_column("content_hash")
         batch_op.drop_column("local_filename")

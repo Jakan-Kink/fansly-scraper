@@ -1,0 +1,10 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.25.1
+exclude:
+  global:
+    - db_init_scratch.py:
+        reason: Contributor-provided legacy scratch helper
+    - scripts/migrate_to_postgres.py:
+        reason: Contributor-provided legacy migration helper
+ignore: {}
+patch: {}
