@@ -191,14 +191,14 @@ files = [
 
 [[package]]
 name = "bandit"
-version = "1.9.2"
+version = "1.9.3"
 description = "Security oriented static analyser for python code."
 optional = false
 python-versions = ">=3.10"
 groups = ["dev"]
 files = [
-    {file = "bandit-1.9.2-py3-none-any.whl", hash = "sha256:bda8d68610fc33a6e10b7a8f1d61d92c8f6c004051d5e946406be1fb1b16a868"},
-    {file = "bandit-1.9.2.tar.gz", hash = "sha256:32410415cd93bf9c8b91972159d5cf1e7f063a9146d70345641cd3877de348ce"},
+    {file = "bandit-1.9.3-py3-none-any.whl", hash = "sha256:4745917c88d2246def79748bde5e08b9d5e9b92f877863d43fab70cd8814ce6a"},
+    {file = "bandit-1.9.3.tar.gz", hash = "sha256:ade4b9b7786f89ef6fc7344a52b34558caec5da74cb90373aed01de88472f774"},
 ]
 
 [package.dependencies]
@@ -2962,14 +2962,14 @@ sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
 name = "stash-graphql-client"
-version = "0.10.9"
+version = "0.10.10"
 description = "Async Python client for Stash GraphQL API"
 optional = false
 python-versions = "<4.0,>=3.12"
 groups = ["main"]
 files = [
-    {file = "stash_graphql_client-0.10.9-py3-none-any.whl", hash = "sha256:93c360912d54c25d31f376baa9b2b164395d18c86139b371971f79ea4f660aff"},
-    {file = "stash_graphql_client-0.10.9.tar.gz", hash = "sha256:092ff836f13e079e6257929a2b7adfecabe28dee5df961e7f9c7c29c9196688c"},
+    {file = "stash_graphql_client-0.10.10-py3-none-any.whl", hash = "sha256:acf3f35bc716c8ab69536dd65df1822bac8f042cdb00c359144510c86f8d684b"},
+    {file = "stash_graphql_client-0.10.10.tar.gz", hash = "sha256:dd744c9672d024186eb71c255da1cc00a48a6f98f530d50567ea48874b27e457"},
 ]
 
 [package.dependencies]
