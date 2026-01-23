@@ -19,6 +19,9 @@ from tests.fixtures import (
     AccountFactory,
     PostFactory,
     StudioFactory,
+    create_find_galleries_result,
+    create_gallery_dict,
+    create_graphql_response,
 )
 
 
@@ -156,27 +159,55 @@ class TestGalleryLookup:
         # Create real studio using factory
         studio = StudioFactory.build(id="123", name="Test Studio")
 
-        # Set up respx - findGalleries returns matching gallery
+        # Set up respx - findGalleries returns matching gallery (needs 2 responses for find())
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # Call 0: Count check (per_page=1)
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [
-                                    {
-                                        "id": "200",
-                                        "title": "Test Title",
-                                        "date": "2024-04-01",
-                                        "studio": {"id": "123"},
-                                    }
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
-                )
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="200",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-01",
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "123",
+                                        "name": "Test Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
+                # Call 1: Fetch results (per_page=1)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="200",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-01",
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "123",
+                                        "name": "Test Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
             ]
         )
 
@@ -190,10 +221,10 @@ class TestGalleryLookup:
         assert gallery.title == "Test Title"
         assert post_obj.stash_id == 200  # Should update item's stash_id as int
 
-        # Verify exactly 1 call
-        assert len(graphql_route.calls) == 1
+        # Verify 2 calls (count check + fetch results)
+        assert len(graphql_route.calls) == 2
 
-        # Verify request contains findGalleries with title filter
+        # Verify first request contains findGalleries with title filter
         req = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req["query"]
         assert req["variables"]["gallery_filter"]["title"]["value"] == "Test Title"
@@ -260,27 +291,55 @@ class TestGalleryLookup:
 
         studio = StudioFactory.build(id="125", name="Test Studio")
 
-        # Set up respx - returns gallery with wrong date
+        # Set up respx - returns gallery with wrong date (needs 2 responses for find())
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # Call 0: Count check
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [
-                                    {
-                                        "id": "201",
-                                        "title": "Test Title",
-                                        "date": "2024-04-02",  # Wrong date
-                                        "studio": {"id": "125"},
-                                    }
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
-                )
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="201",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-02",  # Wrong date
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "125",
+                                        "name": "Test Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
+                # Call 1: Fetch results
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="201",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-02",  # Wrong date
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "125",
+                                        "name": "Test Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
             ]
         )
 
@@ -311,27 +370,55 @@ class TestGalleryLookup:
 
         studio = StudioFactory.build(id="126", name="Test Studio")
 
-        # Set up respx - returns gallery with wrong studio
+        # Set up respx - returns gallery with wrong studio (needs 2 responses for find())
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # Call 0: Count check
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [
-                                    {
-                                        "id": "202",
-                                        "title": "Test Title",
-                                        "date": "2024-04-01",
-                                        "studio": {"id": "different_studio"},  # Wrong
-                                    }
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
-                )
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="202",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-01",
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "different_studio",
+                                        "name": "Wrong Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
+                # Call 1: Fetch results
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="202",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-01",
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "different_studio",
+                                        "name": "Wrong Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
             ]
         )
 
@@ -360,27 +447,55 @@ class TestGalleryLookup:
         result = await session.execute(select(Post).where(Post.id == 67894))
         post_obj = result.unique().scalar_one()
 
-        # Set up respx - returns gallery with any studio
+        # Set up respx - returns gallery with any studio (needs 2 responses for find())
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # Call 0: Count check
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [
-                                    {
-                                        "id": "203",
-                                        "title": "Test Title",
-                                        "date": "2024-04-01",
-                                        "studio": {"id": "any_studio"},
-                                    }
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
-                )
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="203",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-01",
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "any_studio",
+                                        "name": "Any Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
+                # Call 1: Fetch results
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="203",
+                                    title="Test Title",
+                                    code=None,
+                                    date="2024-04-01",
+                                    studio={
+                                        "__typename": "Studio",
+                                        "id": "any_studio",
+                                        "name": "Any Studio",
+                                    },
+                                )
+                            ],
+                        ),
+                    ),
+                ),
             ]
         )
 
@@ -407,19 +522,24 @@ class TestGalleryLookup:
         result = await session.execute(select(Post).where(Post.id == 67890))
         post_obj = result.unique().scalar_one()
 
-        # Set up respx - findGalleries returns matching gallery
+        # Set up respx - findGalleries returns matching gallery (find_one needs 1 response)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [{"id": "300", "code": "67890"}],
-                                "count": 1,
-                            }
-                        }
-                    },
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="300",
+                                    title=None,
+                                    code="67890",
+                                )
+                            ],
+                        ),
+                    ),
                 )
             ]
         )
@@ -485,19 +605,26 @@ class TestGalleryLookup:
         result = await session.execute(select(Post).where(Post.id == 67892))
         post_obj = result.unique().scalar_one()
 
-        # Set up respx - returns gallery with different code
+        # Set up respx - returns gallery with different code (find_one needs 1 response)
+        # This simulates a Stash server bug/data corruption where query for code=67892
+        # returns a gallery with code=54321
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [{"id": "301", "code": "54321"}],  # Wrong
-                                "count": 1,
-                            }
-                        }
-                    },
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="301",
+                                    title=None,
+                                    code="54321",  # Wrong code (expected 67892)
+                                )
+                            ],
+                        ),
+                    ),
                 )
             ]
         )
@@ -523,35 +650,58 @@ class TestGalleryLookup:
 
         test_url = "https://test.com/post/67890"
 
-        # Set up respx - findGalleries returns matching gallery, then galleryUpdate for save
+        # Set up respx - findGalleries returns matching gallery (find() needs 2 responses)
+        # Then galleryUpdate for save
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # Call 0: findGalleries by URL
+                # Call 0: findGalleries count check
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [
-                                    {"id": "400", "urls": [test_url], "code": ""}
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="400",
+                                    title=None,
+                                    code="",
+                                    urls=[test_url],
+                                )
+                            ],
+                        ),
+                    ),
                 ),
-                # Call 1: galleryUpdate (from gallery.save())
+                # Call 1: findGalleries fetch results
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "galleryUpdate": {
-                                "id": "400",
-                                "code": "67890",
-                                "urls": [test_url],
-                            }
-                        }
-                    },
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="400",
+                                    title=None,
+                                    code="",
+                                    urls=[test_url],
+                                )
+                            ],
+                        ),
+                    ),
+                ),
+                # Call 2: galleryUpdate (from gallery.save())
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "galleryUpdate",
+                        create_gallery_dict(
+                            id="400",
+                            title=None,
+                            code="67890",
+                            urls=[test_url],
+                        ),
+                    ),
                 ),
             ]
         )
@@ -564,18 +714,18 @@ class TestGalleryLookup:
         assert test_url in gallery.urls
         assert post_obj.stash_id == 400  # Should update item's stash_id
 
-        # Verify 2 calls (find + save)
-        assert len(graphql_route.calls) == 2
+        # Verify 3 calls (count check + fetch + save)
+        assert len(graphql_route.calls) == 3
 
-        # Verify first request is findGalleries with url filter
+        # Verify first request is findGalleries count check with url filter
         req0 = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req0["query"]
         assert req0["variables"]["gallery_filter"]["url"]["value"] == test_url
-        assert req0["variables"]["gallery_filter"]["url"]["modifier"] == "EQUALS"
+        assert req0["variables"]["gallery_filter"]["url"]["modifier"] == "INCLUDES"
 
-        # Verify second request is galleryUpdate
-        req1 = json.loads(graphql_route.calls[1].request.content)
-        assert "galleryUpdate" in req1["query"]
+        # Verify third request is galleryUpdate (calls 1 is fetch results)
+        req2 = json.loads(graphql_route.calls[2].request.content)
+        assert "galleryUpdate" in req2["query"]
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_not_found(
@@ -625,25 +775,45 @@ class TestGalleryLookup:
 
         test_url = "https://test.com/post/67892"
 
-        # Set up respx - returns gallery with different URL
+        # Set up respx - returns gallery with different URL (find() needs 2 responses)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # Call 0: findGalleries count check
                 httpx.Response(
                     200,
-                    json={
-                        "data": {
-                            "findGalleries": {
-                                "galleries": [
-                                    {
-                                        "id": "401",
-                                        "urls": ["https://test.com/post/54321"],
-                                    }
-                                ],
-                                "count": 1,
-                            }
-                        }
-                    },
-                )
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="401",
+                                    title=None,
+                                    code=None,
+                                    urls=["https://test.com/post/54321"],  # Wrong URL
+                                )
+                            ],
+                        ),
+                    ),
+                ),
+                # Call 1: findGalleries fetch results
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries",
+                        create_find_galleries_result(
+                            count=1,
+                            galleries=[
+                                create_gallery_dict(
+                                    id="401",
+                                    title=None,
+                                    code=None,
+                                    urls=["https://test.com/post/54321"],  # Wrong URL
+                                )
+                            ],
+                        ),
+                    ),
+                ),
             ]
         )
 

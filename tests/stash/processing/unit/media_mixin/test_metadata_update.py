@@ -34,8 +34,9 @@ class TestMetadataUpdate:
         # Expected GraphQL call sequence:
         # 1. findPerformers - _find_existing_performer finds performer
         # 2. findStudios - _find_existing_studio finds Fansly studio
-        # 3. studioCreate - Pattern 1: get_or_create creates immediately (returns existing if duplicate)
-        # 4. imageUpdate - stash_obj.save() persists updated metadata
+        # 3. findStudios - look for creator studio (not found)
+        # 4. studioCreate - create creator studio
+        # 5. imageUpdate - stash_obj.save() persists updated metadata
 
         # Response 1: findPerformers - performer found
         performer_dict = create_performer_dict(
@@ -52,8 +53,10 @@ class TestMetadataUpdate:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 3: studioCreate - creator studio (Pattern 1: get_or_create creates immediately)
-        # If studio exists, Stash returns the existing one
+        # Response 3: findStudios - creator studio not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 4: studioCreate - create creator studio
         creator_studio = create_studio_dict(
             id="creator_123",
             name=f"{mock_account.username} (Fansly)",
@@ -61,7 +64,7 @@ class TestMetadataUpdate:
             parent_studio=fansly_studio,
         )
 
-        # Response 4: imageUpdate - save updated image
+        # Response 5: imageUpdate - save updated image
         image_update_result = {
             "id": mock_image.id,
             "title": "Test title",
@@ -78,6 +81,12 @@ class TestMetadataUpdate:
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -109,14 +118,15 @@ class TestMetadataUpdate:
         assert f"https://fansly.com/post/{mock_item.id}" in mock_image.urls
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 4, "Expected exactly 4 GraphQL calls"
+        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
         assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[3].request.content)["query"]
+        assert "findStudios" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_already_organized(
@@ -206,6 +216,8 @@ class TestMetadataUpdate:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
         creator_studio = create_studio_dict(
             id="creator_123",
             name=f"{mock_account.username} (Fansly)",
@@ -231,6 +243,12 @@ class TestMetadataUpdate:
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
                 httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
+                ),
+                httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
                 httpx.Response(
@@ -254,14 +272,15 @@ class TestMetadataUpdate:
         assert mock_image.details == "Earlier content"  # Updated
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 4, "Expected exactly 4 GraphQL calls"
+        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
         assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[3].request.content)["query"]
+        assert "findStudios" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_performers(
@@ -360,18 +379,18 @@ class TestMetadataUpdate:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 8: findStudios for creator studio (already exists)
+        # Response 8: findStudios for creator studio (not found)
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 9: studioCreate for creator studio
         creator_studio = create_studio_dict(
             id="creator_123",
             name=f"{mock_account.username} (Fansly)",
             urls=[f"https://fansly.com/{mock_account.username}"],
             parent_studio=fansly_studio,
         )
-        creator_studio_result = create_find_studios_result(
-            count=1, studios=[creator_studio]
-        )
 
-        # Response 9: imageUpdate
+        # Response 10: imageUpdate
         image_update_result = {
             "id": mock_image.id,
             "title": mock_image.title,
@@ -417,6 +436,12 @@ class TestMetadataUpdate:
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
                 httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
+                ),
+                httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
                 httpx.Response(
@@ -445,7 +470,7 @@ class TestMetadataUpdate:
         assert any(mention2.username in name for name in performer_names)
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 9, "Expected exactly 9 GraphQL calls"
+        assert len(graphql_route.calls) == 10, "Expected exactly 10 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
@@ -456,8 +481,9 @@ class TestMetadataUpdate:
         assert "findPerformers" in json.loads(calls[4].request.content)["query"]
         assert "performerCreate" in json.loads(calls[5].request.content)["query"]
         assert "findStudios" in json.loads(calls[6].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[7].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[8].request.content)["query"]
+        assert "findStudios" in json.loads(calls[7].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[8].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[9].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_studio(
@@ -482,7 +508,10 @@ class TestMetadataUpdate:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 3: studioCreate for creator studio
+        # Response 3: findStudios for creator studio - not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
@@ -490,7 +519,7 @@ class TestMetadataUpdate:
             parent_studio=fansly_studio,
         )
 
-        # Response 4: imageUpdate
+        # Response 5: imageUpdate
         image_update_result = {
             "id": mock_image.id,
             "title": mock_image.title,
@@ -505,6 +534,12 @@ class TestMetadataUpdate:
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -529,14 +564,15 @@ class TestMetadataUpdate:
         assert mock_image.studio.name == f"{mock_account.username} (Fansly)"
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 4, "Expected exactly 4 GraphQL calls"
+        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
         assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[3].request.content)["query"]
+        assert "findStudios" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_tags(
@@ -569,7 +605,10 @@ class TestMetadataUpdate:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 3: studioCreate for creator studio
+        # Response 3: findStudios for creator studio - not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
@@ -577,14 +616,14 @@ class TestMetadataUpdate:
             parent_studio=fansly_studio,
         )
 
-        # Response 4-5: findTags for each hashtag
+        # Response 5-6: findTags for each hashtag
         tag1 = create_tag_dict(id="tag_123", name="test_tag")
         tag1_result = create_find_tags_result(count=1, tags=[tag1])
 
         tag2 = create_tag_dict(id="tag_456", name="another_tag")
         tag2_result = create_find_tags_result(count=1, tags=[tag2])
 
-        # Response 6: imageUpdate
+        # Response 7: imageUpdate
         image_update_result = {
             "id": mock_image.id,
             "title": mock_image.title,
@@ -599,6 +638,12 @@ class TestMetadataUpdate:
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -631,16 +676,17 @@ class TestMetadataUpdate:
         assert "another_tag" in tag_names
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
+        assert len(graphql_route.calls) == 7, "Expected exactly 7 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
         assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-        assert "findTags" in json.loads(calls[3].request.content)["query"]
+        assert "findStudios" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
         assert "findTags" in json.loads(calls[4].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
+        assert "findTags" in json.loads(calls[5].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[6].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_preview(
@@ -666,7 +712,10 @@ class TestMetadataUpdate:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 3: studioCreate for creator studio
+        # Response 3: findStudios for creator studio - not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
@@ -674,11 +723,11 @@ class TestMetadataUpdate:
             parent_studio=fansly_studio,
         )
 
-        # Response 4: findTags for "Trailer" tag
+        # Response 5: findTags for "Trailer" tag
         trailer_tag = create_tag_dict(id="preview_tag_id", name="Trailer")
         trailer_result = create_find_tags_result(count=1, tags=[trailer_tag])
 
-        # Response 5: imageUpdate
+        # Response 6: imageUpdate
         image_update_result = {
             "id": mock_image.id,
             "title": mock_image.title,
@@ -693,6 +742,12 @@ class TestMetadataUpdate:
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -721,15 +776,16 @@ class TestMetadataUpdate:
         assert "Trailer" in tag_names
 
         # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
+        assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
         calls = graphql_route.calls
 
         # Verify query types in order
         assert "findPerformers" in json.loads(calls[0].request.content)["query"]
         assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
-        assert "findTags" in json.loads(calls[3].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
+        assert "findStudios" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
+        assert "findTags" in json.loads(calls[4].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_with_studio_create(
@@ -755,7 +811,10 @@ class TestMetadataUpdate:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 3: studioCreate for creator studio (get_or_create creates immediately)
+        # Response 3: findStudios for creator studio - not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 4: studioCreate for creator studio
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{mock_account.username} (Fansly)",
@@ -774,11 +833,18 @@ class TestMetadataUpdate:
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
-                # 3: studioCreate (creator - Pattern 1: get_or_create creates immediately)
+                # 3: findStudios (creator studio - not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
+                ),
+                # 4: studioCreate (creator studio)
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # 4: imageUpdate - save the updated image
+                # 5: imageUpdate - save the updated image
                 httpx.Response(
                     200,
                     json=create_graphql_response(
@@ -802,10 +868,10 @@ class TestMetadataUpdate:
             media_id="media_123",
         )
 
-        # Verify all 4 GraphQL calls were made (v0.10.3 pattern)
-        # Should have exactly 4 calls: 1 findPerformers + 1 findStudios + 1 studioCreate + 1 imageUpdate
-        assert len(graphql_route.calls) == 4, (
-            f"Expected 4 calls, got {len(graphql_route.calls)}"
+        # Verify all 5 GraphQL calls were made (v0.10.3 pattern)
+        # Should have exactly 5 calls: 1 findPerformers + 2 findStudios + 1 studioCreate + 1 imageUpdate
+        assert len(graphql_route.calls) == 5, (
+            f"Expected 5 calls, got {len(graphql_route.calls)}"
         )
 
         # Verify the last call was imageUpdate

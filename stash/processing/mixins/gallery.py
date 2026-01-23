@@ -116,9 +116,28 @@ class GalleryProcessingMixin:
 
         Pattern 5: Migrated to use store.find_one() with Django-style filtering.
         Since code should be unique, use find_one() instead of find().
+
+        Validates that returned gallery actually has the expected code to protect
+        against server bugs or data corruption.
         """
+        expected_code = str(item.id)
         # Use store.find_one() for identity map caching (code is unique)
-        gallery = await self.store.find_one(Gallery, code=str(item.id))
+        gallery = await self.store.find_one(Gallery, code=expected_code)
+
+        # Validate the returned gallery has the expected code
+        if gallery and gallery.code != expected_code:
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_gallery_by_code",
+                    "status": "validation_failed",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
+                    "expected_code": expected_code,
+                    "actual_code": gallery.code,
+                }
+            )
+            return None
+
         if gallery:
             debug_print(
                 {
@@ -187,6 +206,8 @@ class GalleryProcessingMixin:
             date=item.createdAt.strftime("%Y-%m-%d"),
             # created_at and updated_at handled by Stash
             organized=True,  # Mark as organized since we have metadata
+            performers=[],  # Initialize as empty list to avoid UnsetType
+            tags=[],  # Initialize as empty list to avoid UnsetType
         )
 
     async def _get_gallery_metadata(

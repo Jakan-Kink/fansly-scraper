@@ -129,7 +129,8 @@ class AccountProcessingMixin:
         # Not found after all deduplication checks - create new performer
         logger.debug(f"Creating new performer for account: {account.username}")
         performer = self._performer_from_account(account)
-        return await self.store.save(performer)
+        await self.store.save(performer)
+        return performer
 
     @with_session()
     async def process_creator(

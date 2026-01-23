@@ -30,7 +30,7 @@ class TestStudioProcessingMixin:
         """Test process_creator_studio when both Fansly and Creator studios exist.
 
         Pattern: get_or_create() attempts creation, Stash returns existing if duplicate.
-        Expected: findStudios (Fansly) → studioCreate (creator returns existing)
+        Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (creator returns existing)
         """
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -39,6 +39,8 @@ class TestStudioProcessingMixin:
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
         )
+
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
         creator_studio_dict = create_studio_dict(
             id="studio_123", name="test_user (Fansly)"
@@ -52,7 +54,14 @@ class TestStudioProcessingMixin:
                     200,
                     json=create_graphql_response("findStudios", fansly_studio_result),
                 ),
-                # Second call: studioCreate (returns existing studio if duplicate)
+                # Second call: find creator studio (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
+                ),
+                # Third call: studioCreate (returns existing studio if duplicate)
                 httpx.Response(
                     200,
                     json=create_graphql_response("studioCreate", creator_studio_dict),
@@ -66,8 +75,8 @@ class TestStudioProcessingMixin:
         )
 
         # === PERMANENT GraphQL call sequence assertions ===
-        assert len(graphql_route.calls) == 2, (
-            f"Expected exactly 2 GraphQL calls, got {len(graphql_route.calls)}"
+        assert len(graphql_route.calls) == 3, (
+            f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
         )
 
         # Call 1: Find Fansly studio
@@ -75,10 +84,14 @@ class TestStudioProcessingMixin:
         assert "findStudios" in call1_body.get("query", "")
         # Note: Don't assert on filter structure - that's library implementation
 
-        # Call 2: studioCreate (returns existing)
+        # Call 2: Find creator studio (not found)
         call2_body = json.loads(graphql_route.calls[1].request.content)
-        assert "studioCreate" in call2_body.get("query", "")
-        assert call2_body["variables"]["input"]["name"] == "test_user (Fansly)"
+        assert "findStudios" in call2_body.get("query", "")
+
+        # Call 3: studioCreate (returns existing)
+        call3_body = json.loads(graphql_route.calls[2].request.content)
+        assert "studioCreate" in call3_body.get("query", "")
+        assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
 
         # Verify result
         assert result is not None
@@ -92,7 +105,7 @@ class TestStudioProcessingMixin:
         """Test process_creator_studio when Creator studio doesn't exist and needs to be created.
 
         Pattern: get_or_create() creates immediately, doesn't search first.
-        Expected: findStudios (Fansly) → studioCreate (new)
+        Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (new)
         """
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -101,6 +114,8 @@ class TestStudioProcessingMixin:
         fansly_studio_result = create_find_studios_result(
             count=1, studios=[fansly_studio_dict]
         )
+
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
         # Create studio for creation response
         new_studio_dict = create_studio_dict(
@@ -117,7 +132,14 @@ class TestStudioProcessingMixin:
                     200,
                     json=create_graphql_response("findStudios", fansly_studio_result),
                 ),
-                # Second call: studioCreate (creates new)
+                # Second call: find creator studio (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
+                ),
+                # Third call: studioCreate (creates new)
                 httpx.Response(
                     200,
                     json=create_graphql_response("studioCreate", new_studio_dict),
@@ -132,8 +154,8 @@ class TestStudioProcessingMixin:
             )
 
             # === PERMANENT GraphQL call sequence assertions ===
-            assert len(graphql_route.calls) == 2, (
-                f"Expected exactly 2 GraphQL calls, got {len(graphql_route.calls)}"
+            assert len(graphql_route.calls) == 3, (
+                f"Expected exactly 3 GraphQL calls, got {len(graphql_route.calls)}"
             )
 
             # Call 1: Find Fansly studio
@@ -141,13 +163,17 @@ class TestStudioProcessingMixin:
             assert "findStudios" in call1_body.get("query", "")
             # Note: Don't assert on filter structure - that's library implementation
 
-            # Call 2: Create studio
+            # Call 2: Find creator studio (not found)
             call2_body = json.loads(graphql_route.calls[1].request.content)
-            assert "studioCreate" in call2_body.get("query", "")
-            assert call2_body["variables"]["input"]["name"] == "test_user (Fansly)"
+            assert "findStudios" in call2_body.get("query", "")
+
+            # Call 3: Create studio
+            call3_body = json.loads(graphql_route.calls[2].request.content)
+            assert "studioCreate" in call3_body.get("query", "")
+            assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
             assert (
                 "https://fansly.com/test_user"
-                in call2_body["variables"]["input"]["urls"]
+                in call3_body["variables"]["input"]["urls"]
             )
 
             # Verify result
@@ -157,7 +183,7 @@ class TestStudioProcessingMixin:
 
             # Verify print_info called
             mock_print_info.assert_called_once()
-            assert "Studio ready" in str(mock_print_info.call_args)
+            assert "Studio created" in str(mock_print_info.call_args)
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_fansly_not_found(
@@ -190,10 +216,10 @@ class TestStudioProcessingMixin:
     async def test_process_creator_studio_creation_fails_then_retry(
         self, respx_stash_processor, mock_account, mock_performer
     ):
-        """Test process_creator_studio when creation fails, then succeeds on retry.
+        """Test process_creator_studio when creation fails (no automatic retry in current implementation).
 
-        Pattern: get_or_create() creates immediately. On error, retry with find_one().
-        Expected: findStudios (Fansly) → studioCreate (error) → findStudios (retry, found)
+        Pattern: find_one() first, then create if not found. On error, catch and return None.
+        Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (error)
         """
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -203,17 +229,7 @@ class TestStudioProcessingMixin:
             count=1, studios=[fansly_studio_dict]
         )
 
-        creator_studio_dict = create_studio_dict(
-            id="studio_123",
-            name="test_user (Fansly)",
-            urls=["https://fansly.com/test_user"],
-            aliases=[],
-            tags=[],
-            stash_ids=[],
-        )
-        creator_studio_result = create_find_studios_result(
-            count=1, studios=[creator_studio_dict]
-        )
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
 
         # Mock GraphQL responses (respx_stash_processor already has respx enabled)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -223,18 +239,20 @@ class TestStudioProcessingMixin:
                     200,
                     json=create_graphql_response("findStudios", fansly_studio_result),
                 ),
-                # Second call: studioCreate returns error
+                # Second call: find creator studio (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
+                ),
+                # Third call: studioCreate returns error
                 httpx.Response(
                     200,
                     json={
                         "errors": [{"message": "Test error"}],
                         "data": None,
                     },
-                ),
-                # Third call: retry find Creator studio (found this time)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findStudios", creator_studio_result),
                 ),
             ]
         )
@@ -261,27 +279,25 @@ class TestStudioProcessingMixin:
             assert "findStudios" in call1_body.get("query", "")
             # Note: Don't assert on filter structure - that's library implementation
 
-            # Call 2: Create studio (will fail)
+            # Call 2: Find creator studio (not found)
             call2_body = json.loads(graphql_route.calls[1].request.content)
-            assert "studioCreate" in call2_body.get("query", "")
-            assert call2_body["variables"]["input"]["name"] == "test_user (Fansly)"
+            assert "findStudios" in call2_body.get("query", "")
 
-            # Call 3: Retry find Creator studio
+            # Call 3: Create studio (will fail)
             call3_body = json.loads(graphql_route.calls[2].request.content)
-            assert "findStudios" in call3_body.get("query", "")
-            # Note: Don't assert on filter structure - that's library implementation
+            assert "studioCreate" in call3_body.get("query", "")
+            assert call3_body["variables"]["input"]["name"] == "test_user (Fansly)"
 
-            # Verify result (should get the existing studio from retry)
-            assert result is not None
-            assert result.id == "studio_123"
+            # Verify result is None (creation failed, no retry)
+            assert result is None
 
             # Verify error handling
             mock_print_error.assert_called_once()
-            assert "Failed to get/create studio" in str(mock_print_error.call_args)
+            assert "Failed to find/create studio" in str(mock_print_error.call_args)
             mock_logger_exception.assert_called_once()
             # debug_print is called twice: once at start, once in exception handler
             assert mock_debug_print.call_count == 2
-            assert "studio_get_or_create_failed" in str(mock_debug_print.call_args)
+            assert "studio_find_or_create_failed" in str(mock_debug_print.call_args)
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_creation_fails_retry_also_fails(
@@ -293,7 +309,7 @@ class TestStudioProcessingMixin:
         also returns 0 studios, causing the method to return None.
 
         Pattern: get_or_create() creates immediately. On error, retry with find_one().
-        Expected: findStudios (Fansly) → studioCreate (error) → findStudios (retry, not found)
+        Expected: findStudios (Fansly) → findStudios (creator not found) → studioCreate (error) → findStudios (retry, not found)
         """
         # Create responses
         fansly_studio_dict = create_studio_dict(
@@ -313,7 +329,12 @@ class TestStudioProcessingMixin:
                     200,
                     json=create_graphql_response("findStudios", fansly_studio_result),
                 ),
-                # Second call: studioCreate returns error
+                # Second call: find creator studio (not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findStudios", empty_result),
+                ),
+                # Third call: studioCreate returns error
                 httpx.Response(
                     200,
                     json={
@@ -321,7 +342,7 @@ class TestStudioProcessingMixin:
                         "data": None,
                     },
                 ),
-                # Third call: retry find Creator studio (STILL not found)
+                # Fourth call: retry find Creator studio (STILL not found)
                 httpx.Response(
                     200,
                     json=create_graphql_response("findStudios", empty_result),
@@ -346,7 +367,7 @@ class TestStudioProcessingMixin:
 
             # Verify error handling was called
             mock_print_error.assert_called_once()
-            assert "Failed to get/create studio" in str(mock_print_error.call_args)
+            assert "Failed to find/create studio" in str(mock_print_error.call_args)
             mock_logger_exception.assert_called_once()
             # debug_print is called twice: once at start, once in exception handler
             assert mock_debug_print.call_count == 2
