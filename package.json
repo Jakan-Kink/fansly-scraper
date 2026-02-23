@@ -7,7 +7,7 @@
     "node": ">=25.0.0"
   },
   "dependencies": {
-    "acorn": "^8.15.0",
+    "acorn": "^8.16.0",
     "acorn-walk": "^8.3.4"
   },
   "keywords": [
