@@ -210,7 +210,7 @@ nvm use
 
 **Important:** JSPyBridge detects and uses your local nvm installation if available, ensuring compatibility with the Node.js version specified in `.nvmrc`.
 
-For more details, see [CheckKey Extraction Documentation](CHECKKEY_JSPYBRIDGE.md).
+For more details, see [CheckKey Extraction Documentation](docs/reference/CHECKKEY_JSPYBRIDGE.md).
 
 ## 🏗️ Setup
 

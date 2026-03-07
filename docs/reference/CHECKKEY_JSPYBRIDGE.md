@@ -2,7 +2,7 @@
 
 ## Overview
 
-The checkKey extraction now uses **JSPyBridge** for efficient Python-JavaScript communication, with a fallback to subprocess if JSPyBridge is not available.
+The checkKey extraction uses **JSPyBridge** for efficient Python-JavaScript communication. JSPyBridge is **required** — if it is not installed, an `ImportError` is raised.
 
 ## Installation
 
@@ -16,18 +16,9 @@ pip install javascript
 npm install acorn acorn-walk
 ```
 
-### Option 2: Subprocess Fallback
-
-If you don't want to use JSPyBridge, the code will automatically fall back to subprocess:
-
-```bash
-# Just install Node.js dependencies
-npm install acorn acorn-walk
-```
-
 ## How It Works
 
-### With JSPyBridge (Primary)
+### With JSPyBridge
 
 ```python
 from javascript import require
@@ -51,22 +42,6 @@ acorn_walk.simple(ast, {"AssignmentExpression": check_assignment})
 from javascript import eval_js
 checkkey = eval_js(expression)  # Fast JavaScript execution!
 ```
-
-### Without JSPyBridge (Fallback)
-
-If JSPyBridge is not installed, the code automatically falls back to subprocess:
-
-```python
-# Spawns Node.js process
-subprocess.run(["node", "temp_script.js"], ...)
-```
-
-## Performance Comparison
-
-| Method         | Speed     | Overhead                          | Best For         |
-| -------------- | --------- | --------------------------------- | ---------------- |
-| **JSPyBridge** | ⚡ Fast   | ✅ Low (persistent Node.js)       | Production use   |
-| **Subprocess** | 🐢 Slower | ❌ High (spawn Node.js each time) | Fallback/testing |
 
 ## Usage
 
@@ -93,20 +68,15 @@ checkkey = guess_check_key(user_agent)
 ## Code Structure
 
 ```python
-# Import with fallback
+# Import JSPyBridge (required — raises ImportError if unavailable)
 try:
-    from javascript import require
+    from javascript import require, eval_js
     acorn = require("acorn")
     acorn_walk = require("acorn-walk")
-    HAS_JSPYBRIDGE = True
-except ImportError:
-    HAS_JSPYBRIDGE = False
+except ImportError as e:
+    raise  # JSPyBridge is required, no fallback
 
 def extract_checkkey_from_js(js_content: str) -> str | None:
-    if not HAS_JSPYBRIDGE:
-        # Fallback to subprocess
-        return _extract_checkkey_subprocess(js_content)
-
     # Use JSPyBridge for fast extraction
     ast = acorn.parse(js_content, {...})
     acorn_walk.simple(ast, {...})
@@ -171,7 +141,7 @@ result = subprocess.run(
 checkkey = result.stdout.strip()
 ```
 
-### New (JSPyBridge with Fallback)
+### New (JSPyBridge)
 
 ```python
 from javascript import require, eval_js
@@ -207,58 +177,25 @@ Error: Cannot find module 'acorn'
 npm install acorn acorn-walk
 ```
 
-### Falls Back to Subprocess
-
-If you see this warning:
-
-```
-Node.js not found. Install Node.js and run: npm install acorn acorn-walk
-Or install JSPyBridge: pip install javascript
-```
-
-**Solution**: Either:
-
-1. Install JSPyBridge: `pip install javascript`
-2. Or install Node.js and run: `npm install acorn acorn-walk`
-
 ## Testing
 
-Test both methods work:
-
 ```bash
-# Test with JSPyBridge
+# Test JSPyBridge works
 python3 -c "from helpers.checkkey import extract_checkkey_from_js; print('JSPyBridge works!')"
-
-# Test with subprocess fallback (uninstall JSPyBridge temporarily)
-pip uninstall javascript
-python3 -c "from helpers.checkkey import extract_checkkey_from_js; print('Subprocess works!')"
 ```
 
 ## Summary
 
-**Primary Method**: JSPyBridge
+**Method**: JSPyBridge (required)
 
 - ✅ Fast (no process spawning)
 - ✅ Clean API (direct `require()`)
 - ✅ Better error handling
 - ✅ Type-safe results
 
-**Fallback Method**: Subprocess
-
-- ✅ Works without JSPyBridge
-- ✅ Same AST logic
-- ⚠️ Slower (spawns Node.js)
-- ⚠️ More complex
-
 **Installation**:
 
 ```bash
-# Recommended
 pip install javascript
 npm install acorn acorn-walk
-
-# Minimum (fallback only)
-npm install acorn acorn-walk
 ```
-
-🎯 **Best of both worlds**: Fast JSPyBridge with automatic subprocess fallback!

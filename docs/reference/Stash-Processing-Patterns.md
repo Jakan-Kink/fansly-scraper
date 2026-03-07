@@ -29,29 +29,41 @@ async def _update_content_metadata(
 ### 2. Instance Creation Pattern
 
 ```python
-@dataclass
-class StashProcessing:
-    # Required fields without defaults
-    config: FanslyConfig
-    state: DownloadState
-    stash_interface: StashInterface
-    database: Database
+class StashProcessingBase:
+    """Base class with __init__() + mixin composition."""
 
-    # Optional fields with defaults
-    _background_task: asyncio.Task | None = None
-    _cleanup_event: asyncio.Event | None = None
-    _owns_db: bool = False
+    def __init__(
+        self,
+        config: FanslyConfig,
+        state: DownloadState,
+        context: StashContext,          # StashContext (not StashInterface)
+        database: Database,
+        _background_task: asyncio.Task | None = None,
+        _cleanup_event: asyncio.Event | None = None,
+        _owns_db: bool = False,
+    ) -> None:
+        self.config = config
+        self.state = state
+        self.context = context
+        self.database = database
+        self._background_task = _background_task
+        self._cleanup_event = _cleanup_event or asyncio.Event()
+        self._owns_db = _owns_db
+
+    @property
+    def store(self) -> StashEntityStore:
+        """Convenient access to Stash entity store."""
+        return self.context.store
 
     @classmethod
-    def from_config(cls, config: FanslyConfig, state: DownloadState) -> "StashProcessing":
-        # Deep copy state to prevent modification
+    def from_config(cls, config: FanslyConfig, state: DownloadState) -> Any:
         state_copy = deepcopy(state)
-
-        # Get interface from config
-        stash_interface = config.get_stash_api()
-
-        # Create database with same shared memory
-        database = Database(config, creator_name=state.creator_name)
+        context = config.get_stash_context()
+        return cls(
+            config=config, state=state_copy,
+            context=context, database=config._database,
+            _owns_db=False,
+        )
 ```
 
 ### 3. Processing Flow Pattern
@@ -159,20 +171,18 @@ if await media.awaitable_attrs.media:
 ### 6. File Type Pattern
 
 ```python
-# Pattern matching on MIME types for file handling
-match mime_type:
-    case str() as mime if mime.startswith("image"):
-        stash_obj = self.stash_interface.find_image(stash_id)[0]
-        return (stash_obj, Image.from_dict(stash_obj))
-    case str() as mime if mime.startswith("video"):
-        stash_obj = self.stash_interface.find_scene(stash_id)[0]
-        return (stash_obj, Scene.from_dict(stash_obj))
-    case str() as mime if mime.startswith("application"):
-        # Handle streaming formats
-        stash_obj = self.stash_interface.find_scene(stash_id)[0]
-        return (stash_obj, Scene.from_dict(stash_obj))
-    case _:
-        raise ValueError(f"Invalid media type: {mime_type}")
+# File lookups use store.get() with entity type based on MIME type.
+# See _find_stash_files_by_id() in stash/processing/mixins/media.py
+
+# Image lookup (for image/* MIME types):
+image = await self.store.get(Image, stash_id)
+if image and (file := self._get_file_from_stash_obj(image)):
+    found.append((image, file))
+
+# Scene lookup (for video/*, application/* MIME types):
+scene = await self.store.get(Scene, stash_id)
+if scene and (file := self._get_file_from_stash_obj(scene)):
+    found.append((scene, file))
 ```
 
 ## Organization Patterns
@@ -180,25 +190,27 @@ match mime_type:
 ### 7. Studio Hierarchy Pattern
 
 ```python
-# Two-level studio hierarchy:
+# Two-level studio hierarchy using store.find_one() + store.save()
+# See stash/processing/mixins/studio.py:83,103
 
-# 1. Network Level
-fansly_studio_dict = self.stash_interface.find_studio("Fansly (network)")
-fansly_studio = Studio.from_dict(
-    fansly_studio_dict.get("findStudio", fansly_studio_dict)
-)
+# 1. Network Level — find via store (identity map caches result)
+fansly_studio = await self.store.find_one(Studio, name="Fansly (network)")
+if not fansly_studio:
+    raise ValueError("Fansly Studio not found in Stash")
 
-# 2. Creator Level
+# 2. Creator Level — find or create
 creator_studio_name = f"{account.username} (Fansly)"
-studio_data = self.stash_interface.find_studio(creator_studio_name)
-if studio_data is None:
+studio = await self.store.find_one(Studio, name=creator_studio_name)
+
+if not studio:
     # Create new studio under network
     studio = Studio(
-        id="new",
         name=creator_studio_name,
         parent_studio=fansly_studio,
-        url=f"https://fansly.com/{account.username}",
+        urls=[f"https://fansly.com/{account.username}"],
+        performers=[performer] if performer else [],
     )
+    await self.store.save(studio)
 ```
 
 ### 8. Attachment Processing Pattern
@@ -304,33 +316,38 @@ finally:
 ```python
 async def cleanup(self) -> None:
     """Safely cleanup resources in order:
-    1. Background tasks
-    2. Database
-    3. Logging
+    1. Cancel background tasks (with timeout)
+    2. Cancel config-tracked tasks
+    3. Close Stash client connection
     """
+    # See stash/processing/base.py:274-340
+
     try:
-        # 1. Cancel and wait for background task
+        # 1. Cancel and wait for background task with timeout
         if self._background_task and not self._background_task.done():
             self._background_task.cancel()
             if self._cleanup_event:
-                await self._cleanup_event.wait()
+                try:
+                    await asyncio.wait_for(self._cleanup_event.wait(), timeout=10)
+                except TimeoutError:
+                    logger.warning("Timeout waiting for cleanup event")
 
-        # 2. Database cleanup (only if we own it)
-        if self._owns_db and self.database is not None:
-            # Ensure all processing is done
-            if hasattr(self.database, "optimized_storage"):
-                # Commit pending transactions
-                with self.database.get_sync_session() as session:
-                    session.commit()
-                # Final sync
-                self.database.optimized_storage.sync_manager.sync_now()
-            await self.database.cleanup()
+        # Force-set cleanup event to avoid blocking
+        if self._cleanup_event and not self._cleanup_event.is_set():
+            self._cleanup_event.set()
+
+        # 2. Cancel own tasks registered in config
+        if hasattr(self, "config") and hasattr(self.config, "get_background_tasks"):
+            background_tasks = self.config.get_background_tasks()
+            for task in [t for t in background_tasks if not t.done()]:
+                task.cancel()
 
     finally:
-        # 3. Always cleanup logging
-        for handler in logger.handlers[:]:
-            handler.close()
-            logger.removeHandler(handler)
+        # 3. Always close Stash client with timeout
+        try:
+            await asyncio.wait_for(self.context.close(), timeout=5)
+        except (TimeoutError, Exception) as e:
+            logger.error(f"Error closing Stash client: {e}")
 ```
 
 ### 12. Session and Batch Processing Pattern

@@ -38,135 +38,13 @@
 
 ---
 
-## Key Concepts
-
-### 1. Public `context.store` API (v0.10.4+)
-
-**Before (using private client):**
-```python
-result = await self.context.client.find_performers(
-    performer_filter={"name": {"value": username, "modifier": "EQUALS"}}
-)
-if result.count > 0:
-    return result.performers[0]
-```
-
-**After (using public store):**
-```python
-# Django-style filtering with identity map
-performer = await self.context.store.find_one(
-    Performer,
-    name=username  # or name__exact=username
-)
-```
-
-**Note:** Returns fully typed Pydantic models (not Strawberry types).
-
-### 2. Identity Map
-
-**What it does:**
-- Caches all entities by ID
-- Ensures same ID = same Python object instance
-- Automatic deduplication of queries
-- Updates propagate everywhere automatically
-
-**Example:**
-```python
-# First fetch
-scene = await store.get(Scene, "123")
-performer = scene.performers[0]
-
-# Later, elsewhere in code
-same_scene = await store.get(Scene, "123")
-assert same_scene is scene  # ✅ Same object instance!
-
-# Update anywhere, reflected everywhere
-performer.name = "New Name"
-print(scene.performers[0].name)  # "New Name"
-print(same_scene.performers[0].name)  # "New Name"
-```
-
-### 3. UNSET Pattern (3-State Fields) - v0.10.4+
-
-**Three states (automatic in v0.10.4):**
-1. **Set to value**: `scene.title = "My Title"` → Sent in mutation
-2. **Set to null**: `scene.title = None` → Sent as null in mutation
-3. **Never touched**: Field not assigned → **Automatic UNSET** (not sent)
-
-**Key Change in v0.10.4:** No need to explicitly set `field = UNSET`. Just **omit** the field assignment and Pydantic automatically treats it as UNSET.
-
-**Why it matters:**
-```python
-# Load scene with only some fields
-scene = await store.get(Scene, "123")  # Gets: id, title, rating100
-
-# Update ONLY what you want
-scene.title = "New Title"       # Will update (set to value)
-scene.rating100 = None          # Will clear (set to null)
-# scene.details not touched     # Automatic UNSET (preserved on server)
-
-# Save sends ONLY changed fields
-await scene.save(client)
-# Mutation: { id: "123", title: "New Title", rating100: null }
-# The 'details' field is preserved (not in mutation - automatic UNSET)
-```
-
-**Factory Pattern (v0.10.4):**
-```python
-# DON'T explicitly set UNSET
-scene = SceneFactory(title="Test")  # Only title set
-# All other fields are automatic UNSET (not sent in mutation)
-
-# To explicitly set null (different from UNSET):
-scene = SceneFactory(title="Test", details=None)  # details=null in mutation
-```
-
-### 4. Relationship Helpers
-
-**Instead of manual list assignment:**
-```python
-# BEFORE
-performers = []
-performers.append(main_performer)
-for mention in mentions:
-    performers.append(mention_performer)
-stash_obj.performers = performers
-await stash_obj.save(client)
-```
-
-**Use relationship helpers:**
-```python
-# AFTER
-await stash_obj.add_performer(main_performer)
-for mention_performer in mention_performers:
-    await stash_obj.add_performer(mention_performer)
-# Bidirectional sync: performer.scenes automatically updated!
-```
-
-### 5. Django-Style Filtering
-
-**Supported modifiers:**
-- `field__exact` or `field=value` - Exact match
-- `field__contains` - Contains substring
-- `field__gte` - Greater than or equal
-- `field__lte` - Less than or equal
-- `field__null=True` - Is null
-- `field__between=(start, end)` - Between values
-
-**Example:**
-```python
-# Complex filter in one line
-top_rated = await store.find(
-    Scene,
-    rating100__gte=80,
-    date__between=("2024-01-01", "2024-12-31"),
-    organized=True
-)
-```
+> **Key Concepts** (identity map, UNSET pattern, relationship helpers, Django-style filtering) are documented in the [stash-graphql-client library docs](https://jakan-kink.github.io/stash-graphql-client/latest/). This guide focuses on project-specific migration patterns.
 
 ---
 
 ## Migration Patterns
+
+> **Reading guide:** The "Current Code" examples below show the **pre-migration** state (now deleted). The "Migrated Code" examples show the **current** implementation.
 
 ### Pattern 1: Replace Sequential Searches with `store.find()`
 
@@ -330,7 +208,7 @@ except Exception as e:
     return studio_data.studios[0]
 ```
 
----User Note: Below code may not even be fully optimized, since there is also a get_or_create function
+---User Note: ✅ IMPLEMENTED — but uses `find_one()+save()` not `get_or_create()` as the migrated example suggests. Actual code at `studio.py:103` uses `store.find_one(Studio, name=...)` then `store.save(studio)`. Note: `studio.py:142-149` contains dead code (unreachable after `return studio` on line 140), and the docstring at line 64 inaccurately says "get_or_create".
 
 #### Migrated Code
 ```python
@@ -406,7 +284,7 @@ async def _process_hashtags_to_tags(
     return tags
 ```
 
----User Note: Below code may not even be fully optimized, since there is also a get_or_create function
+---User Note: ✅ IMPLEMENTED — uses parallel `get_or_create()` with `asyncio.gather()` in `tag.py`. 90%+ reduction in API calls achieved.
 
 #### Migrated Code
 ```python
@@ -501,7 +379,7 @@ def _create_nested_path_or_conditions(
     return result
 ```
 
----User Note: Below code may not even be fully optimized, since there is also the REGEX options
+---User Note: ✅ IMPLEMENTED — uses `path__regex` via `store.find_iter()` in `media.py`. Regex replaced the 40-line nested OR builder entirely.
 
 
 #### Migrated Code (Option A: Django-style)
@@ -545,7 +423,7 @@ async def _find_images_by_paths(
 
 ---
 
---User Note: I do not believe this was actually a problem we already had, because of the existing dirty checks, but now the dirty checks are handled by the library, and it automatically only saves things that changed
+--User Note: ✅ CONFIRMED — automatic dirty tracking in v0.10.4+ means no explicit UNSET needed. Library only saves changed fields.
 
 ### Pattern 6: Use UNSET for Partial Updates
 
@@ -593,7 +471,7 @@ async def _update_stash_metadata(...):
 
 ---
 
---User Note: StashObject.__setattr__ also does some of the features that the helpers provide, so this section may be able to be even better optimized
+--User Note: ✅ IMPLEMENTED — uses `add_performer()`, `add_tag()`, `set_studio()` relationship helpers in production code.
 
 ### Pattern 7: Use Relationship Helpers
 
@@ -740,57 +618,15 @@ except Exception as e:
 
 ## Phased Migration Plan
 
-### Phase 1: Foundation ✅ **COMPLETE**
-**Goal:** Enable store usage and update imports
+### Phases 1-2: Foundation + High-Impact Wins ✅ **COMPLETE** (2026-01-09)
 
-**Completed on:** 2026-01-09
-**Library Version:** v0.10.4 (Pydantic models)
-
-**Tasks:**
-1. ✅ Updated to stash-graphql-client v0.10.4
-2. ✅ Removed explicit `UNSET` imports (automatic in v0.10.4)
-3. ✅ Verified `StashContext` provides `store` access
-4. ✅ Added `store` property to `StashProcessingBase`:
-   ```python
-   @property
-   def store(self) -> StashEntityStore:
-       """Convenient access to store."""
-       return self.context.store
-   ```
-
-**Files Modified:**
-- ✅ `pyproject.toml` - Updated to v0.10.4
-- ✅ `stash/processing/base.py` - Added store property
-- ✅ `tests/fixtures/stash/stash_type_factories.py` - Updated for Pydantic patterns
-
-**Success Criteria:**
-- ✅ Can access `self.store` in all processing mixins
-- ✅ No breaking changes to existing functionality
-- ✅ Factory tests updated for v0.10.4 patterns
-
----
-
-### Phase 2: High-Impact Wins ✅ **COMPLETE**
-**Goal:** Migrate patterns with biggest performance gains
-
-**Completed Files:**
-1. ✅ `stash/processing/mixins/tag.py` - Parallel `get_or_create()` for 90% reduction
-2. ✅ `stash/processing/mixins/account.py` - `store.find_one()` for identity map caching
-3. ✅ `stash/processing/mixins/studio.py` - Removed manual cache invalidation
-4. ✅ `stash/processing/mixins/gallery.py` - `store.get()` for lookups
-
-**Key Achievements:**
-- ✅ Tag processing: N×2 queries → N parallel `get_or_create()` (90%+ reduction)
-- ✅ Performer lookup: 3 sequential queries → identity map cached lookups
-- ✅ Studio creation: Manual invalidation removed, race conditions handled
-- ✅ All core entity lookups use identity map
-
-**Testing:**
-```bash
-# All tests passing with new patterns
-poetry run pytest tests/stash/processing/unit/
-# ✅ 23 test files updated and passing
-```
+Updated to stash-graphql-client v0.10.4 (Pydantic models). Key changes:
+- Added `store` property to `StashProcessingBase` for ORM access
+- Tag processing: N×2 queries → N parallel `get_or_create()` (90%+ reduction)
+- Performer lookup: 3 sequential queries → identity map cached lookups
+- Studio creation: Manual cache invalidation removed, race conditions handled
+- All core entity lookups use identity map
+- Files: `tag.py`, `account.py`, `studio.py`, `gallery.py`, `base.py`, `pyproject.toml`, factory fixtures
 
 ---
 
@@ -935,47 +771,6 @@ async def test_identity_map_coherency():
 
 ---
 
-## Breaking Changes & Compatibility
-
-### Breaking Changes
-None expected - this is a **refactoring migration**, not an API change.
-
-### Compatibility Considerations
-
-**Mixing old and new patterns:**
-```python
-# ✅ SAFE - Can mix store and client calls
-performer = await self.context.store.get(Performer, "123")  # New
-studio = await self.context.client.find_studios(q="Fansly")  # Old
-
-# Both work with same identity map
-```
-
-**Identity map edge cases:**
-```python
-# ⚠️ CAUTION - Identity map can mask stale data if not refreshed
-performer = await store.get(Performer, "123")
-
-# ... external process updates performer in Stash ...
-
-# This returns cached object (may be stale)
-same_performer = await store.get(Performer, "123")
-
-# Solution: Force refresh if needed
-await store.invalidate(Performer, "123")
-refreshed = await store.get(Performer, "123")  # Fetches fresh data
-```
-
-### Rollback Plan
-
-**If migration causes issues:**
-1. Each file migration is independent
-2. Keep old code commented out during migration
-3. Can roll back individual files without affecting others
-4. Git tags for each phase completion
-
----
-
 ## Success Metrics
 
 ### Performance Metrics
@@ -1007,196 +802,81 @@ grep "GraphQL query" logs/processing.log | wc -l
 
 ---
 
-## Appendix: Quick Reference
-
-### Common Patterns Cheat Sheet
-
-| Task | Old Pattern | New Pattern |
-|------|------------|-------------|
-| Find by exact field | `client.find_performers(performer_filter={"name": {"value": "X", "modifier": "EQUALS"}})` | `store.find_one(Performer, name="X")` |
-| Find by contains | `client.find_tags(tag_filter={"name": {"value": "X", "modifier": "INCLUDES"}})` | `store.find(Tag, name__contains="X")` |
-| Get by ID | `client.find_performer("123")` | `store.get(Performer, "123")` |
-| Create entity | `client.create_performer(Performer(...))` | `store.create(Performer, name="X", ...)` |
-| Partial update | `obj.field = val; await obj.save(client)` | `obj.field = val; obj.other = UNSET; await obj.save(client)` |
-| Add relationship | `obj.performers = [p1, p2]; await obj.save()` | `await obj.add_performer(p1); await obj.add_performer(p2)` |
-| Filter in memory | `[x for x in items if x.rating > 80]` | `store.filter(Item, lambda x: x.rating > 80)` |
-
-### Import Checklist
-
-```python
-# Add to imports
-from stash_graphql_client.types import UNSET
-
-# Already imported, ensure available
-from stash_graphql_client.types import Performer, Studio, Tag, Scene, Image, Gallery
-```
-
-### Migration Verification Checklist
-
-- [ ] All tests pass after migration
-- [ ] API call count reduced significantly
-- [ ] No manual cache invalidation (`_store.invalidate_type()`)
-- [ ] No manual retry loops (let library handle)
-- [ ] UNSET pattern used for all partial updates
-- [ ] Django-style filters instead of manual dicts
-- [ ] `store.get()` used for ID lookups
-- [ ] `store.find()` used for searches
-- [ ] Batch operations where applicable
-- [ ] Identity map verified working (same ID = same object)
+> **Library API reference** (StashEntityStore methods, relationship helpers, cheat sheet) — see the [stash-graphql-client docs](https://jakan-kink.github.io/stash-graphql-client/latest/).
 
 ---
 
-##  Complete API Reference
+## Optimization Patterns Analysis (from v0.10.0 Migration Plan)
 
-### StashEntityStore Methods
+> *Merged from `V0_10_MIGRATION_PLAN.md` — documents optimization patterns evaluated during v0.10.x adoption.*
 
-**Discovered from actual v0.10.4+ installation:**
+### Sequential Deduplication (account.py)
 
+**Status:** ✅ **IMPLEMENTED** — Using identity map with `find_one()`
+
+Current implementation uses `store.find_one()` which leverages the identity map for caching. The sequential deduplication logic (check name → alias → URL) is preserved because it represents the actual business requirement.
+
+**Alternative cache-first pattern (for future consideration):**
 ```python
-# Query methods
-store.find(entity_type, **filters) -> list[T]
-  # Search using Stash filters. Results cached. Max 1000 results.
-
-store.find_one(entity_type, **filters) -> T | None
-  # Search returning first match. Result cached.
-
-store.find_iter(entity_type, **filters) -> AsyncIterator[T]
-  # Lazy iteration for large result sets (doesn't fetch all pages upfront)
-
-# ID-based lookups
-store.get(entity_type, entity_id, fields=None) -> T | None
-  # Get entity by ID. Checks cache first, fetches if missing/expired.
-
-store.get_many(entity_type, ids) -> list[T]
-  # Batch get entities. Returns cached + fetches missing in single query.
-
-# Create/Update
-store.add(obj) -> None
-  # Add object to cache (for new objects with temp UUIDs).
-
-store.get_or_create(entity_type, create_if_missing=True, **search_params) -> T
-  # Get entity by search criteria, optionally create if not found.
-
-store.save(obj) -> T
-  # Persist changes to Stash (handles dirty tracking internally).
-
-# Field management
-store.has_fields(obj, *field_names) -> bool
-  # Check if entity has specific fields loaded.
-
-store.missing_fields(obj, *field_names) -> set[str]
-  # Return set of fields not yet loaded on entity.
-
-store.populate(obj, fields=None, force_refetch=False) -> T
-  # Populate specific fields on an entity using field-aware fetching.
-
-# Cache management
-store.is_cached(entity_type, entity_id) -> bool
-  # Check if entity is in cache.
-
-store.invalidate(entity_type, entity_id) -> None
-  # Remove specific entity from cache.
-
-store.invalidate_type(entity_type) -> None
-  # Remove all entities of type from cache.
-
-store.invalidate_all() -> None
-  # Clear entire cache.
-
-store.cache_size() -> int
-  # Get number of cached entities.
-
-store.cache_stats() -> dict
-  # Get cache statistics.
-
-store.all_cached(entity_type) -> list[T]
-  # Return all cached entities of type (no network call).
-
-# In-memory filtering
-store.filter(entity_type, predicate) -> list[T]
-  # Filter cached objects with Python lambda. No network call.
-
-# Configuration
-store.set_ttl(entity_type, seconds) -> None
-  # Set time-to-live for entity type cache.
-
-# Constants
-store.DEFAULT_TTL  # Default cache TTL
-store.DEFAULT_QUERY_BATCH  # Default batch size for queries
-store.FIND_LIMIT  # Max results per find() call (1000)
-```
-
-### Entity Relationship Helper Methods
-
-**Discovered on Scene/Image/Gallery objects:**
-
-```python
-# Scene/Image relationship methods
-scene.add_performer(performer) -> None
-scene.remove_performer(performer) -> None
-
-scene.add_tag(tag) -> None
-scene.remove_tag(tag) -> None
-
-scene.set_studio(studio) -> None
-
-scene.add_to_gallery(gallery) -> None
-scene.remove_from_gallery(gallery) -> None
-
-# All methods handle bidirectional sync automatically!
-# Example: scene.add_performer(p) also updates p.scenes
-```
-
-### Complete Example: Optimal Pattern
-
-```python
-async def process_content(self, account: Account, item: Post):
-    """Example using ALL the ORM features optimally."""
-
-    # 1. Get or create performer (1 call instead of 3)
-    performer = await self.context.store.get_or_create(
-        Performer,
-        name=account.username,
-        urls=[f"https://fansly.com/{account.username}"],
-        details=account.about or "",
+# Check cache first (no network call)
+cached = self.store.filter(
+    Performer,
+    predicate=lambda p: (
+        p.name == search_name or
+        account.username in (p.alias_list or []) or
+        fansly_url in (p.urls or [])
     )
-
-    # 2. Get or create studio (1 call instead of create + retry)
-    studio = await self.context.store.get_or_create(
-        Studio,
-        name=f"{account.username} (Fansly)",
-        parent_studio=fansly_studio,  # Pre-fetched
-    )
-
-    # 3. Batch process hashtags (2 calls for N tags instead of N×2)
-    tag_names = [h.value.lower() for h in item.hashtags]
-    tags = await asyncio.gather(*[
-        self.context.store.get_or_create(Tag, name=name)
-        for name in tag_names
-    ])
-
-    # 4. Get scene (identity map ensures single instance)
-    scene = await self.context.store.get(Scene, media.stash_id)
-
-    # 5. Update with relationship helpers (bidirectional sync automatic)
-    await scene.add_performer(performer)
-    await scene.set_studio(studio)
-    for tag in tags:
-        await scene.add_tag(tag)
-
-    # 6. Update fields (dirty tracking automatic)
-    scene.title = generate_title(item)
-    scene.details = item.content
-    scene.date = item.createdAt.strftime("%Y-%m-%d")
-
-    # 7. Save (only sends changed fields!)
-    await scene.save(self.context.client)
+)
+if cached:
+    return cached[0]
 ```
 
-**Result:**
-- **Before:** 20-30 API calls
-- **After:** 4-6 API calls (70-80% reduction!)
-- **Code:** 40% shorter, 100% clearer
+**Decision:** Current pattern is optimal. Identity map caching reduces repeated lookups. In-memory filtering could be added in Phase 4 if needed.
+
+### Studio Lookup Caching
+
+**Status:** ✅ **IMPLEMENTED** — Identity map handles caching
+
+The Fansly studio is fetched once via `store.find_one()` and cached automatically by the identity map. No explicit caching initialization needed.
+
+### Parallel Tag Creation
+
+**Status:** ✅ **IMPLEMENTED** — Optimal pattern already in use
+
+```python
+tag_tasks = [self.store.get_or_create(Tag, name=name) for name in tag_names]
+tags = await asyncio.gather(*tag_tasks, return_exceptions=True)
+```
+
+Each `get_or_create()` checks identity map cache first, only queries Stash if not cached, and runs in parallel with `asyncio.gather()`.
+
+### Large Dataset Iteration
+
+**Status:** ⏸️ **DEFERRED** — Not needed for current performance
+
+Current `store.find_iter()` pattern performs well. A future optimization could use `populated_filter_iter()` for lazy iteration with field-aware fetching, but profiling hasn't identified this as a bottleneck.
+
+### Performance Improvements Summary
+
+| Operation | Before | After (v0.10.4+) | Reduction |
+|-----------|--------|-------------------|-----------|
+| Tag Processing | N tags × 2 queries = 2N API calls | N parallel `get_or_create()` with identity map | **90%+** |
+| Performer Lookups | 3 sequential GraphQL queries | Identity map cached lookups | **60-80%** on cache hits |
+| Studio Lookups | 1 GraphQL query per creator | 1 query total, identity map cached | **N-1 queries saved** |
+
+### Key v0.10.4 Changes
+
+- **Pydantic Models:** Fully typed models from all store methods (not Strawberry)
+- **Automatic UNSET:** Fields not assigned = automatic UNSET (no explicit import needed)
+- **UUID Auto-Generation:** Pydantic models auto-generate temp UUIDs on creation
+- **Identity Map:** Same ID = same object instance, with configurable TTL
+
+### References
+
+- [Official Documentation](https://jakan-kink.github.io/stash-graphql-client/latest/)
+- [CHANGELOG (All Releases)](https://github.com/Jakan-Kink/stash-graphql-client/blob/main/CHANGELOG.md)
+- [Advanced Filtering Guide](https://jakan-kink.github.io/stash-graphql-client/latest/guide/advanced-filtering/)
+- [Architecture Overview](https://jakan-kink.github.io/stash-graphql-client/latest/architecture/overview/)
 
 ---
 

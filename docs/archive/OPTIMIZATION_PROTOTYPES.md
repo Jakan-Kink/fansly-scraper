@@ -1,5 +1,7 @@
 # Path Lookup Optimization Prototypes
 
+> **Status:** Archived. Prototype 3 (regex/hybrid) was recommended but the batched OR approach has since been replaced. Regex filtering is now used in production via `store.find_iter()` with `path__regex` in `stash/processing/mixins/media.py`.
+
 This document contains prototype implementations for optimizing path-based file lookups in `stash/processing/mixins/media.py`.
 
 ## Current Implementation Issues
