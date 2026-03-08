@@ -1,9 +1,12 @@
 """Fansly Web API"""
 
+import asyncio
+import base64
 import binascii
 import math
 import time
 from collections.abc import Callable
+from ctypes import c_int32
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -472,8 +475,6 @@ class FanslyApi:
             await self._websocket_client.start_background()
 
             # Wait a moment for authentication to complete
-            import asyncio
-
             for _ in range(10):  # Wait up to 1 second
                 if self._websocket_client.session_id:
                     break
@@ -631,8 +632,6 @@ class FanslyApi:
             # Extract session ID from cookie
             # Cookie format (base64): sessionId:1:1:hash
             try:
-                import base64
-
                 # Add padding if needed
                 padding = 4 - len(session_cookie) % 4
                 if padding != 4:
@@ -771,8 +770,6 @@ class FanslyApi:
 
     @staticmethod
     def int32(val: int) -> int:
-        from ctypes import c_int32
-
         if -(2**31) <= val < 2**31:
             return val
 

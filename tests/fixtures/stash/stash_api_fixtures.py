@@ -1,6 +1,7 @@
 """Test configuration and fixtures for Stash tests."""
 
 import contextlib
+import json
 import logging
 import os
 import warnings
@@ -19,8 +20,110 @@ from stash_graphql_client.types import Scene, SceneCreateInput
 from errors import StashCleanupWarning
 
 
+def _mock_capability_response() -> httpx.Response:
+    """Build a minimal valid v0.11 capability detection response.
+
+    During StashClient.initialize(), v0.11 runs a __schema introspection query
+    to detect server capabilities. This provides the minimum response needed
+    for that query to succeed in test environments.
+    """
+    return httpx.Response(
+        200,
+        json={
+            "data": {
+                "version": {"version": "v0.30.0-test"},
+                "systemStatus": {"appSchema": 75, "status": "OK"},
+                "__schema": {
+                    "queryType": {
+                        "name": "Query",
+                        "fields": [
+                            {"name": "findScene"},
+                            {"name": "findScenes"},
+                            {"name": "findPerformer"},
+                            {"name": "findPerformers"},
+                            {"name": "findStudio"},
+                            {"name": "findStudios"},
+                            {"name": "findTag"},
+                            {"name": "findTags"},
+                            {"name": "findGallery"},
+                            {"name": "findGalleries"},
+                            {"name": "findImage"},
+                            {"name": "findImages"},
+                        ],
+                    },
+                    "mutationType": {
+                        "name": "Mutation",
+                        "fields": [
+                            {"name": "sceneCreate"},
+                            {"name": "sceneUpdate"},
+                            {"name": "sceneDestroy"},
+                            {"name": "performerCreate"},
+                            {"name": "performerUpdate"},
+                            {"name": "performerDestroy"},
+                            {"name": "studioCreate"},
+                            {"name": "studioUpdate"},
+                            {"name": "studioDestroy"},
+                            {"name": "tagCreate"},
+                            {"name": "tagUpdate"},
+                            {"name": "tagDestroy"},
+                            {"name": "galleryCreate"},
+                            {"name": "galleryUpdate"},
+                            {"name": "galleryDestroy"},
+                            {"name": "galleryChapterCreate"},
+                            {"name": "imageUpdate"},
+                            {"name": "imageDestroy"},
+                            {"name": "metadataScan"},
+                        ],
+                    },
+                    "subscriptionType": None,
+                    "types": [],
+                },
+            }
+        },
+    )
+
+
+def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
+    """Print request/response details for each GraphQL call in a respx route.
+
+    Use in try/finally blocks when debugging test failures:
+
+        graphql_route = respx.post(...).mock(side_effect=[...])
+        try:
+            await some_function_under_test()
+        finally:
+            dump_graphql_calls(graphql_route.calls)
+        # assertions go here after the try/finally
+
+    Args:
+        calls: respx route.calls or respx.calls list
+        label: Header label for the output
+    """
+    print(f"\n{'=' * 70}")
+    print(f"  {label} ({len(calls)} total)")
+    print(f"{'=' * 70}")
+    for i, call in enumerate(calls):
+        req_body = json.loads(call.request.content) if call.request.content else {}
+        query_str = req_body.get("query", "")
+        # Extract operation name from first line
+        first_line = query_str.strip().split("\n")[0] if query_str else "<empty>"
+        variables = req_body.get("variables", {})
+
+        resp_body = call.response.json() if call.response else {}
+        # Show just the top-level data keys
+        data_keys = list(resp_body.get("data", {}).keys()) if resp_body else []
+
+        print(f"\n  [{i}] {first_line}")
+        print(f"      variables: {json.dumps(variables, default=str)[:200]}")
+        print(f"      response data keys: {data_keys}")
+        if resp_body.get("errors"):
+            print(f"      ERRORS: {resp_body['errors']}")
+    print(f"\n{'=' * 70}\n")
+
+
 # Export all fixtures for wildcard import
 __all__ = [
+    "dump_graphql_calls",
     "enable_scene_creation",
     "respx_stash_client",
     "stash_cleanup_tracker",
@@ -68,7 +171,9 @@ async def stash_context() -> AsyncGenerator[StashContext, None]:
 
 
 @pytest_asyncio.fixture
-async def stash_client(stash_context) -> StashClient:
+async def stash_client(
+    stash_context: StashContext,
+) -> AsyncGenerator[StashClient, None]:
     """Get the StashClient from the StashContext.
 
     This fixture depends on the stash_context fixture and provides a properly initialized
@@ -83,14 +188,16 @@ async def stash_client(stash_context) -> StashClient:
     Yields:
         StashClient: An initialized client for Stash API interactions
     """
-    client = await stash_context.get_client()
+    client: StashClient = await stash_context.get_client()
     yield client
     # Ensure we explicitly clean up after each test
     await client.close()
 
 
 @pytest_asyncio.fixture
-async def respx_stash_client(stash_context) -> StashClient:
+async def respx_stash_client(
+    stash_context: StashContext,
+) -> AsyncGenerator[StashClient, None]:
     """Get a StashClient with respx HTTP mocking enabled.
 
     This is for unit tests that want to mock HTTP responses to Stash GraphQL API.
@@ -123,13 +230,19 @@ async def respx_stash_client(stash_context) -> StashClient:
         ```
     """
     with respx.mock:
-        # Default response for any unmatched GraphQL requests
+        # Serve capability detection response for v0.11 initialization
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[_mock_capability_response()]
+        )
+
+        # Initialize the client (consumes the capability response)
+        client = await stash_context.get_client()
+
+        # Reset all routes and global call history so tests start clean
+        respx.reset()
         respx.post("http://localhost:9999/graphql").mock(
             return_value=httpx.Response(200, json={"data": {}})
         )
-
-        # Initialize the client (will use mocked HTTP)
-        client = await stash_context.get_client()
 
         yield client
 

@@ -198,8 +198,7 @@ class GalleryProcessingMixin:
                 "item_id": item.id,
             }
         )
-        return Gallery(
-            id="new",  # Will be replaced on save
+        return Gallery.new(
             title=title,
             details=item.content,
             code=str(item.id),  # Use post/message ID as code for uniqueness
@@ -429,8 +428,7 @@ class GalleryProcessingMixin:
                     )
 
                     # Create chapter
-                    chapter = GalleryChapter(
-                        id="new",
+                    chapter = GalleryChapter.new(
                         gallery=gallery,
                         title=title,
                         image_index=image_index,
@@ -656,7 +654,7 @@ class GalleryProcessingMixin:
 
             if not all_images and not all_scenes:
                 # No content was processed, delete the gallery if we just created it
-                if gallery.id == "new":
+                if gallery.is_new():
                     debug_print(
                         {
                             "method": "StashProcessing - _process_item_gallery",
@@ -665,7 +663,7 @@ class GalleryProcessingMixin:
                             "gallery_id": gallery.id,
                         }
                     )
-                    await gallery.destroy(self.context.client)
+                    await gallery.delete(self.context.client)
                 return
 
             debug_print(

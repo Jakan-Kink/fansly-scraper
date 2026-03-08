@@ -6,12 +6,15 @@ import asyncio
 import contextlib
 import logging
 import traceback
+import warnings
 from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from stash_graphql_client import StashContext
+from stash_graphql_client import ServerCapabilities, StashContext
+from stash_graphql_client.errors import StashUnmappedFieldWarning, StashVersionError
 from stash_graphql_client.store import StashEntityStore
+from stash_graphql_client.types import Gallery, Image, Performer, Scene, Studio, Tag
 
 from metadata import Account, Database
 from pathio import set_create_directory_for_download
@@ -94,27 +97,68 @@ class StashProcessingBase:
         """
         return self.context.store
 
+    @property
+    def capabilities(self) -> ServerCapabilities:
+        """Convenient access to server capabilities."""
+        return self.context.capabilities
+
     async def _preload_stash_entities(self) -> None:
-        """Preload all Performers, Tags, and Studios into identity map.
+        """Preload shared entities (Tags, Performers, Studios) into identity map.
 
-        Loads all entities at start of processing so get_or_create() calls
-        are instant cache hits. Sets 1 hour TTL since processing sessions
-        typically complete within this window.
+        Sets TTL to None (no expiration) since the script is the sole writer
+        to Stash during processing. These entities are shared across creators
+        and persist for the entire run. Per-creator entities (Gallery, Image,
+        Scene) also get TTL=None but are invalidated per-creator.
         """
-        from stash_graphql_client.types import Performer, Studio, Tag
-
-        logger.info("Preloading Stash entities into identity map...")
-        cache_ttl = 3600  # 1 hour
+        logger.info("Preloading shared Stash entities into identity map...")
 
         try:
-            # Set TTL and preload each entity type
+            # Shared entities — never expire, preload all
             for entity_type in (Performer, Tag, Studio):
-                self.store.set_ttl(entity_type, cache_ttl)
+                self.store.set_ttl(entity_type, None)
                 entities = await self.store.find(entity_type)
                 logger.info(f"Preloaded {len(entities)} {entity_type.__name__}s")
 
+            # Per-creator entities — never expire, but invalidated per-creator
+            for entity_type in (Gallery, Image, Scene):
+                self.store.set_ttl(entity_type, None)
+
         except Exception as e:
             logger.warning(f"Failed to preload entities (continuing anyway): {e}")
+
+    async def _preload_creator_media(self) -> None:
+        """Preload Galleries, Images, and Scenes for current creator into identity map.
+
+        Uses self.state.base_path as path filter to load only this creator's media.
+        Dramatically speeds up subsequent lookups by avoiding per-item GraphQL queries.
+
+        Pattern from pyofscraperstash: preload per-performer, invalidate after processing.
+        """
+        if not self.state.base_path:
+            logger.debug("No base_path set, skipping creator media preload")
+            return
+
+        path_filter = str(self.state.base_path).rstrip("/")
+        logger.info(f"Preloading creator media from: {path_filter}")
+
+        try:
+            scene_count = 0
+            async for _scene in self.store.find_iter(Scene, path__contains=path_filter):
+                scene_count += 1
+            logger.info(f"Preloaded {scene_count} scenes")
+
+            image_count = 0
+            async for _image in self.store.find_iter(Image, path__contains=path_filter):
+                image_count += 1
+            logger.info(f"Preloaded {image_count} images")
+
+            gallery_count = 0
+            async for _gallery in self.store.find_iter(Gallery):
+                gallery_count += 1
+            logger.info(f"Preloaded {gallery_count} galleries")
+
+        except Exception as e:
+            logger.warning(f"Failed to preload creator media (continuing anyway): {e}")
 
     @classmethod
     def from_config(
@@ -162,6 +206,10 @@ class StashProcessingBase:
                 print_error(f"Failed to create download path: {e}")
                 return
 
+        # Log scan path capability (v0.11 gates this via __safe_to_eat__)
+        if self.capabilities.input_has_field("GenerateMetadataInput", "paths"):
+            logger.debug("Server supports targeted metadata scan paths")
+
         # Start metadata scan with all generation flags enabled
         flags = {
             "scanGenerateCovers": True,
@@ -205,8 +253,22 @@ class StashProcessingBase:
 
         # Initialize Stash client
         logger.debug(f"Initializing client on context {id(self.context)}")
-        await self.context.get_client()
+        try:
+            await self.context.get_client()
+        except StashVersionError as e:
+            print_error(f"Stash server too old: {e}")
+            print_warning("Minimum required: Stash v0.30.0 (appSchema 75)")
+            return
+        except RuntimeError as e:
+            print_error(f"Failed to initialize Stash client: {e}")
+            return
         logger.debug("Client initialized, proceeding with scan")
+
+        # Surface v0.11 deprecation/unmapped field warnings in logs
+        warnings.filterwarnings(
+            "always", category=DeprecationWarning, module="stash_graphql_client"
+        )
+        warnings.filterwarnings("always", category=StashUnmappedFieldWarning)
 
         await self.scan_creator_folder()
         account, performer = await self.process_creator()

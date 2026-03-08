@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import os
+import threading
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from functools import wraps
@@ -130,8 +131,6 @@ class Database:
         self.schema_name = "public"
 
         # Cleanup tracking
-        import threading
-
         self._cleanup_done = threading.Event()
         self._cleanup_lock = threading.Lock()
 

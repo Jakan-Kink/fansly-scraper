@@ -1,12 +1,13 @@
 # Stash GraphQL Client ORM Migration Guide
 
-> **Goal:** Refactor codebase to leverage stash-graphql-client v0.10.4's ORM features for cleaner code, better performance, and improved maintainability.
+> **Goal:** Refactor codebase to leverage stash-graphql-client ORM features for cleaner code, better performance, and improved maintainability.
 >
-> **Status:** Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 🟡 In Progress | Phase 4 ⏸️ Not Started
+> **Status:** Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 ✅ Complete | Phase 4 ⏸️ Not Started
 >
-> **Current Version:** v0.10.4 (Pydantic models, not Strawberry)
+> **Current Version:** v0.11.0b5 (Pydantic models, server capability detection, dynamic fragment store)
 
 ## Table of Contents
+
 1. [Why Migrate?](#why-migrate)
 2. [Key Concepts](#key-concepts)
 3. [Migration Patterns](#migration-patterns)
@@ -19,6 +20,7 @@
 ## Why Migrate?
 
 ### Current State: Using Library as Raw GraphQL Client
+
 - 🔴 **20+ unique client methods** called throughout codebase
 - 🔴 **Manual filter dict construction** (verbose, error-prone)
 - 🔴 **N+1 query problems** (sequential searches for same entities)
@@ -28,6 +30,7 @@
 - 🔴 **Complex nested OR construction** (40+ lines for simple operations)
 
 ### After Migration: Using Library as ORM
+
 - ✅ **50-70% reduction in API calls** (identity map + batching)
 - ✅ **20-30% less code** (simplified filters, relationship helpers)
 - ✅ **Type-safe Django-style queries** with autocomplete
@@ -51,6 +54,7 @@
 **Priority:** 🔴 HIGH - Eliminates N+1 queries
 
 #### Current Code (account.py:101-137)
+
 ```python
 async def _get_or_create_performer(self, account: Account) -> Performer:
     """Get existing performer or create from account."""
@@ -84,6 +88,7 @@ async def _get_or_create_performer(self, account: Account) -> Performer:
 ```
 
 #### Migrated Code (BEST: Using get_or_create)
+
 ```python
 async def _get_or_create_performer(self, account: Account) -> Performer:
     """Get existing performer or create from account."""
@@ -121,6 +126,7 @@ async def _get_or_create_performer(self, account: Account) -> Performer:
 ```
 
 **Key improvement:** `store.get_or_create()` signature:
+
 ```python
 store.get_or_create(
     entity_type: type[T],
@@ -130,6 +136,7 @@ store.get_or_create(
 ```
 
 **Benefits:**
+
 - Cleaner filter syntax (no manual dict construction)
 - Identity map prevents duplicate fetches
 - Automatic caching reduces API calls
@@ -142,6 +149,7 @@ store.get_or_create(
 **Priority:** 🔴 HIGH - Leverages identity map caching
 
 #### Current Code (account.py:300-314)
+
 ```python
 async def _find_existing_performer(self, account: Account) -> Performer | None:
     """Find performer by stash_id or username."""
@@ -159,6 +167,7 @@ async def _find_existing_performer(self, account: Account) -> Performer | None:
 ```
 
 #### Migrated Code
+
 ```python
 async def _find_existing_performer(self, account: Account) -> Performer | None:
     """Find performer by stash_id or username."""
@@ -179,6 +188,7 @@ async def _find_existing_performer(self, account: Account) -> Performer | None:
 ```
 
 **Benefits:**
+
 - Identity map returns cached object instantly
 - No duplicate network requests for same ID
 - Subsequent gets are O(1) dictionary lookups
@@ -190,6 +200,7 @@ async def _find_existing_performer(self, account: Account) -> Performer | None:
 **Priority:** 🔴 HIGH - Reduces brittleness
 
 #### Current Code (studio.py:132-143)
+
 ```python
 try:
     studio = await self.context.client.create_studio(studio)
@@ -211,6 +222,7 @@ except Exception as e:
 ---User Note: ✅ IMPLEMENTED — but uses `find_one()+save()` not `get_or_create()` as the migrated example suggests. Actual code at `studio.py:103` uses `store.find_one(Studio, name=...)` then `store.save(studio)`. Note: `studio.py:142-149` contains dead code (unreachable after `return studio` on line 140), and the docstring at line 64 inaccurately says "get_or_create".
 
 #### Migrated Code
+
 ```python
 try:
     # ✅ Store handles conflicts automatically
@@ -234,6 +246,7 @@ except Exception as e:
 ```
 
 **Benefits:**
+
 - No manual cache invalidation needed
 - Library handles cache coherency
 - Cleaner error handling
@@ -246,6 +259,7 @@ except Exception as e:
 **Priority:** 🔴 HIGH - 90% reduction in API calls
 
 #### Current Code (tag.py:32-84)
+
 ```python
 async def _process_hashtags_to_tags(
     self,
@@ -287,6 +301,7 @@ async def _process_hashtags_to_tags(
 ---User Note: ✅ IMPLEMENTED — uses parallel `get_or_create()` with `asyncio.gather()` in `tag.py`. 90%+ reduction in API calls achieved.
 
 #### Migrated Code
+
 ```python
 async def _process_hashtags_to_tags(
     self,
@@ -327,6 +342,7 @@ async def _process_hashtags_to_tags(
 ```
 
 **Benefits:**
+
 - From N×2 queries to 1-2 queries total
 - 90%+ reduction in API calls for tagging
 - In-memory lookup after initial fetch
@@ -339,6 +355,7 @@ async def _process_hashtags_to_tags(
 **Priority:** 🟡 MEDIUM - Improves maintainability
 
 #### Current Code (media.py:98-141)
+
 ```python
 def _create_nested_path_or_conditions(
     self,
@@ -381,8 +398,8 @@ def _create_nested_path_or_conditions(
 
 ---User Note: ✅ IMPLEMENTED — uses `path__regex` via `store.find_iter()` in `media.py`. Regex replaced the 40-line nested OR builder entirely.
 
-
 #### Migrated Code (Option A: Django-style)
+
 ```python
 async def _find_images_by_paths(
     self,
@@ -398,6 +415,7 @@ async def _find_images_by_paths(
 ```
 
 #### Migrated Code (Option B: Fetch all then filter in-memory)
+
 ```python
 async def _find_images_by_paths(
     self,
@@ -416,6 +434,7 @@ async def _find_images_by_paths(
 ```
 
 **Benefits:**
+
 - 40 lines → 3-10 lines
 - Type-safe filter construction
 - No manual dict nesting
@@ -430,6 +449,7 @@ async def _find_images_by_paths(
 **Priority:** 🟡 MEDIUM - Prevents accidental overwrites
 
 #### Current Code (media.py:620-644)
+
 ```python
 async def _update_stash_metadata(...):
     # ❌ Updates all fields, even if some weren't loaded
@@ -443,6 +463,7 @@ async def _update_stash_metadata(...):
 ```
 
 #### Migrated Code
+
 ```python
 from stash_graphql_client.types import UNSET
 
@@ -464,6 +485,7 @@ async def _update_stash_metadata(...):
 ```
 
 **Benefits:**
+
 - Prevents accidental data overwrites
 - Explicit about what changes
 - Safe partial updates
@@ -478,6 +500,7 @@ async def _update_stash_metadata(...):
 **Priority:** 🟡 MEDIUM - Cleaner code, automatic sync
 
 #### Current Code (media.py:661-734)
+
 ```python
 async def _update_stash_metadata(...):
     # ❌ Manual performer list management
@@ -522,6 +545,7 @@ async def _update_stash_metadata(...):
 ```
 
 #### Migrated Code
+
 ```python
 async def _update_stash_metadata(...):
     # ✅ Add main performer (bidirectional sync)
@@ -552,6 +576,7 @@ async def _update_stash_metadata(...):
 ```
 
 **Benefits:**
+
 - Bidirectional relationship sync automatic
 - No manual list management
 - Cleaner tag addition (no overwrite)
@@ -564,6 +589,7 @@ async def _update_stash_metadata(...):
 **Priority:** 🟢 LOW - Library may handle retries internally
 
 #### Current Code (gallery.py:681-747)
+
 ```python
 if all_images:
     images_added_successfully = False
@@ -593,6 +619,7 @@ if all_images:
 ```
 
 #### Migrated Code
+
 ```python
 # ✅ Rely on library's built-in retry logic
 # (HTTPXAsyncTransport has automatic retry with backoff)
@@ -609,6 +636,7 @@ except Exception as e:
 ```
 
 **Benefits:**
+
 - Less code to maintain
 - Consistent retry behavior across codebase
 - Library handles transient failures automatically
@@ -621,6 +649,7 @@ except Exception as e:
 ### Phases 1-2: Foundation + High-Impact Wins ✅ **COMPLETE** (2026-01-09)
 
 Updated to stash-graphql-client v0.10.4 (Pydantic models). Key changes:
+
 - Added `store` property to `StashProcessingBase` for ORM access
 - Tag processing: N×2 queries → N parallel `get_or_create()` (90%+ reduction)
 - Performer lookup: 3 sequential queries → identity map cached lookups
@@ -630,42 +659,56 @@ Updated to stash-graphql-client v0.10.4 (Pydantic models). Key changes:
 
 ---
 
-### Phase 3: Code Cleanup 🟡 **IN PROGRESS**
-**Goal:** Simplify filters and leverage v0.10.4 features
+### Phase 3: v0.11 Upgrade + Cache Optimization ✅ **COMPLETE** (2026-03-07)
+
+**Goal:** Upgrade to v0.11, fix breaking changes, optimize cache for long-running batch processing
 
 **Completed:**
+
+- ✅ Upgraded dependency to `stash-graphql-client>=0.11.0b5`
+- ✅ Fixed breaking change: `gallery.destroy()` → `gallery.delete()` (auto-invalidates cache)
+- ✅ Two-tier cache strategy: global preload (TTL=None) + per-creator preload/invalidate
+- ✅ Added `capabilities` property for version-aware processing
+- ✅ Added `StashVersionError` handling at initialization (minimum Stash v0.30.0)
+- ✅ Added warning filters for v0.11 `DeprecationWarning` and `StashUnmappedFieldWarning`
+- ✅ Informational logging for `GenerateMetadataInput.paths` capability
+- ✅ Updated respx test fixtures with v0.11 capability detection mock
 - ✅ `stash/processing/mixins/media.py` - Updated for identity map patterns
 
-**Remaining Tasks:**
-1. ⏳ Review all mixins for remaining manual filter dicts
-2. ⏳ Verify UNSET pattern (automatic omission) used consistently
-3. ⏳ Simplify any remaining nested OR construction
-4. ⏳ Document relationship helper usage patterns
+**v0.11 Breaking Changes Addressed:**
+
+- `gallery.destroy(client)` → `gallery.delete(client)` — renamed entity lifecycle method (auto-invalidates cache)
+- `set_ttl(type, seconds)` → `set_ttl(type, timedelta|int|None)` — TTL accepts None for no expiry
+- `clear_type()` → `invalidate_type()` — renamed for clarity
 
 **Files:**
-- ✅ `stash/processing/mixins/media.py` - Partially updated
-- ⏳ All mixins - Final review for consistency
 
-**Success Criteria:**
-- ⏳ No manual `{"modifier": "...", "value": "..."}` dicts remaining
-- ⏳ Automatic UNSET pattern used (fields omitted, not explicitly set)
-- ⏳ Code is more readable and maintainable
+- ✅ `pyproject.toml` — Version bump
+- ✅ `stash/processing/base.py` — TTL, capabilities, error handling, warning filters
+- ✅ `stash/processing/__init__.py` — Per-creator preload + invalidate lifecycle
+- ✅ `stash/processing/mixins/gallery.py` — `destroy()` → `delete()`
+- ✅ `tests/fixtures/stash/stash_api_fixtures.py` — Capability detection mock
+- ✅ `tests/fixtures/stash/stash_integration_fixtures.py` — Capability detection mock
 
 ---
 
 ### Phase 4: Advanced Features ⏸️ **NOT STARTED**
+
 **Goal:** Leverage advanced ORM features
 
 **Planned Tasks:**
+
 1. ⏳ Use `store.filter()` for in-memory filtering
 2. ⏳ Expand relationship helper usage (`add_performer`, `add_tag`, etc.)
 3. ⏳ Remove any remaining manual retry logic
 4. ⏳ Consider preloading relationships for complex queries
 
 **Files:**
+
 - All processing mixins
 
 **Success Criteria:**
+
 - ⏳ Maximum leverage of ORM features
 - ⏳ Minimal manual state management
 - ⏳ Clean, maintainable codebase
@@ -677,6 +720,7 @@ Updated to stash-graphql-client v0.10.4 (Pydantic models). Key changes:
 ### Unit Tests
 
 **Update fixture usage:**
+
 ```python
 # Before
 @pytest.fixture
@@ -694,6 +738,7 @@ async def stash_client(respx_stash_processor):
 ```
 
 **Test identity map:**
+
 ```python
 @pytest.mark.asyncio
 async def test_identity_map_deduplication(stash_store):
@@ -709,6 +754,7 @@ async def test_identity_map_deduplication(stash_store):
 ```
 
 **Test UNSET pattern:**
+
 ```python
 @pytest.mark.asyncio
 async def test_unset_preserves_fields(stash_store):
@@ -733,6 +779,7 @@ async def test_unset_preserves_fields(stash_store):
 ### Integration Tests
 
 **Add performance benchmarks:**
+
 ```python
 @pytest.mark.integration
 async def test_tag_batching_performance():
@@ -749,6 +796,7 @@ async def test_tag_batching_performance():
 ```
 
 **Test cache coherency:**
+
 ```python
 @pytest.mark.integration
 async def test_identity_map_coherency():
@@ -774,11 +822,13 @@ async def test_identity_map_coherency():
 ## Success Metrics
 
 ### Performance Metrics
+
 - **API call reduction:** Target 50-70% fewer calls
 - **Response time:** 30-50% faster processing (less network overhead)
 - **Memory usage:** Slight increase due to identity map caching
 
 ### Code Quality Metrics
+
 - **Lines of code:** Target 20-30% reduction
 - **Cyclomatic complexity:** Reduce by simplifying filter logic
 - **Code duplication:** Eliminate repeated filter construction
@@ -786,12 +836,14 @@ async def test_identity_map_coherency():
 ### Monitoring
 
 **Add logging to track migration progress:**
+
 ```python
 # In each migrated method, add:
 logger.debug(f"Using store.find() for {entity_type.__name__} - migration complete")
 ```
 
 **Before/after comparison:**
+
 ```bash
 # Count API calls
 grep "GraphQL query" logs/processing.log | wc -l
@@ -808,7 +860,7 @@ grep "GraphQL query" logs/processing.log | wc -l
 
 ## Optimization Patterns Analysis (from v0.10.0 Migration Plan)
 
-> *Merged from `V0_10_MIGRATION_PLAN.md` — documents optimization patterns evaluated during v0.10.x adoption.*
+> _Merged from `V0_10_MIGRATION_PLAN.md` — documents optimization patterns evaluated during v0.10.x adoption._
 
 ### Sequential Deduplication (account.py)
 
@@ -817,6 +869,7 @@ grep "GraphQL query" logs/processing.log | wc -l
 Current implementation uses `store.find_one()` which leverages the identity map for caching. The sequential deduplication logic (check name → alias → URL) is preserved because it represents the actual business requirement.
 
 **Alternative cache-first pattern (for future consideration):**
+
 ```python
 # Check cache first (no network call)
 cached = self.store.filter(
@@ -858,11 +911,11 @@ Current `store.find_iter()` pattern performs well. A future optimization could u
 
 ### Performance Improvements Summary
 
-| Operation | Before | After (v0.10.4+) | Reduction |
-|-----------|--------|-------------------|-----------|
-| Tag Processing | N tags × 2 queries = 2N API calls | N parallel `get_or_create()` with identity map | **90%+** |
-| Performer Lookups | 3 sequential GraphQL queries | Identity map cached lookups | **60-80%** on cache hits |
-| Studio Lookups | 1 GraphQL query per creator | 1 query total, identity map cached | **N-1 queries saved** |
+| Operation         | Before                            | After (v0.10.4+)                               | Reduction                |
+| ----------------- | --------------------------------- | ---------------------------------------------- | ------------------------ |
+| Tag Processing    | N tags × 2 queries = 2N API calls | N parallel `get_or_create()` with identity map | **90%+**                 |
+| Performer Lookups | 3 sequential GraphQL queries      | Identity map cached lookups                    | **60-80%** on cache hits |
+| Studio Lookups    | 1 GraphQL query per creator       | 1 query total, identity map cached             | **N-1 queries saved**    |
 
 ### Key v0.10.4 Changes
 
@@ -883,13 +936,14 @@ Current `store.find_iter()` pattern performs well. A future optimization could u
 ## Questions & Support
 
 **For questions about this migration:**
+
 1. Check stash-graphql-client docs: https://jakan-kink.github.io/stash-graphql-client/latest/
 2. Review CHANGELOG for all release notes: https://github.com/Jakan-Kink/stash-graphql-client/blob/main/CHANGELOG.md
 3. Test changes incrementally
 4. Keep detailed logs during migration
 
 **Migration started:** 2025-12-XX (exact date TBD)
-**Current phase:** Phase 3 - Code Cleanup 🟡 In Progress
+**Current phase:** Phase 4 - Advanced Features ⏸️ Not Started
 **Phase 1 & 2 completed:** 2026-01-09
-**Current version:** v0.10.4
-**Estimated Phase 3-4 completion:** 2-3 weeks
+**Phase 3 completed:** 2026-03-07 (v0.11 upgrade)
+**Current version:** v0.11.0b5

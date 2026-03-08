@@ -26,6 +26,7 @@ from tests.fixtures import (
     PostFactory,
     create_graphql_response,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
 
 
@@ -107,12 +108,18 @@ async def test_process_creator_posts_with_batch_processing(
         ]
     )
 
-    await respx_stash_processor.process_creator_posts(
-        account=account,
-        performer=performer,
-        studio=studio,
-        session=session,
-    )
+    try:
+        await respx_stash_processor.process_creator_posts(
+            account=account,
+            performer=performer,
+            studio=studio,
+            session=session,
+        )
+    finally:
+        dump_graphql_calls(
+            graphql_route.calls,
+            "test_process_creator_posts_with_batch_processing",
+        )
 
     # Verify GraphQL calls were made in expected sequence
     calls = graphql_route.calls
@@ -141,7 +148,7 @@ async def test_process_creator_posts_with_batch_processing(
 
     # Call 3: galleryCreate (create new gallery)
     req3 = json.loads(calls[3].request.content)
-    assert "GalleryCreate" in req3["query"]
+    assert "galleryCreate" in req3["query"]
     assert req3["variables"]["input"]["code"] == "200"
     assert req3["variables"]["input"]["studio_id"] == "999"
     assert req3["variables"]["input"]["performer_ids"] == ["500"]

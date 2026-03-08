@@ -68,7 +68,7 @@ class TestGalleryCreation:
         )
 
         # Verify gallery properties
-        assert gallery.id == "new"
+        assert gallery.is_new(), "Gallery should be marked as new (not yet saved)"
         assert gallery.title == "Test Title"
         assert gallery.details == post_item.content
         assert gallery.code == str(post_item.id)

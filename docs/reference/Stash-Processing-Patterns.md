@@ -313,7 +313,19 @@ finally:
 
 ### 11. Cleanup Pattern
 
+**Two levels of cleanup:**
+
+1. **Per-creator:** Invalidate entity caches (Galleries, Scenes, Images) via `store.invalidate_type()` at the end of each creator's processing in the `finally` block of `continue_stash_processing()`. Shared entities (Tags, Performers, Studios) persist across creators.
+2. **Global:** Cancel background tasks and close the Stash client connection.
+
 ```python
+# Per-creator cleanup (in continue_stash_processing finally block):
+from stash_graphql_client.types import Gallery, GalleryChapter, Image, Scene
+
+for entity_type in (Gallery, GalleryChapter, Scene, Image):
+    self.store.invalidate_type(entity_type)
+
+# Global cleanup (in cleanup() method):
 async def cleanup(self) -> None:
     """Safely cleanup resources in order:
     1. Cancel background tasks (with timeout)

@@ -99,14 +99,11 @@ async def test_complex_relationships(
 ):
     """Test complex relationships between multiple models."""
     async with test_database_sync.async_session_scope() as session:
-        # Create a new Account instance instead of using the fixture directly
-        account = Account(
-            id=test_account.id,
-            username=test_account.username,
-            createdAt=test_account.createdAt,
+        # Load the account from the database (already created by the test_account fixture)
+        result = await session.execute(
+            select(Account).where(Account.id == test_account.id)
         )
-        session.add(account)
-        await session.commit()
+        account = result.scalar_one()
 
         # Create media
         media = Media(

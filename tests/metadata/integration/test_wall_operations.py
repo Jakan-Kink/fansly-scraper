@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import text
 
+from download.downloadstate import DownloadState
 from metadata.account import Account
 from metadata.post import Post
 from metadata.wall import Wall, process_account_walls, process_wall_posts
@@ -182,7 +183,8 @@ async def test_wall_post_processing(test_database, config, setup_account):
         }
 
         # Process posts - use the eager-loaded wall object
-        await process_wall_posts(config, None, wall.id, posts_data, session=session)
+        state = DownloadState(creator_id=str(setup_account.id))
+        await process_wall_posts(config, state, wall.id, posts_data, session=session)
 
         # Verify
         result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))

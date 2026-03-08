@@ -16,6 +16,7 @@ import respx
 
 from metadata import account_avatar
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
     create_find_performers_result,
@@ -585,6 +586,10 @@ class TestStashProcessingPerformer:
             # Mock Stash GraphQL responses for downstream processing
             # (respx_stash_processor already has respx enabled)
             from tests.fixtures.stash.stash_graphql_fixtures import (
+                create_find_galleries_result,
+                create_find_images_result,
+                create_find_performers_result,
+                create_find_scenes_result,
                 create_find_studios_result,
                 create_studio_dict,
             )
@@ -607,58 +612,87 @@ class TestStashProcessingPerformer:
 
             # Create empty responses for intermediate queries
             empty_tags_result = {"count": 0, "tags": []}
+            empty_performers = create_find_performers_result(count=0, performers=[])
+            empty_scenes = create_find_scenes_result(count=0, scenes=[])
+            empty_images = create_find_images_result(count=0, images=[])
+            empty_galleries = create_find_galleries_result(count=0, galleries=[])
 
-            respx.post("http://localhost:9999/graphql").mock(
+            graphql_route = respx.post("http://localhost:9999/graphql").mock(
                 side_effect=[
-                    # Call 1: findStudios (plain cache check for Fansly)
+                    # === Preload: _preload_stash_entities() ===
+                    # Preload 1: findPerformers (shared entity preload)
                     httpx.Response(
                         200,
-                        json=create_graphql_response("findStudios", fansly_result),
+                        json=create_graphql_response(
+                            "findPerformers", empty_performers
+                        ),
                     ),
-                    # Call 2: findTags (cache check for tag entity)
+                    # Preload 2: findTags (shared entity preload)
                     httpx.Response(
                         200,
                         json=create_graphql_response("findTags", empty_tags_result),
                     ),
-                    # Call 3: findStudios (cache check for creator - not found)
-                    httpx.Response(
-                        200,
-                        json=create_graphql_response(
-                            "findStudios", creator_not_found_result
-                        ),
-                    ),
-                    # Call 4: findStudios for "Fansly (network)" with filter
+                    # Preload 3: findStudios (shared entity preload)
                     httpx.Response(
                         200,
                         json=create_graphql_response("findStudios", fansly_result),
                     ),
-                    # Call 5: findStudios for creator by name (not found)
+                    # === Preload: _preload_creator_media() ===
+                    # Preload 4: findScenes (per-creator media preload)
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response("findScenes", empty_scenes),
+                    ),
+                    # Preload 5: findImages (per-creator media preload)
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response("findImages", empty_images),
+                    ),
+                    # Preload 6: findGalleries (per-creator media preload)
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response("findGalleries", empty_galleries),
+                    ),
+                    # === Processing: process_creator_studio() ===
+                    # Call 7: findStudios (cache check for creator - not found)
                     httpx.Response(
                         200,
                         json=create_graphql_response(
                             "findStudios", creator_not_found_result
                         ),
                     ),
-                    # Call 6: findStudios for creator by URL (not found)
+                    # Call 8: findStudios for "Fansly (network)" with filter
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response("findStudios", fansly_result),
+                    ),
+                    # Call 9: findStudios for creator by name (not found)
                     httpx.Response(
                         200,
                         json=create_graphql_response(
                             "findStudios", creator_not_found_result
                         ),
                     ),
-                    # Call 7: studioCreate for creator
+                    # Call 10: findStudios for creator by URL (not found)
+                    httpx.Response(
+                        200,
+                        json=create_graphql_response(
+                            "findStudios", creator_not_found_result
+                        ),
+                    ),
+                    # Call 11: studioCreate for creator
                     httpx.Response(
                         200,
                         json=create_graphql_response("studioCreate", creator_studio),
                     ),
-                    # Call 8: findScenes for posts (return empty)
+                    # Call 12: findScenes for posts (return empty)
                     httpx.Response(
                         200,
                         json=create_graphql_response(
                             "findScenes", {"count": 0, "scenes": []}
                         ),
                     ),
-                    # Call 9: findGalleries for messages (return empty)
+                    # Call 13: findGalleries for messages (return empty)
                     httpx.Response(
                         200,
                         json=create_graphql_response(
@@ -669,11 +703,17 @@ class TestStashProcessingPerformer:
             )
 
             # Call continue_stash_processing
-            await respx_stash_processor.continue_stash_processing(
-                account=test_account,
-                performer=test_performer,
-                session=session,
-            )
+            try:
+                await respx_stash_processor.continue_stash_processing(
+                    account=test_account,
+                    performer=test_performer,
+                    session=session,
+                )
+            finally:
+                dump_graphql_calls(
+                    graphql_route.calls,
+                    "test_continue_stash_processing_stash_id_already_synced",
+                )
 
             # Verify _update_account_stash_id was NOT called (branch 126->133)
             spy_update.assert_not_called()

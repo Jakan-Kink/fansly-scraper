@@ -36,6 +36,7 @@ from tests.fixtures.metadata.metadata_factories import (
     AccountMediaFactory,
     MediaFactory,
 )
+from tests.fixtures.stash.stash_api_fixtures import _mock_capability_response
 
 
 # ============================================================================
@@ -256,16 +257,21 @@ async def respx_stash_processor(config, test_database_sync, test_state, stash_co
     config._database = test_database_sync
     config._stash = stash_context
 
-    # Set up default respx mock for GraphQL endpoint
-    # Tests can add more specific mocks as needed
+    # Set up respx mock with capability detection for v0.11 initialization
     with respx.mock:
-        # Default response for any GraphQL requests
+        # Serve capability detection response for v0.11 initialization
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[_mock_capability_response()]
+        )
+
+        # Initialize the client (consumes the capability response)
+        await stash_context.get_client()
+
+        # Reset all routes and global call history so tests start clean
+        respx.reset()
         respx.post("http://localhost:9999/graphql").mock(
             return_value=httpx.Response(200, json={"data": {}})
         )
-
-        # Initialize the client (will use mocked HTTP)
-        await stash_context.get_client()
 
         # Disable prints for testing
         with (

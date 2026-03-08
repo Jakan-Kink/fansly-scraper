@@ -8,6 +8,7 @@ Always tries direct first for better performance.
 """
 
 import concurrent.futures
+import os
 from pathlib import Path
 from typing import Any
 
@@ -381,8 +382,6 @@ def _try_segment_download(
 
             # Set file timestamps if created_at is provided
             if created_at:
-                import os
-
                 os.utime(output_path, (created_at, created_at))
 
             print_info(
@@ -450,8 +449,6 @@ def download_m3u8(
         if _try_direct_download(config, m3u8_url, full_path, cookies):
             # Set file timestamps if created_at is provided
             if created_at:
-                import os
-
                 os.utime(full_path, (created_at, created_at))
             return full_path
 
