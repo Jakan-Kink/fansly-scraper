@@ -89,7 +89,7 @@ async def test_create_performer(respx_mock, stash_client):
 **Always use real database sessions from fixtures:**
 
 ```python
-from tests.fixtures.database.database_type_factories import (
+from tests.fixtures.database.metadata_factories import (
     AccountFactory, MediaFactory, PostFactory
 )
 
@@ -538,12 +538,12 @@ This project uses **two separate factory modules** for the dual testing architec
 
 ### SQLAlchemy Factories
 
-**Location**: `tests/fixtures/database/database_type_factories.py`
+**Location**: `tests/fixtures/database/metadata_factories.py`
 
 **Models**: Fansly metadata (Account, Media, Post, Message, Story, etc.)
 
 ```python
-from tests.fixtures.database.database_type_factories import (
+from tests.fixtures.database.metadata_factories import (
     AccountFactory,
     MediaFactory,
     PostFactory,
@@ -647,7 +647,7 @@ tests/
 ├── conftest.py                               # Global fixtures (sessions, clients)
 ├── fixtures/
 │   ├── database/
-│   │   └── database_type_factories.py        # SQLAlchemy model factories
+│   │   └── metadata_factories.py        # SQLAlchemy model factories
 │   └── stash/
 │       └── stash_type_factories.py           # Pydantic model factories (v0.10.4+)
 ├── config/
@@ -1246,7 +1246,7 @@ This testing strategy ensures:
 
 - **SQLAlchemy domain**: Real database, no session mocking, PostgreSQL UUID fixtures
 - **Stash GraphQL domain**: HTTP-only mocking with respx (ALWAYS use `side_effect=[]`), no client method mocking
-- **Factory separation**: database_type_factories.py vs stash_type_factories.py
+- **Factory separation**: metadata_factories.py vs stash_type_factories.py
 - **Cleanup enforcement**: stash_cleanup_tracker for Stash integration tests
 - **v0.10.4 patterns**: UUID auto-generation, automatic UNSET (see docs/V0_10_MOCK_PATTERNS.md)
 - **Critical pattern**: NEVER use `return_value` for respx mocks - ALWAYS use `side_effect=[]` even for single responses

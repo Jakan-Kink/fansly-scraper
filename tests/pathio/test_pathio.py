@@ -14,7 +14,6 @@ from pathio import (
     ask_correct_dir,
     delete_temporary_pyinstaller_files,
     get_creator_base_path,
-    get_creator_database_path,
     get_creator_metadata_path,
     get_media_save_path,
     set_create_directory_for_download,
@@ -32,7 +31,6 @@ class MockPathConfig:
         separate_previews=True,
         use_folder_suffix=True,
         separate_metadata=False,
-        metadata_db_file=None,
     ):
         self.download_directory = download_directory
         self.separate_messages = separate_messages
@@ -40,7 +38,6 @@ class MockPathConfig:
         self.separate_previews = separate_previews
         self.use_folder_suffix = use_folder_suffix
         self.separate_metadata = separate_metadata
-        self.metadata_db_file = metadata_db_file
 
 
 @pytest.fixture
@@ -247,53 +244,6 @@ class TestPathIO:
         assert result == expected_path
         assert expected_path.exists()
         assert expected_path.is_dir()
-
-    def test_get_creator_database_path_separate_metadata(self, temp_dir):
-        """Test get_creator_database_path with separate metadata enabled."""
-        config = MockPathConfig(separate_metadata=True, download_directory=temp_dir)
-
-        # Create metadata directory first
-        meta_dir = temp_dir / "creator_fansly" / "meta"
-        meta_dir.mkdir(parents=True, exist_ok=True)
-
-        result = get_creator_database_path(config, "creator")
-
-        # Expected path
-        expected_path = meta_dir / "metadata.sqlite3"
-
-        # Assert
-        assert result == expected_path
-
-    def test_get_creator_database_path_with_metadata_db_file(self, temp_dir):
-        """Test get_creator_database_path with metadata_db_file specified."""
-        db_path = temp_dir / "custom_db.sqlite3"
-
-        config = MockPathConfig(
-            separate_metadata=False,
-            metadata_db_file=str(db_path),
-            download_directory=temp_dir,
-        )
-
-        result = get_creator_database_path(config, "creator")
-
-        # Assert
-        assert result == db_path
-
-    def test_get_creator_database_path_shared_db(self, temp_dir):
-        """Test get_creator_database_path with shared database."""
-        config = MockPathConfig(
-            separate_metadata=False, metadata_db_file=None, download_directory=temp_dir
-        )
-
-        result = get_creator_database_path(config, "creator")
-
-        # Expected path
-        expected_path = temp_dir / "metadata" / "shared.db"
-
-        # Assert
-        assert result == expected_path
-        assert (temp_dir / "metadata").exists()
-        assert (temp_dir / "metadata").is_dir()
 
     def test_get_media_save_path_images(self, temp_dir):
         """Test get_media_save_path for images."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from asyncio import sleep as async_sleep
@@ -369,8 +370,6 @@ def _download_regular_file(
 
             # Set file timestamps
             if media_item.created_at:
-                import os
-
                 os.utime(file_save_path, (media_item.created_at, media_item.created_at))
         else:
             raise DownloadError(

@@ -163,8 +163,6 @@ def uuid_test_db_factory(request: Any) -> Generator[FanslyConfig, None, None]:
     config.pg_database = test_db_name
     config.pg_user = pg_user
     config.pg_password = pg_password
-    config.metadata_db_file = None  # Use PostgreSQL, not SQLite
-
     yield config
 
     # Cleanup - drop the test database

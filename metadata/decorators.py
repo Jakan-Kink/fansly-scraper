@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import functools
 import inspect
-import sqlite3
 import time
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -230,8 +229,14 @@ async def _handle_async_retry[RT](
     for attempt in range(retry_count):
         try:
             return await func(*args, **kwargs)
-        except (sqlite3.OperationalError, OperationalError) as e:
-            if "database is locked" not in str(e):
+        except OperationalError as e:
+            error_msg = str(e).lower()
+            # PostgreSQL: retry on serialization failures and deadlocks
+            # SQLite (legacy): retry on "database is locked"
+            if not any(
+                msg in error_msg
+                for msg in ("database is locked", "deadlock detected", "serialization")
+            ):
                 raise
             if attempt == retry_count - 1:
                 from textio import print_error
@@ -305,8 +310,14 @@ def _handle_sync_retry[RT](
     for attempt in range(retry_count):
         try:
             return func(*args, **kwargs)
-        except (sqlite3.OperationalError, OperationalError) as e:
-            if "database is locked" not in str(e):
+        except OperationalError as e:
+            error_msg = str(e).lower()
+            # PostgreSQL: retry on serialization failures and deadlocks
+            # SQLite (legacy): retry on "database is locked"
+            if not any(
+                msg in error_msg
+                for msg in ("database is locked", "deadlock detected", "serialization")
+            ):
                 raise
             if attempt == retry_count - 1:
                 from textio import print_error

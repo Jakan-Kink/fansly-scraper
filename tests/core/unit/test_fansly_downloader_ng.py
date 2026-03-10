@@ -154,7 +154,6 @@ def mock_args():
     args.user_agent = None
     args.check_key = None
     args.metadata_handling = "simple"
-    args.metadata_db_file = "test.db"
     args.download_mode_single = None
     args.download_mode_collection = None
     args.download_mode_messages = None
@@ -173,7 +172,6 @@ def mock_config():
     config.user_names = {"test_user"}
     config.download_mode = DownloadMode.NORMAL
     config.separate_metadata = False
-    config.metadata_db_file = "test.db"
     config.interactive = False  # Disable interactive mode for tests
     # Set direct values for retries and other config
     config.timeline_retries = 3

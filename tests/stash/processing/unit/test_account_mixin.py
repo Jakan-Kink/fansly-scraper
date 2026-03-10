@@ -79,6 +79,7 @@ class TestAccountProcessingMixin:
             id=12345,
             username="test_user",
             stash_id=12345,
+            displayName=None,  # Explicitly set to None to test username fallback
         )
         account.stash_id = None
         session.add(account)

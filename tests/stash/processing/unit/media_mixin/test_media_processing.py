@@ -82,7 +82,10 @@ class TestMediaProcessing:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 4: studioCreate (returns full studio - no verification needed)
+        # Response 4: findStudios for creator studio - not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 5: studioCreate for creator studio
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{account.username} (Fansly)",
@@ -90,7 +93,7 @@ class TestMediaProcessing:
             parent_studio=fansly_studio,
         )
 
-        # Response 5: imageUpdate result
+        # Response 6: imageUpdate result
         updated_image = create_image_dict(
             id="image_stash_456",
             title="Test Image",
@@ -110,6 +113,12 @@ class TestMediaProcessing:
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -164,8 +173,8 @@ class TestMediaProcessing:
         assert len(result["scenes"]) == 0
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
-        assert len(graphql_route.calls) == 5, (
-            "Expected exactly 5 GraphQL calls (after store.save() fix)"
+        assert len(graphql_route.calls) == 6, (
+            "Expected exactly 6 GraphQL calls (findImage + findPerformers + 2 findStudios + studioCreate + imageUpdate)"
         )
 
         calls = graphql_route.calls
@@ -193,19 +202,26 @@ class TestMediaProcessing:
         resp2 = calls[2].response.json()
         assert resp2["data"]["findStudios"]["count"] == 1
 
-        # Call 3: studioCreate
+        # Call 3: findStudios (creator studio lookup - not found)
         req3 = json.loads(calls[3].request.content)
-        assert "studioCreate" in req3["query"]
-        assert req3["variables"]["input"]["name"] == f"{account.username} (Fansly)"
+        assert "findStudios" in req3["query"]
+        assert "studio_filter" in req3["variables"]
         resp3 = calls[3].response.json()
-        assert resp3["data"]["studioCreate"]["id"] == "studio_123"
+        assert resp3["data"]["findStudios"]["count"] == 0
 
-        # Call 4: imageUpdate
+        # Call 4: studioCreate
         req4 = json.loads(calls[4].request.content)
-        assert "imageUpdate" in req4["query"]
-        assert req4["variables"]["input"]["id"] == "image_stash_456"
+        assert "studioCreate" in req4["query"]
+        assert req4["variables"]["input"]["name"] == f"{account.username} (Fansly)"
         resp4 = calls[4].response.json()
-        assert resp4["data"]["imageUpdate"]["id"] == "image_stash_456"
+        assert resp4["data"]["studioCreate"]["id"] == "studio_123"
+
+        # Call 5: imageUpdate
+        req5 = json.loads(calls[5].request.content)
+        assert "imageUpdate" in req5["query"]
+        assert req5["variables"]["input"]["id"] == "image_stash_456"
+        resp5 = calls[5].response.json()
+        assert resp5["data"]["imageUpdate"]["id"] == "image_stash_456"
 
     @pytest.mark.asyncio
     async def test_process_media_with_stash_id(self, respx_stash_processor):
@@ -266,7 +282,10 @@ class TestMediaProcessing:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 4: studioCreate
+        # Response 4: findStudios for creator studio - not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 5: studioCreate
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{account.username} (Fansly)",
@@ -274,7 +293,7 @@ class TestMediaProcessing:
             parent_studio=fansly_studio,
         )
 
-        # Response 5: sceneUpdate result
+        # Response 6: sceneUpdate result
         updated_scene = create_scene_dict(
             id="scene_stash_123",
             title="Test Scene",
@@ -293,6 +312,12 @@ class TestMediaProcessing:
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
                 ),
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
@@ -320,7 +345,7 @@ class TestMediaProcessing:
         assert len(result["images"]) == 0
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
-        assert len(graphql_route.calls) == 5, (
+        assert len(graphql_route.calls) == 6, (
             "Expected exactly 5 GraphQL calls after ORM migration + store.save() fix"
         )
 
@@ -349,19 +374,26 @@ class TestMediaProcessing:
         resp2 = calls[2].response.json()
         assert resp2["data"]["findStudios"]["count"] == 1
 
-        # Call 3: studioCreate (no verification search needed after store.save() fix)
+        # Call 3: findStudios (creator studio lookup - not found)
         req3 = json.loads(calls[3].request.content)
-        assert "studioCreate" in req3["query"]
-        assert req3["variables"]["input"]["name"] == f"{account.username} (Fansly)"
+        assert "findStudios" in req3["query"]
+        assert "studio_filter" in req3["variables"]
         resp3 = calls[3].response.json()
-        assert resp3["data"]["studioCreate"]["id"] == "studio_123"
+        assert resp3["data"]["findStudios"]["count"] == 0
 
-        # Call 4: sceneUpdate (not imageUpdate - this is a video)
+        # Call 4: studioCreate (no verification search needed after store.save() fix)
         req4 = json.loads(calls[4].request.content)
-        assert "sceneUpdate" in req4["query"]
-        assert req4["variables"]["input"]["id"] == "scene_stash_123"
+        assert "studioCreate" in req4["query"]
+        assert req4["variables"]["input"]["name"] == f"{account.username} (Fansly)"
         resp4 = calls[4].response.json()
-        assert resp4["data"]["sceneUpdate"]["id"] == "scene_stash_123"
+        assert resp4["data"]["studioCreate"]["id"] == "studio_123"
+
+        # Call 5: sceneUpdate (not imageUpdate - this is a video)
+        req5 = json.loads(calls[5].request.content)
+        assert "sceneUpdate" in req5["query"]
+        assert req5["variables"]["input"]["id"] == "scene_stash_123"
+        resp5 = calls[5].response.json()
+        assert resp5["data"]["sceneUpdate"]["id"] == "scene_stash_123"
 
     @pytest.mark.asyncio
     async def test_process_media_with_variants(self, respx_stash_processor):
@@ -509,7 +541,10 @@ class TestMediaProcessing:
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
-        # Response 5, 8, 12: studioCreate (FILE 1 creates, FILES 2-3 try to create again)
+        # Response 5: findStudios for creator studio - not found
+        creator_not_found_result = create_find_studios_result(count=0, studios=[])
+
+        # Response 6, 10, 14: studioCreate (FILE 1 creates, FILES 2-3 try to create again)
         creator_studio = create_studio_dict(
             id="studio_123",
             name=f"{account.username} (Fansly)",
@@ -517,7 +552,7 @@ class TestMediaProcessing:
             parent_studio=fansly_studio,
         )
 
-        # Response 6: imageUpdate (image variant)
+        # Response 7: imageUpdate (image variant)
         updated_image = create_image_dict(
             id="image_variant_1",
             title="Test Image Variant",
@@ -525,7 +560,7 @@ class TestMediaProcessing:
             studio=creator_studio,
         )
 
-        # Response 7: sceneUpdate (parent scene)
+        # Response 8: sceneUpdate (parent scene)
         updated_parent_scene = create_scene_dict(
             id="scene_789",
             title="Test Parent Scene",
@@ -533,7 +568,7 @@ class TestMediaProcessing:
             studio=creator_studio,
         )
 
-        # Response 8: sceneUpdate (scene variant)
+        # Response 9: sceneUpdate (scene variant)
         updated_variant_scene = create_scene_dict(
             id="scene_variant_2",
             title="Test Scene Variant",
@@ -550,7 +585,7 @@ class TestMediaProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("findScenes", scenes_result)
                 ),
-                # FILE 1 (image variant)
+                # FILE 1 (image variant): full performer + studio lookups
                 # Call 2: findPerformers
                 httpx.Response(
                     200,
@@ -560,48 +595,39 @@ class TestMediaProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
-                # Call 4: studioCreate (creator studio)
+                # Call 4: findStudios (creator studio - not found)
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", creator_not_found_result
+                    ),
+                ),
+                # Call 5: studioCreate (creator studio)
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
-                # Call 5: imageUpdate
+                # Call 6: imageUpdate
                 httpx.Response(
                     200, json=create_graphql_response("imageUpdate", updated_image)
                 ),
-                # FILE 2 (parent scene)
-                # Call 6: findPerformers
+                # FILE 2 (parent scene): studios cached from file 1
+                # Call 7: findPerformers
                 httpx.Response(
                     200,
                     json=create_graphql_response("findPerformers", empty_performers),
                 ),
-                # Call 7: findStudios (Fansly network)
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", fansly_result)
-                ),
-                # Call 8: studioCreate (tries to create again, returns existing)
-                httpx.Response(
-                    200, json=create_graphql_response("studioCreate", creator_studio)
-                ),
-                # Call 9: sceneUpdate (parent scene)
+                # Call 8: sceneUpdate (studios served from sync filter() cache)
                 httpx.Response(
                     200,
                     json=create_graphql_response("sceneUpdate", updated_parent_scene),
                 ),
-                # FILE 3 (scene variant)
-                # Call 10: findPerformers
+                # FILE 3 (scene variant): studios cached from file 1
+                # Call 9: findPerformers
                 httpx.Response(
                     200,
                     json=create_graphql_response("findPerformers", empty_performers),
                 ),
-                # Call 11: findStudios (Fansly network)
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", fansly_result)
-                ),
-                # Call 12: studioCreate (tries to create again, returns existing)
-                httpx.Response(
-                    200, json=create_graphql_response("studioCreate", creator_studio)
-                ),
-                # Call 13: sceneUpdate (scene variant)
+                # Call 10: sceneUpdate (studios served from sync filter() cache)
                 httpx.Response(
                     200,
                     json=create_graphql_response("sceneUpdate", updated_variant_scene),
@@ -629,15 +655,14 @@ class TestMediaProcessing:
         assert "scene_variant_2" in scene_ids, "Variant scene should be in result"
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
-        # After ORM migration + store.save() fix:
-        # Each file processes independently with full performer/studio lookups
+        # Cache-first pattern: file 1 populates studio cache, files 2-3 skip studio lookups
         # Sequence: 2 path finds +
-        #   FILE1: (performer + fansly + studioCreate + imageUpdate) +
-        #   FILE2: (performer + fansly + studioCreate + sceneUpdate) +
-        #   FILE3: (performer + fansly + studioCreate + sceneUpdate) = 14 calls
-        # Note: Identity map doesn't prevent duplicate studioCreate attempts
-        assert len(graphql_route.calls) == 14, (
-            f"Expected 14 calls after ORM migration + store.save() fix, got {len(graphql_route.calls)}"
+        #   FILE1: (performer + fansly + creator_find + studioCreate + imageUpdate) = 5
+        #   FILE2: (performer + sceneUpdate) = 2 (studios cached)
+        #   FILE3: (performer + sceneUpdate) = 2 (studios cached)
+        # Total: 11 calls
+        assert len(graphql_route.calls) == 11, (
+            f"Expected 11 calls with cache-first studio lookups, got {len(graphql_route.calls)}"
         )
 
         calls = graphql_route.calls
@@ -655,7 +680,7 @@ class TestMediaProcessing:
         resp1 = calls[1].response.json()
         assert resp1["data"]["findScenes"]["count"] == 2
 
-        # FILE 1 (image variant) - Calls 2-5
+        # FILE 1 (image variant) - Calls 2-6
         # Call 2: findPerformers
         req2 = json.loads(calls[2].request.content)
         assert "findPerformers" in req2["query"]
@@ -668,53 +693,39 @@ class TestMediaProcessing:
         resp3 = calls[3].response.json()
         assert resp3["data"]["findStudios"]["count"] == 1
 
-        # Call 4: studioCreate
+        # Call 4: findStudios (creator studio - not found)
         req4 = json.loads(calls[4].request.content)
-        assert "studioCreate" in req4["query"]
+        assert "findStudios" in req4["query"]
         resp4 = calls[4].response.json()
-        assert resp4["data"]["studioCreate"]["id"] == "studio_123"
+        assert resp4["data"]["findStudios"]["count"] == 0
 
-        # Call 5: imageUpdate
+        # Call 5: studioCreate
         req5 = json.loads(calls[5].request.content)
-        assert "imageUpdate" in req5["query"]
-        assert req5["variables"]["input"]["id"] == "image_variant_1"
+        assert "studioCreate" in req5["query"]
+        resp5 = calls[5].response.json()
+        assert resp5["data"]["studioCreate"]["id"] == "studio_123"
 
-        # FILE 2 (parent scene) - Calls 6-9
-        # Call 6: findPerformers
+        # Call 6: imageUpdate
         req6 = json.loads(calls[6].request.content)
-        assert "findPerformers" in req6["query"]
+        assert "imageUpdate" in req6["query"]
+        assert req6["variables"]["input"]["id"] == "image_variant_1"
 
-        # Call 7: findStudios (Fansly network)
+        # FILE 2 (parent scene) - Calls 7-8 (studios cached from file 1)
+        # Call 7: findPerformers
         req7 = json.loads(calls[7].request.content)
-        assert "findStudios" in req7["query"]
+        assert "findPerformers" in req7["query"]
 
-        # Call 8: studioCreate (tries to create again, returns existing)
+        # Call 8: sceneUpdate (parent scene — studios served from cache)
         req8 = json.loads(calls[8].request.content)
-        assert "studioCreate" in req8["query"]
-        resp8 = calls[8].response.json()
-        assert resp8["data"]["studioCreate"]["id"] == "studio_123"
+        assert "sceneUpdate" in req8["query"]
+        assert req8["variables"]["input"]["id"] == "scene_789"
 
-        # Call 9: sceneUpdate (parent scene)
+        # FILE 3 (scene variant) - Calls 9-10 (studios cached from file 1)
+        # Call 9: findPerformers
         req9 = json.loads(calls[9].request.content)
-        assert "sceneUpdate" in req9["query"]
-        assert req9["variables"]["input"]["id"] == "scene_789"
+        assert "findPerformers" in req9["query"]
 
-        # FILE 3 (scene variant) - Calls 10-13
-        # Call 10: findPerformers
+        # Call 10: sceneUpdate (scene variant — studios served from cache)
         req10 = json.loads(calls[10].request.content)
-        assert "findPerformers" in req10["query"]
-
-        # Call 11: findStudios (Fansly network)
-        req11 = json.loads(calls[11].request.content)
-        assert "findStudios" in req11["query"]
-
-        # Call 12: studioCreate (tries to create again, returns existing)
-        req12 = json.loads(calls[12].request.content)
-        assert "studioCreate" in req12["query"]
-        resp12 = calls[12].response.json()
-        assert resp12["data"]["studioCreate"]["id"] == "studio_123"
-
-        # Call 13: sceneUpdate (scene variant)
-        req13 = json.loads(calls[13].request.content)
-        assert "sceneUpdate" in req13["query"]
-        assert req13["variables"]["input"]["id"] == "scene_variant_2"
+        assert "sceneUpdate" in req10["query"]
+        assert req10["variables"]["input"]["id"] == "scene_variant_2"

@@ -79,8 +79,12 @@ class StudioProcessingMixin:
         Note:
             Manual cache invalidation removed - store handles coherency automatically.
         """
-        # Find Fansly parent studio (use store for caching)
-        fansly_studio = await self.store.find_one(Studio, name="Fansly (network)")
+        # Cache-first: try sync filter() (zero-cost if preloaded), fall back to
+        # async find_one() for edge cases where studio wasn't present at preload time
+        results = self.store.filter(Studio, lambda s: s.name == "Fansly (network)")
+        fansly_studio = results[0] if results else None
+        if not fansly_studio:
+            fansly_studio = await self.store.find_one(Studio, name="Fansly (network)")
         if not fansly_studio:
             raise ValueError("Fansly Studio not found in Stash")
 
@@ -100,7 +104,13 @@ class StudioProcessingMixin:
         async with studio_lock:
             # Search by name only (relationship objects can't be serialized in GraphQL filters)
             try:
-                studio = await self.store.find_one(Studio, name=creator_studio_name)
+                # Cache-first: try sync filter(), fall back to async find_one()
+                results = self.store.filter(
+                    Studio, lambda s: s.name == creator_studio_name
+                )
+                studio = results[0] if results else None
+                if not studio:
+                    studio = await self.store.find_one(Studio, name=creator_studio_name)
 
                 if studio:
                     # Found existing studio
@@ -138,12 +148,3 @@ class StudioProcessingMixin:
                 logger.debug(f"Created new studio: {studio.name} (ID: {studio.id})")
                 print_info(f"Studio created: {studio.name}")
                 return studio
-
-                # Fallback: Try find_one again (might have been created by concurrent task)
-                studio = await self.store.find_one(Studio, name=creator_studio_name)
-                if studio:
-                    logger.debug(f"Fallback found existing studio: {studio.name}")
-                    return studio
-
-                # Still failed - return None
-                return None

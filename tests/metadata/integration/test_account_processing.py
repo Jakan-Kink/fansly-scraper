@@ -27,7 +27,9 @@ async def test_process_account_from_timeline(test_database, config, timeline_dat
         await process_account_data(config, account_data, session=session)
 
         # Verify account was created
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         assert account is not None
         assert account.username == account_data["username"]
@@ -81,7 +83,9 @@ async def test_update_optimization_integration(test_database, config):
         await process_account_data(config, account_data, session=session)
 
         # Get initial update time of the account and stats
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         result = await session.execute(
             select(TimelineStats).filter_by(accountId=account_data["id"])
@@ -94,7 +98,9 @@ async def test_update_optimization_integration(test_database, config):
         await process_account_data(config, account_data, session=session)
 
         # Check that nothing was updated
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         result = await session.execute(
             select(TimelineStats).filter_by(accountId=account_data["id"])
@@ -113,7 +119,9 @@ async def test_update_optimization_integration(test_database, config):
         await process_account_data(config, account_data, session=session)
 
         # Check that only changed values were updated
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         result = await session.execute(
             select(TimelineStats).filter_by(accountId=account_data["id"])
@@ -138,16 +146,26 @@ async def test_process_account_media_bundles(test_database, config, timeline_dat
         # Create the account first
         await process_account_data(config, account_data, session=session)
 
-        # Process each bundle's media
+        # Process each bundle's media — create Media records first, then AccountMedia
+        media_records = []
+        account_media_records = []
         for bundle in bundles_data:
-            # Create necessary AccountMedia records
             for content in bundle.get("bundleContent", []):
-                media = AccountMedia(
-                    id=int(content["accountMediaId"]),
-                    accountId=int(account_data["id"]),
-                    mediaId=int(content["accountMediaId"]),
+                media_id = int(content["accountMediaId"])
+                media_records.append(
+                    Media(id=media_id, accountId=int(account_data["id"]))
                 )
-                session.add(media)
+                account_media_records.append(
+                    AccountMedia(
+                        id=media_id,
+                        accountId=int(account_data["id"]),
+                        mediaId=media_id,
+                        createdAt=datetime.now(UTC),
+                    )
+                )
+        session.add_all(media_records)
+        await session.flush()
+        session.add_all(account_media_records)
         await session.commit()
 
         # Process the bundles
@@ -163,11 +181,22 @@ async def test_process_account_media_bundles(test_database, config, timeline_dat
             bundle = result.scalar_one_or_none()
             assert bundle is not None
 
+            # Query the join table directly to avoid MissingGreenlet from
+            # the sync property AccountMediaBundle.account_media_ids
+            from metadata.account import account_media_bundle_media
+
+            join_result = await session.execute(
+                account_media_bundle_media.select()
+                .where(account_media_bundle_media.c.bundle_id == bundle.id)
+                .order_by(account_media_bundle_media.c.pos)
+            )
+            join_rows = join_result.all()
+
             # Verify media count
-            assert len(bundle.account_media_ids) == len(bundle_data["bundleContent"])
+            assert len(join_rows) == len(bundle_data["bundleContent"])
 
             # Verify order
-            media_ids = [m.id for m in bundle.account_media_ids]
+            media_ids = [row.media_id for row in join_rows]
             expected_order = [
                 int(c["accountMediaId"])
                 for c in sorted(bundle_data["bundleContent"], key=lambda x: x["pos"])

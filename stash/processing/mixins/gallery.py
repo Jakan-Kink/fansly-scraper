@@ -53,8 +53,11 @@ class GalleryProcessingMixin:
         if not hasattr(item, "stash_id") or not item.stash_id:
             return None
 
-        # Use store.get() for identity map caching (instant if cached)
-        gallery = await self.store.get(Gallery, str(item.stash_id))
+        # Cache-first: try sync get_cached() (zero-cost after preload),
+        # fall back to async get() only if cache misses
+        gallery = self.store.get_cached(Gallery, str(item.stash_id))
+        if not gallery:
+            gallery = await self.store.get(Gallery, str(item.stash_id))
         if gallery:
             debug_print(
                 {
@@ -78,22 +81,29 @@ class GalleryProcessingMixin:
         Pattern 5: Migrated to use store.find() with Django-style filtering.
         Additional filtering (date, studio) done in-memory for complex conditions.
         """
-        # Use store.find() for identity map caching
-        galleries = await self.store.find(Gallery, title__exact=title)
-        if not galleries:
-            return None
-
-        # Filter for matching date and studio
+        # Cache-first: try sync filter() (zero-cost after preload),
+        # fall back to async find() only if cache misses
         target_date = item.createdAt.strftime("%Y-%m-%d")
-        gallery = next(
-            (
-                g
-                for g in galleries
-                if g.date == target_date
-                and (not studio or (g.studio and g.studio.id == studio.id))
-            ),
-            None,
+        galleries = self.store.filter(
+            Gallery,
+            lambda g: g.title == title
+            and g.date == target_date
+            and (not studio or (g.studio and g.studio.id == studio.id)),
         )
+        gallery = galleries[0] if galleries else None
+
+        if not gallery:
+            # Fallback: query GraphQL and filter in-memory
+            galleries = await self.store.find(Gallery, title__exact=title)
+            gallery = next(
+                (
+                    g
+                    for g in galleries
+                    if g.date == target_date
+                    and (not studio or (g.studio and g.studio.id == studio.id))
+                ),
+                None,
+            )
 
         if gallery:
             debug_print(
@@ -116,9 +126,32 @@ class GalleryProcessingMixin:
 
         Pattern 5: Migrated to use store.find_one() with Django-style filtering.
         Since code should be unique, use find_one() instead of find().
+
+        Validates that returned gallery actually has the expected code to protect
+        against server bugs or data corruption.
         """
-        # Use store.find_one() for identity map caching (code is unique)
-        gallery = await self.store.find_one(Gallery, code=str(item.id))
+        expected_code = str(item.id)
+        # Cache-first: try sync filter() (zero-cost after preload),
+        # fall back to async find_one() only if cache misses
+        results = self.store.filter(Gallery, lambda g: g.code == expected_code)
+        gallery = results[0] if results else None
+        if not gallery:
+            gallery = await self.store.find_one(Gallery, code=expected_code)
+
+        # Validate the returned gallery has the expected code
+        if gallery and gallery.code != expected_code:
+            debug_print(
+                {
+                    "method": "StashProcessing - _get_gallery_by_code",
+                    "status": "validation_failed",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
+                    "expected_code": expected_code,
+                    "actual_code": gallery.code,
+                }
+            )
+            return None
+
         if gallery:
             debug_print(
                 {
@@ -142,8 +175,14 @@ class GalleryProcessingMixin:
         Pattern 5: Migrated to use store.find() with Django-style filtering.
         Uses url__contains to search, then filters in-memory for exact match in urls list.
         """
-        # Use store.find() for identity map caching
-        galleries = await self.store.find(Gallery, url__contains=url)
+        # Cache-first: try sync filter() (zero-cost after preload),
+        # fall back to async find() only if cache misses
+        galleries = self.store.filter(
+            Gallery,
+            lambda g: is_set(g.urls) and url in g.urls,
+        )
+        if not galleries:
+            galleries = await self.store.find(Gallery, url__contains=url)
         if not galleries:
             return None
 
@@ -179,14 +218,15 @@ class GalleryProcessingMixin:
                 "item_id": item.id,
             }
         )
-        return Gallery(
-            id="new",  # Will be replaced on save
+        return Gallery.new(
             title=title,
             details=item.content,
             code=str(item.id),  # Use post/message ID as code for uniqueness
             date=item.createdAt.strftime("%Y-%m-%d"),
             # created_at and updated_at handled by Stash
             organized=True,  # Mark as organized since we have metadata
+            performers=[],  # Initialize as empty list to avoid UnsetType
+            tags=[],  # Initialize as empty list to avoid UnsetType
         )
 
     async def _get_gallery_metadata(
@@ -408,8 +448,7 @@ class GalleryProcessingMixin:
                     )
 
                     # Create chapter
-                    chapter = GalleryChapter(
-                        id="new",
+                    chapter = GalleryChapter.new(
                         gallery=gallery,
                         title=title,
                         image_index=image_index,
@@ -635,7 +674,7 @@ class GalleryProcessingMixin:
 
             if not all_images and not all_scenes:
                 # No content was processed, delete the gallery if we just created it
-                if gallery.id == "new":
+                if gallery.is_new():
                     debug_print(
                         {
                             "method": "StashProcessing - _process_item_gallery",
@@ -644,7 +683,7 @@ class GalleryProcessingMixin:
                             "gallery_id": gallery.id,
                         }
                     )
-                    await gallery.destroy(self.context.client)
+                    await gallery.delete(self.context.client)
                 return
 
             debug_print(

@@ -11,7 +11,6 @@ from typing import Any
 from .pathio import (
     delete_temporary_pyinstaller_files,
     get_creator_base_path,
-    get_creator_database_path,
     get_creator_metadata_path,
     get_media_save_path,
     set_create_directory_for_download,
@@ -26,7 +25,6 @@ __all__ = [
     "ask_correct_dir",
     "delete_temporary_pyinstaller_files",
     "get_creator_base_path",
-    "get_creator_database_path",
     "get_creator_metadata_path",
     "get_media_save_path",
     "set_create_directory_for_download",

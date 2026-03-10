@@ -298,6 +298,9 @@ def create_scene_dict(
 ) -> dict[str, Any]:
     """Create a Scene dict matching the Scene type schema.
 
+    IMPORTANT: Includes ALL required relationship fields to prevent UnsetType errors
+    when using stash-graphql-client Pydantic models.
+
     Args:
         id: Scene ID
         title: Scene title
@@ -307,7 +310,7 @@ def create_scene_dict(
         **kwargs: Additional scene fields
 
     Returns:
-        Dict matching Scene type
+        Dict matching Scene type with all required relationship fields
     """
     base = {
         "__typename": "Scene",
@@ -322,7 +325,7 @@ def create_scene_dict(
         "groups": [],
         "galleries": [],
         "scene_markers": [],
-        "sceneStreams": [],
+        "scene_streams": [],  # Fixed: was sceneStreams
         "captions": [],
         "organized": False,
     }
@@ -368,6 +371,9 @@ def create_image_dict(
 ) -> dict[str, Any]:
     """Create an Image dict matching the Image type schema.
 
+    IMPORTANT: Includes ALL required relationship fields to prevent UnsetType errors
+    when using stash-graphql-client Pydantic models.
+
     Args:
         id: Image ID
         title: Image title
@@ -377,7 +383,7 @@ def create_image_dict(
         **kwargs: Additional image fields
 
     Returns:
-        Dict matching Image type
+        Dict matching Image type with all required relationship fields
     """
     base = {
         "id": id,
@@ -426,6 +432,10 @@ def create_gallery_dict(
 ) -> dict[str, Any]:
     """Create a Gallery dict matching the Gallery type schema.
 
+    IMPORTANT: Includes ALL required relationship fields to prevent UnsetType errors
+    when using stash-graphql-client Pydantic models. The library expects these fields
+    to be present (even if empty lists) to avoid lazy-loading attempts.
+
     Args:
         id: Gallery ID
         title: Gallery title
@@ -439,9 +449,10 @@ def create_gallery_dict(
         **kwargs: Additional gallery fields
 
     Returns:
-        Dict matching Gallery type
+        Dict matching Gallery type with all required relationship fields
     """
     base = {
+        "__typename": "Gallery",
         "id": id,
         "title": title,
         "code": code,
@@ -452,20 +463,75 @@ def create_gallery_dict(
         "scenes": scenes or [],
         "images": images or [],
         "files": [],
+        "chapters": [],  # Required: prevents UnsetType errors
         "organized": False,
     }
     base.update(kwargs)
     return base
 
 
+def create_gallery_create_result(gallery: dict[str, Any]) -> dict[str, Any]:
+    """Create a galleryCreate mutation result.
+
+    Args:
+        gallery: Gallery dict created with create_gallery_dict()
+
+    Returns:
+        Dict matching the galleryCreate mutation result
+
+    Example:
+        gallery = create_gallery_dict(id="123", title="New Gallery")
+        result = create_gallery_create_result(gallery)
+        # Use with: create_graphql_response("galleryCreate", result)
+    """
+    return gallery
+
+
+def create_gallery_update_result(gallery: dict[str, Any]) -> dict[str, Any]:
+    """Create a galleryUpdate mutation result.
+
+    Args:
+        gallery: Gallery dict created with create_gallery_dict()
+
+    Returns:
+        Dict matching the galleryUpdate mutation result
+
+    Example:
+        gallery = create_gallery_dict(id="123", title="Updated Gallery", code="12345")
+        result = create_gallery_update_result(gallery)
+        # Use with: create_graphql_response("galleryUpdate", result)
+    """
+    return gallery
+
+
+def create_find_gallery_result(gallery: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Create a findGallery query result (single gallery lookup).
+
+    Args:
+        gallery: Gallery dict created with create_gallery_dict(), or None if not found
+
+    Returns:
+        Dict matching findGallery query result
+
+    Example:
+        gallery = create_gallery_dict(id="123", title="Test Gallery")
+        result = create_find_gallery_result(gallery)
+        # Use with: create_graphql_response("findGallery", result)
+    """
+    return gallery if gallery is not None else None
+
+
 __all__ = [
     "create_find_galleries_result",
+    "create_find_gallery_result",
     "create_find_images_result",
     "create_find_performers_result",
     "create_find_scenes_result",
     "create_find_studios_result",
     "create_find_tags_result",
+    "create_gallery_create_result",
     "create_gallery_dict",
+    "create_gallery_update_result",
     "create_graphql_response",
     "create_image_dict",
     "create_performer_dict",

@@ -31,7 +31,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.orm.attributes import set_committed_value
 
 from config.decorators import with_database_session
 from textio import json_output
@@ -181,7 +180,7 @@ async def process_account_walls(
                     ch for ch in value if not (0xD800 <= ord(ch) <= 0xDFFF)
                 )
             if getattr(wall, key) != new_value:
-                set_committed_value(wall, key, new_value)
+                setattr(wall, key, new_value)
         await session.flush()
 
     # Only delete walls if this is a full account data update

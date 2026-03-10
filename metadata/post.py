@@ -240,8 +240,8 @@ async def process_timeline_posts(
     # First ensure creator account exists and is tracked
     account = None
     if state.creator_id:
-        # Get the account by ID first
-        stmt = select(Account).where(Account.id == state.creator_id)
+        # Get the account by ID first (creator_id is str, Account.id is BigInteger)
+        stmt = select(Account).where(Account.id == int(state.creator_id))
         result = await session.execute(stmt)
         account = result.scalar_one_or_none()
 

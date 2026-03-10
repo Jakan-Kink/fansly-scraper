@@ -38,8 +38,3 @@ class PathConfig(Protocol):
     def separate_metadata(self) -> bool:
         """Whether to store metadata separately per creator."""
         ...
-
-    @property
-    def metadata_db_file(self) -> Path | None:
-        """Path to the global metadata database file if set."""
-        ...

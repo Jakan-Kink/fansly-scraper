@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, String, UniqueConstraint, select
+from sqlalchemy import BigInteger, DateTime, String, UniqueConstraint, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -199,8 +199,6 @@ async def count_stubs(
     Returns:
         Number of stub records
     """
-    from sqlalchemy import func
-
     stmt = select(func.count()).select_from(StubTracker)
     if table_name:
         stmt = stmt.where(StubTracker.table_name == table_name)

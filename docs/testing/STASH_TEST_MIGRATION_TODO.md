@@ -31,24 +31,25 @@ Mock only at true external boundaries:
 
 All tests organized by directory location. Each needs migration to one of two patterns.
 
-### Category A: StashClient Tests
+### Category A: StashClient Tests — ✅ COMPLETE (directory deleted)
 
-**Location**: `tests/stash/client/`
-**Files**: 12 | **Functions**: ~119
+**Original Location**: `tests/stash/client/` (12 files, ~119 functions)
 **Migration**: → `stash_client` + `stash_cleanup_tracker` (integration) OR respx (unit)
+
+> **Note:** The `tests/stash/client/` directory was deleted during the stash-graphql-client refactor. All tests were either migrated to `tests/stash/processing/unit/` or removed as redundant. All items below are confirmed complete.
 
 | File                      | Violations | Status                    |
 | ------------------------- | ---------- | ------------------------- |
-| `test_gallery_mixin.py`   | 30         | ✅                        |
-| `test_tag_mixin_new.py`   | 30         | ✅                        |
-| `test_scene_mixin.py`     | 21         | ✅                        |
-| `test_marker_mixin.py`    | 18         | ✅                        |
-| `test_image_mixin.py`     | 16         | ✅                        |
-| `test_studio_mixin.py`    | 15         | ✅                        |
-| `test_tag_mixin.py`       | 14         | ✅                        |
-| `test_performer_mixin.py` | 7          | ✅                        |
-| `test_subscription.py`    | 5          | ✅                        |
-| `test_client_base.py`     | 1          | ✅                        |
+| `test_gallery_mixin.py`   | 30         | ✅ (migrated/removed)     |
+| `test_tag_mixin_new.py`   | 30         | ✅ (migrated/removed)     |
+| `test_scene_mixin.py`     | 21         | ✅ (migrated/removed)     |
+| `test_marker_mixin.py`    | 18         | ✅ (migrated/removed)     |
+| `test_image_mixin.py`     | 16         | ✅ (migrated/removed)     |
+| `test_studio_mixin.py`    | 15         | ✅ (migrated/removed)     |
+| `test_tag_mixin.py`       | 14         | ✅ (migrated/removed)     |
+| `test_performer_mixin.py` | 7          | ✅ (migrated/removed)     |
+| `test_subscription.py`    | 5          | ✅ (migrated/removed)     |
+| `test_client_base.py`     | 1          | ✅ (migrated/removed)     |
 | `client_test_helpers.py`  | 4          | ✅ (deleted - was unused) |
 | `test_client.py`          | -          | ✅ (already using respx)  |
 

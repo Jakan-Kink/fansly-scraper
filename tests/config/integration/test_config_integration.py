@@ -186,7 +186,6 @@ interactive = NotABoolean
 @pytest.mark.asyncio
 async def test_config_with_paths_and_database(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
-    db_path = temp_config_dir / "metadata.db"
     download_dir = temp_config_dir / "downloads"
     temp_dir = temp_config_dir / "temp"
 
@@ -198,7 +197,6 @@ download_mode = Normal
 metadata_handling = Advanced
 interactive = True
 download_directory = {download_dir}
-metadata_db_file = {db_path}
 temp_folder = {temp_dir}
 """
         )
@@ -211,7 +209,6 @@ temp_folder = {temp_dir}
 
     load_config(config)
     assert config.download_directory == download_dir
-    assert config.metadata_db_file == db_path
     assert config.temp_folder == temp_dir
 
     # Test database initialization
@@ -370,14 +367,12 @@ download_mode = Normal
 metadata_handling = Advanced
 interactive = True
 download_directory = {download_dir}
-metadata_db_file = {metadata_dir}/metadata.db
 temp_folder = {temp_dir}
 """
         )
 
     load_config(config)
     assert config.download_directory == download_dir
-    assert config.metadata_db_file == metadata_dir / "metadata.db"
     assert config.temp_folder == temp_dir
 
     # Test with non-existent directories (should be created when needed)
@@ -389,12 +384,10 @@ download_mode = Normal
 metadata_handling = Advanced
 interactive = True
 download_directory = {nonexistent_dir}
-metadata_db_file = {nonexistent_dir}/metadata.db
 temp_folder = {nonexistent_dir}/temp
 """
         )
 
     load_config(config)
     assert config.download_directory == nonexistent_dir
-    assert config.metadata_db_file == nonexistent_dir / "metadata.db"
     assert config.temp_folder == nonexistent_dir / "temp"

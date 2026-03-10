@@ -46,7 +46,6 @@ def args():
         db_sync_commits=None,
         db_sync_seconds=None,
         db_sync_min_size=None,
-        metadata_db_file=None,
         temp_folder=None,
         separate_previews=False,
         use_duplicate_threshold=False,

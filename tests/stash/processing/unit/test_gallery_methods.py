@@ -264,9 +264,10 @@ class TestGalleryLookupMethods:
         # Create real studio
         studio = StudioFactory.build(id="studio_123", name="Test Studio")
 
-        # Set up respx - gallery found
+        # Set up respx - gallery found (store.find() makes 2 queries)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
+                # Call 0: Count check
                 httpx.Response(
                     200,
                     json={
@@ -288,7 +289,30 @@ class TestGalleryLookupMethods:
                             }
                         }
                     },
-                )
+                ),
+                # Call 1: Fetch results
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "123",
+                                        "title": "Test Title",
+                                        "code": "12345",
+                                        "date": "2024-04-01",
+                                        "studio": {
+                                            "id": "studio_123",
+                                            "name": "Test Studio",
+                                        },
+                                    }
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                ),
             ]
         )
 
@@ -304,7 +328,10 @@ class TestGalleryLookupMethods:
         # Stash ID should be updated on item
         assert post.stash_id == 123
 
-        # Verify request
+        # Verify 2 calls were made
+        assert len(graphql_route.calls) == 2
+
+        # Verify first request
         req = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req["query"]
         assert req["variables"]["gallery_filter"]["title"]["value"] == "Test Title"
@@ -440,10 +467,12 @@ class TestGalleryLookupMethods:
         result = await session.execute(select(Post).where(Post.id == 12345))
         post = result.unique().scalar_one()
 
-        # Set up respx - gallery found with code already matching, but still calls save()
+        # Set up respx - gallery found with code already matching
+        # store.find() makes 2 queries (count check + fetch)
+        # Library skips save() when no changes detected
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # findGalleries - returns gallery with matching code
+                # Call 0: findGalleries count check
                 httpx.Response(
                     200,
                     json={
@@ -462,16 +491,21 @@ class TestGalleryLookupMethods:
                         }
                     },
                 ),
-                # galleryUpdate - called by gallery.save() even though code matches
+                # Call 1: findGalleries fetch results
                 httpx.Response(
                     200,
                     json={
                         "data": {
-                            "galleryUpdate": {
-                                "id": "789",
-                                "code": "12345",
-                                "title": "URL Gallery",
-                                "urls": ["https://example.com/gallery/123"],
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "789",
+                                        "title": "URL Gallery",
+                                        "code": "12345",  # Already matches post.id
+                                        "urls": ["https://example.com/gallery/123"],
+                                    }
+                                ],
+                                "count": 1,
                             }
                         }
                     },
@@ -488,7 +522,10 @@ class TestGalleryLookupMethods:
         assert result.id == "789"
         assert result.code == "12345"
 
-        # Verify request
+        # Verify 2 calls total (2 for find, no save since code matches)
+        assert len(graphql_route.calls) == 2
+
+        # Verify first request
         req = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req["query"]
         assert req["variables"]["gallery_filter"]["url"]["value"] == url
@@ -518,9 +555,10 @@ class TestGalleryLookupMethods:
         post = result.unique().scalar_one()
 
         # Set up respx - gallery found with different code (requires save)
+        # store.find() makes 2 queries (count check + fetch)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # Call 0: findGalleries by url → found
+                # Call 0: findGalleries count check
                 httpx.Response(
                     200,
                     json={
@@ -539,7 +577,26 @@ class TestGalleryLookupMethods:
                         }
                     },
                 ),
-                # Call 1: galleryUpdate from save()
+                # Call 1: findGalleries fetch results
+                httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "findGalleries": {
+                                "galleries": [
+                                    {
+                                        "id": "999",
+                                        "title": "URL Gallery",
+                                        "code": "old_code",  # Different, needs update
+                                        "urls": ["https://example.com/gallery/456"],
+                                    }
+                                ],
+                                "count": 1,
+                            }
+                        }
+                    },
+                ),
+                # Call 2: galleryUpdate from save()
                 httpx.Response(
                     200,
                     json={
@@ -568,19 +625,19 @@ class TestGalleryLookupMethods:
         # Gallery code should be updated
         assert result.code == "12345"
 
-        # Verify both calls were made
-        assert len(graphql_route.calls) == 2
+        # Verify 3 calls total (2 for find + 1 for save)
+        assert len(graphql_route.calls) == 3
 
-        # Verify first call (findGalleries)
+        # Verify first call (findGalleries count check)
         req0 = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req0["query"]
         assert req0["variables"]["gallery_filter"]["url"]["value"] == url
 
-        # Verify second call (galleryUpdate)
-        req1 = json.loads(graphql_route.calls[1].request.content)
-        assert "galleryUpdate" in req1["query"]
-        assert req1["variables"]["input"]["id"] == "999"
-        assert req1["variables"]["input"]["code"] == "12345"
+        # Verify third call (galleryUpdate)
+        req2 = json.loads(graphql_route.calls[2].request.content)
+        assert "galleryUpdate" in req2["query"]
+        assert req2["variables"]["input"]["id"] == "999"
+        assert req2["variables"]["input"]["code"] == "12345"
 
 
 class TestGalleryCreation:

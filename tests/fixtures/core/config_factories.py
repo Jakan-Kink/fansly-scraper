@@ -102,8 +102,6 @@ class FanslyConfigFactory(Factory):
 
     # Metadata handling
     metadata_handling = MetadataHandling.ADVANCED
-    metadata_db_file = None  # Default to PostgreSQL
-
     # PostgreSQL settings - default to safe non-existent database
     # This prevents accidental connections to production/test databases
     pg_host = LazyFunction(lambda: os.getenv("FANSLY_PG_HOST", "localhost"))

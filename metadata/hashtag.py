@@ -14,6 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -196,8 +197,6 @@ async def process_post_hashtags(
         # Batch insert missing hashtags with ON CONFLICT on the functional index
         # PostgreSQL requires the functional expression in ON CONFLICT clause
         # We use a text construct to ensure the exact SQL matches the index
-        from sqlalchemy import text
-
         # Build the INSERT statement with ON CONFLICT
         values_clause = ", ".join([f"(:value_{i})" for i in range(len(missing_values))])
         sql = text(

@@ -227,6 +227,9 @@ async def test_process_message_with_media(
             )
             return await original_process_batch(media_list, item, account)
 
+        # Clear store cache so processing makes fresh GraphQL calls
+        real_stash_processor.context.store.invalidate_all()
+
         with (
             patch.object(
                 real_stash_processor,
@@ -342,9 +345,9 @@ async def test_process_message_with_media(
             + bulk_video_calls
         )
 
-        # Performer/studio calls: 1 findPerformers + 1 findStudios + 1 studioCreate (or use existing)
-        # NOTE: This is approximate - actual count varies based on whether entities already exist
-        performer_studio_calls = 2  # At minimum: findPerformers + findStudios
+        # Cache-first pattern: performer/studio calls may be 0 if served from sync cache
+        # NOTE: This is approximate - actual count varies based on cache state
+        performer_studio_calls = 0  # Cache-first: may all be served from identity map
 
         # Update calls: 1 per image/scene found + 1 gallery add images
         # NOTE: This is approximate - actual count depends on how many were found in Stash

@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING
 from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from stash_graphql_client import StashContext
-from stash_graphql_client.types import Performer
+from stash_graphql_client.types import Gallery, GalleryChapter, Image, Performer, Scene
 
 from metadata import Account, Database
 from metadata.decorators import with_session
 from textio import print_error, print_info
 
 from ..logging import debug_print
+from ..logging import processing_logger as logger
 from .base import StashProcessingBase
 from .mixins import (
     AccountProcessingMixin,
@@ -109,8 +110,9 @@ class StashProcessing(
             This method requires a session and will ensure the account is properly bound to it.
             The performer object is a Stash GraphQL type, not a SQLAlchemy model.
         """
-        # Preload all Performers, Tags, and Studios for instant cache hits
+        # Preload shared entities (global, idempotent) + per-creator media
         await self._preload_stash_entities()
+        await self._preload_creator_media()
 
         try:
             if not account or not performer:
@@ -170,8 +172,6 @@ class StashProcessing(
             )
 
         except Exception as e:
-            from config.logging import logger
-
             print_error(f"Error in Stash processing: {e}")
             logger.exception("Error in Stash processing", exc_info=e)
             debug_print(
@@ -184,6 +184,10 @@ class StashProcessing(
             )
             raise
         finally:
+            for entity_type in (Gallery, GalleryChapter, Scene, Image):
+                self.store.invalidate_type(entity_type)
+            logger.debug("Invalidated per-creator entity caches")
+
             performer_name = (
                 performer.name if isinstance(performer, Performer) else repr(performer)
             )

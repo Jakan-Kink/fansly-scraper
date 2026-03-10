@@ -62,8 +62,6 @@ class TestDatabaseThreading:
         config.pg_database = test_db_name
         config.pg_user = admin_config.pg_user
         config.pg_password = admin_config.pg_password
-        config.metadata_db_file = None
-
         # Create the database instance (with migrations)
         database = Database(config, skip_migrations=False)
 

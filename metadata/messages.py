@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Table,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -426,8 +427,6 @@ async def _process_group_users(
         )
 
         # Add user to group_users table using PostgreSQL upsert
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-
         insert_stmt = pg_insert(group_users).values(groupId=group.id, accountId=user_id)
         upsert_stmt = insert_stmt.on_conflict_do_nothing()
         await session.execute(upsert_stmt)
