@@ -94,6 +94,7 @@ class StashProcessingBase:
         self._account: Account | None = None
         self._performer: Performer | None = None
         self._studio: Studio | None = None
+        self._stash_parent_task: str | None = None
 
     @property
     def store(self) -> StashEntityStore:
