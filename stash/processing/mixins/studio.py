@@ -109,7 +109,7 @@ class StudioProcessingMixin:
                     logger.debug(
                         f"Found existing studio: {studio.name} (ID: {studio.id})"
                     )
-                    print_info(f"Studio ready: {studio.name}")
+                    logger.debug(f"Studio ready: {studio.name}")
                     return studio
 
                 # Not found - create new studio with all fields

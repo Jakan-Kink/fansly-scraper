@@ -88,6 +88,13 @@ class StashProcessingBase:
         self._owns_db = _owns_db
         self.log = logging.getLogger(__name__)
 
+        # Per-creator cached lookups — set in continue_stash_processing(),
+        # cleared in its finally block. Eliminates redundant GraphQL calls
+        # when processing batches for the same creator.
+        self._account: Account | None = None
+        self._performer: Performer | None = None
+        self._studio: Studio | None = None
+
     @property
     def store(self) -> StashEntityStore:
         """Convenient access to Stash entity store.

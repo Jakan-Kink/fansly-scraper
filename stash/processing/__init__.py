@@ -131,6 +131,8 @@ class StashProcessing(
             stmt = select(Account).where(Account.id == account_id)
             result = await session.execute(stmt)
             account = result.scalar_one()
+            self._account = account
+            self._performer = performer
 
             # Convert performer.id (string) to int for comparison with account.stash_id (int)
             if account.stash_id != int(performer.id):
@@ -145,6 +147,7 @@ class StashProcessing(
                 account=account,
                 session=session,
             )
+            self._studio = studio
 
             # Process creator content
             # Refresh account to ensure it's still bound
@@ -180,6 +183,9 @@ class StashProcessing(
             )
             raise
         finally:
+            self._account = None
+            self._performer = None
+            self._studio = None
             for entity_type in (Gallery, GalleryChapter, Scene, Image):
                 self.store.invalidate_type(entity_type)
             logger.debug("Invalidated per-creator entity caches")

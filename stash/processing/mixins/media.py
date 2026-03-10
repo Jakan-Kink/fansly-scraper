@@ -754,6 +754,8 @@ class MediaProcessingMixin:
 
         # Add studio (use pre-resolved studio, or resolve once if not provided)
         if studio is None:
+            studio = self._studio
+        if studio is None:
             studio = await self._find_existing_studio(account)
         if studio:
             # Scene has set_studio() helper, Image doesn't
@@ -1204,8 +1206,11 @@ class MediaProcessingMixin:
         if not media_list:
             return result
 
-        # Resolve studio once for the entire batch (same creator = same studio)
-        studio = await self._find_existing_studio(account)
+        # Use cached studio from self (set in continue_stash_processing),
+        # fall back to lookup for direct callers (tests, standalone use)
+        studio = self._studio
+        if studio is None:
+            studio = await self._find_existing_studio(account)
 
         # Load awaitable attributes for all media in one pass
         for media in media_list:
