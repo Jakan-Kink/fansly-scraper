@@ -84,9 +84,11 @@ def _mock_capability_response() -> httpx.Response:
 
 
 def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
-    """Print request/response details for each GraphQL call in a respx route.
+    """Print request/response details for each GraphQL call.
 
-    Use in try/finally blocks when debugging test failures:
+    Works with both respx route.calls (unit tests) and capture_graphql_calls
+    dicts (integration tests). Use in try/finally blocks when debugging test
+    failures:
 
         graphql_route = respx.post(...).mock(side_effect=[...])
         try:
@@ -96,28 +98,40 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
         # assertions go here after the try/finally
 
     Args:
-        calls: respx route.calls or respx.calls list
+        calls: respx route.calls, respx.calls list, or capture_graphql_calls list
         label: Header label for the output
     """
     print(f"\n{'=' * 70}")
     print(f"  {label} ({len(calls)} total)")
     print(f"{'=' * 70}")
     for i, call in enumerate(calls):
-        req_body = json.loads(call.request.content) if call.request.content else {}
-        query_str = req_body.get("query", "")
-        # Extract operation name from first line
-        first_line = query_str.strip().split("\n")[0] if query_str else "<empty>"
-        variables = req_body.get("variables", {})
+        if isinstance(call, dict):
+            # capture_graphql_calls format: {"query", "variables", "result", "exception"}
+            query_str = call.get("query", "")
+            first_line = query_str.strip().split("\n")[0] if query_str else "<empty>"
+            variables = call.get("variables") or {}
+            data_keys = list(call["result"].keys()) if call.get("result") else []
 
-        resp_body = call.response.json() if call.response else {}
-        # Show just the top-level data keys
-        data_keys = list(resp_body.get("data", {}).keys()) if resp_body else []
+            print(f"\n  [{i}] {first_line}")
+            print(f"      variables: {json.dumps(variables, default=str)[:200]}")
+            print(f"      response data keys: {data_keys}")
+            if call.get("exception"):
+                print(f"      EXCEPTION: {call['exception']}")
+        else:
+            # respx call format: call.request / call.response
+            req_body = json.loads(call.request.content) if call.request.content else {}
+            query_str = req_body.get("query", "")
+            first_line = query_str.strip().split("\n")[0] if query_str else "<empty>"
+            variables = req_body.get("variables", {})
 
-        print(f"\n  [{i}] {first_line}")
-        print(f"      variables: {json.dumps(variables, default=str)[:200]}")
-        print(f"      response data keys: {data_keys}")
-        if resp_body.get("errors"):
-            print(f"      ERRORS: {resp_body['errors']}")
+            resp_body = call.response.json() if call.response else {}
+            data_keys = list(resp_body.get("data", {}).keys()) if resp_body else []
+
+            print(f"\n  [{i}] {first_line}")
+            print(f"      variables: {json.dumps(variables, default=str)[:200]}")
+            print(f"      response data keys: {data_keys}")
+            if resp_body.get("errors"):
+                print(f"      ERRORS: {resp_body['errors']}")
     print(f"\n{'=' * 70}\n")
 
 

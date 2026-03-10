@@ -247,26 +247,6 @@ db_sync_min_size = 100
     assert config.db_sync_min_size == 100
 
 
-def test_load_config_with_metadata_db_file(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
-    db_path = "/custom/path/metadata.db"
-
-    # Create config with metadata_db_file
-    with config_path.open("w") as f:
-        f.write(
-            f"""[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = Local_directory
-metadata_db_file = {db_path}
-"""
-        )
-
-    load_config(config)
-    assert config.metadata_db_file == Path(db_path)
-
-
 def test_load_config_with_cache_section(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
@@ -476,10 +456,8 @@ metadata_handling = Advanced
 interactive = True
 download_directory = Local_directory
 temp_folder =
-metadata_db_file =
 """
         )
 
     load_config(config)
     assert config.temp_folder is None
-    assert config.metadata_db_file is None  # Empty value becomes None

@@ -221,6 +221,12 @@ class TestStashProcessingIntegration:
             )
             cleanup["studios"].append(created_studio.id)
 
+            # Clear store cache to remove the locally-constructed creator_studio
+            # (which has a UUID id and was never saved to the server). Without this,
+            # store.filter() finds both the unsaved UUID object and the server-created
+            # numeric-id object, and may return the wrong one.
+            real_stash_processor.context.store.invalidate_all()
+
             # Create a real account with matching username
             account = AccountFactory(username="studio_exists_test")
             factory_session.commit()

@@ -109,8 +109,12 @@ class TagProcessingMixin:
         Args:
             file: Scene or Image object to update
         """
-        # Try to find preview tag
-        preview_tag = await self.store.find_one(Tag, name="Trailer")
+        # Cache-first: try sync filter() (zero-cost, tags preloaded with TTL=None),
+        # fall back to async find_one() only if cache misses
+        results = self.store.filter(Tag, lambda t: t.name == "Trailer")
+        preview_tag = results[0] if results else None
+        if not preview_tag:
+            preview_tag = await self.store.find_one(Tag, name="Trailer")
         if preview_tag:
             # Check if tag already exists
             current_tag_ids = (

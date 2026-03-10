@@ -2,138 +2,74 @@
 
 Note: Most database functionality is tested in tests/metadata/integration/test_database_integration.py
 These unit tests focus on configuration validation and URL building.
+
+Uses real SQLAlchemy engines (lazy, don't connect until used) to avoid mocking
+engine internals that break when Database.__init__ registers event listeners.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from config.fanslyconfig import FanslyConfig
 from metadata.database import Database
 
 
 class TestDatabaseInit:
-    """Test database initialization."""
+    """Test database initialization.
+
+    These tests create real SQLAlchemy engines pointing at a non-existent DB name.
+    Since engines are lazy (no connection until first query) and we use
+    skip_migrations=True, no actual database connection is made.
+    """
 
     def test_build_connection_url_basic(self, mock_config: FanslyConfig):
         """Test basic PostgreSQL URL construction."""
-        mock_engine = MagicMock()
-        mock_async_engine = MagicMock()
+        db = Database(mock_config, skip_migrations=True)
+        url = db._build_connection_url()
 
-        with (
-            patch("metadata.database.create_engine", return_value=mock_engine),
-            patch(
-                "metadata.database.create_async_engine", return_value=mock_async_engine
-            ),
-            patch("metadata.database.get_db_logger"),  # Mock logger setup
-            patch.object(Database, "_setup_sql_logging"),  # Mock SQL logging
-            patch("config.logging._configure_sqlalchemy_logging"),  # Mock SA logging
-        ):
-            db = Database(mock_config, skip_migrations=True)
-            url = db._build_connection_url()
-
-            assert "postgresql://" in url
-            assert f"{mock_config.pg_user}:" in url
-            assert f"@{mock_config.pg_host}:{mock_config.pg_port}" in url
-            assert f"/{mock_config.pg_database}" in url
+        assert "postgresql://" in url
+        assert f"{mock_config.pg_user}:" in url
+        assert f"@{mock_config.pg_host}:{mock_config.pg_port}" in url
+        assert f"/{mock_config.pg_database}" in url
 
     def test_build_connection_url_with_password(self, mock_config: FanslyConfig):
         """Test URL construction with password encoding."""
         mock_config.pg_password = "p@ssw0rd!special"
-        mock_engine = MagicMock()
-        mock_async_engine = MagicMock()
+        db = Database(mock_config, skip_migrations=True)
+        url = db._build_connection_url()
 
-        with (
-            patch("metadata.database.create_engine", return_value=mock_engine),
-            patch(
-                "metadata.database.create_async_engine", return_value=mock_async_engine
-            ),
-            patch("metadata.database.get_db_logger"),  # Mock logger setup
-            patch.object(Database, "_setup_sql_logging"),  # Mock SQL logging
-            patch("config.logging._configure_sqlalchemy_logging"),  # Mock SA logging
-        ):
-            db = Database(mock_config, skip_migrations=True)
-            url = db._build_connection_url()
-
-            # Password should be URL-encoded
-            assert "p%40ssw0rd%21special" in url or "p@ssw0rd!special" in url
+        # Password should be URL-encoded
+        assert "p%40ssw0rd%21special" in url or "p@ssw0rd!special" in url
 
     def test_build_connection_url_empty_password(self, mock_config: FanslyConfig):
         """Test URL construction with empty password (trust authentication)."""
         mock_config.pg_password = ""
-        mock_engine = MagicMock()
-        mock_async_engine = MagicMock()
+        db = Database(mock_config, skip_migrations=True)
+        url = db._build_connection_url()
 
-        with (
-            patch("metadata.database.create_engine", return_value=mock_engine),
-            patch(
-                "metadata.database.create_async_engine", return_value=mock_async_engine
-            ),
-            patch("metadata.database.get_db_logger"),  # Mock logger setup
-            patch.object(Database, "_setup_sql_logging"),  # Mock SQL logging
-            patch("config.logging._configure_sqlalchemy_logging"),  # Mock SA logging
-        ):
-            db = Database(mock_config, skip_migrations=True)
-            url = db._build_connection_url()
-
-            # Should handle empty password gracefully
-            assert "postgresql://" in url
-            assert f"{mock_config.pg_user}:@{mock_config.pg_host}" in url
+        # Should handle empty password gracefully
+        assert "postgresql://" in url
+        assert f"{mock_config.pg_user}:@{mock_config.pg_host}" in url
 
     def test_async_url_conversion(self, mock_config: FanslyConfig):
         """Test that async URL is correctly derived from sync URL."""
-        mock_engine = MagicMock()
-        mock_async_engine = MagicMock()
+        db = Database(mock_config, skip_migrations=True)
 
-        with (
-            patch("metadata.database.create_engine", return_value=mock_engine),
-            patch(
-                "metadata.database.create_async_engine", return_value=mock_async_engine
-            ),
-            patch("metadata.database.get_db_logger"),  # Mock logger setup
-            patch.object(Database, "_setup_sql_logging"),  # Mock SQL logging
-            patch("config.logging._configure_sqlalchemy_logging"),  # Mock SA logging
-        ):
-            db = Database(mock_config, skip_migrations=True)
+        # Sync URL should use psycopg2 (or no dialect specified)
+        assert "postgresql://" in db.db_url
 
-            # Sync URL should use psycopg2 (or no dialect specified)
-            assert "postgresql://" in db.db_url
-
-            # Async URL should use asyncpg
-            assert "postgresql+asyncpg://" in db.async_db_url
+        # Async URL should use asyncpg
+        assert "postgresql+asyncpg://" in db.async_db_url
 
     def test_init_sets_config(self, mock_config: FanslyConfig):
         """Test that init properly stores configuration."""
-        mock_engine = MagicMock()
-        mock_async_engine = MagicMock()
+        db = Database(mock_config, skip_migrations=True)
 
-        with (
-            patch("metadata.database.create_engine", return_value=mock_engine),
-            patch(
-                "metadata.database.create_async_engine", return_value=mock_async_engine
-            ),
-            patch("metadata.database.get_db_logger"),  # Mock logger setup
-            patch.object(Database, "_setup_sql_logging"),  # Mock SQL logging
-            patch("config.logging._configure_sqlalchemy_logging"),  # Mock SA logging
-        ):
-            db = Database(mock_config, skip_migrations=True)
-
-            assert db.config == mock_config
-            assert db.schema_name == "public"  # Always use public schema in PostgreSQL
+        assert db.config == mock_config
+        assert db.schema_name == "public"  # Always use public schema in PostgreSQL
 
     def test_skip_migrations_flag(self, mock_config: FanslyConfig):
         """Test that skip_migrations flag prevents running migrations."""
-        mock_engine = MagicMock()
-        mock_async_engine = MagicMock()
-
-        with (
-            patch("metadata.database.create_engine", return_value=mock_engine),
-            patch(
-                "metadata.database.create_async_engine", return_value=mock_async_engine
-            ),
-            patch("metadata.database.get_db_logger"),  # Mock logger setup
-            patch.object(Database, "_setup_sql_logging"),  # Mock SQL logging
-            patch("config.logging._configure_sqlalchemy_logging"),  # Mock SA logging
-            patch.object(Database, "_run_migrations") as mock_migrations,
-        ):
+        with patch.object(Database, "_run_migrations") as mock_migrations:
             # With skip_migrations=True, migrations should not run
             Database(mock_config, skip_migrations=True)
             mock_migrations.assert_not_called()

@@ -258,11 +258,6 @@ def _handle_path_options(config: FanslyConfig, section: str) -> None:
         config._parser.get(section, "download_directory", fallback="Local_directory")
     )
 
-    # Handle metadata database file
-    metadata_db_path = config._parser.get(section, "metadata_db_file", fallback=None)
-    if metadata_db_path:
-        config.metadata_db_file = Path(metadata_db_path)
-
     # Handle temp folder
     temp_folder_path = config._parser.get(section, "temp_folder", fallback=None)
     if temp_folder_path:

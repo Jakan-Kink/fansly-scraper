@@ -585,7 +585,7 @@ class TestMediaProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("findScenes", scenes_result)
                 ),
-                # FILE 1 (image variant)
+                # FILE 1 (image variant): full performer + studio lookups
                 # Call 2: findPerformers
                 httpx.Response(
                     200,
@@ -610,54 +610,24 @@ class TestMediaProcessing:
                 httpx.Response(
                     200, json=create_graphql_response("imageUpdate", updated_image)
                 ),
-                # FILE 2 (parent scene)
+                # FILE 2 (parent scene): studios cached from file 1
                 # Call 7: findPerformers
                 httpx.Response(
                     200,
                     json=create_graphql_response("findPerformers", empty_performers),
                 ),
-                # Call 8: findStudios (Fansly network)
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", fansly_result)
-                ),
-                # Call 9: findStudios (creator studio - not found)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findStudios", creator_not_found_result
-                    ),
-                ),
-                # Call 10: studioCreate (tries to create again, returns existing)
-                httpx.Response(
-                    200, json=create_graphql_response("studioCreate", creator_studio)
-                ),
-                # Call 11: sceneUpdate (parent scene)
+                # Call 8: sceneUpdate (studios served from sync filter() cache)
                 httpx.Response(
                     200,
                     json=create_graphql_response("sceneUpdate", updated_parent_scene),
                 ),
-                # FILE 3 (scene variant)
-                # Call 12: findPerformers
+                # FILE 3 (scene variant): studios cached from file 1
+                # Call 9: findPerformers
                 httpx.Response(
                     200,
                     json=create_graphql_response("findPerformers", empty_performers),
                 ),
-                # Call 13: findStudios (Fansly network)
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", fansly_result)
-                ),
-                # Call 14: findStudios (creator studio - not found)
-                httpx.Response(
-                    200,
-                    json=create_graphql_response(
-                        "findStudios", creator_not_found_result
-                    ),
-                ),
-                # Call 15: studioCreate (tries to create again, returns existing)
-                httpx.Response(
-                    200, json=create_graphql_response("studioCreate", creator_studio)
-                ),
-                # Call 16: sceneUpdate (scene variant)
+                # Call 10: sceneUpdate (studios served from sync filter() cache)
                 httpx.Response(
                     200,
                     json=create_graphql_response("sceneUpdate", updated_variant_scene),
@@ -685,15 +655,14 @@ class TestMediaProcessing:
         assert "scene_variant_2" in scene_ids, "Variant scene should be in result"
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
-        # After ORM migration + store.save() fix:
-        # Each file processes independently with full performer/studio lookups
+        # Cache-first pattern: file 1 populates studio cache, files 2-3 skip studio lookups
         # Sequence: 2 path finds +
-        #   FILE1: (performer + fansly + creator_find + studioCreate + imageUpdate) +
-        #   FILE2: (performer + fansly + creator_find + studioCreate + sceneUpdate) +
-        #   FILE3: (performer + fansly + creator_find + studioCreate + sceneUpdate) = 17 calls
-        # Note: Identity map doesn't prevent duplicate studioCreate attempts
-        assert len(graphql_route.calls) == 17, (
-            f"Expected 17 calls after ORM migration + store.save() fix, got {len(graphql_route.calls)}"
+        #   FILE1: (performer + fansly + creator_find + studioCreate + imageUpdate) = 5
+        #   FILE2: (performer + sceneUpdate) = 2 (studios cached)
+        #   FILE3: (performer + sceneUpdate) = 2 (studios cached)
+        # Total: 11 calls
+        assert len(graphql_route.calls) == 11, (
+            f"Expected 11 calls with cache-first studio lookups, got {len(graphql_route.calls)}"
         )
 
         calls = graphql_route.calls
@@ -741,54 +710,22 @@ class TestMediaProcessing:
         assert "imageUpdate" in req6["query"]
         assert req6["variables"]["input"]["id"] == "image_variant_1"
 
-        # FILE 2 (parent scene) - Calls 7-11
+        # FILE 2 (parent scene) - Calls 7-8 (studios cached from file 1)
         # Call 7: findPerformers
         req7 = json.loads(calls[7].request.content)
         assert "findPerformers" in req7["query"]
 
-        # Call 8: findStudios (Fansly network)
+        # Call 8: sceneUpdate (parent scene — studios served from cache)
         req8 = json.loads(calls[8].request.content)
-        assert "findStudios" in req8["query"]
+        assert "sceneUpdate" in req8["query"]
+        assert req8["variables"]["input"]["id"] == "scene_789"
 
-        # Call 9: findStudios (creator studio - not found)
+        # FILE 3 (scene variant) - Calls 9-10 (studios cached from file 1)
+        # Call 9: findPerformers
         req9 = json.loads(calls[9].request.content)
-        assert "findStudios" in req9["query"]
-        resp9 = calls[9].response.json()
-        assert resp9["data"]["findStudios"]["count"] == 0
+        assert "findPerformers" in req9["query"]
 
-        # Call 10: studioCreate (tries to create again, returns existing)
+        # Call 10: sceneUpdate (scene variant — studios served from cache)
         req10 = json.loads(calls[10].request.content)
-        assert "studioCreate" in req10["query"]
-        resp10 = calls[10].response.json()
-        assert resp10["data"]["studioCreate"]["id"] == "studio_123"
-
-        # Call 11: sceneUpdate (parent scene)
-        req11 = json.loads(calls[11].request.content)
-        assert "sceneUpdate" in req11["query"]
-        assert req11["variables"]["input"]["id"] == "scene_789"
-
-        # FILE 3 (scene variant) - Calls 12-16
-        # Call 12: findPerformers
-        req12 = json.loads(calls[12].request.content)
-        assert "findPerformers" in req12["query"]
-
-        # Call 13: findStudios (Fansly network)
-        req13 = json.loads(calls[13].request.content)
-        assert "findStudios" in req13["query"]
-
-        # Call 14: findStudios (creator studio - not found)
-        req14 = json.loads(calls[14].request.content)
-        assert "findStudios" in req14["query"]
-        resp14 = calls[14].response.json()
-        assert resp14["data"]["findStudios"]["count"] == 0
-
-        # Call 15: studioCreate (tries to create again, returns existing)
-        req15 = json.loads(calls[15].request.content)
-        assert "studioCreate" in req15["query"]
-        resp15 = calls[15].response.json()
-        assert resp15["data"]["studioCreate"]["id"] == "studio_123"
-
-        # Call 16: sceneUpdate (scene variant)
-        req16 = json.loads(calls[16].request.content)
-        assert "sceneUpdate" in req16["query"]
-        assert req16["variables"]["input"]["id"] == "scene_variant_2"
+        assert "sceneUpdate" in req10["query"]
+        assert req10["variables"]["input"]["id"] == "scene_variant_2"

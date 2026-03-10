@@ -5,6 +5,7 @@ fixtures and factory-based test data. All tests use REAL Stash API calls verifie
 with capture_graphql_calls.
 """
 
+from datetime import UTC, datetime
 from functools import wraps
 from unittest.mock import patch
 
@@ -24,6 +25,7 @@ from tests.fixtures.metadata.metadata_factories import (
     MessageFactory,
     PostFactory,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
 from tests.fixtures.utils.test_isolation import get_unique_test_id
 
@@ -79,7 +81,13 @@ class TestContentProcessingIntegration:
                         )
                     factory_session.commit()
 
-                post = PostFactory(accountId=account.id, content=f"Post {i}")
+                # Use a date earlier than any Stash image date so
+                # _update_stash_metadata doesn't skip the update
+                post = PostFactory(
+                    accountId=account.id,
+                    content=f"Post {i}",
+                    createdAt=datetime(2000, 1, 1, tzinfo=UTC),
+                )
                 factory_session.commit()
 
                 # Attach media to post (bundle + individual, mimics real Fansly API behavior)
@@ -147,6 +155,9 @@ class TestContentProcessingIntegration:
                 async def spy_find_by_id(stash_files, session=None):
                     lookup_routing["by_id"] += len(stash_files)
                     return await original_find_by_id(stash_files, session=session)
+
+                # Clear store cache so processing makes fresh GraphQL calls
+                real_stash_processor.context.store.invalidate_all()
 
                 # Capture GraphQL calls made to real Stash API
                 with (
@@ -336,8 +347,13 @@ class TestContentProcessingIntegration:
                         )
                     factory_session.commit()
 
+                # Use a date earlier than any Stash image date so
+                # _update_stash_metadata doesn't skip the update
                 message = MessageFactory(
-                    groupId=group.id, senderId=account.id, content=f"Message {i}"
+                    groupId=group.id,
+                    senderId=account.id,
+                    content=f"Message {i}",
+                    createdAt=datetime(2000, 1, 1, tzinfo=UTC),
                 )
                 factory_session.commit()
 
@@ -390,6 +406,9 @@ class TestContentProcessingIntegration:
                     select(Account).where(Account.id == account.id)
                 )
                 async_account = result.scalar_one()
+
+                # Clear store cache so processing makes fresh GraphQL calls
+                real_stash_processor.context.store.invalidate_all()
 
                 with capture_graphql_calls(
                     real_stash_processor.context.client
@@ -588,8 +607,12 @@ class TestContentProcessingIntegration:
                         )
                     factory_session.commit()
 
-                # Create post with factory-generated realistic content
-                post = PostFactory(accountId=account.id)
+                # Create post with date earlier than any Stash image date so
+                # _update_stash_metadata doesn't skip the update
+                post = PostFactory(
+                    accountId=account.id,
+                    createdAt=datetime(2000, 1, 1, tzinfo=UTC),
+                )
                 factory_session.commit()
 
                 # Attach media to post (mimics real Fansly API)
@@ -660,19 +683,25 @@ class TestContentProcessingIntegration:
                 )
                 async_posts = posts_result.scalars().all()
 
+                # Clear store cache so processing makes fresh GraphQL calls
+                real_stash_processor.context.store.invalidate_all()
+
                 # Capture GraphQL calls made to real Stash API
                 with capture_graphql_calls(
                     real_stash_processor.context.client
                 ) as calls:
-                    await real_stash_processor._process_items_with_gallery(
-                        account=account,
-                        performer=performer,
-                        studio=None,
-                        item_type="post",
-                        items=async_posts,
-                        url_pattern_func=url_pattern_func,
-                        session=async_session,
-                    )
+                    try:
+                        await real_stash_processor._process_items_with_gallery(
+                            account=account,
+                            performer=performer,
+                            studio=None,
+                            item_type="post",
+                            items=async_posts,
+                            url_pattern_func=url_pattern_func,
+                            session=async_session,
+                        )
+                    finally:
+                        dump_graphql_calls(calls, "test_process_items_with_gallery")
 
                 # Permanent GraphQL Call Assertions
 
@@ -877,8 +906,12 @@ class TestContentProcessingIntegration:
                         )
                     factory_session.commit()
 
-                # Create post
-                post = PostFactory(accountId=account.id, content=f"Error test post {i}")
+                # Create post with date earlier than any Stash image date
+                post = PostFactory(
+                    accountId=account.id,
+                    content=f"Error test post {i}",
+                    createdAt=datetime(2000, 1, 1, tzinfo=UTC),
+                )
                 factory_session.commit()
 
                 # Attach media to post (mimics real Fansly API)
@@ -970,6 +1003,9 @@ class TestContentProcessingIntegration:
                     )
                 )
                 async_posts = posts_result.scalars().all()
+
+                # Clear store cache so processing makes fresh GraphQL calls
+                real_stash_processor.context.store.invalidate_all()
 
                 # Capture GraphQL calls - should only see calls from second post (first fails early)
                 with capture_graphql_calls(

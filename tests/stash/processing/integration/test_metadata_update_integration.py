@@ -55,7 +55,7 @@ class TestMetadataUpdateIntegration:
             post = PostFactory(
                 accountId=account.id,
                 content="Integration test post #test #integration",
-                createdAt=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
+                createdAt=datetime(2000, 1, 1, tzinfo=UTC),
             )
 
             # Try to find an existing image in Stash

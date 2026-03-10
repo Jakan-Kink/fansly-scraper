@@ -86,10 +86,6 @@ class TestFanslyConfig:
         assert isinstance(config._parser, ConfigParser)
         assert config._api is None
 
-        # Check default metadata DB file (None until explicitly set)
-        # metadata_db_file is deprecated in favor of PostgreSQL configuration
-        assert config.metadata_db_file is None
-
     def test_user_names_str_with_names(self, config):
         """Test user_names_str with valid user names."""
         assert config.user_names_str() in ["user1, user2", "user2, user1"]
@@ -262,10 +258,6 @@ class TestFanslyConfig:
         """Test get_unscrambled_token with None token."""
         config.token = None
         assert config.get_unscrambled_token() is None
-
-    # NOTE: _get_default_metadata_db_file method doesn't exist in FanslyConfig
-    # metadata_db_file is deprecated in favor of PostgreSQL configuration
-    # Test removed as the method is not implemented
 
     def test_get_api(self, config):
         """Test get_api method with valid credentials."""

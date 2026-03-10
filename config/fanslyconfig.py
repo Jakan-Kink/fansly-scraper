@@ -104,10 +104,6 @@ class FanslyConfig:
     # This helps for semi-automated runs (interactive=False) when coming back
     # to the computer and wanting to see what happened in the console window.
     prompt_on_exit: bool = True
-    # Note: metadata_db_file is deprecated in favor of PostgreSQL configuration
-    # Only kept for backwards compatibility with SQLite-based configs
-    metadata_db_file: Path | None = None
-
     # Number of retries to get a timeline
     timeline_retries: int = 1
     # Anti-rate-limiting delay in seconds
@@ -329,16 +325,9 @@ class FanslyConfig:
         self._parser.set("Options", "separate_previews", str(self.separate_previews))
         self._parser.set("Options", "separate_timeline", str(self.separate_timeline))
         self._parser.set("Options", "separate_metadata", str(self.separate_metadata))
-        # Don't save metadata_db_file - it's deprecated in favor of PostgreSQL
-        # Only preserve it if it already exists in the config file
+        # Clean up deprecated metadata_db_file if it exists in the config file
         if self._parser.has_option("Options", "metadata_db_file"):
-            if self.metadata_db_file is not None:
-                self._parser.set(
-                    "Options", "metadata_db_file", str(self.metadata_db_file)
-                )
-            else:
-                # Remove the option if it's None to clean up config
-                self._parser.remove_option("Options", "metadata_db_file")
+            self._parser.remove_option("Options", "metadata_db_file")
         self._parser.set(
             "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
         )

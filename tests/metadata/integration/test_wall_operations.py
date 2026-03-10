@@ -83,17 +83,21 @@ async def test_wall_post_integration(test_database, setup_account):
 
         await session.commit()
 
-        # Verify through ORM queries
+        # Verify through ORM queries with eager loading to avoid MissingGreenlet
         # Check first wall
-        wall1 = await session.scalar(select(Wall).where(Wall.id == 1))
-        assert wall1 is not None, "Wall 1 should exist"
+        result = await session.execute(
+            select(Wall).where(Wall.id == 1).options(selectinload(Wall.posts))
+        )
+        wall1 = result.scalar_one()
         wall1_posts = sorted(wall1.posts, key=lambda p: p.content)
         assert len(wall1_posts) == 2
         assert [p.content for p in wall1_posts] == ["Post 1", "Post 2"]
 
         # Check second wall
-        wall2 = await session.scalar(select(Wall).where(Wall.id == 2))
-        assert wall2 is not None, "Wall 2 should exist"
+        result = await session.execute(
+            select(Wall).where(Wall.id == 2).options(selectinload(Wall.posts))
+        )
+        wall2 = result.scalar_one()
         wall2_posts = sorted(wall2.posts, key=lambda p: p.content)
         assert len(wall2_posts) == 2
         assert [p.content for p in wall2_posts] == ["Post 3", "Post 4"]
@@ -145,7 +149,7 @@ async def test_wall_updates_with_posts(test_database, config, setup_account):
         # Verify posts are still associated
         result = await session.execute(
             text(
-                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 1 ORDER BY posts.content"
+                'SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts."postId" WHERE wall_posts."wallId" = 1 ORDER BY posts.content'
             )
         )
         wall_posts = result.fetchall()
@@ -191,7 +195,7 @@ async def test_wall_post_processing(test_database, config, setup_account):
         wall = result.fetchone()
         result = await session.execute(
             text(
-                "SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts.postId WHERE wall_posts.wallId = 1 ORDER BY posts.content"
+                'SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts."postId" WHERE wall_posts."wallId" = 1 ORDER BY posts.content'
             )
         )
         wall_posts = result.fetchall()
@@ -205,7 +209,7 @@ async def test_wall_post_processing(test_database, config, setup_account):
         for post in wall_posts:
             result = await session.execute(
                 text(
-                    "SELECT * FROM wall_posts WHERE postId = :post_id AND wallId = :wall_id"
+                    'SELECT * FROM wall_posts WHERE "postId" = :post_id AND "wallId" = :wall_id'
                 ),
                 {"post_id": post.id, "wall_id": wall.id},
             )

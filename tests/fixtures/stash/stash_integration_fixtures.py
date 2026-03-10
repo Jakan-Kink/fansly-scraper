@@ -19,6 +19,7 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -28,6 +29,7 @@ import respx
 from faker import Faker
 from stash_graphql_client.types import StashID, Studio
 
+from download.downloadstate import DownloadState
 from fileio.fnmanip import extract_media_id
 from metadata import AccountMedia
 from stash.processing import StashProcessing
@@ -186,16 +188,18 @@ def mock_permissions():
 
 
 @pytest_asyncio.fixture
-async def real_stash_processor(config, test_database_sync, test_state, stash_context):
+async def real_stash_processor(config, test_database_sync, stash_context):
     """Fixture for StashProcessing with REAL database and REAL Docker Stash.
 
     This is for TRUE integration tests that hit the real Stash instance.
     All HTTP calls go to the actual Docker Stash server (localhost:9999).
 
+    Uses the Stash server's actual library path as base_path so that
+    path-based regex searches match real file paths in the Stash instance.
+
     Args:
         config: Real FanslyConfig with UUID-isolated database
         test_database_sync: Real Database instance
-        test_state: Real TestState (download state)
         stash_context: Real StashContext connected to Docker (localhost:9999)
 
     Yields:
@@ -206,7 +210,30 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
     config._stash = stash_context
 
     # Initialize the client (will make REAL HTTP calls)
-    await stash_context.get_client()
+    client = await stash_context.get_client()
+
+    # Query the Stash server's library path for a real base_path
+    stash_config = await client.get_configuration()
+    if stash_config.general.stashes:
+        stash_library_path = Path(stash_config.general.stashes[0].path)
+    else:
+        stash_library_path = Path("/")
+
+    # Create a real DownloadState with the Stash server's actual library path
+    state = DownloadState(
+        creator_name="test_user",
+        creator_id="12345",
+        base_path=stash_library_path,
+        download_path=stash_library_path,
+    )
+
+    # Invalidate the store cache so each test starts with a clean identity map.
+    # Without this, find_images()/find_scenes() calls within the test populate
+    # the cache, and process_creator_attachment's cache-first path serves lookups
+    # without making GraphQL calls — which is correct production behavior but
+    # makes integration test assertions unpredictable.
+    if stash_context._store is not None:
+        stash_context._store.invalidate_all()
 
     # Disable prints for testing
     with (
@@ -214,12 +241,15 @@ async def real_stash_processor(config, test_database_sync, test_state, stash_con
         patch("textio.textio.print_warning"),
         patch("textio.textio.print_error"),
     ):
-        processor = StashProcessing.from_config(config, test_state)
+        processor = StashProcessing.from_config(config, state)
         yield processor
         # Cleanup: Clear LRU caches to prevent pollution in sequential test execution
         # Only clear if client is still initialized (some tests call cleanup() which closes client)
         if processor.context._client is not None:
             _clear_stash_client_caches(processor.context.client)
+        # Also clear the store cache for the next test
+        if processor.context._store is not None:
+            processor.context._store.invalidate_all()
 
 
 @pytest_asyncio.fixture

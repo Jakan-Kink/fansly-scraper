@@ -376,15 +376,6 @@ def parse_args() -> argparse.Namespace:
         "Smaller databases are synced immediately. "
         "PostgreSQL manages transactions natively.",
     )
-    parser.add_argument(
-        "--metadata-db-file",
-        required=False,
-        default=None,
-        type=str,
-        dest="metadata_db_file",
-        help="[DEPRECATED - SQLite only] Custom path for the metadata database file. "
-        "Use PostgreSQL connection parameters (--pg-host, --pg-database, etc.) instead.",
-    )
     # PostgreSQL arguments
     parser.add_argument(
         "--pg-host",
@@ -680,7 +671,6 @@ def _handle_not_none_settings(args: argparse.Namespace, config: FanslyConfig) ->
         "db_sync_commits",
         "db_sync_seconds",
         "db_sync_min_size",
-        "metadata_db_file",
         "temp_folder",
         # PostgreSQL settings
         "pg_host",

@@ -126,6 +126,13 @@ class StashProcessingBase:
         except Exception as e:
             logger.warning(f"Failed to preload entities (continuing anyway): {e}")
 
+        # Log cache state after shared entity preload
+        stats = self.store.cache_stats()
+        logger.info(
+            f"Cache after shared preload: {stats.total_entries} entries "
+            f"({', '.join(f'{k}: {v}' for k, v in sorted(stats.by_type.items()))})"
+        )
+
     async def _preload_creator_media(self) -> None:
         """Preload Galleries, Images, and Scenes for current creator into identity map.
 
@@ -159,6 +166,13 @@ class StashProcessingBase:
 
         except Exception as e:
             logger.warning(f"Failed to preload creator media (continuing anyway): {e}")
+
+        # Log cache state after creator media preload
+        stats = self.store.cache_stats()
+        logger.info(
+            f"Cache after creator preload: {stats.total_entries} entries "
+            f"({', '.join(f'{k}: {v}' for k, v in sorted(stats.by_type.items()))})"
+        )
 
     @classmethod
     def from_config(
@@ -342,6 +356,16 @@ class StashProcessingBase:
         3. Closes client connection
         4. Cleans up any tracked tasks
         """
+
+        # Log final cache state before cleanup
+        try:
+            stats = self.store.cache_stats()
+            logger.info(
+                f"Cache at cleanup: {stats.total_entries} entries "
+                f"({', '.join(f'{k}: {v}' for k, v in sorted(stats.by_type.items()))})"
+            )
+        except Exception:
+            logger.debug("Failed to collect cache stats during cleanup")
 
         logger.debug(f"Starting cleanup for {self.__class__.__name__}")
 

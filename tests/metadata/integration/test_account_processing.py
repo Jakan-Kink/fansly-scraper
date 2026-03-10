@@ -27,7 +27,9 @@ async def test_process_account_from_timeline(test_database, config, timeline_dat
         await process_account_data(config, account_data, session=session)
 
         # Verify account was created
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         assert account is not None
         assert account.username == account_data["username"]
@@ -81,7 +83,9 @@ async def test_update_optimization_integration(test_database, config):
         await process_account_data(config, account_data, session=session)
 
         # Get initial update time of the account and stats
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         result = await session.execute(
             select(TimelineStats).filter_by(accountId=account_data["id"])
@@ -94,7 +98,9 @@ async def test_update_optimization_integration(test_database, config):
         await process_account_data(config, account_data, session=session)
 
         # Check that nothing was updated
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         result = await session.execute(
             select(TimelineStats).filter_by(accountId=account_data["id"])
@@ -113,7 +119,9 @@ async def test_update_optimization_integration(test_database, config):
         await process_account_data(config, account_data, session=session)
 
         # Check that only changed values were updated
-        result = await session.execute(select(Account).filter_by(id=account_data["id"]))
+        result = await session.execute(
+            select(Account).filter_by(id=int(account_data["id"]))
+        )
         account = result.scalar_one_or_none()
         result = await session.execute(
             select(TimelineStats).filter_by(accountId=account_data["id"])

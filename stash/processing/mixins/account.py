@@ -285,10 +285,13 @@ class AccountProcessingMixin:
             Migrated to use store.get() for identity map caching.
             Same ID = same object instance, instant return if cached.
         """
-        # Try finding by stash_id first (uses identity map - O(1) if cached)
+        # Cache-first: try sync get_cached() (zero-cost after preload),
+        # fall back to async get() only if cache misses
         if account.stash_id:
             try:
-                performer = await self.store.get(Performer, str(account.stash_id))
+                performer = self.store.get_cached(Performer, str(account.stash_id))
+                if not performer:
+                    performer = await self.store.get(Performer, str(account.stash_id))
                 if performer:
                     debug_print(
                         {

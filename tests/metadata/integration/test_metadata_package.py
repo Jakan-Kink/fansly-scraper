@@ -78,7 +78,7 @@ async def test_relationship_integrity(test_database):
     async with test_database.async_session_scope() as session:
         try:
             print("\nCreating test data set...")
-            data = create_test_data_set(
+            data = await create_test_data_set(
                 session,
                 num_accounts=2,
                 num_media_per_account=3,
@@ -117,19 +117,20 @@ async def test_relationship_integrity(test_database):
                     )
 
                 # Test 3: Account -> Walls relationship (existing walls) using ORM
-                existing_walls = await session.scalars(
+                existing_walls_result = await session.scalars(
                     select(Wall).filter_by(accountId=account.id)
                 )
-                assert len(list(existing_walls)) == 2, (
-                    f"Expected 2 walls for account {account.id}, found {len(list(existing_walls))}"
+                existing_walls = list(existing_walls_result)
+                assert len(existing_walls) == 2, (
+                    f"Expected 2 walls for account {account.id}, found {len(existing_walls)}"
                 )
                 assert await verify_relationship_integrity(
                     session, account, "walls", expected_count=2
                 )
 
-                # Test 4: Wall -> Posts relationship using ORM
+                # Test 4: Wall -> Posts relationship via wall_posts junction table
                 for wall in existing_walls:
-                    account_posts = wall.posts
+                    account_posts = await wall.awaitable_attrs.posts
                     assert len(account_posts) == 2, (
                         f"Expected 2 posts for account {wall.accountId}, found {len(account_posts)}"
                     )
@@ -161,7 +162,10 @@ async def test_relationship_integrity(test_database):
             assert total_posts == 4  # num_accounts * num_posts_per_account
 
         finally:
-            # Cleanup in reverse order of dependencies
+            # Rollback any failed transaction before cleanup
+            await session.rollback()
+            # Cleanup in reverse order of dependencies (junction tables first)
+            await session.execute(text("DELETE FROM wall_posts"))
             await session.execute(text("DELETE FROM posts"))
             await session.execute(text("DELETE FROM walls"))
             await session.execute(text("DELETE FROM account_media"))
@@ -202,29 +206,27 @@ async def test_database_constraints(test_database):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_database_indexes(test_database):
-    """Test that important queries use indexes."""
+    """Test that important queries use indexes (PostgreSQL)."""
     async with test_database.async_session_scope() as session:
         # Create test account
         account = Account(id=1, username="test_user")
         session.add(account)
         await session.commit()
 
-        # Check username index
+        # Check username index (PostgreSQL EXPLAIN)
         result = await session.execute(
-            text(
-                "EXPLAIN QUERY PLAN SELECT * FROM accounts WHERE username = 'test_user'"
-            )
+            text("EXPLAIN SELECT * FROM accounts WHERE username = 'test_user'")
         )
         plan = result.fetchall()
-        assert any("USING INDEX" in str(row) for row in plan), (
-            "Query not using index for accounts.username"
+        assert any("Index" in str(row) for row in plan), (
+            f"Query not using index for accounts.username. Plan: {plan}"
         )
 
-        # Check foreign key indexes
+        # Check foreign key indexes (PostgreSQL requires quoted camelCase)
         result = await session.execute(
-            text("EXPLAIN QUERY PLAN SELECT * FROM walls WHERE accountId = 1")
+            text('EXPLAIN SELECT * FROM walls WHERE "accountId" = 1')
         )
         plan = result.fetchall()
-        assert any("USING INDEX" in str(row) for row in plan), (
-            "Query not using index for walls.accountId"
+        assert any("Index" in str(row) for row in plan), (
+            f"Query not using index for walls.accountId. Plan: {plan}"
         )

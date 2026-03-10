@@ -100,22 +100,22 @@ def create_test_message(
     return message
 
 
-def verify_index_usage(session: Session, table: str, column: str) -> bool:
-    """Verify that a query on a column uses an index.
+async def verify_index_usage(session: AsyncSession, table: str, column: str) -> bool:
+    """Verify that a query on a column uses an index (PostgreSQL).
 
     Args:
-        session: Database session
+        session: Async database session
         table: Name of the table
-        column: Name of the column to check
+        column: Name of the column to check (will be quoted for camelCase)
 
     Returns:
-        bool: True if the query uses an index, False otherwise
+        bool: True if the query uses an index scan, False otherwise
     """
-    result = session.execute(
-        text(f"EXPLAIN QUERY PLAN SELECT * FROM {table} WHERE {column} = 1")
+    result = await session.execute(
+        text(f'EXPLAIN SELECT * FROM {table} WHERE "{column}" = 1')
     )
     plan = result.fetchall()
-    return any("USING INDEX" in str(row) for row in plan)
+    return any("Index" in str(row) for row in plan)
 
 
 async def create_test_data_set(
@@ -197,8 +197,12 @@ async def create_test_data_set(
                 print(f"Created wall {wall.id} for account {account.id}")
         await session.flush()
 
-        # Create posts for each account
+        # Create posts for each account and link to walls via wall_posts junction
+        from metadata.wall import wall_posts
+
         for account in data["accounts"]:
+            # Get this account's walls
+            account_walls = [w for w in data["walls"] if w.accountId == account.id]
             for j in range(num_posts_per_account):
                 post = Post(
                     id=len(data["posts"]) + 1,
@@ -209,6 +213,17 @@ async def create_test_data_set(
                 session.add(post)
                 data["posts"].append(post)
                 print(f"Created post {post.id} for account {account.id}")
+        await session.flush()
+
+        # Link all posts to their account's walls via junction table
+        for account in data["accounts"]:
+            account_walls = [w for w in data["walls"] if w.accountId == account.id]
+            account_posts = [p for p in data["posts"] if p.accountId == account.id]
+            for wall in account_walls:
+                for post in account_posts:
+                    await session.execute(
+                        wall_posts.insert().values(wallId=wall.id, postId=post.id)
+                    )
         await session.flush()
 
         # Refresh accounts to update their relationships
@@ -234,18 +249,19 @@ async def verify_relationship_integrity(
 
     if child_attr == "accountMedia":
         # Special handling for accountMedia relationship which goes through Media
+        # Note: PostgreSQL requires quoted identifiers for camelCase column names
         query = """
             SELECT COUNT(*)
             FROM account_media am
-            JOIN media m ON m.id = am.mediaId
-            WHERE m.accountId = :account_id
+            JOIN media m ON m.id = am."mediaId"
+            WHERE m."accountId" = :account_id
         """
         result = await session.execute(text(query), {"account_id": parent.id})
         count = result.scalar()
 
         # Debug queries
         media_result = await session.execute(
-            text("SELECT * FROM media WHERE accountId = :account_id"),
+            text('SELECT * FROM media WHERE "accountId" = :account_id'),
             {"account_id": parent.id},
         )
         media_items = media_result.fetchall()
@@ -253,7 +269,7 @@ async def verify_relationship_integrity(
 
         acc_media_result = await session.execute(
             text(
-                "SELECT * FROM account_media am JOIN media m ON m.id = am.mediaId WHERE m.accountId = :account_id"
+                'SELECT * FROM account_media am JOIN media m ON m.id = am."mediaId" WHERE m."accountId" = :account_id'
             ),
             {"account_id": parent.id},
         )
@@ -264,14 +280,14 @@ async def verify_relationship_integrity(
     elif child_attr == "walls":
         # Direct query for walls
         result = await session.execute(
-            text("SELECT COUNT(*) FROM walls WHERE accountId = :account_id"),
+            text('SELECT COUNT(*) FROM walls WHERE "accountId" = :account_id'),
             {"account_id": parent.id},
         )
         count = result.scalar()
 
         # Debug info
         walls_result = await session.execute(
-            text("SELECT * FROM walls WHERE accountId = :account_id"),
+            text('SELECT * FROM walls WHERE "accountId" = :account_id'),
             {"account_id": parent.id},
         )
         walls = walls_result.fetchall()
@@ -279,7 +295,7 @@ async def verify_relationship_integrity(
     else:
         # Default relationship counting with account filter
         result = await session.execute(
-            text(f"SELECT COUNT(*) FROM {child_attr} WHERE accountId = :account_id"),
+            text(f'SELECT COUNT(*) FROM {child_attr} WHERE "accountId" = :account_id'),
             {"account_id": parent.id},
         )
         count = result.scalar()

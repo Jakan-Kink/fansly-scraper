@@ -183,45 +183,6 @@ def get_creator_metadata_path(config: PathConfig, creator_name: str) -> Path:
     return meta_dir
 
 
-def get_creator_database_path(config: PathConfig, creator_name: str) -> Path:
-    """Get the database path for a specific creator.
-
-    DEPRECATED: This function is for SQLite compatibility only.
-    PostgreSQL uses connection strings and schemas, not file paths.
-
-    Args:
-        config: The program configuration
-        creator_name: Name of the creator
-
-    Returns:
-        Path to the creator's database file (SQLite only)
-
-    Note:
-        **SQLite Only** - This function returns file paths for SQLite databases.
-        With PostgreSQL, the application uses connection parameters instead.
-
-        If separate_metadata is False:
-        1. Uses config.metadata_db_file if set
-        2. Otherwise uses <creator_base_path>/metadata/<creator_name>.db
-
-        If separate_metadata is True:
-        Uses <creator_meta_path>/metadata.sqlite3
-    """
-    if config.separate_metadata:
-        # For separate metadata, use creator's meta directory
-        return get_creator_metadata_path(config, creator_name) / "metadata.sqlite3"
-    # For global metadata, first check metadata_db_file
-    if config.metadata_db_file:
-        return Path(config.metadata_db_file)
-
-    # Otherwise use metadata dir in creator's base path
-    if config.download_directory is None:
-        raise RuntimeError("Download directory is not set in configuration.")
-    metadata_dir = config.download_directory / "metadata"
-    metadata_dir.mkdir(parents=True, exist_ok=True)
-    return metadata_dir / "shared.db"
-
-
 def get_media_save_path(
     config: PathConfig, state: DownloadState, media_item: MediaItem
 ) -> tuple[Path, Path]:

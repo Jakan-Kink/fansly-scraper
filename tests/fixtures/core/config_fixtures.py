@@ -222,7 +222,6 @@ def complete_args():
         db_sync_commits=None,
         db_sync_seconds=None,
         db_sync_min_size=None,
-        metadata_db_file=None,
         pg_host=None,
         pg_port=None,
         pg_database=None,
