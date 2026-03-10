@@ -109,8 +109,9 @@ async def test_process_timeline_post(
                 )
 
             # Assert - Verify GraphQL operations performed
-            assert len(calls) == 5, (
-                f"Expected exactly 5 GraphQL calls, got {len(calls)}"
+            # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
+            assert len(calls) == 8, (
+                f"Expected exactly 8 GraphQL calls, got {len(calls)}"
             )
 
             # Call 0: findGalleries by code
@@ -148,12 +149,24 @@ async def test_process_timeline_post(
             assert "galleryCreate" in calls[3]["result"]
             cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
 
-            # Call 4: FindScenes (looking for scenes with media path)
-            assert "FindScenes" in calls[4]["query"]
-            assert (
-                str(media.id) in calls[4]["variables"]["scene_filter"]["path"]["value"]
+            # Calls 4-6: Studio lookup (hoisted to batch level by _process_batch_internal)
+            studio_calls = [
+                c
+                for c in calls[4:7]
+                if "findStudios" in c.get("query", "")
+                or "studioCreate" in c.get("query", "")
+                or "Studio" in c.get("query", "")
+            ]
+            assert len(studio_calls) >= 2, (
+                f"Expected studio-related calls at positions 4-6, got {[c['query'][:40] for c in calls[4:7]]}"
             )
-            assert "findScenes" in calls[4]["result"]
+
+            # Call 7: FindScenes (looking for scenes with media path)
+            assert "FindScenes" in calls[7]["query"]
+            assert (
+                str(media.id) in calls[7]["variables"]["scene_filter"]["path"]["value"]
+            )
+            assert "findScenes" in calls[7]["result"]
 
 
 @pytest.mark.asyncio
@@ -259,8 +272,9 @@ async def test_process_timeline_bundle(
                 )
 
             # Assert - Verify GraphQL operations performed
-            assert len(calls) == 5, (
-                f"Expected exactly 5 GraphQL calls, got {len(calls)}"
+            # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
+            assert len(calls) == 8, (
+                f"Expected exactly 8 GraphQL calls, got {len(calls)}"
             )
 
             # Call 0: findGalleries by code
@@ -298,15 +312,27 @@ async def test_process_timeline_bundle(
             assert "galleryCreate" in calls[3]["result"]
             cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
 
-            # Call 4: findImages (looking for images with media paths from bundle)
-            assert "findImages" in calls[4]["query"]
+            # Calls 4-6: Studio lookup (hoisted to batch level by _process_batch_internal)
+            studio_calls = [
+                c
+                for c in calls[4:7]
+                if "findStudios" in c.get("query", "")
+                or "studioCreate" in c.get("query", "")
+                or "Studio" in c.get("query", "")
+            ]
+            assert len(studio_calls) >= 2, (
+                "Expected studio-related calls at positions 4-6"
+            )
+
+            # Call 7: findImages (looking for images with media paths from bundle)
+            assert "findImages" in calls[7]["query"]
             # The regex pattern contains both media IDs (Pattern 5: base_path.*(code1|code2))
-            image_filter = calls[4]["variables"]["image_filter"]
+            image_filter = calls[7]["variables"]["image_filter"]
             assert "path" in image_filter
             # Verify both media IDs are included in the regex pattern
             assert str(media1.id) in str(image_filter)
             assert str(media2.id) in str(image_filter)
-            assert "findImages" in calls[4]["result"]
+            assert "findImages" in calls[7]["result"]
 
 
 @pytest.mark.asyncio
@@ -653,8 +679,9 @@ async def test_process_expired_timeline_post(
                 )
 
             # Assert - Verify GraphQL operations performed
-            assert len(calls) == 5, (
-                f"Expected exactly 5 GraphQL calls, got {len(calls)}"
+            # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
+            assert len(calls) == 8, (
+                f"Expected exactly 8 GraphQL calls, got {len(calls)}"
             )
 
             # Call 0: findGalleries by code
@@ -692,9 +719,21 @@ async def test_process_expired_timeline_post(
             assert "galleryCreate" in calls[3]["result"]
             cleanup["galleries"].append(calls[3]["result"]["galleryCreate"]["id"])
 
-            # Call 4: FindScenes (looking for scenes with media path)
-            assert "FindScenes" in calls[4]["query"]
-            assert (
-                str(media.id) in calls[4]["variables"]["scene_filter"]["path"]["value"]
+            # Calls 4-6: Studio lookup (hoisted to batch level by _process_batch_internal)
+            studio_calls = [
+                c
+                for c in calls[4:7]
+                if "findStudios" in c.get("query", "")
+                or "studioCreate" in c.get("query", "")
+                or "Studio" in c.get("query", "")
+            ]
+            assert len(studio_calls) >= 2, (
+                "Expected studio-related calls at positions 4-6"
             )
-            assert "findScenes" in calls[4]["result"]
+
+            # Call 7: FindScenes (looking for scenes with media path)
+            assert "FindScenes" in calls[7]["query"]
+            assert (
+                str(media.id) in calls[7]["variables"]["scene_filter"]["path"]["value"]
+            )
+            assert "findScenes" in calls[7]["result"]

@@ -201,7 +201,7 @@ class GalleryProcessingMixin:
                 if hasattr(item, "stash_id"):
                     item.stash_id = int(gallery.id)
                 gallery.code = str(item.id)
-                await gallery.save(self.context.client)
+                await self.store.save(gallery)
                 return gallery
         return None
 
@@ -428,6 +428,9 @@ class GalleryProcessingMixin:
         # Set URLs (url field is deprecated, use urls)
         gallery.urls = [url]
 
+        # Save gallery so it gets a real Stash ID (required for chapter gallery_id)
+        await self.store.save(gallery)
+
         # Add chapters for aggregated posts
         if hasattr(item, "attachments"):
             image_index = 0
@@ -453,11 +456,8 @@ class GalleryProcessingMixin:
                         title=title,
                         image_index=image_index,
                     )
-                    gallery.chapters.append(chapter)
+                    await self.store.save(chapter)
                     image_index += 1  # Increment for next chapter
-
-        # Save gallery with chapters
-        await gallery.save(self.context.client)
         return gallery
 
     async def _process_item_gallery(
@@ -683,7 +683,7 @@ class GalleryProcessingMixin:
                             "gallery_id": gallery.id,
                         }
                     )
-                    await gallery.delete(self.context.client)
+                    await self.store.delete(gallery)
                 return
 
             debug_print(
@@ -697,58 +697,10 @@ class GalleryProcessingMixin:
                 }
             )
 
-            # Link images and scenes to gallery
-            # Link images using the special API endpoint
-            # Note: Manual retry logic removed - HTTPXAsyncTransport has built-in retry
-            if all_images:
-                try:
-                    success = await self.context.client.add_gallery_images(
-                        gallery_id=gallery.id,
-                        image_ids=[img.id for img in all_images],
-                    )
-                    if success:
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _process_item_gallery",
-                                "status": "gallery_images_added",
-                                "item_id": item.id,
-                                "gallery_id": gallery.id,
-                                "image_count": len(all_images),
-                            }
-                        )
-                    else:
-                        logger.error(
-                            f"Failed to add {len(all_images)} images to gallery {gallery.id}"
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _process_item_gallery",
-                                "status": "gallery_images_add_failed",
-                                "item_id": item.id,
-                                "gallery_id": gallery.id,
-                                "image_count": len(all_images),
-                            }
-                        )
-                except Exception as e:
-                    logger.exception(
-                        f"Error adding images to gallery for {item_type} {item.id}: {e}"
-                    )
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_item_gallery",
-                            "status": "gallery_images_add_error",
-                            "item_id": item.id,
-                            "gallery_id": gallery.id,
-                            "error": str(e),
-                            "traceback": traceback.format_exc(),
-                        }
-                    )
-                    print_error(
-                        f"Failed to add {len(all_images)} images to gallery {gallery.id}. "
-                        f"Continuing with scenes..."
-                    )
-
-            # Link scenes using relationship helper
+            # Link images and scenes to gallery using relationship helpers
+            for image in all_images:
+                await image.add_to_gallery(gallery)
+                await self.store.save(image)
             for scene in all_scenes:
                 await gallery.add_scene(scene)
             if all_scenes:
@@ -765,7 +717,7 @@ class GalleryProcessingMixin:
 
             # Save gallery
             try:
-                await gallery.save(self.context.client)
+                await self.store.save(gallery)
             except Exception as e:
                 logger.exception(
                     f"Failed to save gallery for {item_type} {item.id}",

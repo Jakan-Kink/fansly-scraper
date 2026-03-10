@@ -380,10 +380,10 @@ class FanslyConfig:
             conn = self._stash.conn
             if not self._parser.has_section("StashContext"):
                 self._parser.add_section("StashContext")
-            self._parser.set("StashContext", "scheme", conn["scheme"])
-            self._parser.set("StashContext", "host", conn["host"])
-            self._parser.set("StashContext", "port", str(conn["port"]))
-            self._parser.set("StashContext", "apikey", conn["apikey"])
+            self._parser.set("StashContext", "scheme", conn["Scheme"])
+            self._parser.set("StashContext", "host", conn["Host"])
+            self._parser.set("StashContext", "port", str(conn["Port"]))
+            self._parser.set("StashContext", "apikey", conn.get("ApiKey", ""))
         # Cache
         if self._api is not None:
             self._parser.set("Cache", "device_id", str(self._api.device_id))

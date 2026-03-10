@@ -305,7 +305,7 @@ class TestCreatorProcessing:
         # Call process_creator_studio directly with performer
         # (_find_existing_studio just wraps this with performer=None)
         studio = await processor.process_creator_studio(
-            account=real_account, performer=performer
+            account=real_account,
         )
 
         # Verify studio came from GraphQL HTTP
@@ -378,11 +378,41 @@ class TestCreatorProcessing:
             name="Test User",
         )
 
+        # Empty preload results
+        empty_performers = create_find_performers_result(count=0, performers=[])
+        empty_tags = {"count": 0, "tags": []}
+        empty_studios = create_find_studios_result(count=0, studios=[])
+        empty_scenes = {"count": 0, "scenes": []}
+        empty_images = {"count": 0, "images": []}
+        empty_galleries = {"count": 0, "galleries": []}
+
         # Mock GraphQL HTTP responses for the full workflow
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
                 # First call: connect_async() connection establishment
                 httpx.Response(200, json={"data": {}}),
+                # === Preload: _preload_stash_entities() ===
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findPerformers", empty_performers),
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findTags", empty_tags)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findStudios", empty_studios)
+                ),
+                # === Preload: _preload_creator_media() ===
+                httpx.Response(
+                    200, json=create_graphql_response("findScenes", empty_scenes)
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("findImages", empty_images)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("findGalleries", empty_galleries),
+                ),
                 # scan_creator_folder: metadataScan mutation (returns job ID string)
                 httpx.Response(200, json={"data": {"metadataScan": "job_123"}}),
                 # scan_creator_folder: findJob query (finished immediately for speed)
@@ -413,22 +443,24 @@ class TestCreatorProcessing:
         await processor.start_creator_processing()
 
         # === PERMANENT GraphQL call sequence assertions ===
-        assert len(graphql_route.calls) == 4, (
-            f"Expected exactly 4 GraphQL calls, got {len(graphql_route.calls)}"
+        # 1 connect + 6 preload + 2 scan + 1 findPerformers = 10
+        assert len(graphql_route.calls) == 10, (
+            f"Expected exactly 10 GraphQL calls, got {len(graphql_route.calls)}"
         )
 
-        # Call 1: connect_async
-        # Call 2: metadataScan
-        call2_body = json.loads(graphql_route.calls[1].request.content)
-        assert "metadataScan" in call2_body.get("query", "")
+        # Call 0: connect_async
+        # Calls 1-6: preload (findPerformers, findTags, findStudios, findScenes, findImages, findGalleries)
+        # Call 7: metadataScan
+        call7_body = json.loads(graphql_route.calls[7].request.content)
+        assert "metadataScan" in call7_body.get("query", "")
 
-        # Call 3: findJob
-        call3_body = json.loads(graphql_route.calls[2].request.content)
-        assert "findJob" in call3_body.get("query", "")
+        # Call 8: findJob
+        call8_body = json.loads(graphql_route.calls[8].request.content)
+        assert "findJob" in call8_body.get("query", "")
 
-        # Call 4: findPerformers
-        call4_body = json.loads(graphql_route.calls[3].request.content)
-        assert "findPerformers" in call4_body.get("query", "")
+        # Call 9: findPerformers (process_creator)
+        call9_body = json.loads(graphql_route.calls[9].request.content)
+        assert "findPerformers" in call9_body.get("query", "")
 
         # Verify orchestration: background task was created
         assert processor._background_task is not None

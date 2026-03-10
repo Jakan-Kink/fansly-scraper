@@ -756,10 +756,15 @@ class TestHashtagProcessing:
         hashtag = HashtagFactory.build(value="newtag")
         hashtags = [hashtag]
 
-        # Set up respx - mock both find and create (library behavior varies)
+        # Set up respx - _get_or_create_tag does: find by name, find by alias, create
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # Possibly findTags (not found)
+                # findTags by name (not found)
+                httpx.Response(
+                    200,
+                    json={"data": {"findTags": {"tags": [], "count": 0}}},
+                ),
+                # findTags by alias (not found)
                 httpx.Response(
                     200,
                     json={"data": {"findTags": {"tags": [], "count": 0}}},

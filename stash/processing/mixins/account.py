@@ -103,27 +103,48 @@ class AccountProcessingMixin:
         search_name = account.displayName or account.username
         fansly_url = f"https://fansly.com/{account.username}"
 
-        # Try exact name match first (identity map returns instantly if cached)
-        performer = await self.store.find_one(Performer, name__exact=search_name)
-        if performer:
-            logger.debug(f"Found existing performer by name: {search_name}")
-            return performer
+        # Cache-first: try sync filter() on preloaded performers before GraphQL.
+        # Performers are preloaded in _preload_stash_entities() at startup.
+        # Sequential name → alias → URL checks prevent duplicates.
+        performer = None
 
-        # Try alias match (critical for deduplication!)
-        # Using Django-style filter syntax (stash-graphql-client v0.10.6+)
-        # Both Django-style and raw GraphQL syntax tested in:
-        #   tests/stash/processing/unit/test_account_mixin.py
-        performer = await self.store.find_one(
-            Performer, aliases__contains=account.username
-        )
-        if performer:
-            logger.debug(f"Found existing performer by alias: {account.username}")
-            return performer
+        # 1. Exact name match
+        results = self.store.filter(Performer, lambda p: p.name == search_name)
+        if results:
+            logger.debug(f"Cache hit: performer by name: {search_name}")
+            performer = results[0]
+        if not performer:
+            performer = await self.store.find_one(Performer, name__exact=search_name)
 
-        # Try URL match (catches edge cases)
-        performer = await self.store.find_one(Performer, url__contains=fansly_url)
+        # 2. Alias match (critical for deduplication)
+        if not performer:
+            results = self.store.filter(
+                Performer,
+                lambda p: hasattr(p, "alias_list")
+                and p.alias_list
+                and account.username in p.alias_list,
+            )
+            if results:
+                logger.debug(f"Cache hit: performer by alias: {account.username}")
+                performer = results[0]
+        if not performer:
+            performer = await self.store.find_one(
+                Performer, aliases__contains=account.username
+            )
+
+        # 3. URL match (catches edge cases)
+        if not performer:
+            results = self.store.filter(
+                Performer,
+                lambda p: hasattr(p, "urls") and p.urls and fansly_url in p.urls,
+            )
+            if results:
+                logger.debug(f"Cache hit: performer by URL: {fansly_url}")
+                performer = results[0]
+        if not performer:
+            performer = await self.store.find_one(Performer, url__contains=fansly_url)
+
         if performer:
-            logger.debug(f"Found existing performer by URL: {fansly_url}")
             return performer
 
         # Not found after all deduplication checks - create new performer
@@ -236,9 +257,16 @@ class AccountProcessingMixin:
 
         # Only update if current image is default
         if not performer.image_path or "default=true" in performer.image_path:
-            # Get avatar file path
-            # Pattern 5: Migrated to use store.find() with Django-style filtering
-            images = await self.store.find(Image, path__contains=avatar.local_filename)
+            # Cache-first: try sync filter on preloaded images, then GraphQL
+            filename = avatar.local_filename
+            images = self.store.filter(
+                Image,
+                lambda img: hasattr(img, "visual_files")
+                and img.visual_files
+                and any(filename in f.path for f in img.visual_files),
+            )
+            if not images:
+                images = await self.store.find(Image, path__contains=filename)
             if not images:
                 debug_print(
                     {
@@ -305,8 +333,11 @@ class AccountProcessingMixin:
             except Exception as e:
                 logger.debug(f"Failed to get performer by stash_id: {e}")
 
-        # Fallback to username search (also checks cache)
-        performer = await self.store.find_one(Performer, name=account.username)
+        # Fallback to username search (cache-first, then GraphQL)
+        results = self.store.filter(Performer, lambda p: p.name == account.username)
+        performer = results[0] if results else None
+        if not performer:
+            performer = await self.store.find_one(Performer, name=account.username)
         if performer:
             debug_print(
                 {

@@ -787,15 +787,14 @@ async def test_process_message_with_variants(
                     session=async_session,
                 )
 
-        # Assert - REQUIRED: Verify exact GraphQL call sequence
+        # Assert - REQUIRED: Verify GraphQL call sequence
         # For HLS variant message (mimetype: application/vnd.apple.mpegurl, synthetic path):
         # Base: 4 gallery operations (3 findGalleries + 1 galleryCreate)
+        # Plus: studio lookup calls (hoisted to batch level by _process_batch_internal)
         # Plus: findScenes call to check if HLS video exists (won't find synthetic path)
 
-        # Expect at least 5 calls (4 gallery + 1 findScenes)
-        assert len(calls) >= 5, (
-            f"Expected at least 5 GraphQL calls (4 gallery + 1 findScenes), got {len(calls)}"
-        )
+        # Expect at least 5 calls (4 gallery + studio calls + 1 findScenes)
+        assert len(calls) >= 5, f"Expected at least 5 GraphQL calls, got {len(calls)}"
 
         # Call 0: findGalleries (by code) - verify message ID
         assert "findGalleries" in calls[0]["query"]
@@ -831,15 +830,24 @@ async def test_process_message_with_variants(
         assert str(studio.id) == calls[3]["variables"]["input"]["studio_id"]
         assert "galleryCreate" in calls[3]["result"]
 
-        # Call 4: FindScenes - checking for HLS video
-        assert "FindScenes" in calls[4]["query"]
-        assert str(media.id) in calls[4]["variables"]["scene_filter"]["path"]["value"]
+        # Calls 4+: Studio lookup (hoisted) then FindScenes
+        # Find the FindScenes call by scanning (position varies with studio cache state)
+        scene_calls = [
+            c
+            for c in calls[4:]
+            if "FindScenes" in c.get("query", "") or "findScenes" in c.get("query", "")
+        ]
+        assert len(scene_calls) >= 1, (
+            f"Expected at least 1 FindScenes call after gallery creation, "
+            f"got calls: {[c['query'][:40] for c in calls[4:]]}"
+        )
+        scene_call = scene_calls[0]
+        assert str(media.id) in scene_call["variables"]["scene_filter"]["path"]["value"]
         assert (
-            calls[4]["result"]["findScenes"]["count"] == 0
+            scene_call["result"]["findScenes"]["count"] == 0
         )  # Not found (synthetic path)
 
         # Verify gallery was created
-        assert "galleryCreate" in calls[3]["result"]
         created_gallery_id = calls[3]["result"]["galleryCreate"]["id"]
         assert created_gallery_id is not None
 

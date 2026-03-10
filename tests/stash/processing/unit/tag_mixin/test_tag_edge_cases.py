@@ -134,14 +134,13 @@ async def test_process_hashtags_to_tags_creation_error_other(respx_stash_process
         ]
     )
 
-    # Process the hashtag - library creates local Tag object with UUID even if save fails
-    # (asyncio.gather uses return_exceptions=True, so exceptions are caught)
+    # Process the hashtag - _get_or_create_tag raises on save failure,
+    # asyncio.gather(return_exceptions=True) catches it, filter removes it
     tags = await respx_stash_processor._process_hashtags_to_tags([hashtag])
 
-    # Verify a local tag object was created (library doesn't raise for save failures)
-    assert len(tags) == 1
-    assert tags[0].name == "test_tag"
-    assert hasattr(tags[0], "id")  # Has UUID even if save failed
+    # Verify no tags returned (save failure propagates as exception,
+    # filtered out by asyncio.gather return_exceptions pattern)
+    assert len(tags) == 0
 
 
 @pytest.mark.asyncio

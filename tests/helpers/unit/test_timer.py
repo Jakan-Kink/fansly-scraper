@@ -212,3 +212,27 @@ class TestTimer:
         timer = Timer(name="init_test")
         assert "init_test" in Timer.timers
         assert Timer.timers["init_test"] == 0
+
+    def test_get_average_time_str_no_timer(self):
+        """Test get_average_time_str returns '0s' when timer not in dict (line 133)."""
+        Timer.timers.clear()
+        timer = Timer(name="test_timer")
+        # Remove from timers dict to test the edge case
+        del Timer.timers["test_timer"]
+
+        result = timer.get_average_time_str()
+        assert result == "0s"
+
+    def test_get_average_time_str_with_timer(self):
+        """Test get_average_time_str with actual timer data."""
+        Timer.timers.clear()
+        timer = Timer(name="avg_test")
+        timer.start()
+        time.sleep(1.0)  # Need at least 1 second since int(elapsed) rounds down
+        timer.stop()
+
+        result = timer.get_average_time_str()
+        # Should be at least "1s" since we slept for 1 second
+        assert result != "0s"
+        # Should be a formatted time string with seconds
+        assert "s" in result

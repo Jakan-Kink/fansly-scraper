@@ -112,7 +112,6 @@ class TestStashProcessingIntegration:
             # Step 2: Create Studio for the creator
             studio = await real_stash_processor.process_creator_studio(
                 account=account,
-                performer=performer,
                 session=session,
             )
 
@@ -216,7 +215,6 @@ class TestStashProcessingIntegration:
             # Create studio
             studio = await real_stash_processor.process_creator_studio(
                 account=account,
-                performer=performer,
                 session=session,
             )
 

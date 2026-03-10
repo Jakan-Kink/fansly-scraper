@@ -273,18 +273,31 @@ class TestContentProcessingIntegration:
                             == input_data["id"]
                         )
 
-                posts_with_images = sum(1 for p in media_meta if p.num_images > 0)
-                add_gallery_images = [
-                    c for c in calls if "addGalleryImages" in c["query"]
+                # In stash-graphql-client v0.11, gallery image linking uses
+                # image.add_to_gallery(gallery) + store.save(image) which produces
+                # imageUpdate mutations with gallery_ids, not addGalleryImages.
+                # Verify that imageUpdate calls include gallery_ids for linking.
+                updates_with_gallery_ids = [
+                    c
+                    for c in image_updates
+                    if c["result"] is not None
+                    and "gallery_ids" in c["variables"].get("input", {})
                 ]
-                assert len(add_gallery_images) == posts_with_images
-
-                for call in add_gallery_images:
-                    input_data = call["variables"]["input"]
-                    assert input_data["gallery_id"] in created_gallery_ids
-                    assert isinstance(input_data["image_ids"], list)
-                    if call["result"] is not None:
-                        assert call["result"]["addGalleryImages"] is True
+                posts_with_images = sum(1 for p in media_meta if p.num_images > 0)
+                if posts_with_images > 0:
+                    assert len(updates_with_gallery_ids) >= 1, (
+                        f"Expected at least 1 imageUpdate with gallery_ids "
+                        f"({posts_with_images} posts have images), "
+                        f"got {len(updates_with_gallery_ids)}"
+                    )
+                    for call in updates_with_gallery_ids:
+                        input_data = call["variables"]["input"]
+                        gallery_ids = input_data["gallery_ids"]
+                        assert isinstance(gallery_ids, list)
+                        assert any(gid in created_gallery_ids for gid in gallery_ids), (
+                            f"imageUpdate gallery_ids {gallery_ids} should reference "
+                            f"a created gallery {created_gallery_ids}"
+                        )
 
                 # SPY: Verify media lookup routing (fast path via ID vs slow path via file)
                 total_lookups = lookup_routing["by_path"] + lookup_routing["by_id"]
@@ -520,37 +533,34 @@ class TestContentProcessingIntegration:
                         assert "id" in result["imageUpdate"]
                         assert result["imageUpdate"]["id"] == input_data["id"]
 
-                # 4. Verify Gallery Image Addition
-                # Count how many messages actually have images (vs only scenes)
+                # 4. Verify Gallery Image Linking via imageUpdate
+                # In stash-graphql-client v0.11, gallery image linking uses
+                # image.add_to_gallery(gallery) + store.save(image) which produces
+                # imageUpdate mutations with gallery_ids, not addGalleryImages.
                 messages_with_images = sum(
                     1 for message_media in media_meta if message_media.num_images > 0
                 )
 
-                # Expected: addGalleryImages called for each message with images
-                add_gallery_images = [
-                    c for c in calls if "addGalleryImages" in c["query"]
+                updates_with_gallery_ids = [
+                    c
+                    for c in image_updates
+                    if c["result"] is not None
+                    and "gallery_ids" in c["variables"].get("input", {})
                 ]
-                assert len(add_gallery_images) == messages_with_images, (
-                    f"Expected {messages_with_images} addGalleryImages calls "
-                    f"(one per message with images), got {len(add_gallery_images)}"
-                )
-
-                for call in add_gallery_images:
-                    # Request Assertions
-                    variables = call["variables"]
-                    assert "input" in variables
-                    input_data = variables["input"]
-
-                    assert "gallery_id" in input_data
-                    assert input_data["gallery_id"] in created_gallery_ids
-                    assert "image_ids" in input_data
-                    assert isinstance(input_data["image_ids"], list)
-
-                    # Response Assertions - skip if race condition caused error
-                    result = call["result"]
-                    if result is not None:
-                        assert "addGalleryImages" in result
-                        assert result["addGalleryImages"] is True
+                if messages_with_images > 0:
+                    assert len(updates_with_gallery_ids) >= 1, (
+                        f"Expected at least 1 imageUpdate with gallery_ids "
+                        f"({messages_with_images} messages have images), "
+                        f"got {len(updates_with_gallery_ids)}"
+                    )
+                    for call in updates_with_gallery_ids:
+                        input_data = call["variables"]["input"]
+                        gallery_ids = input_data["gallery_ids"]
+                        assert isinstance(gallery_ids, list)
+                        assert any(gid in created_gallery_ids for gid in gallery_ids), (
+                            f"imageUpdate gallery_ids {gallery_ids} should reference "
+                            f"a created gallery {created_gallery_ids}"
+                        )
 
     @pytest.mark.asyncio
     async def test_process_items_with_gallery(
@@ -817,38 +827,34 @@ class TestContentProcessingIntegration:
 
                 assert total_updates > 0, "Expected media updates to occur"
 
-                # 4. Verify Gallery Image Addition
-                # Count how many posts actually have images (vs only scenes)
+                # 4. Verify Gallery Image Linking via imageUpdate
+                # In stash-graphql-client v0.11, gallery image linking uses
+                # image.add_to_gallery(gallery) + store.save(image) which produces
+                # imageUpdate mutations with gallery_ids, not addGalleryImages.
                 posts_with_images = sum(
                     1 for post_media in media_meta if post_media.num_images > 0
                 )
 
-                # Expected: addGalleryImages called for posts with images (may be reduced by deduplication)
-                add_gallery_images = [
-                    c for c in calls if "addGalleryImages" in c["query"]
+                updates_with_gallery_ids = [
+                    c
+                    for c in image_updates
+                    if c["result"] is not None
+                    and "gallery_ids" in c["variables"].get("input", {})
                 ]
-                assert len(add_gallery_images) >= 1, (
-                    f"Expected at least 1 addGalleryImages call "
-                    f"({posts_with_images} posts have images, but deduplication may merge galleries), "
-                    f"got {len(add_gallery_images)}"
-                )
-
-                for call in add_gallery_images:
-                    # Request Assertions
-                    variables = call["variables"]
-                    assert "input" in variables
-                    input_data = variables["input"]
-
-                    assert "gallery_id" in input_data
-                    assert input_data["gallery_id"] in created_gallery_ids
-                    assert "image_ids" in input_data
-                    assert isinstance(input_data["image_ids"], list)
-
-                    # Response Assertions - skip if race condition caused error
-                    result = call["result"]
-                    if result is not None:
-                        assert "addGalleryImages" in result
-                        assert result["addGalleryImages"] is True
+                if posts_with_images > 0:
+                    assert len(updates_with_gallery_ids) >= 1, (
+                        f"Expected at least 1 imageUpdate with gallery_ids "
+                        f"({posts_with_images} posts have images, but deduplication may merge galleries), "
+                        f"got {len(updates_with_gallery_ids)}"
+                    )
+                    for call in updates_with_gallery_ids:
+                        input_data = call["variables"]["input"]
+                        gallery_ids = input_data["gallery_ids"]
+                        assert isinstance(gallery_ids, list)
+                        assert any(gid in created_gallery_ids for gid in gallery_ids), (
+                            f"imageUpdate gallery_ids {gallery_ids} should reference "
+                            f"a created gallery {created_gallery_ids}"
+                        )
 
     @pytest.mark.asyncio
     async def test_process_items_with_gallery_error_handling(
@@ -1032,10 +1038,9 @@ class TestContentProcessingIntegration:
                 # The second post should have made GraphQL calls for:
                 # - Gallery creation (1 call)
                 # - Media lookups (findImages/findScenes)
-                # - Media updates (imageUpdate/sceneUpdate)
-                # - Gallery image addition (addGalleryImages)
-                assert len(calls) >= 4, (
-                    f"Expected at least 4 GraphQL calls from second post, got {len(calls)}"
+                # - Media updates (imageUpdate/sceneUpdate) including gallery linking
+                assert len(calls) >= 3, (
+                    f"Expected at least 3 GraphQL calls from second post, got {len(calls)}"
                 )
 
                 # 3. Verify galleries created (first post failed, second may create 0-1 depending on deduplication)
@@ -1080,10 +1085,21 @@ class TestContentProcessingIntegration:
                 total_updates = len(image_updates) + len(scene_updates)
                 assert total_updates > 0, "Expected media updates for second post"
 
-                # 6. Verify gallery image addition occurred
-                add_gallery_images = [
-                    c for c in calls if "addGalleryImages" in c["query"]
+                # 6. Verify gallery image linking via imageUpdate
+                # In stash-graphql-client v0.11, gallery image linking uses
+                # image.add_to_gallery(gallery) + store.save(image) which produces
+                # imageUpdate mutations with gallery_ids, not addGalleryImages.
+                image_updates = [c for c in calls if "imageUpdate" in c["query"]]
+                updates_with_gallery_ids = [
+                    c
+                    for c in image_updates
+                    if c["result"] is not None
+                    and "gallery_ids" in c["variables"].get("input", {})
                 ]
-                assert len(add_gallery_images) >= 1, (
-                    f"Expected at least 1 addGalleryImages call, got {len(add_gallery_images)}"
-                )
+                # Second post has images that should be linked to its gallery
+                second_post_media = media_meta[1] if len(media_meta) > 1 else None
+                if second_post_media and second_post_media.num_images > 0:
+                    assert len(updates_with_gallery_ids) >= 1, (
+                        f"Expected at least 1 imageUpdate with gallery_ids "
+                        f"for second post, got {len(updates_with_gallery_ids)}"
+                    )

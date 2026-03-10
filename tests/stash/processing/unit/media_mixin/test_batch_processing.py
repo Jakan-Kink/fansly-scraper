@@ -6,9 +6,10 @@ objects efficiently by grouping them by mimetype and processing in batches.
 Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from stash_graphql_client.types import Studio
 
 from tests.fixtures.metadata.metadata_factories import MediaFactory
 from tests.fixtures.stash.stash_type_factories import (
@@ -154,7 +155,7 @@ class TestBatchProcessing:
         update_calls = []
 
         async def mock_update_metadata(
-            stash_obj, item, account, media_id, is_preview=False
+            stash_obj, item, account, media_id, is_preview=False, studio=None
         ):
             update_calls.append(
                 {
@@ -163,8 +164,16 @@ class TestBatchProcessing:
                 }
             )
 
+        # Mock studio lookup (hoisted to top of _process_batch_internal)
+        mock_studio = Studio(id="test_studio_id", name="test (Fansly)")
+
         # Mock the methods using patch.object
         with (
+            patch.object(
+                respx_stash_processor,
+                "_find_existing_studio",
+                AsyncMock(return_value=mock_studio),
+            ),
             patch.object(
                 respx_stash_processor, "_find_stash_files_by_id", mock_find_by_id
             ),
@@ -224,12 +233,20 @@ class TestBatchProcessing:
         update_calls = []
 
         async def mock_update_metadata(
-            stash_obj, item, account, media_id, is_preview=False
+            stash_obj, item, account, media_id, is_preview=False, studio=None
         ):
             update_calls.append({"media_id": media_id})
 
+        # Mock studio lookup (hoisted to top of _process_batch_internal)
+        mock_studio = Studio(id="test_studio_id", name="test (Fansly)")
+
         # Mock the methods using patch.object
         with (
+            patch.object(
+                respx_stash_processor,
+                "_find_existing_studio",
+                AsyncMock(return_value=mock_studio),
+            ),
             patch.object(
                 respx_stash_processor, "_find_stash_files_by_path", mock_find_by_path
             ),
@@ -301,8 +318,16 @@ class TestBatchProcessing:
         async def mock_update_metadata(*args, **kwargs):
             """No-op async mock for metadata update."""
 
+        # Mock studio lookup (hoisted to top of _process_batch_internal)
+        mock_studio = Studio(id="test_studio_id", name="test (Fansly)")
+
         # Mock the methods using patch.object
         with (
+            patch.object(
+                respx_stash_processor,
+                "_find_existing_studio",
+                AsyncMock(return_value=mock_studio),
+            ),
             patch.object(
                 respx_stash_processor, "_find_stash_files_by_path", mock_find_by_path
             ),

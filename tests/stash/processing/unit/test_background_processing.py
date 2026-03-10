@@ -103,29 +103,6 @@ class TestBackgroundProcessing:
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # === Preload: _preload_stash_entities() ===
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findPerformers", empty_performers),
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findTags", empty_tags)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
-                ),
-                # === Preload: _preload_creator_media() ===
-                httpx.Response(
-                    200, json=create_graphql_response("findScenes", empty_scenes)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findImages", empty_images)
-                ),
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findGalleries", empty_galleries),
-                ),
-                # === Processing ===
                 # process_creator_studio: find Fansly parent
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
@@ -165,21 +142,16 @@ class TestBackgroundProcessing:
         result = await session.execute(select(Account).where(Account.id == 12345))
         assert result.scalar_one() is not None
 
-        # Verify GraphQL call sequence
+        # Verify GraphQL call sequence (no preload - continue_stash_processing
+        # is called directly, preload only happens in start_creator_processing)
         calls = graphql_route.calls
-        assert len(calls) == 10, f"Expected 10 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 4, f"Expected 4 GraphQL calls, got {len(calls)}"
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findTags" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "findScenes" in json.loads(calls[3].request.content)["query"]
-        assert "findImages" in json.loads(calls[4].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[5].request.content)["query"]
-        assert "findStudios" in json.loads(calls[6].request.content)["query"]
-        assert "findStudios" in json.loads(calls[7].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[8].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[9].request.content)["query"]
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
+        assert "findGalleries" in json.loads(calls[3].request.content)["query"]
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_cancelled(
@@ -309,29 +281,6 @@ class TestBackgroundProcessing:
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # === Preload: _preload_stash_entities() ===
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findPerformers", empty_performers),
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findTags", empty_tags)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
-                ),
-                # === Preload: _preload_creator_media() ===
-                httpx.Response(
-                    200, json=create_graphql_response("findScenes", empty_scenes)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findImages", empty_images)
-                ),
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findGalleries", empty_galleries),
-                ),
-                # === Processing ===
                 # process_creator_studio: find Fansly parent
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
@@ -367,22 +316,19 @@ class TestBackgroundProcessing:
             dump_graphql_calls(graphql_route.calls, "test_continue_stash_processing")
 
         # Assert - verify correct GraphQL requests were sent
+        # (no preload calls — preload only happens in start_creator_processing)
+        # Only 3 calls: studio lookup + creation. No findGalleries because
+        # account has no posts/messages in database.
         calls = graphql_route.calls
-        assert len(calls) == 9, f"Expected 9 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
         # Verify GraphQL call sequence
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findTags" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "findScenes" in json.loads(calls[3].request.content)["query"]
-        assert "findImages" in json.loads(calls[4].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[5].request.content)["query"]
-        assert "findStudios" in json.loads(calls[6].request.content)["query"]
-        assert "findStudios" in json.loads(calls[7].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[8].request.content)["query"]
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
 
         # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[8].request.content)
+        studio_create_request = json.loads(calls[2].request.content)
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user (Fansly)"
@@ -439,43 +385,26 @@ class TestBackgroundProcessing:
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # === Preload: _preload_stash_entities() ===
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findPerformers", empty_performers),
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findTags", empty_tags)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
-                ),
-                # === Preload: _preload_creator_media() ===
-                httpx.Response(
-                    200, json=create_graphql_response("findScenes", empty_scenes)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findImages", empty_images)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
-                ),
-                # === Processing ===
+                # process_creator_studio: find Fansly parent
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
+                # process_creator_studio: find creator studio (not found)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
                         "findStudios", creator_not_found_result
                     ),
                 ),
+                # process_creator_studio: create creator studio
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
+                # process_creator_posts: check for existing galleries
                 httpx.Response(
                     200, json=create_graphql_response("findGalleries", empty_galleries)
                 ),
+                # process_creator_messages: check for existing galleries
                 httpx.Response(
                     200, json=create_graphql_response("findGalleries", empty_galleries)
                 ),
@@ -508,23 +437,18 @@ class TestBackgroundProcessing:
         # Assert - verify real database UPDATE executed
         assert account.stash_id == 456  # int, not str
 
-        # Verify GraphQL call sequence
+        # Verify GraphQL call sequence (no preload calls, no gallery calls
+        # since account has no posts/messages in database)
         calls = graphql_route.calls
-        assert len(calls) == 9, f"Expected 9 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findTags" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "findScenes" in json.loads(calls[3].request.content)["query"]
-        assert "findImages" in json.loads(calls[4].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[5].request.content)["query"]
-        assert "findStudios" in json.loads(calls[6].request.content)["query"]
-        assert "findStudios" in json.loads(calls[7].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[8].request.content)["query"]
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
 
         # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[8].request.content)
+        studio_create_request = json.loads(calls[2].request.content)
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user2 (Fansly)"
@@ -592,44 +516,26 @@ class TestBackgroundProcessing:
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # === Preload: _preload_stash_entities() ===
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findPerformers", empty_performers),
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findTags", empty_tags)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findStudios", empty_studios)
-                ),
-                # === Preload: _preload_creator_media() ===
-                httpx.Response(
-                    200, json=create_graphql_response("findScenes", empty_scenes)
-                ),
-                httpx.Response(
-                    200, json=create_graphql_response("findImages", empty_images)
-                ),
-                httpx.Response(
-                    200,
-                    json=create_graphql_response("findGalleries", empty_galleries),
-                ),
-                # === Processing ===
+                # process_creator_studio: find Fansly parent
                 httpx.Response(
                     200, json=create_graphql_response("findStudios", fansly_result)
                 ),
+                # process_creator_studio: find creator studio (not found)
                 httpx.Response(
                     200,
                     json=create_graphql_response(
                         "findStudios", creator_not_found_result
                     ),
                 ),
+                # process_creator_studio: create creator studio
                 httpx.Response(
                     200, json=create_graphql_response("studioCreate", creator_studio)
                 ),
+                # process_creator_posts: check for existing galleries
                 httpx.Response(
                     200, json=create_graphql_response("findGalleries", empty_galleries)
                 ),
+                # process_creator_messages: check for existing galleries
                 httpx.Response(
                     200, json=create_graphql_response("findGalleries", empty_galleries)
                 ),
@@ -647,23 +553,18 @@ class TestBackgroundProcessing:
                 "test_continue_stash_processing_performer_dict",
             )
 
-        # Verify GraphQL call sequence
+        # Verify GraphQL call sequence (no preload calls, no gallery calls
+        # since account has no posts/messages in database)
         calls = graphql_route.calls
-        assert len(calls) == 9, f"Expected 9 GraphQL calls, got {len(calls)}"
+        assert len(calls) == 3, f"Expected 3 GraphQL calls, got {len(calls)}"
 
         # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findTags" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "findScenes" in json.loads(calls[3].request.content)["query"]
-        assert "findImages" in json.loads(calls[4].request.content)["query"]
-        assert "findGalleries" in json.loads(calls[5].request.content)["query"]
-        assert "findStudios" in json.loads(calls[6].request.content)["query"]
-        assert "findStudios" in json.loads(calls[7].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[8].request.content)["query"]
+        assert "findStudios" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[2].request.content)["query"]
 
         # Verify studioCreate request has correct variables
-        studio_create_request = json.loads(calls[8].request.content)
+        studio_create_request = json.loads(calls[2].request.content)
         assert "studioCreate" in studio_create_request.get("query", "")
         studio_vars = studio_create_request.get("variables", {}).get("input", {})
         assert studio_vars["name"] == "test_user3 (Fansly)"

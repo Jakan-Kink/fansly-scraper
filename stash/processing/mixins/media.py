@@ -23,7 +23,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session
-from stash_graphql_client.types import Image, ImageFile, Scene, VideoFile
+from stash_graphql_client.types import Image, ImageFile, Scene, Studio, VideoFile
+from stash_graphql_client.types.base import is_set
 
 from errors import ConfigError
 from metadata import Account, AccountMediaBundle, Attachment, Media
@@ -419,16 +420,19 @@ class MediaProcessingMixin:
                         Image,
                         path__regex=regex_pattern,
                     ):
-                        logger.info(f"Processing image from find_iter: {image_data}")
+                        logger.debug(
+                            f"Processing image from find_iter: id={image_data.id}"
+                        )
 
                         try:
                             # Library returns Image objects directly (Pydantic)
                             image = image_data
-                            logger.info(f"Using image object: {image}")
 
                             # Try to get a file from the image object
                             if file := self._get_file_from_stash_obj(image):
-                                logger.info(f"Found file in image: {file}")
+                                logger.debug(
+                                    f"Found file in image {image.id}: {file.path}"
+                                )
                                 found.append((image, file))
                                 valid_files_found = True
                             else:
@@ -590,6 +594,7 @@ class MediaProcessingMixin:
         account: Account,
         media_id: str,
         is_preview: bool = False,
+        studio: Studio | None = None,
     ) -> None:
         """Update metadata on Stash object using data we already have.
 
@@ -599,6 +604,7 @@ class MediaProcessingMixin:
             account: Account that created the content
             media_id: ID to use for code field
             is_preview: Whether this is a preview file
+            studio: Pre-resolved studio (avoids repeated lookups per media item)
         """
         # Only update metadata if this is the earliest instance we've seen
         item_date = item.createdAt.date()  # Get date part of datetime
@@ -710,16 +716,11 @@ class MediaProcessingMixin:
         if hasattr(item, "id") and item.__class__.__name__ == "Post":
             post_url = f"https://fansly.com/post/{item.id}"
 
-            # Handle both singular url and plural urls fields
-            # Set singular url property
-            stash_obj.url = post_url
-
-            # Also update the urls list if it exists
-            if hasattr(stash_obj, "urls"):
-                if not stash_obj.urls:
-                    stash_obj.urls = []
-                if post_url not in stash_obj.urls:
-                    stash_obj.urls.append(post_url)
+            # Add URL to the urls list (singular url was removed in 0.11.0)
+            if not is_set(stash_obj.urls) or not stash_obj.urls:
+                stash_obj.urls = []
+            if post_url not in stash_obj.urls:
+                stash_obj.urls.append(post_url)
 
         # Add main performer (bidirectional sync automatic)
         if main_performer := await self._find_existing_performer(account):
@@ -751,8 +752,10 @@ class MediaProcessingMixin:
                         }
                     )
 
-        # Add studio (we already have the account)
-        if studio := await self._find_existing_studio(account):
+        # Add studio (use pre-resolved studio, or resolve once if not provided)
+        if studio is None:
+            studio = await self._find_existing_studio(account)
+        if studio:
             # Scene has set_studio() helper, Image doesn't
             if hasattr(stash_obj, "set_studio"):
                 stash_obj.set_studio(studio)
@@ -783,7 +786,7 @@ class MediaProcessingMixin:
 
         # Save changes to Stash (save() handles dirty check internally)
         try:
-            await stash_obj.save(self.context.client)
+            await self.store.save(stash_obj)
             logger.debug("Successfully saved changes to Stash")
         except Exception as e:
             logger.error(f"Error saving changes to Stash: {e}")
@@ -1201,6 +1204,9 @@ class MediaProcessingMixin:
         if not media_list:
             return result
 
+        # Resolve studio once for the entire batch (same creator = same studio)
+        studio = await self._find_existing_studio(account)
+
         # Load awaitable attributes for all media in one pass
         for media in media_list:
             if hasattr(media, "awaitable_attrs"):
@@ -1267,6 +1273,7 @@ class MediaProcessingMixin:
                         item=item,
                         account=account,
                         media_id=str(media_id),
+                        studio=studio,
                     )
 
                     # Add to appropriate result list
@@ -1315,6 +1322,7 @@ class MediaProcessingMixin:
                                 item=item,
                                 account=account,
                                 media_id=str(media_id),
+                                studio=studio,
                             )
 
                             if isinstance(stash_obj, Image):
@@ -1349,6 +1357,7 @@ class MediaProcessingMixin:
                                 item=item,
                                 account=account,
                                 media_id=str(media_id),
+                                studio=studio,
                             )
 
                             if isinstance(stash_obj, Scene):

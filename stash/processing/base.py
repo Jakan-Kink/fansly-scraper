@@ -284,6 +284,12 @@ class StashProcessingBase:
         )
         warnings.filterwarnings("always", category=StashUnmappedFieldWarning)
 
+        # Preload global entities (performers, tags, studios) and per-creator
+        # media (images, scenes, galleries) into the store cache BEFORE any
+        # processing starts. Without this, every lookup hits GraphQL.
+        await self._preload_stash_entities()
+        await self._preload_creator_media()
+
         await self.scan_creator_folder()
         account, performer = await self.process_creator()
 

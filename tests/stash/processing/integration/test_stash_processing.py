@@ -168,6 +168,11 @@ class TestStashProcessingIntegration:
             )
             cleanup["performers"].append(created_performer.id)
 
+            # Clear store cache to remove the locally-constructed test_performer
+            # (which has a UUID id). Without this, store.filter() may return the
+            # unsaved UUID object instead of the server-created numeric-id object.
+            real_stash_processor.context.store.invalidate_all()
+
             # Create a real account WITHOUT stash_id (to force username lookup)
             account = AccountFactory(
                 username="new_performer_by_username_test", stash_id=None

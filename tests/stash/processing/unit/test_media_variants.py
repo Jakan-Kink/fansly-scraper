@@ -695,17 +695,10 @@ async def test_process_bundle_ordering(
     empty_performers_result = create_find_performers_result(count=0, performers=[])
 
     # Build the full response sequence (no findScenes - bundle has only images)
-    # Cache-first pattern: image 1 populates studio cache, images 2-3 skip studio calls
+    # Studio lookup is hoisted to batch level (_find_existing_studio called at top of
+    # _process_batch_internal), so findStudios + studioCreate come FIRST, before findImages.
     responses = [
-        # findImages: find by path (only 3 results, so no pagination check needed)
-        httpx.Response(
-            200, json=create_graphql_response("findImages", find_images_data)
-        ),
-        # Image 1: full performer + studio lookups
-        httpx.Response(
-            200,
-            json=create_graphql_response("findPerformers", empty_performers_result),
-        ),
+        # Studio lookup (hoisted to batch level)
         httpx.Response(
             200, json=create_graphql_response("findStudios", fansly_studio_result)
         ),
@@ -716,10 +709,19 @@ async def test_process_bundle_ordering(
         httpx.Response(
             200, json=create_graphql_response("studioCreate", creator_studio_dict)
         ),
+        # findImages: find by path (only 3 results, so no pagination check needed)
+        httpx.Response(
+            200, json=create_graphql_response("findImages", find_images_data)
+        ),
+        # Image 1: findPerformers + imageUpdate (studio already resolved at batch level)
+        httpx.Response(
+            200,
+            json=create_graphql_response("findPerformers", empty_performers_result),
+        ),
         httpx.Response(
             200, json=create_graphql_response("imageUpdate", images_data[0])
         ),
-        # Image 2: findPerformers + imageUpdate only (studios cached from image 1)
+        # Image 2: findPerformers + imageUpdate (studio already resolved at batch level)
         httpx.Response(
             200,
             json=create_graphql_response("findPerformers", empty_performers_result),
@@ -727,7 +729,7 @@ async def test_process_bundle_ordering(
         httpx.Response(
             200, json=create_graphql_response("imageUpdate", images_data[1])
         ),
-        # Image 3: findPerformers + imageUpdate only (studios cached from image 1)
+        # Image 3: findPerformers + imageUpdate (studio already resolved at batch level)
         httpx.Response(
             200,
             json=create_graphql_response("findPerformers", empty_performers_result),
@@ -768,27 +770,29 @@ async def test_process_bundle_ordering(
     assert bundle_media_ids == [m.id for m in media_items]
 
     # Verify GraphQL call sequence (permanent assertion)
-    # Cache-first pattern: 10 calls = 1 findImages + 5 (image 1) + 2 (image 2) + 2 (image 3)
-    # Images 2-3 skip 3 studio calls each (Fansly + creator lookup + studioCreate) — all cached
+    # Studio lookup hoisted to batch level: 10 calls =
+    #   3 (findStudios + findStudios + studioCreate) + 1 findImages + 2*3 (per-image: findPerformers + imageUpdate)
     assert len(graphql_route.calls) == 10, (
         f"Expected exactly 10 GraphQL calls, got {len(graphql_route.calls)}"
     )
     calls = graphql_route.calls
 
     # Verify query types in order
-    assert "findImages" in json.loads(calls[0].request.content)["query"]  # Find by path
-    # Image 1: full lookups
-    assert "findPerformers" in json.loads(calls[1].request.content)["query"]
-    assert "findStudios" in json.loads(calls[2].request.content)["query"]  # Fansly
+    # Studio lookup (hoisted to batch level)
+    assert "findStudios" in json.loads(calls[0].request.content)["query"]  # Fansly
     assert (
-        "findStudios" in json.loads(calls[3].request.content)["query"]
+        "findStudios" in json.loads(calls[1].request.content)["query"]
     )  # Creator (not found)
-    assert "studioCreate" in json.loads(calls[4].request.content)["query"]  # Creator
+    assert "studioCreate" in json.loads(calls[2].request.content)["query"]  # Creator
+    # Find images
+    assert "findImages" in json.loads(calls[3].request.content)["query"]  # Find by path
+    # Image 1: performer + update (studio already resolved)
+    assert "findPerformers" in json.loads(calls[4].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
-    # Image 2: studios cached from image 1
+    # Image 2: performer + update (studio already resolved)
     assert "findPerformers" in json.loads(calls[6].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[7].request.content)["query"]
-    # Image 3: studios cached from image 1
+    # Image 3: performer + update (studio already resolved)
     assert "findPerformers" in json.loads(calls[8].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[9].request.content)["query"]
 
@@ -850,11 +854,12 @@ async def test_process_bundle_with_preview(
 
     # Mock Stash GraphQL HTTP responses
     # Bundle with preview (IMAGE only, NO videos):
-    # 1. findImages (for preview image by path)
-    # 2. findPerformers (by name via _find_existing_performer - not found)
-    # 3. findStudios (Fansly network)
-    # 4. studioCreate (creator studio - v0.10.4: get_or_create creates immediately)
-    # 5. imageUpdate (save metadata)
+    # 1. findStudios (Fansly network) — hoisted to batch level
+    # 2. findStudios (creator studio — not found) — hoisted to batch level
+    # 3. studioCreate (creator studio) — hoisted to batch level
+    # 4. findImages (for preview image by path)
+    # 5. findPerformers (by name via _find_existing_performer - not found)
+    # 6. imageUpdate (save metadata)
     # NOTE: No findScenes call because bundle has no video files
 
     image_data = create_image_dict(
@@ -895,15 +900,7 @@ async def test_process_bundle_with_preview(
 
     graphql_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
-            # findImages: find by path (only 1 result, so no pagination check needed)
-            httpx.Response(
-                200, json=create_graphql_response("findImages", find_images_data)
-            ),
-            # findPerformers: _find_existing_performer makes single call by name (not found)
-            httpx.Response(
-                200,
-                json=create_graphql_response("findPerformers", empty_performers_result),
-            ),
+            # Studio lookup (hoisted to batch level)
             # findStudios: find Fansly (network) studio
             httpx.Response(
                 200, json=create_graphql_response("findStudios", fansly_studio_result)
@@ -913,9 +910,18 @@ async def test_process_bundle_with_preview(
                 200,
                 json=create_graphql_response("findStudios", creator_not_found_result),
             ),
-            # v0.10.4: studioCreate (get_or_create creates creator studio immediately)
+            # studioCreate (get_or_create creates creator studio immediately)
             httpx.Response(
                 200, json=create_graphql_response("studioCreate", creator_studio_dict)
+            ),
+            # findImages: find by path (only 1 result, so no pagination check needed)
+            httpx.Response(
+                200, json=create_graphql_response("findImages", find_images_data)
+            ),
+            # findPerformers: _find_existing_performer makes single call by name (not found)
+            httpx.Response(
+                200,
+                json=create_graphql_response("findPerformers", empty_performers_result),
             ),
             # imageUpdate: save metadata
             httpx.Response(
@@ -956,24 +962,28 @@ async def test_process_bundle_with_preview(
     assert len(result["images"]) == 1
 
     # Verify GraphQL call sequence (permanent assertion)
-    # v0.10.4: 6 calls: findImages + findPerformers + findStudios + findStudios + studioCreate + imageUpdate
+    # 6 calls: findStudios + findStudios + studioCreate + findImages + findPerformers + imageUpdate
+    # Studio lookup hoisted to batch level, runs before findImages
     assert len(graphql_route.calls) == 6, "Expected exactly 6 GraphQL calls"
     calls = graphql_route.calls
 
     # Verify query types in order
-    assert "findImages" in json.loads(calls[0].request.content)["query"]  # Find by path
+    # Studio lookup (hoisted to batch level)
     assert (
-        "findPerformers" in json.loads(calls[1].request.content)["query"]
-    )  # By name (not found)
-    assert (
-        "findStudios" in json.loads(calls[2].request.content)["query"]
+        "findStudios" in json.loads(calls[0].request.content)["query"]
     )  # Fansly network
     assert (
-        "findStudios" in json.loads(calls[3].request.content)["query"]
+        "findStudios" in json.loads(calls[1].request.content)["query"]
     )  # Creator studio lookup (not found)
     assert (
-        "studioCreate" in json.loads(calls[4].request.content)["query"]
-    )  # v0.10.4: Creator studio
+        "studioCreate" in json.loads(calls[2].request.content)["query"]
+    )  # Creator studio
+    # Find images
+    assert "findImages" in json.loads(calls[3].request.content)["query"]  # Find by path
+    # Per-image: performer + update (studio already resolved)
+    assert (
+        "findPerformers" in json.loads(calls[4].request.content)["query"]
+    )  # By name (not found)
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
 
 
@@ -1107,16 +1117,10 @@ async def test_bundle_permission_inheritance(
     )
 
     # Build response sequence (no findScenes - bundle has only images)
-    # Cache-first pattern: first image populates studio cache, second image
-    # skips findStudios/studioCreate calls (served from sync filter() cache)
+    # Studio lookup is hoisted to batch level (_find_existing_studio called at top of
+    # _process_batch_internal), so findStudios + studioCreate come FIRST, before findImages.
     responses = [
-        httpx.Response(
-            200, json=create_graphql_response("findImages", find_images_data)
-        ),
-        # First image: findPerformers + findStudios(Fansly) + findStudios(creator) + studioCreate + imageUpdate
-        httpx.Response(
-            200, json=create_graphql_response("findPerformers", find_performers_data)
-        ),
+        # Studio lookup (hoisted to batch level)
         httpx.Response(
             200, json=create_graphql_response("findStudios", fansly_studio_result)
         ),
@@ -1126,10 +1130,18 @@ async def test_bundle_permission_inheritance(
         httpx.Response(
             200, json=create_graphql_response("studioCreate", creator_studio_dict)
         ),
+        # findImages
+        httpx.Response(
+            200, json=create_graphql_response("findImages", find_images_data)
+        ),
+        # First image: findPerformers + imageUpdate (studio already resolved at batch level)
+        httpx.Response(
+            200, json=create_graphql_response("findPerformers", find_performers_data)
+        ),
         httpx.Response(
             200, json=create_graphql_response("imageUpdate", images_data[0])
         ),
-        # Second image: findPerformers + imageUpdate only (studios cached from first image)
+        # Second image: findPerformers + imageUpdate (studio already resolved at batch level)
         httpx.Response(
             200, json=create_graphql_response("findPerformers", find_performers_data)
         ),
@@ -1169,23 +1181,25 @@ async def test_bundle_permission_inheritance(
     assert bundle_media_ids == [m.id for m in media_items]
 
     # Verify GraphQL call sequence
-    # Cache-first pattern: 8 calls = 1 findImages + 5 (first image) + 2 (second image)
-    # Second image skips 3 studio calls (Fansly + creator lookup + studioCreate) — all cached
+    # Studio lookup hoisted to batch level: 8 calls =
+    #   3 (findStudios + findStudios + studioCreate) + 1 findImages + 2*2 (per-image: findPerformers + imageUpdate)
     assert len(graphql_route.calls) == 8, (
         f"Expected exactly 8 GraphQL calls, got {len(graphql_route.calls)}"
     )
     calls = graphql_route.calls
 
     # Verify query types in order
-    assert "findImages" in json.loads(calls[0].request.content)["query"]
-    # First image: findPerformers, findStudios(Fansly), findStudios(creator), studioCreate, imageUpdate
-    assert "findPerformers" in json.loads(calls[1].request.content)["query"]
-    assert "findStudios" in json.loads(calls[2].request.content)["query"]  # Fansly
+    # Studio lookup (hoisted to batch level)
+    assert "findStudios" in json.loads(calls[0].request.content)["query"]  # Fansly
     assert (
-        "findStudios" in json.loads(calls[3].request.content)["query"]
+        "findStudios" in json.loads(calls[1].request.content)["query"]
     )  # Creator lookup (not found)
-    assert "studioCreate" in json.loads(calls[4].request.content)["query"]  # Creator
+    assert "studioCreate" in json.loads(calls[2].request.content)["query"]  # Creator
+    # Find images
+    assert "findImages" in json.loads(calls[3].request.content)["query"]
+    # First image: findPerformers + imageUpdate (studio already resolved)
+    assert "findPerformers" in json.loads(calls[4].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[5].request.content)["query"]
-    # Second image: findPerformers, imageUpdate (studios served from cache)
+    # Second image: findPerformers + imageUpdate (studio already resolved)
     assert "findPerformers" in json.loads(calls[6].request.content)["query"]
     assert "imageUpdate" in json.loads(calls[7].request.content)["query"]

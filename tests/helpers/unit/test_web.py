@@ -90,6 +90,16 @@ class TestGetQsValue:
         # parse_qs returns list, function returns first element
         assert result == "value1"
 
+    def test_get_qs_value_empty_list_edge_case(self):
+        """Test get_qs_value when parse_qs returns empty list (line 58 edge case)."""
+        # Mock parse_qs to return a dict with empty list for a key
+        with patch("helpers.web.parse_qs") as mock_parse_qs:
+            mock_parse_qs.return_value = {"key": []}
+            url = "https://example.com?key="
+            result = get_qs_value(url, "key")
+            # Should return None when list is empty (line 58)
+            assert result is None
+
 
 class TestGetFlatQsDict:
     """Tests for the get_flat_qs_dict function."""
@@ -127,6 +137,16 @@ class TestGetFlatQsDict:
         url = "https://example.com?key=value1&key=value2"
         result = get_flat_qs_dict(url)
         assert result == {"key": "value1"}
+
+    def test_get_flat_qs_dict_empty_list_edge_case(self):
+        """Test get_flat_qs_dict when query has empty list value (line 82 edge case)."""
+        # Mock parse_qs to return a dict with empty list for a key
+        with patch("helpers.web.parse_qs") as mock_parse_qs:
+            mock_parse_qs.return_value = {"empty_key": [], "normal_key": ["value"]}
+            url = "https://example.com?empty_key=&normal_key=value"
+            result = get_flat_qs_dict(url)
+            # Should set empty string for empty list (line 82)
+            assert result == {"empty_key": "", "normal_key": "value"}
 
 
 class TestSplitUrl:
@@ -230,6 +250,24 @@ class TestGuessUserAgent:
         with patch("platform.system", return_value="Windows"):
             result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
             assert result == "default_ua_fallback"
+
+    def test_guess_user_agent_regex_exception(self):
+        """Test guess_user_agent exception handler (lines 158-159)."""
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
+        ]
+        # Mock re.search to raise an exception to trigger exception handler
+        with (
+            patch("platform.system", return_value="Windows"),
+            patch("helpers.web.re.search", side_effect=Exception("Regex error")),
+            patch("textio.print_error") as mock_print_error,
+        ):
+            result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
+            # Should return default when exception occurs
+            assert result == "default_ua_fallback"
+            # Should have called print_error with the exception message
+            mock_print_error.assert_called_once()
+            assert "Regexing user-agent" in mock_print_error.call_args[0][0]
 
     def test_guess_user_agent_empty_list(self):
         """Test guess_user_agent with empty user agent list."""

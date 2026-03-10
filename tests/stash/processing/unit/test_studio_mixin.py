@@ -25,7 +25,7 @@ class TestStudioProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_both_exist(
-        self, respx_stash_processor, mock_account, mock_performer
+        self, respx_stash_processor, mock_account
     ):
         """Test process_creator_studio when both Fansly and Creator studios exist.
 
@@ -71,7 +71,7 @@ class TestStudioProcessingMixin:
 
         # Call process_creator_studio (respx will intercept HTTP calls)
         result = await respx_stash_processor.process_creator_studio(
-            account=mock_account, performer=mock_performer
+            account=mock_account,
         )
 
         # === PERMANENT GraphQL call sequence assertions ===
@@ -100,7 +100,7 @@ class TestStudioProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_create_new(
-        self, respx_stash_processor, mock_account, mock_performer, mock_studio
+        self, respx_stash_processor, mock_account, mock_studio
     ):
         """Test process_creator_studio when Creator studio doesn't exist and needs to be created.
 
@@ -150,7 +150,7 @@ class TestStudioProcessingMixin:
         # Call process_creator_studio (respx will intercept HTTP calls)
         with patch("stash.processing.mixins.studio.print_info") as mock_print_info:
             result = await respx_stash_processor.process_creator_studio(
-                account=mock_account, performer=mock_performer
+                account=mock_account,
             )
 
             # === PERMANENT GraphQL call sequence assertions ===
@@ -187,7 +187,7 @@ class TestStudioProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_fansly_not_found(
-        self, respx_stash_processor, mock_account, mock_performer
+        self, respx_stash_processor, mock_account
     ):
         """Test process_creator_studio when Fansly studio doesn't exist."""
         # Create empty response
@@ -206,7 +206,7 @@ class TestStudioProcessingMixin:
             ValueError, match=r"Fansly Studio not found in Stash"
         ) as excinfo:
             await respx_stash_processor.process_creator_studio(
-                account=mock_account, performer=mock_performer
+                account=mock_account,
             )
 
         # Verify error message
@@ -214,7 +214,7 @@ class TestStudioProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_creation_fails_then_retry(
-        self, respx_stash_processor, mock_account, mock_performer
+        self, respx_stash_processor, mock_account
     ):
         """Test process_creator_studio when creation fails (no automatic retry in current implementation).
 
@@ -266,7 +266,7 @@ class TestStudioProcessingMixin:
             patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
         ):
             result = await respx_stash_processor.process_creator_studio(
-                account=mock_account, performer=mock_performer
+                account=mock_account,
             )
 
             # === PERMANENT GraphQL call sequence assertions ===
@@ -301,7 +301,7 @@ class TestStudioProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_process_creator_studio_creation_fails_retry_also_fails(
-        self, respx_stash_processor, mock_account, mock_performer
+        self, respx_stash_processor, mock_account
     ):
         """Test process_creator_studio when creation fails AND retry finds nothing (line 141).
 
@@ -359,7 +359,7 @@ class TestStudioProcessingMixin:
             patch("stash.processing.mixins.studio.debug_print") as mock_debug_print,
         ):
             result = await respx_stash_processor.process_creator_studio(
-                account=mock_account, performer=mock_performer
+                account=mock_account,
             )
 
             # Verify result is None (line 141)

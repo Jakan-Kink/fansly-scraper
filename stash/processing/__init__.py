@@ -110,9 +110,6 @@ class StashProcessing(
             This method requires a session and will ensure the account is properly bound to it.
             The performer object is a Stash GraphQL type, not a SQLAlchemy model.
         """
-        # Preload shared entities (global, idempotent) + per-creator media
-        await self._preload_stash_entities()
-        await self._preload_creator_media()
 
         try:
             if not account or not performer:
@@ -146,7 +143,6 @@ class StashProcessing(
             print_info("Processing creator Studio...")
             studio = await self.process_creator_studio(
                 account=account,
-                performer=performer,
                 session=session,
             )
 

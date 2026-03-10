@@ -78,6 +78,22 @@ from updater import self_update
 from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 
+# Enforce minimum stash-graphql-client version
+def _check_stash_library_version() -> None:
+    from importlib.metadata import version
+
+    stash_version = version("stash-graphql-client")
+    major, minor = (int(x) for x in stash_version.split(".")[:2])
+    if (major, minor) < (0, 11):
+        raise RuntimeError(
+            f"stash-graphql-client {stash_version} is installed but >=0.11.0 is required. "
+            f"Run: pip install --upgrade stash-graphql-client"
+        )
+
+
+_check_stash_library_version()
+
+
 # tell PIL to be tolerant of files that are truncated
 # ImageFile.LOAD_TRUNCATED_IMAGES = True
 
