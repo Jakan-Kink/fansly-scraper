@@ -716,8 +716,10 @@ async def process_avatar(
     avatar_data = copy.deepcopy(avatar_data)
     from .media import _process_media_item_dict_inner
 
-    # Process avatar media
-    await _process_media_item_dict_inner(config, avatar_data, session=session)
+    # Process avatar media (pass account_id so variants get the correct accountId)
+    await _process_media_item_dict_inner(
+        config, avatar_data, account_id=account.id, session=session
+    )
 
     # Convert mediaId to int if it's a string
     media_id = (

@@ -277,10 +277,14 @@ class MediaBatch:
         if unknown_attrs:
             json_output(2, "meta/media - unknown_attrs", unknown_attrs)
 
-        # Set account ID if provided
-        filtered_media["accountId"] = filtered_media.get("accountId", account_id)
-        if isinstance(filtered_media.get("accountId"), str):
-            filtered_media["accountId"] = int(filtered_media["accountId"])
+        # Set account ID if provided — never overwrite with None
+        resolved_account_id = filtered_media.get("accountId") or account_id
+        if resolved_account_id is not None:
+            filtered_media["accountId"] = (
+                int(resolved_account_id)
+                if isinstance(resolved_account_id, str)
+                else resolved_account_id
+            )
 
         # Process metadata for video dimensions and duration
         if "metadata" in media_item:
