@@ -5,9 +5,22 @@ import re
 import traceback
 from collections import OrderedDict, namedtuple
 from typing import NamedTuple
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import httpx
+
+
+def strip_url_params(url: str) -> str:
+    """Strip all query parameters and fragments from a URL.
+
+    Args:
+        url: The URL to normalize
+
+    Returns:
+        The URL with query string and fragment removed
+    """
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
 
 def get_file_name_from_url(url: str) -> str:

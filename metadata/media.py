@@ -32,6 +32,7 @@ from sqlalchemy.orm import (
 )
 
 from config.decorators import with_database_session
+from helpers.web import strip_url_params
 from media import MediaItem
 from textio import json_output
 
@@ -203,7 +204,7 @@ class MediaBatch:
                         {
                             "mediaId": media_id,
                             "locationId": location_id,
-                            "location": loc["location"],
+                            "location": strip_url_params(loc["location"]),
                         }
                     )
                     self.seen_locations.add(loc_key)
