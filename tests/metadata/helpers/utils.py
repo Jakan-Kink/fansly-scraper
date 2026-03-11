@@ -307,14 +307,27 @@ async def verify_relationship_integrity(
 async def verify_media_variants(
     session: AsyncSession, media_id: str, expected_variant_types: list[int]
 ) -> bool:
-    """Verify media variants exist and match expected types.
+    """Verify media variant junction rows exist for a given primary media ID.
 
-    Note: Variants are no longer stored - per production code, we skip variants
-    to avoid database bloat. This function now always returns True.
+    Checks that the media_variants junction table contains rows linking
+    the primary media to its variants. The expected_variant_types parameter
+    indicates how many variant types we expect (used for count validation).
+
+    Args:
+        session: Async database session
+        media_id: Primary media ID (string, will be converted to int)
+        expected_variant_types: List of expected variant type codes (e.g., [302, 303])
+
+    Returns:
+        bool: True if at least one variant junction row exists
     """
-    # SKIP - variants are not stored in the database per MediaBatch._prepare_media_data
-    # See metadata/media.py line ~210: "SKIP VARIANTS - we only download and need to track the primary media"
-    return True
+    result = await session.execute(
+        text('SELECT COUNT(*) FROM media_variants WHERE "mediaId" = :media_id'),
+        {"media_id": int(media_id)},
+    )
+    count = result.scalar()
+    # We expect at least some variants to be linked
+    return count > 0
 
 
 async def verify_media_bundle_content(
@@ -340,11 +353,22 @@ async def verify_media_bundle_content(
 async def verify_preview_variants(
     session: AsyncSession, preview_id: str, expected_resolutions: list[tuple[int, int]]
 ) -> bool:
-    """Verify preview image variants exist with expected resolutions.
+    """Verify preview variant junction rows exist for a given preview media ID.
 
-    Note: Variants are no longer stored - per production code, we skip variants
-    to avoid database bloat. This function now always returns True.
+    Checks that the media_variants junction table contains rows linking
+    the preview media to its variants.
+
+    Args:
+        session: Async database session
+        preview_id: Preview media ID (string, will be converted to int)
+        expected_resolutions: List of expected (width, height) tuples
+
+    Returns:
+        bool: True if at least one variant junction row exists
     """
-    # SKIP - variants are not stored in the database per MediaBatch._prepare_media_data
-    # See metadata/media.py line ~210: "SKIP VARIANTS - we only download and need to track the primary media"
-    return True
+    result = await session.execute(
+        text('SELECT COUNT(*) FROM media_variants WHERE "mediaId" = :media_id'),
+        {"media_id": int(preview_id)},
+    )
+    count = result.scalar()
+    return count > 0

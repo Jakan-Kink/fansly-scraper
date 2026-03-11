@@ -105,7 +105,8 @@ async def test_process_video_from_timeline(test_database, config, timeline_data)
         count = result.scalar()
         assert count == 1, "Duplicate media record created"
 
-        # Cleanup (cascade: locations → media → accounts)
+        # Cleanup (cascade: variants → locations → media → accounts)
+        await session.execute(text("DELETE FROM media_variants"))
         await session.execute(text("DELETE FROM media_locations"))
         await session.execute(text("DELETE FROM account_media"))
         await session.execute(text("DELETE FROM media"))

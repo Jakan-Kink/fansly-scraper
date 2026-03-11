@@ -422,7 +422,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
 
         # Add chapters for aggregated posts
         if hasattr(item, "attachments"):
-            image_index = 0
+            image_index = 1
             for attachment in item.attachments:
                 if (
                     hasattr(attachment, "contentType")

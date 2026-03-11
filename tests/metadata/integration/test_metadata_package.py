@@ -168,6 +168,7 @@ async def test_relationship_integrity(test_database):
             await session.execute(text("DELETE FROM wall_posts"))
             await session.execute(text("DELETE FROM posts"))
             await session.execute(text("DELETE FROM walls"))
+            await session.execute(text("DELETE FROM media_variants"))
             await session.execute(text("DELETE FROM account_media"))
             await session.execute(text("DELETE FROM media"))
             await session.execute(text("DELETE FROM accounts"))

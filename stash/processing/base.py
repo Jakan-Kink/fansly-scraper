@@ -138,10 +138,13 @@ class StashProcessingBase(StashProcessingProtocol):
 
         try:
             # Shared entities — never expire, preload all
+            # Use find_iter() to avoid the 1000-result limit on find()
             for entity_type in (Performer, Tag, Studio):
                 self.store.set_ttl(entity_type, None)
-                entities = await self.store.find(entity_type)
-                logger.info(f"Preloaded {len(entities)} {entity_type.__name__}s")
+                count = 0
+                async for _ in self.store.find_iter(entity_type, query_batch=500):
+                    count += 1
+                logger.info(f"Preloaded {count} {entity_type.__name__}s")
 
             # Per-creator entities — never expire, but invalidated per-creator
             for entity_type in (Gallery, Image, Scene):
@@ -180,21 +183,25 @@ class StashProcessingBase(StashProcessingProtocol):
 
         try:
             scene_count = 0
-            async for scene in self.store.find_iter(Scene, path__contains=path_filter):
+            async for scene in self.store.find_iter(
+                Scene, query_batch=500, path__contains=path_filter
+            ):
                 scene_count += 1
                 self._index_scene_files(scene)
             logger.info(f"Preloaded {scene_count} scenes")
 
             image_count = 0
-            async for image in self.store.find_iter(Image, path__contains=path_filter):
+            async for image in self.store.find_iter(
+                Image, query_batch=500, path__contains=path_filter
+            ):
                 image_count += 1
                 self._index_image_files(image)
             logger.info(f"Preloaded {image_count} images")
 
-            gallery_count = 0
-            async for _gallery in self.store.find_iter(Gallery):
-                gallery_count += 1
-            logger.info(f"Preloaded {gallery_count} galleries")
+            # Galleries are metadata-only containers (no file path) — they're
+            # looked up by code (post ID) on demand and cached individually.
+            # Preloading all galleries is counterproductive: it loads the entire
+            # library and pulls in scene references via the GraphQL fragment.
 
         except Exception as e:
             logger.warning(f"Failed to preload creator media (continuing anyway): {e}")

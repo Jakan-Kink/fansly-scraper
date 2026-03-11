@@ -208,9 +208,23 @@ class MediaBatch:
                     )
                     self.seen_locations.add(loc_key)
 
-        # SKIP VARIANTS - we only download and need to track the primary media
-        # Variants (720p, 480p, thumbnails, etc.) are not downloaded, so no need to store them
-        # This prevents bloating the database with hundreds of unused variant records per media
+        # Process variant relationships: create Media records + junction pairs
+        # Variants must exist as Media rows (FK constraint) before junction insert
+        if "variants" in media_item:
+            parent_created_at = media_item.get("createdAt")
+            for variant in media_item["variants"]:
+                # Recursively add variant as a Media record
+                self.add_media(variant, account_id, parent_created_at=parent_created_at)
+
+                variant_id = (
+                    int(variant["id"])
+                    if isinstance(variant["id"], str)
+                    else variant["id"]
+                )
+                var_key = (media_id, variant_id)
+                if var_key not in self.seen_variants:
+                    self.variants.append({"mediaId": media_id, "variantId": variant_id})
+                    self.seen_variants.add(var_key)
 
     def _prepare_media_data(self, media_item: dict, account_id: int | None) -> dict:
         """Extract and prepare media data for database operations.
@@ -404,8 +418,29 @@ async def _sync_relationships(
                 },
             )
 
-    # SKIP VARIANTS - variants are not tracked anymore to reduce database bloat
-    # We only store the primary media that is actually downloaded
+    # Process variant junction rows linking primary media to their variants
+    if batch.variants:
+        try:
+            insert_stmt = pg_insert(media_variants).values(batch.variants)
+            upsert_stmt = insert_stmt.on_conflict_do_nothing(
+                index_elements=["mediaId", "variantId"]
+            )
+            await session.execute(upsert_stmt)
+
+            json_output(
+                1,
+                "meta/media - batch - variants",
+                {"total_variants": len(batch.variants)},
+            )
+        except Exception as e:
+            json_output(
+                2,
+                "meta/media - batch - variants - error",
+                {
+                    "error": str(e),
+                    "variant_count": len(batch.variants),
+                },
+            )
 
 
 async def _process_media_batch(
@@ -962,6 +997,29 @@ async def process_media_download(
         raise ValueError(
             "Cannot create Media record: creator_id is required but not available in state"
         )
+
+    # Link variant to its primary media in junction table
+    # When download picks a variant (e.g., highest-res HLS), media_id != default_normal_id
+    if isinstance(media, MediaItem) and media.default_normal_id not in (
+        media.media_id,
+        0,
+    ):
+        try:
+            insert_stmt = pg_insert(media_variants).values(
+                mediaId=media.default_normal_id,
+                variantId=media.media_id,
+            )
+            await session.execute(insert_stmt.on_conflict_do_nothing())
+        except Exception as e:
+            json_output(
+                1,
+                "meta/media - p_m_d - variant_link",
+                {
+                    "error": str(e),
+                    "primary": media.default_normal_id,
+                    "variant": media.media_id,
+                },
+            )
 
     return media_obj
 

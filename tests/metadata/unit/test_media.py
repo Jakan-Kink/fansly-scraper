@@ -3,10 +3,12 @@
 import json
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
-from metadata.media import Media, process_media_item_dict
+from download.downloadstate import DownloadState
+from media import MediaItem
+from metadata.media import Media, process_media_download, process_media_item_dict
 from tests.fixtures import MediaLocationFactory
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 
@@ -135,3 +137,92 @@ async def test_invalid_metadata(session, session_sync, config, factory_session):
     assert saved_media.duration is None
     assert saved_media.width is None
     assert saved_media.height is None
+
+
+@pytest.mark.asyncio
+async def test_process_media_download_creates_variant_junction(
+    session, session_sync, config, factory_session
+):
+    """Test that process_media_download inserts a media_variants junction row.
+
+    When a MediaItem has media_id != default_normal_id (i.e., a variant was
+    selected for download), the function should insert a row linking the
+    primary media to the variant in the media_variants junction table.
+    """
+    primary_id = 1000
+    variant_id = 2000
+    account_id = 123
+
+    # Create account and both primary + variant media records (FK requirement)
+    AccountFactory(id=account_id)
+    MediaFactory(id=primary_id, accountId=account_id, mimetype="video/mp4")
+    MediaFactory(id=variant_id, accountId=account_id, mimetype="video/mp4")
+    session.expire_all()
+
+    # Build a MediaItem where the download picked a variant
+    media_item = MediaItem(
+        media_id=variant_id,
+        default_normal_id=primary_id,
+        mimetype="video/mp4",
+        created_at=1700000000,
+    )
+
+    state = DownloadState()
+    state.creator_id = str(account_id)
+    state.creator_name = "test_creator"
+
+    result = await process_media_download(config, state, media_item, session=session)
+
+    # The Media record for the variant should be returned
+    assert result is not None
+    assert result.id == variant_id
+
+    # Verify the junction row was created
+    await session.flush()
+    junction_result = await session.execute(
+        text(
+            "SELECT COUNT(*) FROM media_variants "
+            'WHERE "mediaId" = :primary_id AND "variantId" = :variant_id'
+        ),
+        {"primary_id": primary_id, "variant_id": variant_id},
+    )
+    assert junction_result.scalar() == 1
+
+
+@pytest.mark.asyncio
+async def test_process_media_download_no_junction_when_same_id(
+    session, session_sync, config, factory_session
+):
+    """Test that no junction row is created when media_id == default_normal_id.
+
+    When the primary media is the same as the downloaded media (no variant
+    selected), no junction row should be inserted.
+    """
+    media_id = 3000
+    account_id = 123
+
+    AccountFactory(id=account_id)
+    MediaFactory(id=media_id, accountId=account_id, mimetype="image/jpeg")
+    session.expire_all()
+
+    # MediaItem where media_id == default_normal_id (no variant)
+    media_item = MediaItem(
+        media_id=media_id,
+        default_normal_id=media_id,
+        mimetype="image/jpeg",
+        created_at=1700000000,
+    )
+
+    state = DownloadState()
+    state.creator_id = str(account_id)
+    state.creator_name = "test_creator"
+
+    await process_media_download(config, state, media_item, session=session)
+
+    # No junction row should exist
+    await session.flush()
+    junction_result = await session.execute(
+        text('SELECT COUNT(*) FROM media_variants WHERE "variantId" = :media_id'),
+        {"media_id": media_id},
+    )
+    assert junction_result.scalar() == 0

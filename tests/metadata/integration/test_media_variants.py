@@ -2,6 +2,7 @@
 
 import pytest
 
+from metadata.media import process_media_info
 from metadata.messages import process_messages_metadata
 from tests.fixtures import setup_accounts_and_groups
 from tests.fixtures.database.database_fixtures import TestDatabase
@@ -19,7 +20,11 @@ class TestMediaVariants:
     async def test_hls_dash_variants(
         self, test_database: TestDatabase, config, conversation_data
     ):
-        """Test processing of HLS and DASH stream variants."""
+        """Test processing of HLS and DASH stream variants.
+
+        Verifies that media_variants junction rows are created when
+        process_messages_metadata processes media with variants.
+        """
         response_data = conversation_data["response"]
         messages = response_data["messages"]
         media_items = response_data.get("accountMedia", [])
@@ -32,13 +37,20 @@ class TestMediaVariants:
                 config, None, response_data, session=session
             )
 
+            # Process accountMedia (in production this happens in download/common.py)
+            # This creates Media records + variant junction rows
+            if media_items:
+                await process_media_info(
+                    config, {"batch": media_items}, session=session
+                )
+
             for media_data in media_items:
                 if media_data.get("media", {}).get("variants"):
-                    # Note: Variants are NOT stored in database per production code
-                    # (see metadata/media.py MediaBatch - "SKIP VARIANTS" comment)
-                    # This test now only verifies the data exists in test JSON
+                    # Verify junction rows were created in media_variants table
                     assert await verify_media_variants(
-                        session, media_data["id"], expected_variant_types=[302, 303]
+                        session,
+                        media_data["media"]["id"],
+                        expected_variant_types=[302, 303],
                     )
 
     @pytest.mark.asyncio
@@ -77,7 +89,11 @@ class TestMediaVariants:
     async def test_preview_variants(
         self, test_database: TestDatabase, config, conversation_data
     ):
-        """Test processing of preview image variants."""
+        """Test processing of preview image variants.
+
+        Verifies that media_variants junction rows are created for preview
+        media that has variants (different resolutions).
+        """
         response_data = conversation_data["response"]
         messages = response_data["messages"]
         media_items = response_data.get("accountMedia", [])
@@ -90,17 +106,22 @@ class TestMediaVariants:
                 config, None, response_data, session=session
             )
 
+            # Process accountMedia (in production this happens in download/common.py)
+            if media_items:
+                await process_media_info(
+                    config, {"batch": media_items}, session=session
+                )
+
             for media_data in media_items:
                 if media_data.get("preview"):
                     preview_data = media_data["preview"]
-                    # Verify preview variants with expected resolutions
-                    expected_resolutions = [(1280, 720), (854, 480)]
-                    assert await verify_preview_variants(
-                        session, preview_data["id"], expected_resolutions
-                    )
+                    if preview_data.get("variants"):
+                        # Verify preview variant junction rows were created
+                        expected_resolutions = [(1280, 720), (854, 480)]
+                        assert await verify_preview_variants(
+                            session, preview_data["id"], expected_resolutions
+                        )
 
-                    # Note: Preview width/height in the test data represents the first variant,
-                    # not the original. The actual 1920x1080 would be in the original media.
-                    # Test data shows preview at 1920x1080 which is likely the highest resolution
+                    # Preview dimensions should be reasonable
                     assert preview_data["width"] >= 854  # At least the smallest variant
                     assert preview_data["height"] >= 480
