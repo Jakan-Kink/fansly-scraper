@@ -700,21 +700,29 @@ async def process_media_info(
 @require_database_config
 @with_database_session(async_session=True)
 async def process_media_item_dict(
-    config: FanslyConfig, media_item: dict, session: AsyncSession | None = None
+    config: FanslyConfig,
+    media_item: dict,
+    account_id: int | None = None,
+    session: AsyncSession | None = None,
 ) -> None:
     """Process a media item dictionary and store it in the database.
 
     Args:
         config: FanslyConfig instance for database access
         media_item: Dictionary containing media data
+        account_id: Optional account ID if not present in media_item
         session: Optional AsyncSession for database operations
     """
     json_output(1, "meta/media - p_m_i_h - media_item[dict]", media_item)
     if session is None:
         async with config._database.async_session_scope() as db_session:
-            await _process_media_item_dict_inner(config, media_item, session=db_session)
+            await _process_media_item_dict_inner(
+                config, media_item, account_id=account_id, session=db_session
+            )
     else:
-        await _process_media_item_dict_inner(config, media_item, session=session)
+        await _process_media_item_dict_inner(
+            config, media_item, account_id=account_id, session=session
+        )
 
 
 # async def _process_media_locations(
@@ -936,6 +944,12 @@ async def process_media_download(
         )
         return None
 
+    # Ensure creator_id is available before creating any Media records
+    if not state.creator_id:
+        raise ValueError(
+            "Cannot create Media record: creator_id is required but not available in state"
+        )
+
     media_obj: Media | None = existing_media if existing_media else None
 
     if not isinstance(media, MediaItem):
@@ -995,12 +1009,6 @@ async def process_media_download(
         )
         session.add(media_obj)
         await session.flush()
-
-    # Ensure creator_id is available
-    if not state.creator_id:
-        raise ValueError(
-            "Cannot create Media record: creator_id is required but not available in state"
-        )
 
     # Link variant to its primary media in junction table
     # When download picks a variant (e.g., highest-res HLS), media_id != default_normal_id
