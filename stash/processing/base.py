@@ -384,13 +384,16 @@ class StashProcessingBase(StashProcessingProtocol):
         )
         warnings.filterwarnings("always", category=StashUnmappedFieldWarning)
 
-        # Preload global entities (performers, tags, studios) and per-creator
-        # media (images, scenes, galleries) into the store cache BEFORE any
-        # processing starts. Without this, every lookup hits GraphQL.
+        # Preload global entities (performers, tags, studios) into the store
+        # cache BEFORE any processing starts. Without this, every lookup
+        # hits GraphQL.
         await self._preload_stash_entities()
-        await self._preload_creator_media()
 
+        # scan_creator_folder() sets base_path AND triggers the Stash scan
+        # that discovers files. _preload_creator_media() must run AFTER so
+        # it can build the media-code index from the scanned results.
         await self.scan_creator_folder()
+        await self._preload_creator_media()
         account, performer = await self.process_creator()
 
         # Continue processing in background with proper task management
