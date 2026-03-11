@@ -25,13 +25,14 @@ from textio import print_error, print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class ContentProcessingMixin:
+class ContentProcessingMixin(StashProcessingProtocol):
     """Content processing for posts and messages."""
 
     @with_session()
@@ -106,10 +107,6 @@ class ContentProcessingMixin:
         async def process_message(message: Message) -> None:
             async with semaphore:
                 try:
-                    # Objects are already bound to session from eager loading query
-                    # No need to add them again - just refresh account before processing
-                    await session.refresh(account)
-
                     # Process the message
                     await self._process_items_with_gallery(
                         account=account,
@@ -223,10 +220,6 @@ class ContentProcessingMixin:
         async def process_post(post: Post) -> None:
             async with semaphore:
                 try:
-                    # Objects are already bound to session from eager loading query
-                    # No need to add them again - just refresh account before processing
-                    await session.refresh(account)
-
                     # Process the post
                     await self._process_items_with_gallery(
                         account=account,

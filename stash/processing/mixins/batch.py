@@ -10,9 +10,10 @@ from typing import Any
 from helpers.rich_progress import get_progress_manager
 
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-class BatchProcessingMixin:
+class BatchProcessingMixin(StashProcessingProtocol):
     """Worker pool processing utilities."""
 
     async def _setup_worker_pool(

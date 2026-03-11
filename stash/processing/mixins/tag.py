@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from stash_graphql_client.types import Image, Scene, Tag
 from stash_graphql_client.types.base import is_set
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-if TYPE_CHECKING:
-    pass
-
-
-class TagProcessingMixin:
+class TagProcessingMixin(StashProcessingProtocol):
     """Tag processing functionality."""
 
     def _find_tag_in_cache(self, name: str) -> Tag | None:

@@ -111,7 +111,8 @@ class StashProcessing(
             This method requires a session and will ensure the account is properly bound to it.
             The performer object is a Stash GraphQL type, not a SQLAlchemy model.
         """
-
+        if session is None:
+            raise RuntimeError("Session should be provided by @with_session decorator")
         progress_mgr = get_progress_manager()
 
         try:
@@ -203,9 +204,11 @@ class StashProcessing(
             self._account = None
             self._performer = None
             self._studio = None
+            self._scene_code_index.clear()
+            self._image_code_index.clear()
             for entity_type in (Gallery, GalleryChapter, Scene, Image):
                 self.store.invalidate_type(entity_type)
-            logger.debug("Invalidated per-creator entity caches")
+            logger.debug("Invalidated per-creator entity caches and media code indexes")
 
             performer_name = (
                 performer.name if isinstance(performer, Performer) else repr(performer)

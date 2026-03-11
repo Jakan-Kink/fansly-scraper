@@ -16,13 +16,14 @@ from textio import print_error, print_warning
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class AccountProcessingMixin:
+class AccountProcessingMixin(StashProcessingProtocol):
     """Account and performer processing functionality."""
 
     @with_session()

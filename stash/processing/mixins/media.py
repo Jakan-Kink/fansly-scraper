@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlalchemy.orm import Session
 from stash_graphql_client.types import Image, ImageFile, Scene, Studio, VideoFile
@@ -32,13 +32,10 @@ from metadata.decorators import with_session
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-if TYPE_CHECKING:
-    pass
-
-
-class MediaProcessingMixin:
+class MediaProcessingMixin(StashProcessingProtocol):
     """Media processing functionality."""
 
     def _get_file_from_stash_obj(
@@ -310,9 +307,9 @@ class MediaProcessingMixin:
     ) -> list[tuple[dict, Scene | Image]]:
         """Find files in Stash by media IDs in path, grouped by mime type.
 
-        Uses cache-first approach: tries filter_and_populate() on the identity map
-        before falling back to find_iter() GraphQL queries. After _preload_creator_media(),
-        all creator media is cached, making the cache path essentially free.
+        Primary path: O(1) dict lookup using media code indexes built during
+        _preload_creator_media(). Falls back to regex GraphQL queries only when
+        the index is empty (e.g., no preload ran, or in tests).
 
         Args:
             media_files: List of (media_id, mime_type) tuples to search for
@@ -330,55 +327,35 @@ class MediaProcessingMixin:
 
         found = []
 
-        # Cache-first: try filter_and_populate() on cached entities before GraphQL
-        # After _preload_creator_media(), all creator media is in the identity map
-        all_ids = image_ids + scene_ids
-        if all_ids:
-            regex_pattern = self._create_targeted_regex_pattern(all_ids)
-            compiled = re.compile(regex_pattern)
-
-            # Search cached images
+        # Primary path: O(1) index lookup (built during _preload_creator_media)
+        if self._scene_code_index or self._image_code_index:
             if image_ids:
-                try:
-                    cached_images = await self.store.filter_and_populate(
-                        Image,
-                        required_fields=["visual_files"],
-                        predicate=lambda img: self._match_files_by_regex(img, compiled),
-                    )
-                    found.extend(
-                        (image, file)
-                        for image in cached_images
-                        if (file := self._get_file_from_stash_obj(image))
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"Cache-first image search failed (will use GraphQL): {e}"
-                    )
+                images_by_code = self.find_images_by_media_codes(image_ids)
+                found.extend(
+                    (image, file)
+                    for images in images_by_code.values()
+                    for image in images
+                    if (file := self._get_file_from_stash_obj(image))
+                )
 
-            # Search cached scenes
             if scene_ids:
-                try:
-                    cached_scenes = await self.store.filter_and_populate(
-                        Scene,
-                        required_fields=["files"],
-                        predicate=lambda scn: self._match_files_by_regex(scn, compiled),
-                    )
-                    found.extend(
-                        (scene, file)
-                        for scene in cached_scenes
-                        if (file := self._get_file_from_stash_obj(scene))
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"Cache-first scene search failed (will use GraphQL): {e}"
-                    )
+                scenes_by_code = self.find_scenes_by_media_codes(scene_ids)
+                found.extend(
+                    (scene, file)
+                    for scenes in scenes_by_code.values()
+                    for scene in scenes
+                    if (file := self._get_file_from_stash_obj(scene))
+                )
 
             if found:
                 logger.debug(
-                    f"Cache-first path search found {len(found)} files, "
-                    f"skipping GraphQL find_iter"
+                    f"Index lookup found {len(found)} files for "
+                    f"{len(image_ids)} images + {len(scene_ids)} scenes"
                 )
-                return found
+            return found
+
+        # Fallback: index is empty (no preload), use regex GraphQL search
+        logger.debug("Media code index empty, falling back to regex search")
 
         # Maximum batch size to prevent SQL parser stack overflow
         max_batch_size = 20
@@ -386,195 +363,53 @@ class MediaProcessingMixin:
         # Fallback: GraphQL path search via find_iter()
         # Process images in batches
         if image_ids:
-            # Split image_ids into batches of max_batch_size
             image_id_batches = self._chunk_list(image_ids, max_batch_size)
-            debug_print(
-                {
-                    "method": "StashProcessing - _find_stash_files_by_path",
-                    "status": "processing_image_batches",
-                    "total_images": len(image_ids),
-                    "batch_count": len(image_id_batches),
-                    "batch_size": max_batch_size,
-                }
-            )
-
-            # Pattern 5: Use Django-style path__regex with find_iter (3 lines vs 40!)
             for batch_index, batch_ids in enumerate(image_id_batches):
                 regex_pattern = self._create_targeted_regex_pattern(batch_ids)
-                debug_print(
-                    {
-                        "method": "StashProcessing - _find_stash_files_by_path",
-                        "status": "searching_images_batch",
-                        "batch_index": batch_index + 1,
-                        "batch_size": len(batch_ids),
-                        "media_ids": batch_ids,
-                        "regex_pattern": regex_pattern[:100] + "..."
-                        if len(regex_pattern) > 100
-                        else regex_pattern,
-                    }
-                )
                 try:
-                    # Use find_iter for lazy iteration (doesn't fetch all pages upfront)
-                    valid_files_found = False
-                    async for image_data in self.store.find_iter(
+                    async for image in self.store.find_iter(
                         Image,
                         path__regex=regex_pattern,
                     ):
-                        logger.debug(
-                            f"Processing image from find_iter: id={image_data.id}"
-                        )
-
-                        try:
-                            # Library returns Image objects directly (Pydantic)
-                            image = image_data
-
-                            # Try to get a file from the image object
-                            if file := self._get_file_from_stash_obj(image):
-                                logger.debug(
-                                    f"Found file in image {image.id}: {file.path}"
-                                )
-                                found.append((image, file))
-                                valid_files_found = True
-                            else:
-                                logger.info("No file found in image object")
-
-                        except Exception as e:
-                            logger.error(f"Error processing image data: {e}")
-                            debug_print(
-                                {
-                                    "method": "StashProcessing - _find_stash_files_by_path",
-                                    "status": "image_processing_failed",
-                                    "error": str(e),
-                                    "image_data": (
-                                        str(image_data)[:100] + "..."
-                                        if len(str(image_data)) > 100
-                                        else str(image_data)
-                                    ),
-                                }
-                            )
-
-                    # Check after async for loop completes
-                    if not valid_files_found:
-                        logger.warning(
-                            f"No valid image files could be extracted in batch {batch_index + 1}"
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_files_by_path",
-                                "status": "no_valid_files_found_in_batch",
-                                "batch_index": batch_index + 1,
-                            }
-                        )
+                        if file := self._get_file_from_stash_obj(image):
+                            found.append((image, file))  # noqa: PERF401
                 except Exception as e:
                     debug_print(
                         {
                             "method": "StashProcessing - _find_stash_files_by_path",
                             "status": "image_search_failed_for_batch",
                             "batch_index": batch_index + 1,
-                            "media_ids": batch_ids,
                             "error": str(e),
                         }
                     )
 
-        # Pattern 5: Process scenes using targeted regex with find_iter
+        # Process scenes using targeted regex with find_iter
         if scene_ids:
-            # Build targeted regex pattern with base path
             regex_pattern = self._create_targeted_regex_pattern(scene_ids)
-
-            debug_print(
-                {
-                    "method": "StashProcessing - _find_stash_files_by_path",
-                    "status": "processing_scenes_regex",
-                    "total_scenes": len(scene_ids),
-                    "regex_pattern": regex_pattern[:100] + "..."
-                    if len(regex_pattern) > 100
-                    else regex_pattern,
-                }
-            )
-
             try:
-                # Use store.find_iter for lazy iteration
-                found_count = 0
-                valid_files_found = False
                 async for scene in self.store.find_iter(
                     Scene,
                     path__regex=regex_pattern,
                 ):
-                    found_count += 1
-                    try:
-                        if file := self._get_file_from_stash_obj(scene):
-                            found.append((scene, file))
-                            valid_files_found = True
-                        else:
-                            logger.info(f"No file found in scene object: {scene.id}")
-
-                    except Exception as e:
-                        logger.error(f"Error processing scene data: {e}")
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_files_by_path",
-                                "status": "scene_processing_failed",
-                                "error": str(e),
-                                "scene_id": getattr(scene, "id", "unknown"),
-                            }
-                        )
-
-                logger.info(
-                    "Scene regex search completed: found %d scenes for %d media IDs",
-                    found_count,
-                    len(scene_ids),
-                )
-
-                if not valid_files_found:
-                    logger.warning(
-                        f"Found {found_count} scenes but no valid scene files could be extracted"
-                    )
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _find_stash_files_by_path",
-                            "status": "no_valid_scene_files_found",
-                            "scene_count": found_count,
-                        }
-                    )
-
+                    if file := self._get_file_from_stash_obj(scene):
+                        found.append((scene, file))  # noqa: PERF401
             except Exception as e:
-                # Fallback to batched OR approach if regex fails
                 logger.warning(
-                    f"Regex scene search failed ({e}), falling back to batched OR approach"
+                    f"Regex scene search failed ({e}), falling back to batched approach"
                 )
-                debug_print(
-                    {
-                        "method": "StashProcessing - _find_stash_files_by_path",
-                        "status": "regex_search_failed_fallback_to_batched",
-                        "error": str(e),
-                        "scene_id_count": len(scene_ids),
-                    }
-                )
-
-                # Fallback: Use batched regex approach
                 scene_id_batches = self._chunk_list(scene_ids, max_batch_size)
                 for batch_index, batch_ids in enumerate(scene_id_batches):
                     batch_regex = self._create_targeted_regex_pattern(batch_ids)
                     try:
-                        # Use store.find_iter for each batch
                         async for scene in self.store.find_iter(
                             Scene,
                             path__regex=batch_regex,
                         ):
                             if file := self._get_file_from_stash_obj(scene):
                                 found.append((scene, file))  # noqa: PERF401
-
                     except Exception as fallback_error:
                         logger.error(
-                            f"Fallback batch {batch_index + 1} also failed: {fallback_error}"
-                        )
-                        debug_print(
-                            {
-                                "method": "StashProcessing - _find_stash_files_by_path",
-                                "status": "fallback_batch_failed",
-                                "batch_index": batch_index + 1,
-                                "error": str(fallback_error),
-                            }
+                            f"Fallback batch {batch_index + 1} failed: {fallback_error}"
                         )
 
         logger.debug(
@@ -722,8 +557,13 @@ class MediaProcessingMixin:
             if post_url not in stash_obj.urls:
                 stash_obj.urls.append(post_url)
 
-        # Add main performer (bidirectional sync automatic)
-        if main_performer := await self._find_existing_performer(account):
+        # Add main performer — use cached self._performer for the primary creator
+        # to avoid a redundant GraphQL lookup per media item
+        if self._account and account.id == self._account.id and self._performer:
+            main_performer = self._performer
+        else:
+            main_performer = await self._find_existing_performer(account)
+        if main_performer:
             await stash_obj.add_performer(main_performer)
 
         # Add mentioned performers with simplified creation

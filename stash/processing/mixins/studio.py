@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from sqlalchemy.orm import Session
 from stash_graphql_client.types import Studio
@@ -15,13 +15,10 @@ from textio import print_error, print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-if TYPE_CHECKING:
-    pass
-
-
-class StudioProcessingMixin:
+class StudioProcessingMixin(StashProcessingProtocol):
     """Studio processing functionality."""
 
     # Class-level locks for studio creation, keyed by username

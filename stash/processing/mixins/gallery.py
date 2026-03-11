@@ -5,9 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import traceback
-from collections.abc import Callable
 from pprint import pformat
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any
 
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
@@ -19,26 +18,10 @@ from textio import print_error
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import HasMetadata, StashProcessingProtocol
 
 
-if TYPE_CHECKING:
-    from datetime import datetime
-
-
-class HasMetadata(Protocol):
-    """Protocol for models that have metadata for Stash."""
-
-    id: int
-    content: str | None
-    createdAt: datetime
-    attachments: list[Any]
-    # Messages don't have accountMentions, only Posts do
-    accountMentions: list[Account] | None = None
-    stash_id: int | None = None
-    awaitable_attrs: Callable | None = None
-
-
-class GalleryProcessingMixin:
+class GalleryProcessingMixin(StashProcessingProtocol):
     """Gallery processing functionality."""
 
     async def _get_gallery_by_stash_id(
@@ -430,6 +413,12 @@ class GalleryProcessingMixin:
 
         # Save gallery so it gets a real Stash ID (required for chapter gallery_id)
         await self.store.save(gallery)
+
+        # Persist stash_id back on the item so subsequent lookups use
+        # _get_gallery_by_stash_id() (O(1) cache hit) instead of re-searching
+        if hasattr(item, "stash_id") and gallery.id is not None:
+            with contextlib.suppress(ValueError, TypeError):
+                item.stash_id = int(gallery.id)
 
         # Add chapters for aggregated posts
         if hasattr(item, "attachments"):
