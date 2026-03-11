@@ -583,7 +583,9 @@ async def _process_bundle_media_items(
             continue
 
         if isinstance(media_item, dict):
-            await _process_media_item_dict_inner(config, media_item, session=session)
+            await _process_media_item_dict_inner(
+                config, media_item, account_id=account_id, session=session
+            )
             media_id = media_item["id"]
 
         await link_media_to_bundle(
@@ -759,8 +761,10 @@ async def process_banner(
     banner_data = copy.deepcopy(banner_data)
     from .media import _process_media_item_dict_inner
 
-    # Process banner media
-    await _process_media_item_dict_inner(config, banner_data, session=session)
+    # Process banner media (pass account_id so variants get the correct accountId)
+    await _process_media_item_dict_inner(
+        config, banner_data, account_id=account.id, session=session
+    )
 
     # Convert mediaId to int if it's a string
     media_id = (

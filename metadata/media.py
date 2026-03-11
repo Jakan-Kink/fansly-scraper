@@ -344,7 +344,7 @@ async def _get_or_create_media(
             item_id = int(item["id"])
             filters = {"id": item_id}
             defaults = {
-                "accountId": item["accountId"],
+                "accountId": item.get("accountId"),
                 "type": item.get("type"),
                 "status": item.get("status"),
             }
