@@ -618,7 +618,13 @@ async def _process_single_bundle(
     # Process bundle preview if it exists
     if "preview" in bundle:
         preview = bundle.pop("preview")  # Remove preview from bundle data
-        await process_preview(session, config, bundle, preview)
+        await process_preview(
+            session,
+            config,
+            bundle,
+            preview,
+            account_id=account_id,
+        )
 
     # Known attributes that are handled separately
     known_relations = {

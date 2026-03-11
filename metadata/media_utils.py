@@ -118,6 +118,7 @@ async def process_preview(
     parent: HasPreview,
     preview_data: dict | str | None,
     context_type: str = "bundle",
+    account_id: int | None = None,
 ) -> None:
     """Process preview media for a model.
 
@@ -127,6 +128,7 @@ async def process_preview(
         parent: Parent model instance that has preview
         preview_data: Preview data to process
         context_type: Type of parent object for logging
+        account_id: Optional account ID to assign to preview media
     """
     from .media import _process_media_item_dict_inner
 
@@ -148,7 +150,9 @@ async def process_preview(
         return
 
     if isinstance(preview_data, dict):
-        await _process_media_item_dict_inner(config, preview_data, session=session)
+        await _process_media_item_dict_inner(
+            config, preview_data, account_id=account_id, session=session
+        )
 
 
 async def link_media_to_bundle(
