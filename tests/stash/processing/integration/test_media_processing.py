@@ -12,18 +12,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from fileio.fnmanip import extract_media_id
-from metadata import Account
-from metadata.account import (
-    AccountMedia,
-    AccountMediaBundle,
-    account_media_bundle_media,
+from metadata import (
+    ContentType,
 )
-from metadata.attachment import Attachment, ContentType
-from metadata.post import Post
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaBundleFactory,
@@ -42,9 +35,8 @@ class TestMediaProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_media_integration(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         stash_cleanup_tracker,
     ):
         """Test media processing through attachment workflow with real Stash integration.
@@ -106,21 +98,21 @@ class TestMediaProcessingIntegration:
                 file_date = datetime(2023, 1, 1, tzinfo=UTC)
 
             # Create a real account
-            account = AccountFactory(username="media_user")
-            factory_session.commit()
+            account = AccountFactory.build(username="media_user")
+            await entity_store.save(account)
 
             # Create a real post with date matching the image file
             # This ensures _update_stash_metadata won't skip the update
-            post = PostFactory(
+            post = PostFactory.build(
                 accountId=account.id,
                 content="Test post",
                 createdAt=datetime(2000, 1, 1, tzinfo=UTC),
             )
-            factory_session.commit()
+            await entity_store.save(post)
 
             # Create real media with ID extracted from filename
             # The processing code searches for files where str(media.id) appears in the path
-            media = MediaFactory(
+            media = MediaFactory.build(
                 id=media_id,  # Use extracted ID so search finds it
                 accountId=account.id,
                 mimetype="image/jpeg",
@@ -129,46 +121,24 @@ class TestMediaProcessingIntegration:
                 stash_id=None,
                 local_filename=image_file_path,  # Not used by processing, but keep for reference
             )
-            factory_session.commit()
+            await entity_store.save(media)
 
             # Create AccountMedia as intermediary layer
-            account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
-            factory_session.commit()
+            account_media = AccountMediaFactory.build(
+                accountId=account.id, mediaId=media.id
+            )
+            await entity_store.save(account_media)
 
             # Create attachment pointing to AccountMedia
-            attachment = AttachmentFactory(
+            attachment = AttachmentFactory.build(
                 postId=post.id,
                 contentType=ContentType.ACCOUNT_MEDIA,
                 contentId=account_media.id,
             )
-            factory_session.commit()
+            await entity_store.save(attachment)
 
-        # TRUE INTEGRATION: No mocks - all real GraphQL calls to Stash
-        async with test_database_sync.async_session_scope() as async_session:
-            from metadata.post import Post
-
-            # Eager-load relationships (including bundle and aggregated_post to avoid lazy loading)
-            result_query = await async_session.execute(
-                select(Attachment)
-                .where(Attachment.id == attachment.id)
-                .options(
-                    selectinload(Attachment.media).selectinload(AccountMedia.media),
-                    selectinload(Attachment.bundle),
-                    selectinload(Attachment.aggregated_post),
-                )
-            )
-            async_attachment = result_query.unique().scalar_one()
-
-            account_query = await async_session.execute(
-                select(Account).where(Account.id == account.id)
-            )
-            async_account = account_query.unique().scalar_one()
-
-            # Query the post in async session to avoid lazy loading issues
-            post_query = await async_session.execute(
-                select(Post).where(Post.id == post.id)
-            )
-            async_post = post_query.unique().scalar_one()
+            # Wire up in-memory relationships for traversal
+            post.attachments = [attachment]
 
             # Clear store cache so process_creator_attachment makes fresh
             # GraphQL calls instead of serving from cache-first path
@@ -179,10 +149,9 @@ class TestMediaProcessingIntegration:
                 try:
                     # Make real GraphQL calls to Stash
                     result = await real_stash_processor.process_creator_attachment(
-                        attachment=async_attachment,
-                        item=async_post,
-                        account=async_account,
-                        session=async_session,
+                        attachment=attachment,
+                        item=post,
+                        account=account,
                     )
                 finally:
                     dump_graphql_calls(calls, "test_process_media_integration")
@@ -225,9 +194,8 @@ class TestMediaProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_bundle_media_integration(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         stash_cleanup_tracker,
         faker,
         enable_scene_creation,
@@ -257,8 +225,8 @@ class TestMediaProcessingIntegration:
                     num_scenes = 1
 
             # Create a real account
-            account = AccountFactory(username="bundle_user")
-            factory_session.commit()
+            account = AccountFactory.build(username="bundle_user")
+            await entity_store.save(account)
 
             # Will store earliest date from all media for the Post
             earliest_date = None
@@ -378,21 +346,20 @@ class TestMediaProcessingIntegration:
                 earliest_date = datetime(2023, 1, 1, tzinfo=UTC)
 
             # Create a real post with earliest date
-            post = PostFactory(
+            post = PostFactory.build(
                 accountId=account.id,
                 content="Bundle post",
                 createdAt=datetime(2000, 1, 1, tzinfo=UTC),
             )
-            factory_session.commit()
+            await entity_store.save(post)
 
             # Create a real bundle
-            bundle = AccountMediaBundleFactory(accountId=account.id)
-            factory_session.commit()
+            bundle = AccountMediaBundleFactory.build(accountId=account.id)
 
             # Create Media and AccountMedia entries for all items in bundle
             account_media_list = []
             for _idx, media_info in enumerate(bundle_media_list):
-                media = MediaFactory(
+                media = MediaFactory.build(
                     id=media_info["id"],
                     accountId=account.id,
                     mimetype=media_info["mimetype"],
@@ -401,76 +368,53 @@ class TestMediaProcessingIntegration:
                     stash_id=None,
                     local_filename=media_info["path"],
                 )
-                factory_session.commit()
+                await entity_store.save(media)
 
-                account_media = AccountMediaFactory(
+                account_media = AccountMediaFactory.build(
                     accountId=account.id, mediaId=media.id
                 )
-                factory_session.commit()
+                await entity_store.save(account_media)
                 account_media_list.append(account_media)
 
-            # Link all AccountMedia to bundle via join table
-            bundle_values = [
-                {"bundle_id": bundle.id, "media_id": am.id, "pos": idx}
-                for idx, am in enumerate(account_media_list)
-            ]
-            factory_session.execute(
-                account_media_bundle_media.insert().values(bundle_values)
+            # Wire bundle's accountMedia relationship in-memory and save
+            bundle.accountMedia = account_media_list
+            await entity_store.save(bundle)
+
+            # Sync the junction table for bundle <-> accountMedia
+            await entity_store.sync_junction(
+                "account_media_bundle_media",
+                "bundle_id",
+                bundle.id,
+                [
+                    {"media_id": am.id, "pos": idx}
+                    for idx, am in enumerate(account_media_list)
+                ],
             )
-            factory_session.commit()
 
             # Create attachment pointing to bundle
-            attachment = AttachmentFactory(
+            attachment = AttachmentFactory.build(
                 postId=post.id,
                 contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
                 contentId=bundle.id,
             )
-            factory_session.commit()
+            await entity_store.save(attachment)
 
-            # Process in async session with proper relationship loading
-            async with test_database_sync.async_session_scope() as async_session:
-                # Eager-load all relationships
-                result_query = await async_session.execute(
-                    select(Attachment)
-                    .where(Attachment.id == attachment.id)
-                    .options(
-                        selectinload(Attachment.bundle)
-                        .selectinload(AccountMediaBundle.accountMedia)
-                        .selectinload(AccountMedia.media),
-                        selectinload(Attachment.media).selectinload(AccountMedia.media),
-                        selectinload(Attachment.aggregated_post),
+            # Wire up post.attachments for traversal
+            post.attachments = [attachment]
+
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
+
+            # Capture GraphQL calls for validation
+            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+                try:
+                    result = await real_stash_processor.process_creator_attachment(
+                        attachment=attachment,
+                        item=post,
+                        account=account,
                     )
-                )
-                async_attachment = result_query.unique().scalar_one()
-
-                account_query = await async_session.execute(
-                    select(Account).where(Account.id == account.id)
-                )
-                async_account = account_query.unique().scalar_one()
-
-                post_query = await async_session.execute(
-                    select(Post).where(Post.id == post.id)
-                )
-                async_post = post_query.unique().scalar_one()
-
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
-
-                # Capture GraphQL calls for validation
-                with capture_graphql_calls(
-                    real_stash_processor.context.client
-                ) as calls:
-                    try:
-                        result = await real_stash_processor.process_creator_attachment(
-                            attachment=async_attachment,
-                            item=async_post,
-                            account=async_account,
-                            session=async_session,
-                        )
-                    finally:
-                        dump_graphql_calls(
-                            calls, "test_process_bundle_media_integration"
-                        )
+                finally:
+                    dump_graphql_calls(calls, "test_process_bundle_media_integration")
 
             # Verify GraphQL calls based on randomized bundle composition
             # Cache-first pattern: findImages/findScenes may be served from
@@ -541,9 +485,8 @@ class TestMediaProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_creator_attachment_integration(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         stash_cleanup_tracker,
     ):
         """Test process_creator_attachment method with single image attachment.
@@ -599,19 +542,19 @@ class TestMediaProcessingIntegration:
                 file_date = datetime(2023, 1, 1, tzinfo=UTC)
 
             # Create a real account
-            account = AccountFactory(username="attachment_user")
-            factory_session.commit()
+            account = AccountFactory.build(username="attachment_user")
+            await entity_store.save(account)
 
             # Create a real post with date matching the file
-            post = PostFactory(
+            post = PostFactory.build(
                 accountId=account.id,
                 content="Attachment post",
                 createdAt=datetime(2000, 1, 1, tzinfo=UTC),
             )
-            factory_session.commit()
+            await entity_store.save(post)
 
             # Create real media with extracted ID
-            media = MediaFactory(
+            media = MediaFactory.build(
                 id=media_id,
                 accountId=account.id,
                 mimetype="image/jpeg",
@@ -620,64 +563,40 @@ class TestMediaProcessingIntegration:
                 stash_id=None,
                 local_filename=image_file_path,
             )
-            factory_session.commit()
+            await entity_store.save(media)
 
             # Create real AccountMedia to link media to account
-            account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
-            factory_session.commit()
+            account_media = AccountMediaFactory.build(
+                accountId=account.id, mediaId=media.id
+            )
+            await entity_store.save(account_media)
 
             # Create real attachment with proper ContentType
-            attachment = AttachmentFactory(
+            attachment = AttachmentFactory.build(
                 contentId=account_media.id,
                 contentType=ContentType.ACCOUNT_MEDIA,
                 postId=post.id,
             )
-            factory_session.commit()
+            await entity_store.save(attachment)
 
-            # Process in async session with proper relationship loading
-            async with test_database_sync.async_session_scope() as async_session:
-                from metadata.post import Post
+            # Wire up post.attachments for traversal
+            post.attachments = [attachment]
 
-                # Eager-load all relationships
-                result_query = await async_session.execute(
-                    select(Attachment)
-                    .options(
-                        selectinload(Attachment.media).selectinload(AccountMedia.media),
-                        selectinload(Attachment.bundle),
-                        selectinload(Attachment.aggregated_post),
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
+
+            # Capture GraphQL calls for validation
+            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+                try:
+                    result = await real_stash_processor.process_creator_attachment(
+                        attachment=attachment,
+                        item=post,
+                        account=account,
                     )
-                    .where(Attachment.id == attachment.id)
-                )
-                async_attachment = result_query.unique().scalar_one()
-
-                account_query = await async_session.execute(
-                    select(Account).where(Account.id == account.id)
-                )
-                async_account = account_query.unique().scalar_one()
-
-                post_query = await async_session.execute(
-                    select(Post).where(Post.id == post.id)
-                )
-                async_post = post_query.unique().scalar_one()
-
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
-
-                # Capture GraphQL calls for validation
-                with capture_graphql_calls(
-                    real_stash_processor.context.client
-                ) as calls:
-                    try:
-                        result = await real_stash_processor.process_creator_attachment(
-                            attachment=async_attachment,
-                            item=async_post,
-                            account=async_account,
-                            session=async_session,
-                        )
-                    finally:
-                        dump_graphql_calls(
-                            calls, "test_process_creator_attachment_integration"
-                        )
+                finally:
+                    dump_graphql_calls(
+                        calls, "test_process_creator_attachment_integration"
+                    )
 
             # Cache-first: findImages may be served from store cache
             assert len(calls) >= 1, (
@@ -708,9 +627,8 @@ class TestMediaProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_bundle(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         stash_cleanup_tracker,
     ):
         """Test process_creator_attachment with bundle attachment.
@@ -759,19 +677,19 @@ class TestMediaProcessingIntegration:
             )
 
             # Create a real account
-            account = AccountFactory(username="bundle_attachment_test_user")
-            factory_session.commit()
+            account = AccountFactory.build(username="bundle_attachment_test_user")
+            await entity_store.save(account)
 
             # Create a real post with date matching the file
-            post = PostFactory(
+            post = PostFactory.build(
                 accountId=account.id,
                 content="Bundle attachment post",
                 createdAt=datetime(2000, 1, 1, tzinfo=UTC),
             )
-            factory_session.commit()
+            await entity_store.save(post)
 
             # Create real media with extracted ID
-            media = MediaFactory(
+            media = MediaFactory.build(
                 id=media_id,
                 accountId=account.id,
                 mimetype="image/jpeg",
@@ -780,82 +698,53 @@ class TestMediaProcessingIntegration:
                 stash_id=None,
                 local_filename=image_file_path,
             )
-            factory_session.commit()
+            await entity_store.save(media)
 
             # Create real AccountMedia to link media to account
-            account_media = AccountMediaFactory(accountId=account.id, mediaId=media.id)
-            factory_session.commit()
+            account_media = AccountMediaFactory.build(
+                accountId=account.id, mediaId=media.id
+            )
+            await entity_store.save(account_media)
 
             # Create real bundle with media
-            bundle = AccountMediaBundleFactory(accountId=account.id)
-            factory_session.commit()
+            bundle = AccountMediaBundleFactory.build(accountId=account.id)
+            bundle.accountMedia = [account_media]
+            await entity_store.save(bundle)
 
-            # Link media to bundle
-            factory_session.execute(
-                account_media_bundle_media.insert().values(
-                    [
-                        {
-                            "bundle_id": bundle.id,
-                            "media_id": account_media.id,
-                            "pos": 0,
-                        },
-                    ]
-                )
+            # Sync the junction table for bundle <-> accountMedia
+            await entity_store.sync_junction(
+                "account_media_bundle_media",
+                "bundle_id",
+                bundle.id,
+                [{"media_id": account_media.id, "pos": 0}],
             )
-            factory_session.commit()
 
             # Create attachment pointing to bundle
-            attachment = AttachmentFactory(
+            attachment = AttachmentFactory.build(
                 contentId=bundle.id,
                 contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
                 postId=post.id,
             )
-            factory_session.commit()
+            await entity_store.save(attachment)
 
-            # Process in async session with proper relationship loading
-            async with test_database_sync.async_session_scope() as async_session:
-                # Eager-load all relationships
-                result_query = await async_session.execute(
-                    select(Attachment)
-                    .options(
-                        selectinload(Attachment.bundle)
-                        .selectinload(AccountMediaBundle.accountMedia)
-                        .selectinload(AccountMedia.media),
-                        selectinload(Attachment.media).selectinload(AccountMedia.media),
-                        selectinload(Attachment.aggregated_post),
+            # Wire up post.attachments for traversal
+            post.attachments = [attachment]
+
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
+
+            # Capture GraphQL calls for validation
+            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+                try:
+                    result = await real_stash_processor.process_creator_attachment(
+                        attachment=attachment,
+                        item=post,
+                        account=account,
                     )
-                    .where(Attachment.id == attachment.id)
-                )
-                async_attachment = result_query.unique().scalar_one()
-
-                account_query = await async_session.execute(
-                    select(Account).where(Account.id == account.id)
-                )
-                async_account = account_query.unique().scalar_one()
-
-                post_query = await async_session.execute(
-                    select(Post).where(Post.id == post.id)
-                )
-                async_post = post_query.unique().scalar_one()
-
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
-
-                # Capture GraphQL calls for validation
-                with capture_graphql_calls(
-                    real_stash_processor.context.client
-                ) as calls:
-                    try:
-                        result = await real_stash_processor.process_creator_attachment(
-                            attachment=async_attachment,
-                            item=async_post,
-                            account=async_account,
-                            session=async_session,
-                        )
-                    finally:
-                        dump_graphql_calls(
-                            calls, "test_process_creator_attachment_with_bundle"
-                        )
+                finally:
+                    dump_graphql_calls(
+                        calls, "test_process_creator_attachment_with_bundle"
+                    )
 
             # Cache-first: findImages may be served from store cache
             assert len(calls) >= 1, (
@@ -886,9 +775,8 @@ class TestMediaProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_aggregated_post(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         stash_cleanup_tracker,
     ):
         """Test process_creator_attachment with aggregated post attachment.
@@ -936,103 +824,80 @@ class TestMediaProcessingIntegration:
                 else datetime.now(UTC)
             )
 
-            # Process in async session - create all objects in async context
-            async with test_database_sync.async_session_scope() as async_session:
-                # Create account in async session
-                account = AccountFactory.build(username="aggregated_post_test_user")
-                async_session.add(account)
-                await async_session.flush()
+            # Create account
+            account = AccountFactory.build(username="aggregated_post_test_user")
+            await entity_store.save(account)
 
-                # Create parent post
-                parent_post = PostFactory.build(
-                    accountId=account.id, content="Parent post", createdAt=file_date
-                )
-                async_session.add(parent_post)
-                await async_session.flush()
+            # Create parent post
+            parent_post = PostFactory.build(
+                accountId=account.id, content="Parent post", createdAt=file_date
+            )
+            await entity_store.save(parent_post)
 
-                # Create aggregated post
-                agg_post = PostFactory.build(
-                    accountId=account.id,
-                    content="Aggregated post",
-                    createdAt=datetime(2000, 1, 1, tzinfo=UTC),
-                )
-                async_session.add(agg_post)
-                await async_session.flush()
+            # Create aggregated post
+            agg_post = PostFactory.build(
+                accountId=account.id,
+                content="Aggregated post",
+                createdAt=datetime(2000, 1, 1, tzinfo=UTC),
+            )
+            await entity_store.save(agg_post)
 
-                # Create media
-                media = MediaFactory.build(
-                    id=media_id,
-                    accountId=account.id,
-                    mimetype="image/jpeg",
-                    type=1,
-                    is_downloaded=True,
-                    stash_id=None,
-                    local_filename=image_file_path,
-                )
-                async_session.add(media)
-                await async_session.flush()
+            # Create media
+            media = MediaFactory.build(
+                id=media_id,
+                accountId=account.id,
+                mimetype="image/jpeg",
+                type=1,
+                is_downloaded=True,
+                stash_id=None,
+                local_filename=image_file_path,
+            )
+            await entity_store.save(media)
 
-                # Create AccountMedia
-                account_media = AccountMediaFactory.build(
-                    accountId=account.id, mediaId=media.id
-                )
-                async_session.add(account_media)
-                await async_session.flush()
+            # Create AccountMedia
+            account_media = AccountMediaFactory.build(
+                accountId=account.id, mediaId=media.id
+            )
+            await entity_store.save(account_media)
 
-                # Create attachment for aggregated post pointing to the media
-                agg_attachment = AttachmentFactory.build(
-                    contentId=account_media.id,
-                    contentType=ContentType.ACCOUNT_MEDIA,
-                    postId=agg_post.id,
-                )
-                async_session.add(agg_attachment)
-                await async_session.flush()
+            # Create attachment for aggregated post pointing to the media
+            agg_attachment = AttachmentFactory.build(
+                contentId=account_media.id,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                postId=agg_post.id,
+            )
+            await entity_store.save(agg_attachment)
 
-                # Create attachment for parent post with AGGREGATED_POSTS type
-                parent_attachment = AttachmentFactory.build(
-                    contentId=agg_post.id,
-                    contentType=ContentType.AGGREGATED_POSTS,
-                    postId=parent_post.id,
-                )
-                parent_attachment.aggregated_post = agg_post
-                async_session.add(parent_attachment)
-                await async_session.flush()
+            # Wire up aggregated post's attachments
+            agg_post.attachments = [agg_attachment]
 
-                # Load relationships using awaitable_attrs to avoid lazy loads in async context
-                if hasattr(parent_attachment, "awaitable_attrs"):
-                    await parent_attachment.awaitable_attrs.aggregated_post
-                    await parent_attachment.awaitable_attrs.media
-                    await parent_attachment.awaitable_attrs.bundle
-                if hasattr(agg_post, "awaitable_attrs"):
-                    await agg_post.awaitable_attrs.attachments
+            # Create attachment for parent post with AGGREGATED_POSTS type
+            parent_attachment = AttachmentFactory.build(
+                contentId=agg_post.id,
+                contentType=ContentType.AGGREGATED_POSTS,
+                postId=parent_post.id,
+            )
+            await entity_store.save(parent_attachment)
 
-                # Also need to load relationships on the aggregated post's attachments
-                # since they will be processed recursively
-                for agg_att in agg_post.attachments:
-                    if hasattr(agg_att, "awaitable_attrs"):
-                        await agg_att.awaitable_attrs.media
-                        await agg_att.awaitable_attrs.bundle
-                        await agg_att.awaitable_attrs.aggregated_post
+            # Wire up parent post's attachments
+            parent_post.attachments = [parent_attachment]
 
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
 
-                # Capture GraphQL calls for validation
-                with capture_graphql_calls(
-                    real_stash_processor.context.client
-                ) as calls:
-                    try:
-                        result = await real_stash_processor.process_creator_attachment(
-                            attachment=parent_attachment,
-                            item=parent_post,
-                            account=account,
-                            session=async_session,
-                        )
-                    finally:
-                        dump_graphql_calls(
-                            calls,
-                            "test_process_creator_attachment_with_aggregated_post",
-                        )
+            # Capture GraphQL calls for validation
+            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+                try:
+                    result = await real_stash_processor.process_creator_attachment(
+                        attachment=parent_attachment,
+                        item=parent_post,
+                        account=account,
+                    )
+                finally:
+                    dump_graphql_calls(
+                        calls,
+                        "test_process_creator_attachment_with_aggregated_post",
+                    )
 
             # Cache-first: findImages may be served from store cache
             assert len(calls) >= 1, (

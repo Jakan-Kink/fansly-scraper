@@ -10,9 +10,10 @@ from typing import Any
 from helpers.rich_progress import get_progress_manager
 
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-class BatchProcessingMixin:
+class BatchProcessingMixin(StashProcessingProtocol):
     """Worker pool processing utilities."""
 
     async def _setup_worker_pool(
@@ -32,17 +33,20 @@ class BatchProcessingMixin:
         # Get progress manager
         progress_mgr = get_progress_manager()
 
-        # Create progress tasks
+        # Create progress tasks (nested under parent if available)
+        parent_task_name = getattr(self, "_stash_parent_task", None)
         task_name = progress_mgr.add_task(
             name=f"add_{item_type}_tasks",
             description=f"Adding {len(items)} {item_type} tasks",
             total=len(items),
+            parent_task=parent_task_name,
             show_elapsed=False,
         )
         process_name = progress_mgr.add_task(
             name=f"process_{item_type}s",
             description=f"Processing {len(items)} {item_type}s",
             total=len(items),
+            parent_task=parent_task_name,
             show_elapsed=False,
         )
 
@@ -149,13 +153,17 @@ class BatchProcessingMixin:
                 for task in all_tasks:
                     self.config.get_background_tasks().append(task)
 
-            # Wait for all work to complete with timeout
+            # Wait for all work to complete with dynamic timeout
+            global_timeout = max(300, len(items) * 10)
             try:
-                # Add timeout to prevent indefinite hanging
-                await asyncio.wait_for(queue.join(), timeout=120)  # 2-minute timeout
+                await asyncio.wait_for(queue.join(), timeout=global_timeout)
                 await producer_task
                 await asyncio.gather(*consumers, return_exceptions=True)
             except TimeoutError:
+                logger.warning(
+                    f"Worker pool timed out after {global_timeout}s "
+                    f"with {queue.qsize()} items remaining"
+                )
                 # If timeout occurs, cancel all tasks
                 for task in all_tasks:
                     if not task.done():

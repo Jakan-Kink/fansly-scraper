@@ -10,6 +10,8 @@ from time import sleep
 
 import psutil
 
+from config.logging import textio_logger
+
 
 # Optional dependency for browser auth
 try:
@@ -96,8 +98,6 @@ def get_token_from_firefox_db(
             if not interactive:
                 # Do not forcefully close user's browser in non-interactive/scheduled mode.
                 return None
-
-            from config.logging import textio_logger
 
             textio_logger.opt(depth=1).log(
                 "CONFIG",
@@ -250,8 +250,6 @@ def close_browser_by_name(browser_name: str) -> None:
             closed = True
 
     if closed:
-        from config.logging import textio_logger
-
         textio_logger.opt(depth=1).log(
             "CONFIG", f"Successfully closed {browser_name} browser."
         )
@@ -321,8 +319,6 @@ def get_auth_token_from_leveldb_folder(
         if not interactive:
             # Do not forcefully close user's browser in non-interactive/scheduled mode.
             return None
-
-        from config.logging import textio_logger
 
         textio_logger.opt(depth=1).log(
             "CONFIG",

@@ -1,4 +1,6 @@
+import importlib.util
 import os
+from pathlib import Path
 from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, pool
@@ -23,17 +25,16 @@ if not config.get_main_option("sqlalchemy.url"):
     )
     config.set_main_option("sqlalchemy.url", db_url)
 
-# Import Base directly to avoid circular imports through metadata/__init__.py
-# This is safe for migrations since we only need the metadata, not the full app
-try:
-    from metadata.base import Base
-
-    target_metadata = Base.metadata
-except ImportError:
-    # Fallback if direct import fails
-    from metadata import Base
-
-    target_metadata = Base.metadata
+# Import SA Core table definitions directly from the file, bypassing
+# metadata/__init__.py to avoid circular imports through the ORM model chain.
+# tables.py is self-contained (only imports from sqlalchemy) so it loads cleanly.
+_spec = importlib.util.spec_from_file_location(
+    "metadata_tables",
+    Path(__file__).parent.parent / "metadata" / "tables.py",
+)
+_tables_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_tables_mod)
+target_metadata = _tables_mod.metadata
 
 
 def run_migrations_offline() -> None:

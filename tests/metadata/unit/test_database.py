@@ -50,22 +50,12 @@ class TestDatabaseInit:
         assert "postgresql://" in url
         assert f"{mock_config.pg_user}:@{mock_config.pg_host}" in url
 
-    def test_async_url_conversion(self, mock_config: FanslyConfig):
-        """Test that async URL is correctly derived from sync URL."""
-        db = Database(mock_config, skip_migrations=True)
-
-        # Sync URL should use psycopg2 (or no dialect specified)
-        assert "postgresql://" in db.db_url
-
-        # Async URL should use asyncpg
-        assert "postgresql+asyncpg://" in db.async_db_url
-
     def test_init_sets_config(self, mock_config: FanslyConfig):
         """Test that init properly stores configuration."""
         db = Database(mock_config, skip_migrations=True)
 
         assert db.config == mock_config
-        assert db.schema_name == "public"  # Always use public schema in PostgreSQL
+        assert "postgresql://" in db.db_url
 
     def test_skip_migrations_flag(self, mock_config: FanslyConfig):
         """Test that skip_migrations flag prevents running migrations."""

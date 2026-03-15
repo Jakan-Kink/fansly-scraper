@@ -1,8 +1,7 @@
 """Tests for the _process_item_gallery method.
 
-These tests mock at the HTTP boundary using respx, allowing real code execution
-through the entire processing pipeline. We verify that data flows correctly from
-database queries to GraphQL API calls.
+These tests use entity_store for database persistence and respx for HTTP mocking,
+following the Pydantic EntityStore migration patterns.
 """
 
 import json
@@ -10,9 +9,8 @@ import json
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
 
-from metadata import Account, ContentType, Post
+from metadata import ContentType
 from tests.fixtures import (
     AccountFactory,
     AccountMediaFactory,
@@ -31,26 +29,19 @@ class TestProcessItemGallery:
     @pytest.mark.asyncio
     async def test_process_item_gallery_no_attachments(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor,
     ):
         """Test _process_item_gallery returns early when no attachments."""
         # Create real Account and Post with no media
-        account = AccountFactory(id=12345, username="test_user")
-        post = PostFactory(id=67890, accountId=12345, content="Test post")
-        factory_async_session.commit()
-        await session.commit()
+        account = AccountFactory.build(id=12345, username="test_user")
+        await entity_store.save(account)
 
-        # Query fresh from async session
-        result = await session.execute(select(Account).where(Account.id == 12345))
-        account_obj = result.scalar_one()
-
-        result = await session.execute(select(Post).where(Post.id == 67890))
-        post_obj = result.unique().scalar_one()
+        post = PostFactory.build(id=67890, accountId=12345, content="Test post")
+        await entity_store.save(post)
 
         # Post has no attachments - method should return early
-        assert post_obj.attachments == []
+        assert post.attachments == []
 
         # Set up respx - expect NO calls for posts without attachments
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -61,16 +52,15 @@ class TestProcessItemGallery:
         performer = PerformerFactory.build(id="performer_123", name="test_user")
         studio = StudioFactory.build(id="studio_123", name="Test Studio")
 
-        # Call method
+        # Call method (no session= parameter)
         url_pattern = "https://test.com/{username}/post/{id}"
         await respx_stash_processor._process_item_gallery(
-            post_obj,
-            account_obj,
-            performer,
-            studio,
-            "post",
-            url_pattern,
-            session,
+            item=post,
+            account=account,
+            performer=performer,
+            studio=studio,
+            item_type="post",
+            url_pattern=url_pattern,
         )
 
         # Method returns early, no API calls made
@@ -81,57 +71,63 @@ class TestProcessItemGallery:
     @pytest.mark.asyncio
     async def test_process_item_gallery_with_media(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor,
     ):
         """Test _process_item_gallery processes posts with media and verifies data flow."""
-        # Create REAL Account and Post with proper attachments
-        account = AccountFactory(id=12345, username="test_user")
-        post = PostFactory(id=67890, accountId=12345, content="Test post #test")
+        # Create REAL Account
+        account = AccountFactory.build(id=12345, username="test_user")
+        await entity_store.save(account)
 
-        # Create REAL Media
-        media1 = MediaFactory(id=1001, accountId=12345, mimetype="image/jpeg")
-        media2 = MediaFactory(id=1002, accountId=12345, mimetype="video/mp4")
+        # Create REAL Media and save to entity_store (populates identity map)
+        media1 = MediaFactory.build(id=1001, accountId=12345, mimetype="image/jpeg")
+        media2 = MediaFactory.build(id=1002, accountId=12345, mimetype="video/mp4")
+        await entity_store.save(media1)
+        await entity_store.save(media2)
 
-        # Create REAL AccountMedia
-        account_media1 = AccountMediaFactory(id=2001, accountId=12345, mediaId=1001)
-        account_media2 = AccountMediaFactory(id=2002, accountId=12345, mediaId=1002)
+        # Create REAL AccountMedia and save (identity map resolves .media property)
+        account_media1 = AccountMediaFactory.build(
+            id=2001, accountId=12345, mediaId=1001
+        )
+        account_media2 = AccountMediaFactory.build(
+            id=2002, accountId=12345, mediaId=1002
+        )
+        await entity_store.save(account_media1)
+        await entity_store.save(account_media2)
 
-        # Create REAL Attachments linking to AccountMedia
-        AttachmentFactory(
+        # Create REAL Attachments linking to AccountMedia via contentId
+        # Attachment.media is a read-only property that resolves via identity map
+        att1 = AttachmentFactory.build(
             id=3001,
             postId=67890,
-            contentId=2001,
+            contentId=2001,  # Points to AccountMedia.id in identity map
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
-        AttachmentFactory(
+
+        att2 = AttachmentFactory.build(
             id=3002,
             postId=67890,
-            contentId=2002,
+            contentId=2002,  # Points to AccountMedia.id in identity map
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=1,
         )
 
-        # Create hashtag and associate with post
-        hashtag = HashtagFactory(id=4001, value="test")
-        post.hashtags = [hashtag]
+        # Create hashtag
+        hashtag = HashtagFactory.build(id=4001, value="test")
+        await entity_store.save(hashtag)
 
-        factory_async_session.commit()
-        await session.commit()
-
-        # Query fresh from async session
-        result = await session.execute(select(Account).where(Account.id == 12345))
-        account_obj = result.scalar_one()
-
-        result = await session.execute(select(Post).where(Post.id == 67890))
-        post_obj = result.unique().scalar_one()
+        # Create post and add attachments/hashtags via _add_to_relationship.
+        # Direct assignment (post.attachments = [...]) triggers validate_assignment
+        # which re-runs _prepare_post_data and filters non-dict attachments to [].
+        post = PostFactory.build(id=67890, accountId=12345, content="Test post #test")
+        await post._add_to_relationship("attachments", att1)
+        await post._add_to_relationship("attachments", att2)
+        await post._add_to_relationship("hashtags", hashtag)
 
         # Verify post has attachments and hashtags
-        assert len(post_obj.attachments) == 2
-        await post_obj.awaitable_attrs.hashtags
-        assert len(post_obj.hashtags) == 1
+        assert len(post.attachments) == 2
+        assert len(post.hashtags) == 1
 
         # Create real Performer and Studio
         performer = PerformerFactory.build(id="performer_123", name="test_user")
@@ -164,16 +160,15 @@ class TestProcessItemGallery:
             side_effect=[generic_response] * 30  # Enough for all operations
         )
 
-        # Call method - let it execute fully to HTTP boundary
+        # Call method - let it execute fully to HTTP boundary (no session= parameter)
         url_pattern = "https://fansly.com/{username}/post/{id}"
         await respx_stash_processor._process_item_gallery(
-            post_obj,
-            account_obj,
-            performer,
-            studio,
-            "post",
-            url_pattern,
-            session,
+            item=post,
+            account=account,
+            performer=performer,
+            studio=studio,
+            item_type="post",
+            url_pattern=url_pattern,
         )
 
         # Verify GraphQL calls were made

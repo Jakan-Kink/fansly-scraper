@@ -1,6 +1,6 @@
 """Tests for common download functionality."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -12,16 +12,18 @@ from download.common import (
 )
 from download.types import DownloadType
 from errors import ApiError, DuplicateCountError, DuplicatePageError
+from metadata.models import Account, Media, Post
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.fixture
 def info_object():
     """Create a test info object with media IDs."""
     return {
-        "accountMedia": [{"id": "media1"}, {"id": "media2"}],
+        "accountMedia": [{"id": 100001}, {"id": 100002}],
         "accountMediaBundles": [
-            {"accountMediaIds": ["media2", "media3"]},
-            {"accountMediaIds": ["media4", "media5"]},
+            {"accountMediaIds": [100002, 100003]},
+            {"accountMediaIds": [100004, 100005]},
         ],
     }
 
@@ -33,47 +35,31 @@ def empty_info_object():
 
 
 @pytest.fixture
-def media_infos():
-    """Create test media info objects."""
+def accessible_media():
+    """Create test Media objects for process_download_accessible_media."""
+    account_id = snowflake_id()
     return [
-        {
-            "id": "media1",
-            "contentType": "photo",
-            "contentUrl": "http://example.com/photo1.jpg",
-            "createdAt": "2025-01-01T00:00:00Z",
-            "isPreview": False,
-        },
-        {
-            "id": "media2",
-            "contentType": "video",
-            "contentUrl": "http://example.com/video1.mp4",
-            "createdAt": "2025-01-01T00:00:00Z",
-            "isPreview": True,
-        },
+        Media(
+            id=snowflake_id(),
+            accountId=account_id,
+            mimetype="image/jpeg",
+            download_url="http://example.com/photo1.jpg",
+            is_preview=False,
+        ),
+        Media(
+            id=snowflake_id(),
+            accountId=account_id,
+            mimetype="video/mp4",
+            download_url="http://example.com/video1.mp4",
+            is_preview=True,
+        ),
     ]
-
-
-@pytest.fixture
-def mock_process_media():
-    """Mock for process_media_info function."""
-    with patch("download.common.process_media_info") as mock:
-        yield mock
-
-
-@pytest.fixture
-def mock_parse_media():
-    """Mock for parse_media_info function."""
-    with patch("download.common.parse_media_info") as mock:
-        mock.return_value = MagicMock(
-            download_url="http://example.com/test.mp4", is_preview=False
-        )
-        yield mock
 
 
 @pytest.fixture
 def mock_download_media():
     """Mock for download_media function."""
-    with patch("download.common.download_media") as mock:
+    with patch("download.common.download_media", new_callable=AsyncMock) as mock:
         yield mock
 
 
@@ -96,7 +82,7 @@ def test_get_unique_media_ids_with_duplicates(info_object):
     """Test extracting unique media IDs from object with duplicates."""
     unique_ids = get_unique_media_ids(info_object)
     assert len(unique_ids) == 5
-    assert set(unique_ids) == {"media1", "media2", "media3", "media4", "media5"}
+    assert set(unique_ids) == {100001, 100002, 100003, 100004, 100005}
 
 
 def test_get_unique_media_ids_empty(empty_info_object):
@@ -118,7 +104,7 @@ async def test_check_page_duplicates_disabled(mock_config, download_state):
     mock_config.use_pagination_duplication = False
     page_data = {"posts": [{"id": 1}]}
 
-    # Should not raise any exceptions
+    # Should not raise any exceptions (early return)
     await check_page_duplicates(mock_config, page_data, "timeline")
 
 
@@ -132,43 +118,51 @@ async def test_check_page_duplicates_empty_posts(mock_config, download_state):
 
 
 @pytest.mark.asyncio
-async def test_check_page_duplicates_wall(mock_config, test_async_session):
-    """Test duplicate checking for wall pages."""
-    page_data = {"posts": [{"id": 1}]}
+async def test_check_page_duplicates_missing_posts_key(mock_config, download_state):
+    """Test handling of page_data without posts key."""
+    mock_config.use_pagination_duplication = True
+    page_data = {"other_data": "value"}  # No "posts" key
 
-    # Should not raise exception for new post
+    # Should not raise any exceptions (early return)
+    await check_page_duplicates(mock_config, page_data, "timeline")
+
+
+@pytest.mark.asyncio
+async def test_check_page_duplicates_wall(mock_config, entity_store):
+    """Test duplicate checking for wall pages with new (uncached) post."""
+    mock_config.use_pagination_duplication = True
+    post_id = snowflake_id()
+    page_data = {"posts": [{"id": post_id}]}
+
+    # Post not in store cache → no duplicate → should not raise
     await check_page_duplicates(
         mock_config,
         page_data,
         "wall",
         page_id="wall1",
         cursor="123",
-        session=test_async_session,
     )
 
 
 @pytest.mark.asyncio
-async def test_check_page_duplicates_all_existing(mock_config, test_async_session):
-    """Test duplicate checking when all posts exist."""
-    # Enable pagination duplication checking
+async def test_check_page_duplicates_all_existing(mock_config, entity_store):
+    """Test duplicate checking when all posts exist in store cache."""
     mock_config.use_pagination_duplication = True
 
-    page_data = {"posts": [{"id": 1}]}
+    account_id = snowflake_id()
+    post_id = snowflake_id()
 
-    class ExistingPostSession(test_async_session.__class__):
-        async def execute(self, statement):
-            class Result:
-                def scalar_one_or_none(self):
-                    return 1  # Simulates existing post
+    # Pre-populate the store so the post is in the identity map cache
+    await entity_store.save(Account(id=account_id, username="dupetest"))
+    await entity_store.save(Post(id=post_id, accountId=account_id))
 
-            return Result()
+    page_data = {"posts": [{"id": post_id}]}
 
-    session = ExistingPostSession()
-
-    with pytest.raises(DuplicatePageError) as exc_info:
-        await check_page_duplicates(
-            mock_config, page_data, "timeline", cursor="123", session=session
-        )
+    with (
+        pytest.raises(DuplicatePageError) as exc_info,
+        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        await check_page_duplicates(mock_config, page_data, "timeline", cursor="123")
 
     assert exc_info.value.page_type == "timeline"
     assert exc_info.value.cursor == "123"
@@ -178,61 +172,27 @@ async def test_check_page_duplicates_all_existing(mock_config, test_async_sessio
 async def test_process_download_accessible_media_basic(
     mock_config,
     download_state,
-    media_infos,
-    test_async_session,
-    mock_process_media,
-    mock_parse_media,
+    accessible_media,
     mock_download_media,
     mock_set_create_directory,
 ):
-    """Test basic media processing without previews."""
-    mock_config.download_media_previews = False
+    """Test basic media processing."""
     result = await process_download_accessible_media(
-        mock_config, download_state, media_infos, session=test_async_session
+        mock_config, download_state, accessible_media
     )
 
     assert result is True
-    mock_process_media.assert_called_once()
-    mock_parse_media.assert_called()
-    mock_download_media.assert_called_once()
-    mock_set_create_directory.assert_called_once_with(mock_config, download_state)
-    assert download_state.pic_count == 0  # Counter is handled by mocked download_media
-
-
-@pytest.mark.asyncio
-async def test_process_download_accessible_media_with_previews(
-    mock_config,
-    download_state,
-    media_infos,
-    test_async_session,
-    mock_process_media,
-    mock_parse_media,
-    mock_download_media,
-    mock_set_create_directory,
-):
-    """Test media processing with previews enabled."""
-    mock_config.download_media_previews = True
-    result = await process_download_accessible_media(
-        mock_config, download_state, media_infos, session=test_async_session
+    mock_download_media.assert_awaited_once_with(
+        mock_config, download_state, accessible_media
     )
-
-    assert result is True
-    mock_process_media.assert_called_once()
-    mock_parse_media.assert_called()
-    mock_download_media.assert_called_once()
     mock_set_create_directory.assert_called_once_with(mock_config, download_state)
-    assert download_state.pic_count == 0
-    assert download_state.vid_count == 0  # Counter is handled by mocked download_media
 
 
 @pytest.mark.asyncio
 async def test_process_download_accessible_media_messages(
     mock_config,
     download_state,
-    media_infos,
-    test_async_session,
-    mock_process_media,
-    mock_parse_media,
+    accessible_media,
     mock_download_media,
     mock_set_create_directory,
 ):
@@ -240,28 +200,23 @@ async def test_process_download_accessible_media_messages(
     download_state.download_type = DownloadType.MESSAGES
     download_state.total_message_items = 100
 
-    # Original threshold should be preserved after processing
     original_threshold = mock_config.DUPLICATE_THRESHOLD
 
     result = await process_download_accessible_media(
-        mock_config, download_state, media_infos, session=test_async_session
+        mock_config, download_state, accessible_media
     )
 
     assert result is True
     assert original_threshold == mock_config.DUPLICATE_THRESHOLD  # Should be restored
-    assert (
-        download_state.total_message_items == 102
-    )  # Increased by accessible media count
+    # Increased by accessible media count (2 items)
+    assert download_state.total_message_items == 102
 
 
 @pytest.mark.asyncio
 async def test_process_download_accessible_media_wall(
     mock_config,
     download_state,
-    media_infos,
-    test_async_session,
-    mock_process_media,
-    mock_parse_media,
+    accessible_media,
     mock_download_media,
     mock_set_create_directory,
 ):
@@ -270,13 +225,11 @@ async def test_process_download_accessible_media_wall(
     original_threshold = mock_config.DUPLICATE_THRESHOLD
 
     result = await process_download_accessible_media(
-        mock_config, download_state, media_infos, session=test_async_session
+        mock_config, download_state, accessible_media
     )
 
     assert result is True
-    mock_process_media.assert_called_once()
-    mock_parse_media.assert_called()
-    mock_download_media.assert_called_once()
+    mock_download_media.assert_awaited_once()
     mock_set_create_directory.assert_called_once_with(mock_config, download_state)
     assert original_threshold == mock_config.DUPLICATE_THRESHOLD  # Should be restored
 
@@ -285,21 +238,17 @@ async def test_process_download_accessible_media_wall(
 async def test_process_download_accessible_media_duplicate_error(
     mock_config_update,
     download_state,
-    media_infos,
-    test_async_session,
-    mock_process_media,
-    mock_parse_media,
+    accessible_media,
     mock_download_media,
     mock_set_create_directory,
 ):
     """Test handling of DuplicateCountError during download."""
     download_state.download_type = DownloadType.TIMELINE
 
-    # Mock download_media to raise DuplicateCountError with required duplicate_count
     mock_download_media.side_effect = DuplicateCountError(duplicate_count=5)
 
     result = await process_download_accessible_media(
-        mock_config_update, download_state, media_infos, session=test_async_session
+        mock_config_update, download_state, accessible_media
     )
 
     assert result is False  # Should indicate to stop processing for timeline
@@ -309,18 +258,15 @@ async def test_process_download_accessible_media_duplicate_error(
 async def test_process_download_accessible_media_general_error(
     mock_config_update,
     download_state,
-    media_infos,
-    test_async_session,
-    mock_process_media,
-    mock_parse_media,
+    accessible_media,
     mock_download_media,
     mock_set_create_directory,
 ):
     """Test handling of general errors during download."""
     mock_download_media.side_effect = Exception("Test error")
-    # Should not raise exception but print error and continue
+
     result = await process_download_accessible_media(
-        mock_config_update, download_state, media_infos, session=test_async_session
+        mock_config_update, download_state, accessible_media
     )
 
     assert result is True  # Should continue processing
@@ -335,14 +281,12 @@ def test_print_download_info(mock_config):
     mock_config.download_media_previews = True
     mock_config.interactive = False
 
-    # Since we're using loguru for logging, we need to patch the print functions
     with (
         patch("download.common.print_info") as mock_print_info,
         patch("download.common.print_warning") as mock_print_warning,
     ):
         print_download_info(mock_config)
 
-        # Check that print_info was called with expected messages
         mock_print_info.assert_any_call(
             f"Using user-agent: '{mock_config.user_agent[:28]} [...] {mock_config.user_agent[-35:]}'"
         )
@@ -353,7 +297,6 @@ def test_print_download_info(mock_config):
             f"Downloading files marked as preview, is set to: '{mock_config.download_media_previews}'"
         )
 
-        # Check that print_warning was called for preview warning
         mock_print_warning.assert_called_once_with(
             "Previews downloading is enabled; repetitive and/or emoji spammed media might be downloaded!"
         )

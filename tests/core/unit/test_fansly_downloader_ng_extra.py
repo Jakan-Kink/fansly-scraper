@@ -85,11 +85,15 @@ async def test_load_client_account_into_db_success():
     fake_api = MagicMock()
     fake_response = MagicMock()
 
-    # Structure the response correctly to match what the function expects
-    # The function is looking for json["response"][0], not json["response"]["account"]
+    # json() is called for json_output logging; get_json_response_contents
+    # handles the actual unwrap + ID-to-int conversion
     fake_response.json.return_value = {"response": [{"id": 1, "name": "test_creator"}]}
 
     fake_api.get_creator_account_info.return_value = fake_response
+    # get_json_response_contents validates + unwraps + converts IDs to int
+    fake_api.get_json_response_contents.return_value = [
+        {"id": 1, "name": "test_creator"}
+    ]
 
     config = MagicMock(spec=FanslyConfig)
     config.get_api.return_value = fake_api

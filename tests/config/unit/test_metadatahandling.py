@@ -53,6 +53,17 @@ class TestMetadataHandling:
         with pytest.raises(ValueError, match="invalid_value"):
             MetadataHandling("invalid_value")
 
+    def test_missing_with_non_string(self):
+        """Test _missing_ returns None for non-string values (branch 17→22)."""
+        # Test with integer
+        assert MetadataHandling._missing_(123) is None
+
+        # Test with None
+        assert MetadataHandling._missing_(None) is None
+
+        # Test with list
+        assert MetadataHandling._missing_([]) is None
+
     def test_string_representation(self):
         """Test string representation of enum values."""
         assert str(MetadataHandling.ADVANCED) == "ADVANCED"

@@ -6,9 +6,8 @@ import traceback
 from asyncio import sleep
 
 from httpx import Response
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import FanslyConfig, with_database_session
+from config import FanslyConfig
 from errors import ApiError, DuplicatePageError
 from helpers.timer import timing_jitter
 from metadata import process_timeline_posts
@@ -26,8 +25,7 @@ from .common import (
     process_download_accessible_media,
 )
 from .core import DownloadState
-from .media import download_media_infos
-from .transaction import in_transaction_or_new
+from .media import fetch_and_process_media
 from .types import DownloadType
 
 
@@ -36,51 +34,41 @@ async def process_timeline_data(
     state: DownloadState,
     timeline: dict,
     timeline_cursor: int,
-    session: AsyncSession,
 ) -> None:
-    """Process timeline data with proper transaction management.
+    """Process timeline data — check for duplicates and persist posts.
 
     Args:
         config: FanslyConfig instance
         state: Current download state
         timeline: Timeline data from API
         timeline_cursor: Current timeline cursor
-        session: Database session
     """
-    # Check for duplicates before processing posts
     await check_page_duplicates(
         config=config,
         page_data=timeline,
         page_type="timeline",
         page_id=state.creator_id,
         cursor=timeline_cursor if timeline_cursor != 0 else None,
-        session=session,
     )
-    await session.flush()
 
-    # Only process posts if no duplicates found
     await process_timeline_posts(
         config,
         state,
         timeline,
-        session=session,
     )
-    await session.flush()
 
 
 async def process_timeline_media(
     config: FanslyConfig,
     state: DownloadState,
     all_media_ids: list[str],
-    session: AsyncSession,
 ) -> bool:
-    """Process timeline media with proper transaction management.
+    """Process timeline media — fetch info and download accessible items.
 
     Args:
         config: FanslyConfig instance
         state: Current download state
         all_media_ids: List of media IDs to download
-        session: Database session
 
     Returns:
         True if processing should continue, False if it should stop
@@ -88,36 +76,19 @@ async def process_timeline_media(
     # Reset batch duplicate counter for new batch
     state.start_batch()
 
-    media_infos = await download_media_infos(
-        config=config,
-        state=state,
-        media_ids=all_media_ids,
-        session=session,
-    )
-    await session.flush()
-
-    results = await process_download_accessible_media(
-        config,
-        state,
-        media_infos,
-        session=session,
-    )
-    await session.flush()
-    return results
+    accessible = await fetch_and_process_media(config, state, all_media_ids)
+    return await process_download_accessible_media(config, state, accessible)
 
 
-@with_database_session(async_session=True)
 async def download_timeline(
     config: FanslyConfig,
     state: DownloadState,
-    session: AsyncSession | None = None,
 ) -> None:
     """Download timeline posts and media.
 
     Args:
         config: FanslyConfig instance
         state: Current download state
-        session: Optional AsyncSession for database operations
 
     Raises:
         DuplicatePageError: If all posts on a page are already in metadata
@@ -168,12 +139,7 @@ async def download_timeline(
                     timeline_response
                 )
 
-                # Process timeline data with proper transaction management
-                await in_transaction_or_new(
-                    session,
-                    process_timeline_data,
-                    config.debug,
-                    "timeline data processing",
+                await process_timeline_data(
                     config,
                     state,
                     timeline,
@@ -199,12 +165,7 @@ async def download_timeline(
                 # Reset attempts eg. new timeline
                 attempts = 0
 
-                # Process timeline media with proper transaction management
-                should_continue = await in_transaction_or_new(
-                    session,
-                    process_timeline_media,
-                    config.debug,
-                    "media processing",
+                should_continue = await process_timeline_media(
                     config,
                     state,
                     all_media_ids,
@@ -225,7 +186,6 @@ async def download_timeline(
                     )
 
                 print()
-                await session.commit()
 
                 # get next timeline_cursor
                 try:

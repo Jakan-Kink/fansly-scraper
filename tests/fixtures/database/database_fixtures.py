@@ -17,7 +17,6 @@ import time
 import uuid
 from collections.abc import (
     AsyncGenerator,
-    Awaitable,
     Callable,
     Coroutine,
     Generator,
@@ -32,7 +31,7 @@ from urllib.parse import quote_plus
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Connection, ExecutionContext
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -47,14 +46,13 @@ from metadata import (
     Account,
     AccountMedia,
     AccountMediaBundle,
-    Base,
     Database,
     Media,
     Message,
     Post,
     Wall,
-    account_media_bundle_media,
 )
+from metadata.tables import metadata as table_metadata
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaBundleFactory,
@@ -81,6 +79,7 @@ __all__ = [
     "config",
     "config_with_database",
     "conversation_data",
+    "entity_store",
     "factory_async_session",
     "factory_session",
     "json_conversation_data",
@@ -450,7 +449,7 @@ async def test_engine(uuid_test_db_factory) -> AsyncGenerator[AsyncEngine, None]
 
     # Create tables
     try:
-        Base.metadata.create_all(sync_engine, checkfirst=True)
+        table_metadata.create_all(sync_engine, checkfirst=True)
     except Exception as e:
         # Ignore "already exists" errors that can occur with parallel test execution
         if "already exists" not in str(e).lower():
@@ -495,7 +494,7 @@ async def test_async_session(
 
     # Create all tables
     try:
-        Base.metadata.create_all(sync_engine, checkfirst=True)
+        table_metadata.create_all(sync_engine, checkfirst=True)
     except Exception as e:
         # Ignore "already exists" errors that can occur with parallel test execution
         if "already exists" not in str(e).lower():
@@ -564,6 +563,32 @@ def config_with_database(uuid_test_db_factory) -> FanslyConfig:
     config._database = Database(config, skip_migrations=True)
 
     return config
+
+
+@pytest_asyncio.fixture
+async def entity_store(config):
+    """Create a PostgresEntityStore backed by an isolated test database.
+
+    Provides the Pydantic EntityStore for tests that don't need SA sessions.
+    Each test gets its own PostgreSQL database (via config → uuid_test_db_factory),
+    with tables created and an asyncpg pool connected.
+
+    The store is registered as the global singleton (FanslyObject._store),
+    so code calling get_store() will use this store.
+    """
+    from metadata.models import FanslyObject
+
+    db = Database(config, skip_migrations=True)
+    table_metadata.create_all(db._sync_engine)
+    store = await db.create_entity_store()
+
+    yield store
+
+    # Cleanup: unregister global store, close pools
+    FanslyObject._store = None
+    if db._asyncpg_pool:
+        await db._asyncpg_pool.close()
+    db.close_sync()
 
 
 @pytest.fixture
@@ -660,222 +685,166 @@ def session_sync(test_database_sync: Database) -> Generator[Session, None, None]
                 session.rollback()  # Rollback on error
 
 
-async def create_test_entity(
-    session: AsyncSession,
-    entity_class: type[T],
-    test_name: str,
-    create_func: Callable[[AsyncSession, int], Awaitable[T]],
-) -> T:
-    """Generic function to create test entities with proper error handling."""
-    # Generate unique ID based on test name
-    # Generate unique ID based on full test name and class name
-    test_name = test_name.replace("::", "_")  # Replace :: with _ for class methods
-    unique_id = (
+def _generate_unique_id(test_name: str) -> int:
+    """Generate a unique ID based on test name for fixture isolation."""
+    test_name = test_name.replace("::", "_")
+    return (
         int(hashlib.sha1(test_name.encode(), usedforsecurity=False).hexdigest()[:8], 16)
         % 1000000
     )
 
-    # Check if entity already exists
-    result = await session.execute(
-        select(entity_class).where(entity_class.id == unique_id)  # type: ignore[attr-defined]
-    )
-    existing = result.scalar_one_or_none()
-    if existing:
-        return existing
 
-    # Create new entity
-    try:
-        entity = await create_func(session, unique_id)
-        session.add(entity)
-        await session.commit()
-        await session.refresh(entity)
-    except Exception as e:
-        await session.rollback()
-        raise RuntimeError(f"Failed to create test {entity_class.__name__}: {e}") from e
-    else:
-        return entity
-
-
-@pytest.fixture
-async def test_account(session: AsyncSession, request) -> Account:
-    """Create a test account with enhanced error handling."""
-
-    async def create_account(session: AsyncSession, unique_id: int) -> Account:
-        return Account(
-            id=unique_id,
-            username=f"test_user_{unique_id}",
-            displayName=f"Test User {unique_id}",
-            about="Test account for automated testing",
-            location="Test Location",
-            createdAt=datetime.now(UTC),
-        )
-
-    # Handle both class and function test cases
+@pytest_asyncio.fixture
+async def test_account(entity_store, request) -> Account:
+    """Create a test account via EntityStore with unique ID per test."""
     test_name = request.node.name
     if request.node.cls is not None:
         test_name = f"{request.node.cls.__name__}_{test_name}"
-    return await create_test_entity(
-        session,
-        Account,
-        test_name,
-        create_account,
+    unique_id = _generate_unique_id(test_name)
+
+    existing = await entity_store.get(Account, unique_id)
+    if existing:
+        return existing
+
+    account = Account(
+        id=unique_id,
+        username=f"test_user_{unique_id}",
+        displayName=f"Test User {unique_id}",
+        about="Test account for automated testing",
+        location="Test Location",
+        createdAt=datetime.now(UTC),
     )
+    await entity_store.save(account)
+    return account
 
 
-@pytest.fixture
-async def test_media(session: AsyncSession, test_account: Account) -> Media:
-    """Create a test media item with enhanced attributes."""
+@pytest_asyncio.fixture
+async def test_media(entity_store, test_account: Account) -> Media:
+    """Create a test media item via EntityStore."""
+    unique_id = _generate_unique_id(f"media_{test_account.id}")
 
-    async def create_media(session: AsyncSession, unique_id: int) -> Media:
-        return Media(
-            id=unique_id,
-            accountId=test_account.id,
-            mimetype="video/mp4",
-            width=1920,
-            height=1080,
-            duration=30.5,
-            content_hash="test_hash",  # Use content_hash instead of hash
-            location="https://example.com/test.mp4",  # Use location instead of url
-            createdAt=datetime.now(UTC),
-        )
+    existing = await entity_store.get(Media, unique_id)
+    if existing:
+        return existing
 
-    return await create_test_entity(
-        session,
-        Media,
-        f"media_{test_account.id}",
-        create_media,
+    media = Media(
+        id=unique_id,
+        accountId=test_account.id,
+        mimetype="video/mp4",
+        width=1920,
+        height=1080,
+        duration=30.5,
+        content_hash="test_hash",
+        location="https://example.com/test.mp4",
+        createdAt=datetime.now(UTC),
     )
+    await entity_store.save(media)
+    return media
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_account_media(
-    session: AsyncSession, test_account: Account, test_media: Media
+    entity_store, test_account: Account, test_media: Media
 ) -> AccountMedia:
-    """Create a test account media association with enhanced attributes."""
+    """Create a test account media association via EntityStore."""
+    unique_id = _generate_unique_id(f"account_media_{test_account.id}_{test_media.id}")
 
-    async def create_account_media(
-        session: AsyncSession, unique_id: int
-    ) -> AccountMedia:
-        return AccountMedia(
-            id=unique_id,
-            accountId=test_account.id,
-            mediaId=test_media.id,
-            createdAt=datetime.now(UTC),
-            deleted=False,
-            access=True,
-        )
+    existing = await entity_store.get(AccountMedia, unique_id)
+    if existing:
+        return existing
 
-    return await create_test_entity(
-        session,
-        AccountMedia,
-        f"account_media_{test_account.id}_{test_media.id}",
-        create_account_media,
+    account_media = AccountMedia(
+        id=unique_id,
+        accountId=test_account.id,
+        mediaId=test_media.id,
+        createdAt=datetime.now(UTC),
+        deleted=False,
+        access=True,
     )
+    await entity_store.save(account_media)
+    return account_media
 
 
-@pytest.fixture
-async def test_post(session: AsyncSession, test_account: Account) -> Post:
-    """Create a test post with enhanced attributes."""
+@pytest_asyncio.fixture
+async def test_post(entity_store, test_account: Account) -> Post:
+    """Create a test post via EntityStore."""
+    unique_id = _generate_unique_id(f"post_{test_account.id}")
 
-    async def create_post(session: AsyncSession, unique_id: int) -> Post:
-        return Post(
-            id=unique_id,
-            accountId=test_account.id,
-            content="Test post content",
-            createdAt=datetime.now(UTC),
-            fypFlag=0,
-        )
+    existing = await entity_store.get(Post, unique_id)
+    if existing:
+        return existing
 
-    return await create_test_entity(
-        session,
-        Post,
-        f"post_{test_account.id}",
-        create_post,
+    post = Post(
+        id=unique_id,
+        accountId=test_account.id,
+        content="Test post content",
+        createdAt=datetime.now(UTC),
+        fypFlag=0,
     )
+    await entity_store.save(post)
+    return post
 
 
-@pytest.fixture
-async def test_wall(session: AsyncSession, test_account: Account) -> Wall:
-    """Create a test wall with enhanced attributes."""
+@pytest_asyncio.fixture
+async def test_wall(entity_store, test_account: Account) -> Wall:
+    """Create a test wall via EntityStore."""
+    unique_id = _generate_unique_id(f"wall_{test_account.id}")
 
-    async def create_wall(session: AsyncSession, unique_id: int) -> Wall:
-        return Wall(
-            id=unique_id,
-            accountId=test_account.id,
-            name=f"Test Wall {unique_id}",
-            description="Test wall description",
-            pos=1,
-            createdAt=datetime.now(UTC),
-        )
+    existing = await entity_store.get(Wall, unique_id)
+    if existing:
+        return existing
 
-    return await create_test_entity(
-        session,
-        Wall,
-        f"wall_{test_account.id}",
-        create_wall,
+    wall = Wall(
+        id=unique_id,
+        accountId=test_account.id,
+        name=f"Test Wall {unique_id}",
+        description="Test wall description",
+        pos=1,
+        createdAt=datetime.now(UTC),
     )
+    await entity_store.save(wall)
+    return wall
 
 
-@pytest.fixture
-async def test_message(session: AsyncSession, test_account: Account) -> Message:
-    """Create a test message with enhanced attributes."""
+@pytest_asyncio.fixture
+async def test_message(entity_store, test_account: Account) -> Message:
+    """Create a test message via EntityStore."""
+    unique_id = _generate_unique_id(f"message_{test_account.id}")
 
-    async def create_message(session: AsyncSession, unique_id: int) -> Message:
-        return Message(
-            id=unique_id,
-            senderId=test_account.id,
-            content="Test message content",
-            createdAt=datetime.now(UTC),
-            deleted=False,
-        )
+    existing = await entity_store.get(Message, unique_id)
+    if existing:
+        return existing
 
-    return await create_test_entity(
-        session,
-        Message,
-        f"message_{test_account.id}",
-        create_message,
+    message = Message(
+        id=unique_id,
+        senderId=test_account.id,
+        content="Test message content",
+        createdAt=datetime.now(UTC),
+        deleted=False,
     )
+    await entity_store.save(message)
+    return message
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_bundle(
-    session: AsyncSession,
-    test_account: Account,
-    test_media: Media,
+    entity_store, test_account: Account, test_media: Media
 ) -> AccountMediaBundle:
-    """Create a test media bundle with enhanced attributes."""
+    """Create a test media bundle via EntityStore."""
+    unique_id = _generate_unique_id(f"bundle_{test_account.id}")
 
-    async def create_bundle(
-        session: AsyncSession, unique_id: int
-    ) -> AccountMediaBundle:
-        bundle = AccountMediaBundle(
-            id=unique_id,
-            accountId=test_account.id,
-            createdAt=datetime.now(UTC),
-            deleted=False,
-            access=True,
-            purchased=False,
-            whitelisted=False,
-        )
-        session.add(bundle)
-        await session.flush()
+    existing = await entity_store.get(AccountMediaBundle, unique_id)
+    if existing:
+        return existing
 
-        # Add media to bundle
-        await session.execute(
-            account_media_bundle_media.insert().values(
-                bundle_id=bundle.id,
-                media_id=test_media.id,
-                pos=1,
-            )
-        )
-        return bundle
-
-    return await create_test_entity(
-        session,
-        AccountMediaBundle,
-        f"bundle_{test_account.id}",
-        create_bundle,
+    bundle = AccountMediaBundle(
+        id=unique_id,
+        accountId=test_account.id,
+        createdAt=datetime.now(UTC),
+        deleted=False,
     )
+    await entity_store.save(bundle)
+    return bundle
 
 
 @pytest.fixture

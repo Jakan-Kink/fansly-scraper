@@ -286,6 +286,7 @@ class TestFanslyConfig:
                 device_id_timestamp=config.cached_device_id_timestamp,
                 on_device_updated=config._save_config,
                 rate_limiter=mock_rate_limiter,
+                config=config,
             )
             assert result is mock_api
             assert config._api is mock_api

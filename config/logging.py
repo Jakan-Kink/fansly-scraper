@@ -21,6 +21,8 @@ from typing import Any
 
 from loguru import logger
 
+from errors import InvalidTraceLogError
+
 
 if sys.platform == "win32":
     # Set console mode to handle UTF-8
@@ -271,8 +273,6 @@ _early_sqlalchemy_suppression()
 def _trace_level_only(record: Any) -> bool:
     """Filter to ensure trace_logger only receives TRACE level messages."""
     if record["level"].no != _LEVEL_VALUES["TRACE"]:
-        from errors import InvalidTraceLogError
-
         raise InvalidTraceLogError(record["level"].name)
     return True
 
@@ -342,15 +342,53 @@ def setup_handlers() -> None:
 
         return logger_type == "textio"
 
-    handler_id = logger.add(
-        sys.stdout,
-        format="<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>",
+    # Use RichHandler via shared console so log output coordinates with
+    # the ProgressManager's Live display (prevents striped/duplicated bars).
+    # Falls back to sys.stdout if Rich integration is unavailable.
+    format_record: Any
+    console_sink: Any
+    use_colorize: bool
+    try:
+        from helpers.rich_progress import create_rich_handler
+
+        level_styles = {
+            str(data["name"]): str(data["color"]).strip("<>")
+            for _name, data in _CUSTOM_LEVELS.items()
+            if isinstance(data["color"], str) and isinstance(data["name"], str)
+        }
+        console_sink = create_rich_handler(level_styles=level_styles)
+
+        def format_record(record: Any) -> str:
+            level_name = record["level"].name
+            level_data = next(
+                (
+                    data
+                    for _n, data in _CUSTOM_LEVELS.items()
+                    if data["name"] == level_name
+                ),
+                None,
+            )
+            icon = level_data["icon"] if level_data else "●"
+            safe_msg = str(record["message"]).replace("{", "{{").replace("}", "}}")
+            return f"{icon} {safe_msg}"
+
+        # RichHandler handles its own coloring — disable loguru's ANSI injection
+        use_colorize = False
+    except Exception:
+        # Fallback to raw stdout if Rich integration fails for any reason
+        console_sink = sys.stdout
+        format_record = "<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>"
+        use_colorize = True
+
+    handler_id = logger.add(  # type: ignore[call-overload]
+        sink=console_sink,
+        format=format_record,
         level=get_log_level("textio", "INFO"),
         filter=textio_filter,
-        colorize=True,
+        colorize=use_colorize,
         **enqueue_args,
     )
-    _handler_ids[handler_id] = (None, None)  # No file handler for stdout
+    _handler_ids[handler_id] = (None, None)
 
     # 2. TextIO File Handler
     textio_file = log_dir / DEFAULT_LOG_FILE
@@ -400,16 +438,16 @@ def setup_handlers() -> None:
     )
     _handler_ids[handler_id] = (json_handler, None)
 
-    # 4. Stash Console Handler
-    handler_id = logger.add(
-        sys.stdout,
-        format="<level>{level.name}</level>: {message}",
+    # 4. Stash Console Handler — same shared console sink as textio
+    handler_id = logger.add(  # type: ignore[call-overload]
+        sink=console_sink,
+        format=format_record,
         level=get_log_level("stash_console", "INFO"),
-        colorize=True,
+        colorize=use_colorize,
         filter=lambda record: record.get("extra", {}).get("logger") == "stash",
         **enqueue_args,
     )
-    _handler_ids[handler_id] = (None, None)  # No file handler for console output
+    _handler_ids[handler_id] = (None, None)
 
     # 5. Stash File Handler
     stash_file = log_dir / DEFAULT_STASH_LOG_FILE

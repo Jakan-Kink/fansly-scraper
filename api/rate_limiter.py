@@ -256,8 +256,12 @@ class RateLimiter:
                     )
 
     def wait_for_request(self) -> float:
-        """
-        Wait for permission to make a request (synchronous version).
+        """Wait for permission to make a request (synchronous version).
+
+        Calculates required wait times under the lock, then sleeps
+        *outside* the lock so that ``get_stats()`` (and therefore the
+        ``RateLimiterDisplay`` progress bar) can still read state while
+        this thread is sleeping.
 
         Returns:
             float: Time waited in seconds
@@ -267,49 +271,63 @@ class RateLimiter:
 
         start_time = time.time()
 
+        # Phase 1: calculate wait durations under lock
+        floor_wait = 0.0
+        backoff_wait = 0.0
+        needs_token_wait = False
+
         with self._lock:
             self.total_requests += 1
 
-            # Enforce minimum floor FIRST, before any other waits
+            # Minimum floor enforcement
             minimum_floor = self._calculate_minimum_floor()
             if minimum_floor > 0 and self.last_request_time > 0:
                 time_since_last = time.time() - self.last_request_time
                 if time_since_last < minimum_floor:
                     floor_wait = minimum_floor - time_since_last
-                    logger.debug(
-                        f"Enforcing minimum floor: waiting {floor_wait:.1f}s "
-                        f"(floor: {minimum_floor:.1f}s, elapsed: {time_since_last:.1f}s)"
-                    )
-                    time.sleep(floor_wait)
 
-            # Check if we're in a backoff period
+            # Backoff period
             if self._is_in_backoff():
                 backoff_remaining = self.current_backoff_seconds - (
                     time.time() - self.last_backoff_time
                 )
                 if backoff_remaining > 0:
                     self.blocked_requests += 1
-                    logger.debug(f"Backing off for {backoff_remaining:.1f}s")
-                    time.sleep(backoff_remaining)
+                    backoff_wait = backoff_remaining
 
-            # Refill tokens
+            # Token availability
             self._refill_tokens()
-
-            # Check if we have tokens available
             if self.tokens < 1.0:
-                # Calculate wait time for next token
-                wait_time = self.token_refill_interval
+                needs_token_wait = True
                 self.blocked_requests += 1
-                logger.debug(
-                    f"Rate limit reached, waiting {wait_time:.1f}s for next token"
-                )
-                time.sleep(wait_time)
+
+        # Phase 2: sleep outside the lock (display thread can poll stats)
+        if floor_wait > 0:
+            logger.debug(
+                f"Enforcing minimum floor: waiting {floor_wait:.1f}s "
+                f"(floor: {minimum_floor:.1f}s)"
+            )
+            time.sleep(floor_wait)
+
+        if backoff_wait > 0:
+            logger.debug(f"Backing off for {backoff_wait:.1f}s")
+            time.sleep(backoff_wait)
+
+        if needs_token_wait:
+            logger.debug(
+                f"Rate limit reached, waiting "
+                f"{self.token_refill_interval:.1f}s for next token"
+            )
+            time.sleep(self.token_refill_interval)
+
+        # Phase 3: re-acquire lock to consume token and record timing
+        with self._lock:
+            if needs_token_wait:
                 self._refill_tokens()
 
-            # Consume a token
-            self.tokens -= 1.0
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
 
-            # Track request timing
             current_time = time.time()
             self.request_history.append(current_time)
             self.last_request_time = current_time

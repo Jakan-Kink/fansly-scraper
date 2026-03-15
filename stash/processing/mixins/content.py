@@ -3,49 +3,38 @@
 from __future__ import annotations
 
 import traceback
-from typing import TYPE_CHECKING
 
-from sqlalchemy import inspect
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.sql import select
 from stash_graphql_client.types import Performer, Studio
 
 from metadata import (
     Account,
-    AccountMedia,
-    AccountMediaBundle,
     Attachment,
     Group,
     Media,
     Message,
     Post,
-    with_session,
 )
+from metadata.models import get_store
 from textio import print_error, print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-
-class ContentProcessingMixin:
+class ContentProcessingMixin(StashProcessingProtocol):
     """Content processing for posts and messages."""
 
-    @with_session()
     async def process_creator_messages(
         self,
         account: Account,
         performer: Performer,
         studio: Studio | None = None,
-        session: AsyncSession | None = None,
     ) -> None:
         """Process creator message metadata.
 
         This method:
-        1. Retrieves message information from the database
+        1. Retrieves message information from the identity map / database
         2. Creates galleries for messages with media in parallel
         3. Links media files to galleries
         4. Associates galleries with performer and studio
@@ -54,48 +43,49 @@ class ContentProcessingMixin:
             account: The Account object
             performer: The Performer object
             studio: Optional Studio object
-            session: Optional database session to use
         """
 
         def get_message_url(message: Message) -> str:
             """Get URL for a message in a group."""
             return f"https://fansly.com/messages/{message.groupId}/{message.id}"
 
-        # Get account ID safely without triggering lazy loading
-        account_id = inspect(account).identity[0]
+        store = get_store()
+        account_id = account.id
 
-        # Get a fresh account instance bound to the session
-        stmt = select(Account).where(Account.id == account_id)
-        result = await session.execute(stmt)
-        account = result.scalar_one()
-
-        stmt = (
-            select(Message)
-            .join(Message.attachments)  # Join to filter messages with attachments
-            .join(Message.group)
-            .join(Group.users)
-            .where(Group.users.any(Account.id == account_id))
-            .options(
-                selectinload(Message.attachments)
-                .selectinload(Attachment.media)
-                .selectinload(AccountMedia.media),
-                selectinload(Message.attachments)
-                .selectinload(Attachment.bundle)
-                .selectinload(AccountMediaBundle.accountMedia)
-                .selectinload(AccountMedia.media),
-                selectinload(Message.group),
-            )
+        # Find groups this account belongs to — cache-first via filter()
+        account_groups = store.filter(
+            Group,
+            lambda g: g.users and any(u.id == account_id for u in g.users),
         )
+        if not account_groups:
+            # Fallback: query DB (groups may not be fully loaded)
+            all_groups = await store.find(Group)
+            account_groups = [
+                g
+                for g in all_groups
+                if g.users and any(u.id == account_id for u in g.users)
+            ]
+
+        account_group_ids = {g.id for g in account_groups}
+
+        # Find messages in those groups that have attachments — cache-first
+        messages = store.filter(
+            Message,
+            lambda m: m.groupId in account_group_ids and bool(m.attachments),
+        )
+        if not messages and account_group_ids:
+            # Fallback: query DB
+            db_messages = await store.find(Message, groupId__in=list(account_group_ids))
+            messages = [m for m in db_messages if m.attachments]
+
         debug_print(
             {
-                "status": "building_message_query",
+                "status": "found_messages",
                 "account_id": account_id,
-                "statement": str(stmt.compile(compile_kwargs={"literal_binds": True})),
+                "group_count": len(account_group_ids),
+                "message_count": len(messages),
             }
         )
-
-        result = await session.execute(stmt)
-        messages = result.unique().scalars().all()
         print_info(f"Processing {len(messages)} messages...")
 
         # Set up worker pool
@@ -106,11 +96,6 @@ class ContentProcessingMixin:
         async def process_message(message: Message) -> None:
             async with semaphore:
                 try:
-                    # Objects are already bound to session from eager loading query
-                    # No need to add them again - just refresh account before processing
-                    await session.refresh(account)
-
-                    # Process the message
                     await self._process_items_with_gallery(
                         account=account,
                         performer=performer,
@@ -118,11 +103,7 @@ class ContentProcessingMixin:
                         item_type="message",
                         items=[message],
                         url_pattern_func=get_message_url,
-                        session=session,
                     )
-
-                    # Note: No flush here - session will auto-flush on commit
-                    # Flushing in concurrent workers causes "Session is already flushing" errors
                 except Exception as e:
                     print_error(f"Error processing message {message.id}: {e}")
                     logger.exception(
@@ -151,68 +132,43 @@ class ContentProcessingMixin:
             process_item=process_message,
         )
 
-    @with_session()
     async def process_creator_posts(
         self,
         account: Account,
         performer: Performer,
         studio: Studio | None = None,
-        session: AsyncSession | None = None,
     ) -> None:
         """Process creator post metadata.
 
         This method:
-        1. Retrieves post information from the database in batches
+        1. Retrieves post information from the identity map / database
         2. Processes posts into Stash galleries
         3. Handles media attachments and bundles
-
-        Note: This method requires a session and will ensure all objects are properly bound to it.
-        The performer and studio objects are Stash GraphQL types, not SQLAlchemy models.
         """
-        # Ensure account is bound to the session
-        session.add(account)
+        store = get_store()
+        account_id = account.id
 
-        # Get account ID safely without triggering lazy loading
-        account_id = inspect(account).identity[0]
-
-        # Get all posts with attachments in one query with relationships
-        # Get a fresh account instance bound to the session
-        stmt = select(Account).where(Account.id == account_id)
-        result = await session.execute(stmt)
-        account = result.scalar_one()
-
-        # Now get posts with proper eager loading
-        stmt = (
-            select(Post)
-            .join(Post.attachments)  # Join to filter posts with attachments
-            .where(Post.accountId == account_id)
-            .options(
-                # Load attachments and their media content
-                selectinload(Post.attachments)
-                .selectinload(Attachment.media)
-                .selectinload(AccountMedia.media),
-                # Load bundle attachments and their media
-                selectinload(Post.attachments)
-                .selectinload(Attachment.bundle)
-                .selectinload(AccountMediaBundle.accountMedia)
-                .selectinload(AccountMedia.media),
-                # Load account mentions
-                selectinload(Post.accountMentions),
-            )
+        # Cache-first: filter posts from identity map
+        posts = store.filter(
+            Post,
+            lambda p: p.accountId == account_id and bool(p.attachments),
         )
+        if not posts:
+            # Fallback: query DB for posts, then filter for attachments
+            db_posts = await store.find(Post, accountId=account_id)
+            posts = [p for p in db_posts if p.attachments]
+
         debug_print(
             {
-                "status": "building_post_query",
+                "status": "found_posts",
                 "account_id": account_id,
-                "statement": str(stmt.compile(compile_kwargs={"literal_binds": True})),
+                "post_count": len(posts),
             }
         )
 
         def get_post_url(post: Post) -> str:
             return f"https://fansly.com/post/{post.id}"
 
-        result = await session.execute(stmt)
-        posts = result.unique().scalars().all()
         print_info(f"Processing {len(posts)} posts...")
 
         # Set up worker pool
@@ -223,11 +179,6 @@ class ContentProcessingMixin:
         async def process_post(post: Post) -> None:
             async with semaphore:
                 try:
-                    # Objects are already bound to session from eager loading query
-                    # No need to add them again - just refresh account before processing
-                    await session.refresh(account)
-
-                    # Process the post
                     await self._process_items_with_gallery(
                         account=account,
                         performer=performer,
@@ -235,11 +186,7 @@ class ContentProcessingMixin:
                         item_type="post",
                         items=[post],
                         url_pattern_func=get_post_url,
-                        session=session,
                     )
-
-                    # Note: No flush here - session will auto-flush on commit
-                    # Flushing in concurrent workers causes "Session is already flushing" errors
                 except Exception as e:
                     print_error(f"Error processing post {post.id}: {e}")
                     logger.exception(
@@ -274,7 +221,7 @@ class ContentProcessingMixin:
     ) -> list[Media]:
         """Collect all media objects from a list of attachments.
 
-        This helper method extracts all Media objects from attachments, including
+        Extracts all Media objects from attachments, including
         direct media, bundles, and their variants, to enable batch processing.
 
         Args:
@@ -286,18 +233,8 @@ class ContentProcessingMixin:
         media_list = []
 
         for attachment in attachments:
-            # Load relationships asynchronously to avoid greenlet errors
-            if hasattr(attachment, "awaitable_attrs"):
-                await attachment.awaitable_attrs.media
-                await attachment.awaitable_attrs.bundle
-
             # Direct media
             if attachment.media:
-                # Load media relationships
-                if hasattr(attachment.media, "awaitable_attrs"):
-                    await attachment.media.awaitable_attrs.media
-                    await attachment.media.awaitable_attrs.preview
-
                 if attachment.media.media:
                     media_list.append(attachment.media.media)
                 if attachment.media.preview:
@@ -305,17 +242,8 @@ class ContentProcessingMixin:
 
             # Media bundles
             if attachment.bundle:
-                if hasattr(attachment.bundle, "awaitable_attrs"):
-                    await attachment.bundle.awaitable_attrs.accountMedia
-                    await attachment.bundle.awaitable_attrs.preview
-
-                if hasattr(attachment.bundle, "accountMedia"):
+                if attachment.bundle.accountMedia:
                     for account_media in attachment.bundle.accountMedia:
-                        # Load account_media relationships
-                        if hasattr(account_media, "awaitable_attrs"):
-                            await account_media.awaitable_attrs.media
-                            await account_media.awaitable_attrs.preview
-
                         if account_media.media:
                             media_list.append(account_media.media)
                         if account_media.preview:
@@ -325,28 +253,19 @@ class ContentProcessingMixin:
                     media_list.append(attachment.bundle.preview)
 
             # Aggregated posts (recursively collect media)
-            if hasattr(attachment, "is_aggregated_post") and getattr(
-                attachment, "is_aggregated_post", False
+            if (
+                getattr(attachment, "is_aggregated_post", False)
+                and attachment.aggregated_post
             ):
-                if hasattr(attachment, "awaitable_attrs"):
-                    await attachment.awaitable_attrs.aggregated_post
-
-                if attachment.aggregated_post:
-                    agg_post = attachment.aggregated_post
-
-                    if hasattr(agg_post, "awaitable_attrs"):
-                        await agg_post.awaitable_attrs.attachments
-
-                    if hasattr(agg_post, "attachments") and agg_post.attachments:
-                        # Recursively collect media from aggregated post attachments
-                        agg_media = await self._collect_media_from_attachments(
-                            agg_post.attachments
-                        )
-                        media_list.extend(agg_media)
+                agg_post = attachment.aggregated_post
+                if agg_post.attachments:
+                    agg_media = await self._collect_media_from_attachments(
+                        agg_post.attachments
+                    )
+                    media_list.extend(agg_media)
 
         return media_list
 
-    @with_session()
     async def _process_items_with_gallery(
         self,
         account: Account,
@@ -355,7 +274,6 @@ class ContentProcessingMixin:
         item_type: str,
         items: list[Message | Post],
         url_pattern_func: callable,
-        session: Session | None = None,
     ) -> None:
         """Process items (posts or messages) with gallery.
 
@@ -364,7 +282,7 @@ class ContentProcessingMixin:
             performer: The Performer object
             studio: Optional Studio object
             item_type: Type of item being processed ("post" or "message")
-            items: List of items to process (already loaded with relationships)
+            items: List of items to process
             url_pattern_func: Function to generate URLs for items
         """
         debug_print(
@@ -375,31 +293,8 @@ class ContentProcessingMixin:
             }
         )
 
-        # Get account ID safely without triggering lazy loading
-        account_id = inspect(account).identity[0]
-
-        # Merge items into current session
-        # Get a fresh account instance bound to the session
-        stmt = select(Account).where(Account.id == account_id)
-        result = await session.execute(stmt)
-        account = result.scalar_one()
-        session.add(account)
-
-        # Process each item (already merged in process_creator_posts)
         for item in items:
-            # Get attachment count safely using awaitable_attrs to avoid greenlet_spawn errors
-            attachment_count = 0
-            try:
-                if hasattr(item, "awaitable_attrs"):
-                    # Use awaitable_attrs for async access to relationships
-                    attachments = await item.awaitable_attrs.attachments
-                    attachment_count = len(attachments) if attachments else 0
-                elif hasattr(item, "attachments"):
-                    # Fall back to direct access if already eager-loaded
-                    attachment_count = len(item.attachments)
-            except Exception:
-                # If we can't get attachment count, use 0
-                attachment_count = 0
+            attachment_count = len(item.attachments) if item.attachments else 0
 
             try:
                 debug_print(
@@ -417,7 +312,6 @@ class ContentProcessingMixin:
                     studio=studio,
                     item_type=item_type,
                     url_pattern=url_pattern_func(item),
-                    session=session,
                 )
                 debug_print(
                     {

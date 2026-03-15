@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from fileio.normalize import get_id_from_filename, normalize_filename
-from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
+from metadata import Account, Media
 
 
 class TestGetIdFromFilename:
@@ -36,94 +36,98 @@ class TestNormalizeFilename:
     """Tests for the normalize_filename function."""
 
     @pytest.mark.asyncio
-    async def test_normalize_filename_with_database_match(
-        self, config_with_database, session_sync
-    ):
+    async def test_normalize_filename_with_database_match(self, entity_store, config):
         """Test normalize_filename with database match using real database."""
+        store = entity_store
 
-        # Create account first (foreign key requirement)
-        account = AccountFactory.build(id=1, username="test_user")
-        session_sync.add(account)
-        session_sync.commit()
+        account = Account(id=1, username="test_user")
+        await store.save(account)
 
-        # Create a real media object in the database
-        media = MediaFactory.build(
+        media = Media(
             id=12345, accountId=1, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         )
-        session_sync.add(media)
-        session_sync.commit()
+        await store.save(media)
 
-        # Test that the filename gets normalized using the database timestamp
         filename = "2023-01-01_at_10-30_id_12345.jpg"
-        result = normalize_filename(filename, config=config_with_database)
+        result = await normalize_filename(filename, config=config)
         assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
 
     @pytest.mark.asyncio
-    async def test_normalize_filename_no_database_match(
-        self, config_with_database, session_sync
-    ):
+    async def test_normalize_filename_no_database_match(self, entity_store, config):
         """Test normalize_filename without database match.
 
         Even without database match, if config is provided, the function
         converts local time (assumed EST/EDT) to UTC.
         """
-        # No media in database for this ID
-        # Without database match but with config, local time is converted to UTC
-        # EST (UTC-5) + 5 hours = UTC
-        # 10:30 EST → 15:30 UTC
         filename = "2023-01-01_at_10-30_id_12345.jpg"
-        result = normalize_filename(filename, config=config_with_database)
+        result = await normalize_filename(filename, config=config)
         assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
 
     @pytest.mark.asyncio
-    async def test_normalize_filename_different_extensions(
-        self, config_with_database, session_sync
-    ):
+    async def test_normalize_filename_different_extensions(self, entity_store, config):
         """Test normalize_filename with different extensions."""
-        # Create account first (foreign key requirement)
-        account = AccountFactory.build(id=1, username="test_user")
-        session_sync.add(account)
-        session_sync.commit()
+        store = entity_store
 
-        # Create a real media object in the database
-        media = MediaFactory.build(
+        account = Account(id=1, username="test_user")
+        await store.save(account)
+
+        media = Media(
             id=12345, accountId=1, createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC)
         )
-        session_sync.add(media)
-        session_sync.commit()
+        await store.save(media)
 
-        # Test various extensions get preserved
         for ext in ["jpg", "mp4", "m3u8", "ts"]:
-            # Local time should convert to UTC with database match
             filename = f"2023-01-01_at_10-30_id_12345.{ext}"
-            result = normalize_filename(filename, config=config_with_database)
+            result = await normalize_filename(filename, config=config)
             assert result == f"2023-01-01_at_15-30_UTC_id_12345.{ext}"
 
-            # UTC time should stay unchanged
             filename = f"2023-01-01_at_15-30_UTC_id_12345.{ext}"
-            result = normalize_filename(filename, config=config_with_database)
+            result = await normalize_filename(filename, config=config)
             assert result == filename
 
-    def test_normalize_filename_no_id(self, config):
+    @pytest.mark.asyncio
+    async def test_normalize_filename_no_id(self, entity_store, config):
         """Test normalize_filename without ID pattern."""
-        # Files without ID should be returned unchanged
         filename = "2023-01-01_at_12-30.jpg"
-        assert normalize_filename(filename, config=config) == filename
+        assert await normalize_filename(filename, config=config) == filename
 
         filename = "random_file_without_id.mp4"
-        assert normalize_filename(filename, config=config) == filename
+        assert await normalize_filename(filename, config=config) == filename
 
         filename = ""
-        assert normalize_filename(filename, config=config) == filename
+        assert await normalize_filename(filename, config=config) == filename
 
-    def test_normalize_filename_hash_pattern(self, config):
+    @pytest.mark.asyncio
+    async def test_normalize_filename_malformed_timestamp(self, entity_store, config):
+        """Test normalize_filename with malformed timestamp."""
+        filename = "not_a_timestamp_id_12345.jpg"
+        result = await normalize_filename(filename, config=config)
+        assert result == filename
+
+    @pytest.mark.asyncio
+    async def test_normalize_filename_hash_pattern(self, entity_store, config):
         """Test normalize_filename with hash patterns."""
-        # Hash patterns should be preserved exactly as is
         filename = "2023-01-01_at_12-30_hash_abc123_id_123456.jpg"
-        assert normalize_filename(filename, config=config) == filename
+        assert await normalize_filename(filename, config=config) == filename
 
         filename = "2023-01-01_at_12-30_hash1_abc123_id_123456.jpg"
-        assert normalize_filename(filename, config=config) == filename
+        assert await normalize_filename(filename, config=config) == filename
 
         filename = "2023-01-01_at_12-30_hash2_abc123_id_123456.jpg"
-        assert normalize_filename(filename, config=config) == filename
+        assert await normalize_filename(filename, config=config) == filename
+
+    @pytest.mark.asyncio
+    async def test_normalize_filename_invalid_date_format(self, entity_store, config):
+        """Test normalize_filename with invalid date format."""
+        filename = "2023-13-45_at_99-99_id_12345.jpg"
+        result = await normalize_filename(filename, config=config)
+        assert result == filename
+
+    @pytest.mark.asyncio
+    async def test_normalize_filename_with_timezone_no_db_match(
+        self, entity_store, config
+    ):
+        """Test normalize_filename with timezone but no database match."""
+        filename = "2023-01-01_at_10-30_EST_id_99999.jpg"
+        result = await normalize_filename(filename, config=config)
+        assert result == filename

@@ -1,12 +1,13 @@
 """Download Fansly Collections"""
 
 from config import FanslyConfig
-from helpers.common import batch_list
-from metadata import process_timeline_posts
+from metadata.account import process_account_data
+from metadata.media import process_media_info
 from textio import input_enter_continue, json_output, print_error, print_info
 
 from .common import process_download_accessible_media
 from .downloadstate import DownloadState
+from .media import fetch_and_process_media
 from .types import DownloadType
 
 
@@ -15,44 +16,33 @@ async def download_collections(config: FanslyConfig, state: DownloadState) -> No
 
     print_info("Starting Collections sequence. Buckle up and enjoy the ride!")
 
-    # This is important for directory creation later on.
     state.download_type = DownloadType.COLLECTIONS
 
-    # send a first request to get all available "accountMediaId" ids, which are basically media ids of every graphic listed on /collections
     collections_response = config.get_api().get_media_collections()
 
     if collections_response.status_code == 200:
         json_output(1, "Download Collections", collections_response.json())
         collections = config.get_api().get_json_response_contents(collections_response)
-        await process_timeline_posts(config, state, collections)
 
-        account_media_orders = collections["accountMediaOrders"]
-        account_media_ids = [order["accountMediaId"] for order in account_media_orders]
+        # Process accounts present in the collections response
+        for account_data in collections.get("accounts", []):
+            await process_account_data(config, data=account_data)
 
-        # Splitting the list into batches and making separate API calls for each
-        for batch in batch_list(account_media_ids, config.BATCH_SIZE):
-            batched_ids = ",".join(batch)
+        # Process accountMedia metadata (variants, locations) before download
+        account_media = collections.get("accountMedia", [])
+        if account_media:
+            batch_size = 15
+            for i in range(0, len(account_media), batch_size):
+                batch = account_media[i : i + batch_size]
+                await process_media_info(config, {"batch": batch})
 
-            media_info_response = config.get_api().get_account_media(batched_ids)
+        account_media_orders = collections.get("accountMediaOrders", [])
+        media_ids = [order["accountMediaId"] for order in account_media_orders]
 
-            if media_info_response.status_code == 200:
-                media_info = config.get_api().get_json_response_contents(
-                    media_info_response
-                )
+        # fetch_and_process_media handles batching, persistence, and variant selection
+        accessible = await fetch_and_process_media(config, state, media_ids)
 
-                json_output(1, "Collection Media Info", media_info)
-
-                await process_download_accessible_media(config, state, media_info)
-
-            else:
-                print_error(
-                    f"Media batch download failed. Response code: "
-                    f"{media_info_response.status_code}"
-                    f"\n{media_info_response.text}"
-                    f"\n\nAffected media IDs: {batched_ids}",
-                    23,
-                )
-                input_enter_continue(config.interactive)
+        await process_download_accessible_media(config, state, accessible)
 
         if (
             state.duplicate_count > 0
@@ -60,7 +50,8 @@ async def download_collections(config: FanslyConfig, state: DownloadState) -> No
             and not config.show_skipped_downloads
         ):
             print_info(
-                f"Skipped {state.duplicate_count} already downloaded media item{'' if state.duplicate_count == 1 else 's'}."
+                f"Skipped {state.duplicate_count} already downloaded media "
+                f"item{'' if state.duplicate_count == 1 else 's'}."
             )
 
     else:

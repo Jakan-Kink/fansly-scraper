@@ -1,8 +1,8 @@
 """Tests for post processing methods in ContentProcessingMixin.
 
-These tests mock at the HTTP boundary using respx, allowing real code execution
-through the entire processing pipeline. We verify that data flows correctly from
-database queries to GraphQL API calls.
+These tests use entity_store for Pydantic model persistence and respx for HTTP
+mocking, allowing real code execution through the entire processing pipeline.
+We verify that data flows correctly from database queries to GraphQL API calls.
 """
 
 import json
@@ -10,10 +10,9 @@ import json
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
 
-from metadata import Account
-from metadata.attachment import ContentType
+from metadata import Account, ContentType
+from metadata.models import get_store
 from stash.processing import StashProcessing
 from tests.fixtures import (
     AccountFactory,
@@ -30,36 +29,40 @@ class TestPostProcessing:
     @pytest.mark.asyncio
     async def test_process_creator_posts(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_posts processes posts and makes GraphQL calls."""
-        # Create real account and posts with factories
-        account = AccountFactory(id=12345, username="test_user")
+        store = get_store()
+
+        # Create real account
+        account = AccountFactory.build(id=12345, username="test_user")
+        await store.save(account)
 
         # Create 3 posts with attachments (required for query to find them)
         for i in range(3):
-            PostFactory(
+            post = PostFactory.build(
                 id=200 + i,
                 accountId=12345,
                 content=f"Test post {i}",
             )
+            await store.save(post)
+
             # Create attachment for each post
-            AttachmentFactory(
+            attachment = AttachmentFactory.build(
                 postId=200 + i,
                 contentId=200 + i,
                 contentType=ContentType.ACCOUNT_MEDIA,
                 pos=0,
             )
+            await store.save(attachment)
 
-        # Commit factory changes so async session can see them
-        factory_async_session.commit()
-        await session.commit()
+            # Link attachment to post
+            post.attachments = [attachment]
+            await store.save(post)
 
-        # Query fresh account from async session
-        result = await session.execute(select(Account).where(Account.id == 12345))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12345)
 
         # Create real Performer and Studio using factories
         performer = PerformerFactory.build(id="performer_123", name="test_user")
@@ -88,7 +91,6 @@ class TestPostProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # Verify GraphQL calls were made
@@ -104,19 +106,18 @@ class TestPostProcessing:
     @pytest.mark.asyncio
     async def test_process_creator_posts_empty(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_posts with no posts makes no GraphQL calls."""
+        store = get_store()
+
         # Create account but no posts
-        account = AccountFactory(id=12346, username="test_user_2")
+        account = AccountFactory.build(id=12346, username="test_user_2")
+        await store.save(account)
 
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12346))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12346)
 
         performer = PerformerFactory.build(id="performer_124", name="test_user_2")
         studio = StudioFactory.build(id="studio_124", name="Test Studio 2")
@@ -131,7 +132,6 @@ class TestPostProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # With no posts, no GraphQL calls should occur at all
@@ -142,32 +142,38 @@ class TestPostProcessing:
     @pytest.mark.asyncio
     async def test_database_query_structure(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test that database query correctly retrieves posts with attachments."""
+        store = get_store()
+
         # Create account and post with attachment
-        account = AccountFactory(id=12347, username="test_user_3")
+        account = AccountFactory.build(id=12347, username="test_user_3")
+        await store.save(account)
 
         # Create 1 post with attachment
-        PostFactory(
+        post = PostFactory.build(
             id=600,
             accountId=12347,
             content="Test post with attachment",
         )
-        AttachmentFactory(
+        await store.save(post)
+
+        attachment = AttachmentFactory.build(
             postId=600,
             contentId=600,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
+        await store.save(attachment)
 
-        factory_async_session.commit()
-        await session.commit()
+        # Link attachment to post
+        post.attachments = [attachment]
+        await store.save(post)
 
-        result = await session.execute(select(Account).where(Account.id == 12347))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12347)
 
         performer = PerformerFactory.build(id="performer_125", name="test_user_3")
         studio = StudioFactory.build(id="studio_125", name="Test Studio 3")
@@ -192,7 +198,6 @@ class TestPostProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # Verify calls were made (query found the post)
@@ -201,27 +206,27 @@ class TestPostProcessing:
     @pytest.mark.asyncio
     async def test_post_without_attachment_not_processed(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test that posts without attachments are not processed."""
+        store = get_store()
+
         # Create account and post WITHOUT attachment
-        account = AccountFactory(id=12348, username="test_user_4")
+        account = AccountFactory.build(id=12348, username="test_user_4")
+        await store.save(account)
 
         # Create post WITHOUT attachment - should not be found by query
-        PostFactory(
+        post = PostFactory.build(
             id=700,
             accountId=12348,
             content="Test post without attachment",
         )
-        # No AttachmentFactory call - post has no attachments
+        await store.save(post)
+        # No attachment - post has no attachments
 
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12348))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12348)
 
         performer = PerformerFactory.build(id="performer_126", name="test_user_4")
         studio = StudioFactory.build(id="studio_126", name="Test Studio 4")
@@ -236,7 +241,6 @@ class TestPostProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # Should not make any GraphQL calls for posts without attachments

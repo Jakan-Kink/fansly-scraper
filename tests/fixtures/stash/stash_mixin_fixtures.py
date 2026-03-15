@@ -221,7 +221,8 @@ def mock_item():
     item.hashtags = []
 
     # Setup default mentions (can be overridden in tests)
-    item.accountMentions = []
+    # Use field name 'mentions', not alias 'accountMentions'
+    item.mentions = []
 
     return item
 

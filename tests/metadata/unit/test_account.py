@@ -3,220 +3,195 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
-from metadata.account import (
+from metadata import (
     Account,
+    AccountMedia,
     AccountMediaBundle,
+    Media,
     TimelineStats,
-    account_media_bundle_media,
     process_account_data,
     process_media_bundles,
 )
-from tests.fixtures import (
-    AccountFactory,
-    AccountMediaBundleFactory,
-    AccountMediaFactory,
-    MediaFactory,
-)
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
-async def test_account_media_bundle_creation(session, session_sync, factory_session):
+async def test_account_media_bundle_creation(entity_store):
     """Test creating an AccountMediaBundle with ordered content.
 
-    Note: Uses both async session (for queries) and sync session (for factories).
-    FactoryBoy requires sync sessions, but the test logic uses async.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    Saves entities in FK order, then sets the ordered accountMedia
+    relationship on the bundle and verifies persistence.
     """
-    # Create account using factory (sync)
-    AccountFactory(id=1, username="test_user")
+    store = entity_store
 
-    # Create Media records first (required by foreign key constraints)
-    MediaFactory(id=101, accountId=1)
-    MediaFactory(id=102, accountId=1)
+    account_id = snowflake_id()
+    media_id1 = snowflake_id()
+    media_id2 = snowflake_id()
+    am_id1 = snowflake_id()
+    am_id2 = snowflake_id()
+    bundle_id = snowflake_id()
 
-    # Create AccountMedia items linking to Media records
-    AccountMediaFactory(id=1, accountId=1, mediaId=101)
-    AccountMediaFactory(id=2, accountId=1, mediaId=102)
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
-    # Create bundle using factory
-    AccountMediaBundleFactory(id=1, accountId=1)
+    # Media records (required by AccountMedia FK)
+    media1 = Media(id=media_id1, accountId=account_id)
+    media2 = Media(id=media_id2, accountId=account_id)
+    await store.save(media1)
+    await store.save(media2)
 
-    # Expire all objects in the async session so it fetches fresh data from the database
-    session.expire_all()
-
-    # Add media to bundle with positions (this is async, so use session)
-    await session.execute(
-        account_media_bundle_media.insert().values(
-            [
-                {"bundle_id": 1, "media_id": 1, "pos": 2},
-                {"bundle_id": 1, "media_id": 2, "pos": 1},
-            ]
-        )
+    # AccountMedia linking to Media
+    am1 = AccountMedia(
+        id=am_id1, accountId=account_id, mediaId=media_id1, createdAt=datetime.now(UTC)
     )
-    await session.commit()
-
-    # Verify bundle content order
-    # Use a single query with eager loading of the relationship
-    stmt = (
-        select(AccountMediaBundle)
-        .where(AccountMediaBundle.id == 1)
-        .options(selectinload(AccountMediaBundle.accountMedia))
+    am2 = AccountMedia(
+        id=am_id2, accountId=account_id, mediaId=media_id2, createdAt=datetime.now(UTC)
     )
-    result = await session.execute(stmt)
-    saved_bundle: AccountMediaBundle | None = result.unique().scalar_one_or_none()
-    assert saved_bundle is not None
+    await store.save(am1)
+    await store.save(am2)
 
-    # Access the relationship directly through accountMedia
-    media_ids = sorted([media.id for media in saved_bundle.accountMedia])
-    assert media_ids == [1, 2]  # Should contain both media IDs
+    # Bundle with ordered media
+    bundle = AccountMediaBundle(
+        id=bundle_id, accountId=account_id, createdAt=datetime.now(UTC)
+    )
+    await store.save(bundle)
+
+    # Assign the ordered relationship and re-save (triggers _sync_associations)
+    bundle.accountMedia = [am2, am1]  # pos 0 = am2, pos 1 = am1
+    await store.save(bundle)
+
+    # Verify
+    saved = await store.get(AccountMediaBundle, bundle_id)
+    assert saved is not None
+    media_ids = sorted([m.id for m in saved.accountMedia])
+    assert media_ids == sorted([am_id1, am_id2])
 
 
 @pytest.mark.asyncio
-async def test_update_optimization(session, session_sync, config, factory_session):
-    """Test that attributes are only updated when values actually change.
+async def test_update_optimization(entity_store, config):
+    """Test that process_account_data updates only changed values.
 
-    Uses real config fixture instead of mock, and AccountFactory for initial data.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    process_account_data uses get_store() internally, wired via entity_store.
     """
-    # Create initial account using factory (sync)
-    account = AccountFactory(id=1, username="test_user", displayName="Test User")
+    store = entity_store
 
-    # Expire all objects in the async session so it fetches fresh data from the database
-    session.expire_all()
+    account_id = snowflake_id()
 
-    # Update with same values
+    # Create initial account
+    account = Account(id=account_id, username="test_user", displayName="Test User")
+    await store.save(account)
+
+    # Process with same values — displayName should stay unchanged
     data = {
-        "id": 1,
+        "id": account_id,
         "username": "test_user",
         "displayName": "Test User",
-        "timelineStats": {  # Required field
-            "imageCount": 0,
-            "videoCount": 0,
-        },
+        "timelineStats": {"imageCount": 0, "videoCount": 0},
     }
+    await process_account_data(config, data)
 
-    await process_account_data(config, data, session=session)
+    saved = await store.get(Account, account_id)
+    assert saved.displayName == "Test User"
 
-    # Get initial state
-    result = await session.execute(select(Account).filter_by(id=1))
-    account = result.scalar_one_or_none()
-    assert account.displayName == "Test User"
-
-    # Update with different values
+    # Process with different displayName
     data["displayName"] = "New Name"
-    await process_account_data(config, data, session=session)
+    await process_account_data(config, data)
 
-    # Expire and re-query to ensure we get the latest data
-    session.expire_all()
-    result = await session.execute(select(Account).filter_by(id=1))
-    account = result.scalar_one_or_none()
-    assert account.displayName == "New Name", "Value should be updated"
-    assert account.username == "test_user", "Unchanged value should remain the same"
+    saved = await store.get(Account, account_id)
+    assert saved.displayName == "New Name"
+    assert saved.username == "test_user"
 
 
 @pytest.mark.asyncio
-async def test_timeline_stats_optimization(
-    session, session_sync, config, factory_session
-):
+async def test_timeline_stats_optimization(entity_store, config):
     """Test that timeline stats are only updated when values change.
 
-    Uses real config fixture instead of mock, and AccountFactory for initial data.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    process_account_data uses get_store() internally, wired via entity_store.
     """
-    # Create initial account using factory (sync)
-    account = AccountFactory(id=1, username="test_user")
+    store = entity_store
 
-    # Create timeline stats manually using sync session
-    stats = TimelineStats(
-        accountId=1,
-        imageCount=10,
-        videoCount=5,
-        fetchedAt=datetime.now(UTC),
-    )
-    session_sync.add(stats)
-    session_sync.commit()
+    account_id = snowflake_id()
 
-    # Expire all objects in the async session so it fetches fresh data from the database
-    session.expire_all()
+    # Create account + initial timeline stats
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
-    # Update with same values
+    stats = TimelineStats(accountId=account_id, imageCount=10, videoCount=5)
+    await store.save(stats)
+
+    # Process with same stats — should not change
     data = {
-        "id": 1,
-        "username": "test_user",  # Required field
+        "id": account_id,
+        "username": "test_user",
         "timelineStats": {
             "imageCount": 10,
             "videoCount": 5,
             "fetchedAt": int(datetime(2023, 10, 10, tzinfo=UTC).timestamp()),
         },
     }
-    await process_account_data(config, data, session=session)
+    await process_account_data(config, data)
 
-    # Get initial state
-    stmt = select(TimelineStats).filter_by(accountId=1)
-    result = await session.execute(stmt)
-    stats = result.scalar_one_or_none()
-    assert stats.imageCount == 10, "Initial value should be unchanged"
+    saved = await store.find_one(TimelineStats, accountId=account_id)
+    assert saved.imageCount == 10
 
-    # Update with different values
+    # Process with different imageCount
     data["timelineStats"]["imageCount"] = 15
-    await process_account_data(config, data, session=session)
+    await process_account_data(config, data)
 
-    # Expire and re-query to ensure we get the latest data
-    session.expire_all()
-    stmt = select(TimelineStats).filter_by(accountId=1)
-    result = await session.execute(stmt)
-    stats = result.scalar_one_or_none()
-    assert stats.imageCount == 15, "Value should be updated"
-    assert stats.videoCount == 5, "Unchanged value should remain the same"
+    saved = await store.find_one(TimelineStats, accountId=account_id)
+    assert saved.imageCount == 15
+    assert saved.videoCount == 5
 
 
 @pytest.mark.asyncio
-async def test_process_media_bundles(session, session_sync, config, factory_session):
+async def test_process_media_bundles(entity_store, config):
     """Test processing media bundles from API response.
 
-    Uses real config fixture and factories for test data creation.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    process_media_bundles uses get_store() internally, wired via entity_store.
     """
-    # Create account using factory
-    AccountFactory(id=1, username="test_user")
+    store = entity_store
 
-    # Create Media records first (required by foreign key constraints)
-    MediaFactory(id=1001, accountId=1)
-    MediaFactory(id=1002, accountId=1)
+    account_id = snowflake_id()
+    media_id1 = snowflake_id()
+    media_id2 = snowflake_id()
+    am_id1 = snowflake_id()
+    am_id2 = snowflake_id()
+    bundle_id = snowflake_id()
 
-    # Create AccountMedia items linking to Media records
-    AccountMediaFactory(id=101, accountId=1, mediaId=1001)
-    AccountMediaFactory(id=102, accountId=1, mediaId=1002)
+    # Create prerequisite entities in FK order
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
-    await session.flush()  # Sync factory data to async session
+    media1 = Media(id=media_id1, accountId=account_id)
+    media2 = Media(id=media_id2, accountId=account_id)
+    await store.save(media1)
+    await store.save(media2)
 
-    # Process bundles
+    am1 = AccountMedia(
+        id=am_id1, accountId=account_id, mediaId=media_id1, createdAt=datetime.now(UTC)
+    )
+    am2 = AccountMedia(
+        id=am_id2, accountId=account_id, mediaId=media_id2, createdAt=datetime.now(UTC)
+    )
+    await store.save(am1)
+    await store.save(am2)
+
+    # Process bundles — use accountMediaIds (the Pydantic alias) directly.
+    # NOTE: bundleContent → accountMediaIds conversion is a Phase 5.5
+    # TODO in _process_single_bundle; for now the model expects IDs.
     bundles_data = [
         {
-            "id": 1,
-            "accountId": 1,
+            "id": bundle_id,
+            "accountId": account_id,
             "createdAt": int(datetime.now(UTC).timestamp()),
-            "bundleContent": [
-                {"accountMediaId": 101, "pos": 2},
-                {"accountMediaId": 102, "pos": 1},
-            ],
+            "accountMediaIds": [am_id2, am_id1],  # IDs in desired order
         }
     ]
+    await process_media_bundles(config, account_id, bundles_data)
 
-    await process_media_bundles(config, 1, bundles_data, session=session)
-
-    # Verify bundle was created
-    # Use a single query with eager loading of the relationship
-    stmt = select(AccountMediaBundle).options(
-        selectinload(AccountMediaBundle.accountMedia)
-    )
-    result = await session.execute(stmt)
-    bundle = result.scalar_one_or_none()
+    # Verify bundle was created with media
+    bundle = await store.get(AccountMediaBundle, bundle_id)
     assert bundle is not None
-
-    # Access the relationship directly through accountMedia
-    media_ids = sorted([media.id for media in bundle.accountMedia])
-    assert media_ids == [101, 102]  # Check both media are present
+    media_ids = sorted([m.id for m in bundle.accountMedia])
+    assert media_ids == sorted([am_id1, am_id2])

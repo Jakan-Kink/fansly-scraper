@@ -10,7 +10,7 @@ from textio import input_enter_continue, print_error, print_info, print_warning
 
 from .common import get_unique_media_ids, process_download_accessible_media
 from .downloadstate import DownloadState
-from .media import download_media_infos
+from .media import fetch_and_process_media
 from .types import DownloadType
 
 
@@ -63,11 +63,10 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
                     await process_messages_metadata(config, state, messages)
 
                     all_media_ids = get_unique_media_ids(messages)
-                    media_infos = await download_media_infos(
+                    accessible = await fetch_and_process_media(
                         config, state, all_media_ids
                     )
-
-                    await process_download_accessible_media(config, state, media_infos)
+                    await process_download_accessible_media(config, state, accessible)
 
                     # Print info on skipped downloads if `show_skipped_downloads` is enabled
                     skipped_downloads = state.duplicate_count - starting_duplicates

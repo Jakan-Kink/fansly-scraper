@@ -52,6 +52,7 @@ ffmpeg-python = ">=0.2.0"
 jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
 stash-graphql-client = ">=0.11.0"
+av = "^17.0.0"
 
 
 [tool.poetry.group.browser-auth]
@@ -472,8 +473,12 @@ module = "helpers.checkkey"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
+module = "av.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "download.m3u8"
-# Uses ffmpeg and m3u8 libraries (no type stubs)
+# Uses ffmpeg, m3u8, and av libraries (no type stubs)
 ignore_errors = true
 
 [[tool.mypy.overrides]]

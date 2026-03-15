@@ -615,14 +615,15 @@ def test_env_offline_mode():
     mock_context.begin_transaction.return_value.__enter__ = MagicMock()
     mock_context.begin_transaction.return_value.__exit__ = MagicMock()
 
-    # Import metadata.base for target_metadata
-    from metadata.base import Base
+    # Import SA Core metadata for schema operations (Pydantic models
+    # replaced the ORM, but Alembic still needs SA Core metadata).
+    from metadata.tables import metadata as target_metadata
 
     # Create a local namespace to exec the function definition
     local_ns = {
         "context": mock_context,
         "config": mock_config,
-        "target_metadata": Base.metadata,
+        "target_metadata": target_metadata,
     }
 
     # Extract and exec just the function definition

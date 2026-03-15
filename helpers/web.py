@@ -5,9 +5,24 @@ import re
 import traceback
 from collections import OrderedDict, namedtuple
 from typing import NamedTuple
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import httpx
+
+from textio import print_error, print_warning
+
+
+def strip_url_params(url: str) -> str:
+    """Strip all query parameters and fragments from a URL.
+
+    Args:
+        url: The URL to normalize
+
+    Returns:
+        The URL with query string and fragment removed
+    """
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
 
 def get_file_name_from_url(url: str) -> str:
@@ -116,7 +131,6 @@ def split_url(url: str) -> NamedTuple:
 
 def guess_user_agent(user_agents: dict, based_on_browser: str, default_ua: str) -> str:
     """Returns the guessed browser's user agent or a default one."""
-    from textio import print_error, print_warning
 
     if based_on_browser == "Microsoft Edge":
         based_on_browser = "Edg"  # msedge only reports "Edg" as its identifier

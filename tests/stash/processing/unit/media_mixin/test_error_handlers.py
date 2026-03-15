@@ -32,9 +32,7 @@ class TestErrorHandlers:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_find_stash_files_by_id_image_exception(
-        self, respx_stash_processor, session
-    ):
+    async def test_find_stash_files_by_id_image_exception(self, respx_stash_processor):
         """Test _find_stash_files_by_id handles exception when finding image (lines 211-212)."""
         # Mock find_image to raise exception
         with patch.object(
@@ -45,16 +43,13 @@ class TestErrorHandlers:
             # Should not raise - should catch exception and continue
             result = await respx_stash_processor._find_stash_files_by_id(
                 stash_files=[("123", "image/jpeg")],
-                session=session,
             )
 
             # Should return empty list (exception was caught)
             assert result == []
 
     @pytest.mark.asyncio
-    async def test_find_stash_files_by_id_scene_exception(
-        self, respx_stash_processor, session
-    ):
+    async def test_find_stash_files_by_id_scene_exception(self, respx_stash_processor):
         """Test _find_stash_files_by_id handles exception when finding scene (lines 250-251)."""
         # Mock find_scene to raise exception
         with patch.object(
@@ -65,7 +60,6 @@ class TestErrorHandlers:
             # Should not raise - should catch exception and continue
             result = await respx_stash_processor._find_stash_files_by_id(
                 stash_files=[("456", "video/mp4")],
-                session=session,
             )
 
             # Should return empty list (exception was caught)

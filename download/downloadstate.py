@@ -15,7 +15,7 @@ class DownloadState(GlobalState):
 
     # Creator state
     creator_name: str | None = None
-    creator_id: str | None = None
+    creator_id: int | None = None
     following: bool = False
     subscribed: bool = False
 

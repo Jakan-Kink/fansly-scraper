@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from metadata.story import Story
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestStory:
@@ -10,10 +11,13 @@ class TestStory:
 
     def test_story_init_with_timestamps(self):
         """Test Story initialization with timestamp conversion."""
+        story_id = snowflake_id()
+        author_id = snowflake_id()
+
         # Test with millisecond timestamps
         story = Story(
-            id=12345,
-            authorId=67890,
+            id=story_id,
+            authorId=author_id,
             content="Story content",
             title="Story Title",
             description="Story description",
@@ -21,8 +25,8 @@ class TestStory:
             updatedAt=1705329100000,  # milliseconds
         )
 
-        assert story.id == 12345
-        assert story.authorId == 67890
+        assert story.id == story_id
+        assert story.authorId == author_id
         assert story.content == "Story content"
         assert story.title == "Story Title"
         assert story.description == "Story description"
@@ -32,15 +36,18 @@ class TestStory:
 
     def test_story_init_without_optional_fields(self):
         """Test Story initialization without optional fields."""
+        story_id = snowflake_id()
+        author_id = snowflake_id()
+
         story = Story(
-            id=12345,
-            authorId=67890,
+            id=story_id,
+            authorId=author_id,
             content="Story content",
             createdAt=1705329000,
         )
 
-        assert story.id == 12345
-        assert story.authorId == 67890
+        assert story.id == story_id
+        assert story.authorId == author_id
         assert story.content == "Story content"
         assert story.title is None
         assert story.description is None

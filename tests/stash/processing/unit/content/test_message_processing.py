@@ -1,8 +1,8 @@
 """Tests for message processing methods in ContentProcessingMixin.
 
-These tests mock at the HTTP boundary using respx, allowing real code execution
-through the entire processing pipeline. We verify that data flows correctly from
-database queries to GraphQL API calls.
+These tests use entity_store for Pydantic model persistence and respx for HTTP
+mocking, allowing real code execution through the entire processing pipeline.
+We verify that data flows correctly from database queries to GraphQL API calls.
 """
 
 import json
@@ -10,20 +10,18 @@ import json
 import httpx
 import pytest
 import respx
-from sqlalchemy import insert, select
 
-from metadata import Account
-from metadata.attachment import ContentType
-from metadata.messages import group_users
+from metadata import Account, ContentType
+from metadata.models import get_store
 from stash.processing import StashProcessing
 from tests.fixtures import (
     AccountFactory,
     AttachmentFactory,
     MessageFactory,
-    MetadataGroupFactory,
     PerformerFactory,
     StudioFactory,
 )
+from tests.fixtures.metadata.metadata_factories import GroupFactory
 
 
 class TestMessageProcessing:
@@ -32,44 +30,48 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_creator_messages(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_messages processes messages and makes GraphQL calls."""
-        # Create real account, group and messages with factories
-        account = AccountFactory(id=12345, username="test_user")
-        group = MetadataGroupFactory(id=40001, createdBy=12345)
+        store = get_store()
 
-        # Link account to group using direct SQL (avoid lazy loading)
-        await session.execute(
-            insert(group_users).values(accountId=12345, groupId=40001)
-        )
-        await session.flush()
+        # Create real account and group
+        account = AccountFactory.build(id=12345, username="test_user")
+        await store.save(account)
+
+        group = GroupFactory.build(id=40001, createdBy=12345)
+        await store.save(group)
+
+        # Link account to group via the users relationship
+        group.users = [account]
+        await store.save(group)
 
         # Create 3 messages with attachments (required for query to find them)
         for i in range(3):
-            MessageFactory(
+            message = MessageFactory.build(
                 id=400 + i,
                 groupId=40001,
                 senderId=12345,
                 content=f"Test message {i}",
             )
+            await store.save(message)
+
             # Create attachment for each message
-            AttachmentFactory(
+            attachment = AttachmentFactory.build(
                 messageId=400 + i,
                 contentId=400 + i,
                 contentType=ContentType.ACCOUNT_MEDIA,
                 pos=0,
             )
+            await store.save(attachment)
 
-        # Commit factory changes so async session can see them
-        factory_async_session.commit()
-        await session.commit()
+            # Link attachment to message
+            message.attachments = [attachment]
+            await store.save(message)
 
-        # Query fresh account from async session
-        result = await session.execute(select(Account).where(Account.id == 12345))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12345)
 
         # Create real Performer and Studio using factories
         performer = PerformerFactory.build(id="performer_123", name="test_user")
@@ -99,7 +101,6 @@ class TestMessageProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # Verify GraphQL calls were made
@@ -115,25 +116,25 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_creator_messages_empty(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_messages with no messages makes no GraphQL calls."""
+        store = get_store()
+
         # Create account with group but no messages
-        account = AccountFactory(id=12346, username="test_user_2")
-        group = MetadataGroupFactory(id=40002, createdBy=12346)
+        account = AccountFactory.build(id=12346, username="test_user_2")
+        await store.save(account)
 
-        await session.execute(
-            insert(group_users).values(accountId=12346, groupId=40002)
-        )
-        await session.flush()
+        group = GroupFactory.build(id=40002, createdBy=12346)
+        await store.save(group)
 
-        factory_async_session.commit()
-        await session.commit()
+        # Link account to group via the users relationship
+        group.users = [account]
+        await store.save(group)
 
-        result = await session.execute(select(Account).where(Account.id == 12346))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12346)
 
         performer = PerformerFactory.build(id="performer_124", name="test_user_2")
         studio = StudioFactory.build(id="studio_124", name="Test Studio 2")
@@ -148,7 +149,6 @@ class TestMessageProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # With no messages, no GraphQL calls should occur at all
@@ -159,39 +159,46 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_database_query_structure(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test that database query correctly retrieves messages with attachments."""
-        # Create account, group and message with attachment
-        account = AccountFactory(id=12347, username="test_user_3")
-        group = MetadataGroupFactory(id=40003, createdBy=12347)
+        store = get_store()
 
-        await session.execute(
-            insert(group_users).values(accountId=12347, groupId=40003)
-        )
-        await session.flush()
+        # Create account, group and message with attachment
+        account = AccountFactory.build(id=12347, username="test_user_3")
+        await store.save(account)
+
+        group = GroupFactory.build(id=40003, createdBy=12347)
+        await store.save(group)
+
+        # Link account to group via the users relationship
+        group.users = [account]
+        await store.save(group)
 
         # Create 1 message with attachment
-        MessageFactory(
+        message = MessageFactory.build(
             id=600,
             groupId=40003,
             senderId=12347,
             content="Test message with attachment",
         )
-        AttachmentFactory(
+        await store.save(message)
+
+        attachment = AttachmentFactory.build(
             messageId=600,
             contentId=600,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
+        await store.save(attachment)
 
-        factory_async_session.commit()
-        await session.commit()
+        # Link attachment to message
+        message.attachments = [attachment]
+        await store.save(message)
 
-        result = await session.execute(select(Account).where(Account.id == 12347))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12347)
 
         performer = PerformerFactory.build(id="performer_125", name="test_user_3")
         studio = StudioFactory.build(id="studio_125", name="Test Studio 3")
@@ -216,7 +223,6 @@ class TestMessageProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # Verify calls were made (query found the message)
@@ -225,34 +231,35 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_message_without_attachment_not_processed(
         self,
-        factory_async_session,
-        session,
+        entity_store,
         respx_stash_processor: StashProcessing,
     ):
         """Test that messages without attachments are not processed."""
-        # Create account, group and message WITHOUT attachment
-        account = AccountFactory(id=12348, username="test_user_4")
-        group = MetadataGroupFactory(id=40004, createdBy=12348)
+        store = get_store()
 
-        await session.execute(
-            insert(group_users).values(accountId=12348, groupId=40004)
-        )
-        await session.flush()
+        # Create account, group and message WITHOUT attachment
+        account = AccountFactory.build(id=12348, username="test_user_4")
+        await store.save(account)
+
+        group = GroupFactory.build(id=40004, createdBy=12348)
+        await store.save(group)
+
+        # Link account to group via the users relationship
+        group.users = [account]
+        await store.save(group)
 
         # Create message WITHOUT attachment - should not be found by query
-        MessageFactory(
+        message = MessageFactory.build(
             id=700,
             groupId=40004,
             senderId=12348,
             content="Test message without attachment",
         )
-        # No AttachmentFactory call - message has no attachments
+        await store.save(message)
+        # No attachment - message has no attachments
 
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12348))
-        account = result.scalar_one()
+        # Refresh account from store
+        account = await store.get(Account, 12348)
 
         performer = PerformerFactory.build(id="performer_126", name="test_user_4")
         studio = StudioFactory.build(id="studio_126", name="Test Studio 4")
@@ -267,7 +274,6 @@ class TestMessageProcessing:
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
 
         # Should not make any GraphQL calls for messages without attachments

@@ -716,7 +716,7 @@ tests/
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, Session
-from metadata.base import Base
+from metadata.tables import metadata as target_metadata
 
 @pytest.fixture
 async def session(db_url):
@@ -724,7 +724,7 @@ async def session(db_url):
     engine = create_async_engine(db_url, echo=False)
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(target_metadata.create_all)
 
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -740,14 +740,14 @@ def session_sync(db_url_sync):
     from sqlalchemy import create_engine
 
     engine = create_engine(db_url_sync, echo=False)
-    Base.metadata.create_all(engine)
+    target_metadata.create_all(engine)
 
     session = Session(engine)
     yield session
     session.rollback()
     session.close()
 
-    Base.metadata.drop_all(engine)
+    target_metadata.drop_all(engine)
     engine.dispose()
 ```
 
@@ -906,8 +906,8 @@ Unit tests for pure data conversion, change tracking, or utility functions:
 ```python
 # ✅ ACCEPTABLE: Testing utility function behavior
 def test_timestamp_conversion():
-    from metadata.base import Base
-    result = Base.convert_timestamps({"createdAt": 1704067200000}, ("createdAt",))
+    from metadata.models import FanslyObject
+    result = FanslyObject.convert_timestamps({"createdAt": 1704067200000}, ("createdAt",))
     assert result["createdAt"] == datetime(2024, 1, 1, 0, 0, 0)
 ```
 

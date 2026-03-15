@@ -4,24 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
-from sqlalchemy.orm import Session
-from stash_graphql_client.types import Performer, Studio
+from stash_graphql_client.types import Studio
 
 from metadata import Account
-from metadata.decorators import with_session
 from textio import print_error, print_info
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-if TYPE_CHECKING:
-    pass
-
-
-class StudioProcessingMixin:
+class StudioProcessingMixin(StashProcessingProtocol):
     """Studio processing functionality."""
 
     # Class-level locks for studio creation, keyed by username
@@ -51,33 +46,23 @@ class StudioProcessingMixin:
         Returns:
             Studio data if found, None otherwise
         """
-        # Use process_creator_studio with None performer
-        return await self.process_creator_studio(account=account, performer=None)
+        return await self.process_creator_studio(account=account)
 
-    @with_session()
     async def process_creator_studio(
         self,
         account: Account,
-        performer: Performer,
-        session: Session | None = None,  # noqa: ARG002
     ) -> Studio | None:
-        """Process creator studio metadata using ORM get_or_create.
+        """Process creator studio metadata.
 
-        Migrated to use store.get_or_create() for:
-        - Automatic conflict handling (no manual cache invalidation!)
-        - Race condition safety built-in
-        - Identity map ensures same studio ID = same object instance
+        Uses cache-first pattern: sync filter() on preloaded studios,
+        falls back to async find_one() on cache miss.
 
         Args:
             account: The Account object
-            performer: The Performer object
             session: Optional database session to use
 
         Returns:
             Studio object from Stash (either found or newly created)
-
-        Note:
-            Manual cache invalidation removed - store handles coherency automatically.
         """
         # Cache-first: try sync filter() (zero-cost if preloaded), fall back to
         # async find_one() for edge cases where studio wasn't present at preload time
@@ -117,15 +102,16 @@ class StudioProcessingMixin:
                     logger.debug(
                         f"Found existing studio: {studio.name} (ID: {studio.id})"
                     )
-                    print_info(f"Studio ready: {studio.name}")
+                    logger.debug(f"Studio ready: {studio.name}")
                     return studio
 
                 # Not found - create new studio with all fields
+                # Studio-performer link is computed server-side from
+                # media associations, not a writable field
                 studio = Studio(
                     name=creator_studio_name,
                     parent_studio=fansly_studio,
                     urls=[f"https://fansly.com/{account.username}"],
-                    performers=[performer] if performer else [],
                 )
 
                 # Save to Stash

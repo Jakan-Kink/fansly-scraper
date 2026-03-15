@@ -1,22 +1,29 @@
 """Helper module for logging and tracking missing database relationships."""
 
+from __future__ import annotations
+
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
-
 from textio import json_output
 
+from .models import Account, Group, Media, Message, get_store
+
+
+# Table name → model type mapping for existence checks
+_TABLE_MODEL_MAP: dict[str, type] = {
+    "accounts": Account,
+    "media": Media,
+    "messages": Message,
+    "groups": Group,
+}
 
 # Track missing relationships by type
 missing_relationships: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
 
 
 async def log_missing_relationship(
-    session: Session | AsyncSession,
     table_name: str,
     field_name: str,
     missing_id: Any,
@@ -25,52 +32,29 @@ async def log_missing_relationship(
 ) -> bool:
     """Log a missing relationship and check if it exists.
 
-    Args:
-        session: SQLAlchemy session (sync or async)
-        table_name: Name of the table containing the foreign key
-        field_name: Name of the foreign key field
-        missing_id: ID that's missing from the referenced table
-        referenced_table: Name of the table being referenced
-        context: Optional additional context about the relationship
-
     Returns:
-        bool: True if the relationship exists, False if it's missing
+        True if the relationship exists, False if it's missing
     """
-    # Convert ID to string for consistent handling in logs
+    store = get_store()
     str_id = str(missing_id)
 
-    # Convert ID to integer for database query
     try:
         int_id = int(missing_id)
     except (ValueError, TypeError):
-        # If ID can't be converted to integer, treat as missing
         int_id = None
 
+    exists = False
     if int_id is not None:
-        # Check if the ID exists in the referenced table
-        query = text(f"SELECT 1 FROM {referenced_table} WHERE id = :id")
-        params = {"id": int_id}
-
-        if isinstance(session, AsyncSession):
-            result = await session.execute(query, params)
-        else:
-            result = session.execute(query, params)
-
-        row = result.first()
-        exists = row is not None
-    else:
-        exists = False
+        model_type = _TABLE_MODEL_MAP.get(referenced_table)
+        if model_type:
+            obj = await store.get(model_type, int_id)
+            exists = obj is not None
 
     if not exists:
-        # Check if this relationship is already logged
         was_logged = str_id in missing_relationships[referenced_table][table_name]
-
-        # Add to missing relationships tracking
         missing_relationships[referenced_table][table_name].add(str_id)
 
-        # Only log if this is a new missing relationship
         if not was_logged:
-            # Prepare context for logging
             log_context = {
                 "table": table_name,
                 "field": field_name,
@@ -81,7 +65,6 @@ async def log_missing_relationship(
             if context:
                 log_context.update(context)
 
-            # Log the missing relationship
             json_output(
                 1,
                 f"meta/relationships/missing/{referenced_table}/{table_name}",

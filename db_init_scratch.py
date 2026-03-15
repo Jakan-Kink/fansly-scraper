@@ -681,7 +681,7 @@ async def run_dedupe_init(
                 continue
 
             state = DownloadState(creator_name=creator)
-            state.creator_id = creator_id
+            state.creator_id = int(creator_id)
             try:
                 set_create_directory_for_download(config, state)
             except Exception as exc:

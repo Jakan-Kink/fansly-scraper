@@ -3,20 +3,77 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from stash_graphql_client.types import Image, Scene, Tag
+from stash_graphql_client.types.base import is_set
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
+from ..protocols import StashProcessingProtocol
 
 
-if TYPE_CHECKING:
-    pass
-
-
-class TagProcessingMixin:
+class TagProcessingMixin(StashProcessingProtocol):
     """Tag processing functionality."""
+
+    def _find_tag_in_cache(self, name: str) -> Tag | None:
+        """Find a tag by name or alias in the preloaded cache.
+
+        Checks both tag names and aliases (case-insensitive) to prevent
+        creating duplicate tags that collide with existing aliases.
+
+        Args:
+            name: Tag name to search for
+
+        Returns:
+            Tag if found by name or alias, None otherwise
+        """
+        name_lower = name.lower()
+        results = self.store.filter(
+            Tag,
+            lambda t: (
+                (is_set(t.name) and t.name and t.name.lower() == name_lower)
+                or (
+                    is_set(t.aliases)
+                    and t.aliases
+                    and any(a.lower() == name_lower for a in t.aliases)
+                )
+            ),
+        )
+        return results[0] if results else None
+
+    async def _get_or_create_tag(self, name: str) -> Tag:
+        """Get existing tag or create new one, checking aliases.
+
+        Stash rejects tag creation when the name collides with an existing
+        alias (case-insensitive). This method checks cache (name + aliases),
+        falls back to GraphQL name search, then alias search, before creating.
+
+        Args:
+            name: Tag name to find or create
+
+        Returns:
+            Tag object (existing or newly created and saved)
+        """
+        # 1. Cache-first: check both name and aliases (tags are preloaded)
+        tag = self._find_tag_in_cache(name)
+        if tag:
+            return tag
+
+        # 2. GraphQL fallback: search by name
+        tag = await self.store.find_one(Tag, name=name)
+        if tag:
+            return tag
+
+        # 3. GraphQL fallback: search by alias
+        tag = await self.store.find_one(Tag, aliases__contains=name)
+        if tag:
+            return tag
+
+        # 4. Not found anywhere — create and save
+        tag = Tag.new(name=name)
+        await self.store.save(tag)
+        return tag
 
     async def _process_hashtags_to_tags(
         self,
@@ -24,36 +81,27 @@ class TagProcessingMixin:
     ) -> list[Tag]:
         """Process hashtags into Stash tags using batch operations.
 
-        Migrated to use store.get_or_create() for massive API call reduction:
-        - OLD: N hashtags x 2 searches = 2N API calls
-        - NEW: N parallel get_or_create calls with identity map caching
+        Uses cache-first lookup with alias checking to prevent duplicate
+        tag creation errors from Stash.
 
         Args:
             hashtags: List of hashtag objects with value attribute
 
         Returns:
-            List of Tag objects (90%+ reduction in API calls!)
-
-        Note:
-            Uses asyncio.gather for parallel tag creation/lookup.
-            Identity map ensures tags are cached and reused.
+            List of Tag objects
         """
         if not hashtags:
             return []
 
         tag_names = [h.value.lower() for h in hashtags]
-        logger.debug(
-            f"Processing {len(tag_names)} hashtags into tags using batch operations"
-        )
+        logger.debug(f"Processing {len(tag_names)} hashtags into tags")
 
-        # Use get_or_create in parallel for all tags (identity map handles duplicates)
-        tag_tasks = [self.store.get_or_create(Tag, name=name) for name in tag_names]
+        # Process all tags (cache hits are instant, GraphQL only for misses)
+        tag_tasks = [self._get_or_create_tag(name) for name in tag_names]
 
         try:
-            # Execute all get_or_create operations in parallel
             tags = await asyncio.gather(*tag_tasks, return_exceptions=True)
 
-            # Filter out exceptions and log failures
             valid_tags = []
             for i, tag_or_exc in enumerate(tags):
                 if isinstance(tag_or_exc, Exception):
@@ -80,25 +128,21 @@ class TagProcessingMixin:
                     )
 
             logger.debug(
-                f"Batch processed {len(valid_tags)}/{len(tag_names)} tags successfully"
+                f"Processed {len(valid_tags)}/{len(tag_names)} tags successfully"
             )
 
         except Exception as e:
             logger.exception(f"Batch tag processing failed: {e}")
-            # Fallback: process tags one by one
             logger.warning("Falling back to sequential tag processing")
-            tags = []
+            valid_tags = []
             for tag_name in tag_names:
                 try:
-                    tag = await self.store.get_or_create(Tag, name=tag_name)
-                    tags.append(tag)
+                    tag = await self._get_or_create_tag(tag_name)
+                    valid_tags.append(tag)
                 except Exception as tag_error:
                     logger.warning(f"Failed to process tag '{tag_name}': {tag_error}")
 
-            return tags
-        else:
-            # Success - return valid tags
-            return valid_tags
+        return valid_tags
 
     async def _add_preview_tag(
         self,
@@ -116,26 +160,4 @@ class TagProcessingMixin:
         if not preview_tag:
             preview_tag = await self.store.find_one(Tag, name="Trailer")
         if preview_tag:
-            # Check if tag already exists
-            current_tag_ids = (
-                {t.id for t in file.tags} if hasattr(file, "tags") else set()
-            )
-            if preview_tag.id not in current_tag_ids:
-                debug_print(
-                    {
-                        "method": "StashProcessing - _add_preview_tag",
-                        "status": "adding_preview_tag",
-                        "file_id": file.id,
-                        "tag_id": preview_tag.id,
-                    }
-                )
-                file.tags.append(preview_tag)
-            else:
-                debug_print(
-                    {
-                        "method": "StashProcessing - _add_preview_tag",
-                        "status": "preview_tag_exists",
-                        "file_id": file.id,
-                        "tag_id": preview_tag.id,
-                    }
-                )
+            await file.add_tag(preview_tag)

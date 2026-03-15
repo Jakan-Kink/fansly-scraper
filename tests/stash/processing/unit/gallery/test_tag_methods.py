@@ -165,14 +165,13 @@ class TestTagMethods:
             ]
         )
 
-        # Call the method - library creates local Tag object even if save fails
-        # (asyncio.gather uses return_exceptions=True, so exceptions are caught)
+        # Call the method - _get_or_create_tag raises on save failure,
+        # asyncio.gather(return_exceptions=True) catches it, filter removes it
         tags = await respx_stash_processor._process_hashtags_to_tags([hashtag1])
 
-        # Verify a local tag object was created (library doesn't raise for save failures)
-        assert len(tags) == 1
-        assert tags[0].name == "test_tag"
-        assert hasattr(tags[0], "id")  # Has UUID even if save failed
+        # Verify no tags returned (save failure propagates as exception,
+        # filtered out by asyncio.gather return_exceptions pattern)
+        assert len(tags) == 0
 
     @pytest.mark.asyncio
     async def test_add_preview_tag(self, respx_stash_processor, mock_image):

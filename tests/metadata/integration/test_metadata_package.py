@@ -3,230 +3,175 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select, text
+from pydantic import ValidationError
 
+from api.fansly import FanslyApi
 from metadata import (
     Account,
     AccountMedia,
     Media,
-    Message,
+    Post,
     TimelineStats,
     Wall,
     process_account_data,
     process_media_info,
 )
-from tests.metadata.helpers.utils import (
-    create_test_data_set,
-    verify_relationship_integrity,
-)
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_full_content_processing(test_database, config, timeline_data):
+async def test_full_content_processing(entity_store, mock_config, timeline_data):
     """Test processing a complete set of content."""
-    # Process account data from timeline
-    account_data = timeline_data["response"]["accounts"][0]
-    async with test_database.async_session_scope() as session:
-        await process_account_data(config, account_data, session=session)
+    # Convert string IDs to int (mimics what API layer does)
+    response = FanslyApi.convert_ids_to_int(timeline_data["response"])
 
-        # Process media
-        if "accountMedia" in timeline_data["response"]:
-            for media_data in timeline_data["response"]["accountMedia"]:
-                await process_media_info(config, media_data, session=session)
+    account_data = response["accounts"][0]
 
-    # Verify data through database queries
-    async with test_database.async_session_scope() as session:
-        # Check account
-        result = await session.execute(text("SELECT * FROM accounts"))
-        account = result.fetchone()
-        assert account is not None
-        assert account.username == account_data["username"]
+    # Process account data via production code
+    await process_account_data(mock_config, account_data)
 
-        # Check timeline stats
-        if "timelineStats" in account_data:
-            result = await session.execute(
-                text("SELECT * FROM timeline_stats WHERE accountId = :account_id"),
-                {"account_id": account.id},
-            )
-            stats = result.fetchone()
-            assert stats is not None
-            assert stats.imageCount == account_data["timelineStats"].get(
-                "imageCount", 0
-            )
-            assert stats.videoCount == account_data["timelineStats"].get(
-                "videoCount", 0
-            )
-            assert isinstance(stats, TimelineStats)
+    # Verify account was created
+    account_id = account_data["id"]
+    account = await entity_store.get(Account, account_id)
+    assert account is not None
+    assert account.username == account_data["username"]
 
-        # Check media
-        result = await session.execute(text("SELECT COUNT(*) FROM media"))
-        media_count = result.scalar()
-        assert media_count > 0
+    # Verify timeline stats
+    if "timelineStats" in account_data:
+        stats = await entity_store.get(TimelineStats, account_id)
+        assert stats is not None
+        assert stats.imageCount == account_data["timelineStats"]["imageCount"]
+        assert stats.videoCount == account_data["timelineStats"]["videoCount"]
 
-        # Check account media
-        result = await session.execute(text("SELECT COUNT(*) FROM account_media"))
-        account_media_count = result.scalar()
-        assert account_media_count > 0
+    # Process media
+    if "accountMedia" in response:
+        for media_data in response["accountMedia"]:
+            await process_media_info(mock_config, media_data)
+
+    # Verify media was created — check at least one exists
+    if response.get("accountMedia"):
+        first_am = response["accountMedia"][0]
+        if "media" in first_am:
+            media_id = first_am["media"]["id"]
+            media = await entity_store.get(Media, media_id)
+            assert media is not None
+
+        # Verify AccountMedia was created
+        am = await entity_store.get(AccountMedia, first_am["id"])
+        assert am is not None
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_relationship_integrity(test_database):
+async def test_relationship_integrity(entity_store, mock_config):
     """Test integrity of relationships between models."""
+    # Create accounts with media, posts, and walls
+    for i in range(2):
+        account_id = snowflake_id()
+        account = Account(id=account_id, username=f"integrity_user_{i}")
+        await entity_store.save(account)
 
-    async with test_database.async_session_scope() as session:
-        try:
-            print("\nCreating test data set...")
-            data = await create_test_data_set(
-                session,
-                num_accounts=2,
-                num_media_per_account=3,
-                num_posts_per_account=2,
-                num_walls_per_account=2,
+        # Create media for this account
+        for _j in range(3):
+            media_id = snowflake_id()
+            media = Media(id=media_id, accountId=account_id, mimetype="video/mp4")
+            await entity_store.save(media)
+
+            am = AccountMedia(
+                id=snowflake_id(),
+                accountId=account_id,
+                mediaId=media_id,
+                createdAt=datetime.now(UTC),
             )
-            await session.commit()
-            print(f"Created {len(data['accounts'])} accounts")
-            print(f"Created {len(data['media'])} media items")
-            print(f"Created {len(data['account_media'])} account_media associations")
+            await entity_store.save(am)
 
-            # Verify relationships for each account
-            for account in data["accounts"]:
-                print(f"\nVerifying relationships for account {account.id}")
-                # Test 1: Account -> AccountMedia relationship using ORM
-                account_media_result = await session.scalars(
-                    select(AccountMedia).filter_by(accountId=account.id)
-                )
-                account_media_list = list(account_media_result)
-                assert len(account_media_list) == 3
+        # Create posts
+        for j in range(2):
+            post = Post(
+                id=snowflake_id(),
+                accountId=account_id,
+                content=f"Post {j} for account {account_id}",
+                createdAt=datetime.now(UTC),
+            )
+            await entity_store.save(post)
 
-                # Verify relationship count using async-safe method
-                integrity_check = await verify_relationship_integrity(
-                    session, account, "accountMedia", expected_count=3
-                )
-                assert integrity_check, "Relationship integrity check failed"
+        # Create walls
+        for j in range(2):
+            wall = Wall(
+                id=snowflake_id(),
+                accountId=account_id,
+                name=f"Wall {j}",
+                pos=j,
+            )
+            await entity_store.save(wall)
 
-                # Test 2: AccountMedia -> Media relationship using ORM
-                for account_media in account_media_list:
-                    media = account_media.media
-                    assert media is not None, (
-                        f"Media {account_media.mediaId} not found for AccountMedia {account_media.id}"
-                    )
-                    assert media.accountId == account.id, (
-                        f"Media {media.id} has wrong accountId {media.accountId}, expected {account.id}"
-                    )
+    # Verify via entity_store queries
+    accounts = await entity_store.find(Account)
+    assert len(accounts) == 2
 
-                # Test 3: Account -> Walls relationship (existing walls) using ORM
-                existing_walls_result = await session.scalars(
-                    select(Wall).filter_by(accountId=account.id)
-                )
-                existing_walls = list(existing_walls_result)
-                assert len(existing_walls) == 2, (
-                    f"Expected 2 walls for account {account.id}, found {len(existing_walls)}"
-                )
-                assert await verify_relationship_integrity(
-                    session, account, "walls", expected_count=2
-                )
+    for account in accounts:
+        # Check media
+        media_list = await entity_store.find(Media, accountId=account.id)
+        assert len(media_list) == 3
 
-                # Test 4: Wall -> Posts relationship via wall_posts junction table
-                for wall in existing_walls:
-                    account_posts = await wall.awaitable_attrs.posts
-                    assert len(account_posts) == 2, (
-                        f"Expected 2 posts for account {wall.accountId}, found {len(account_posts)}"
-                    )
+        # Check posts
+        posts = await entity_store.find(Post, accountId=account.id)
+        assert len(posts) == 2
 
-                    # Verify each post belongs to the correct account
-                    for post in account_posts:
-                        assert post.accountId == wall.accountId, (
-                            f"Post {post.id} has wrong accountId {post.accountId}, expected {wall.accountId}"
-                        )
-
-            # Test 5: Verify no orphaned records
-            # Count total records
-            result = await session.execute(text("SELECT COUNT(*) FROM accounts"))
-            total_accounts = result.scalar()
-            result = await session.execute(text("SELECT COUNT(*) FROM media"))
-            total_media = result.scalar()
-            result = await session.execute(text("SELECT COUNT(*) FROM account_media"))
-            total_account_media = result.scalar()
-            result = await session.execute(text("SELECT COUNT(*) FROM walls"))
-            total_walls = result.scalar()
-            result = await session.execute(text("SELECT COUNT(*) FROM posts"))
-            total_posts = result.scalar()
-
-            # Verify expected counts
-            assert total_accounts == 2  # num_accounts
-            assert total_media == 6  # num_accounts * num_media_per_account
-            assert total_account_media == 6  # Same as media count
-            assert total_walls == 4  # num_accounts * num_walls_per_account
-            assert total_posts == 4  # num_accounts * num_posts_per_account
-
-        finally:
-            # Rollback any failed transaction before cleanup
-            await session.rollback()
-            # Cleanup in reverse order of dependencies (junction tables first)
-            await session.execute(text("DELETE FROM wall_posts"))
-            await session.execute(text("DELETE FROM posts"))
-            await session.execute(text("DELETE FROM walls"))
-            await session.execute(text("DELETE FROM account_media"))
-            await session.execute(text("DELETE FROM media"))
-            await session.execute(text("DELETE FROM accounts"))
-            await session.commit()
+        # Check walls
+        walls = await entity_store.find(Wall, accountId=account.id)
+        assert len(walls) == 2
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_database_constraints(test_database):
-    """Test database constraints and referential integrity."""
-    async with test_database.async_session_scope() as session:
-        # Try to create media without account (should fail)
-        media = Media(id=1)  # Missing required accountId
-        session.add(media)
-        with pytest.raises(Exception):
-            await session.commit()
-        await session.rollback()
+async def test_database_constraints(entity_store):
+    """Test that Pydantic models enforce required fields."""
+    # Media requires accountId
+    with pytest.raises(ValidationError, match="accountId"):
+        Media(id=snowflake_id())
 
-        # Try to create wall without account (should fail)
-        wall = Wall(id=1, name="Test")  # Missing required accountId
-        session.add(wall)
-        with pytest.raises(Exception):
-            await session.commit()
-        await session.rollback()
+    # Wall requires accountId
+    with pytest.raises(ValidationError, match="accountId"):
+        Wall(id=snowflake_id(), name="Test")
 
-        # Try to create message without sender (should fail)
-        message = Message(
-            id=1, content="Test", createdAt=datetime.now(UTC)
-        )  # Missing required senderId
-        session.add(message)
-        with pytest.raises(Exception):
-            await session.commit()
-        await session.rollback()
+    # Message requires senderId
+    from metadata import Message
+
+    with pytest.raises(ValidationError, match="senderId"):
+        Message(id=snowflake_id(), content="Test", createdAt=datetime.now(UTC))
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_database_indexes(test_database):
-    """Test that important queries use indexes (PostgreSQL)."""
-    async with test_database.async_session_scope() as session:
-        # Create test account
-        account = Account(id=1, username="test_user")
-        session.add(account)
-        await session.commit()
+async def test_database_indexes(entity_store):
+    """Test that important indexes exist (PostgreSQL)."""
+    # Create test data to query against
+    account_id = snowflake_id()
+    account = Account(id=account_id, username="index_test_user")
+    await entity_store.save(account)
 
-        # Check username index (PostgreSQL EXPLAIN)
-        result = await session.execute(
-            text("EXPLAIN SELECT * FROM accounts WHERE username = 'test_user'")
+    wall = Wall(id=snowflake_id(), accountId=account_id, name="Test Wall")
+    await entity_store.save(wall)
+
+    # Use raw SQL via the store's pool to check EXPLAIN plans
+    pool = entity_store.pool
+    async with pool.acquire() as conn:
+        # Check username index
+        plan = await conn.fetch(
+            "EXPLAIN SELECT * FROM accounts WHERE username = 'index_test_user'"
         )
-        plan = result.fetchall()
-        assert any("Index" in str(row) for row in plan), (
-            f"Query not using index for accounts.username. Plan: {plan}"
+        plan_str = "\n".join(str(row) for row in plan)
+        assert "Index" in plan_str, (
+            f"Query not using index for accounts.username. Plan: {plan_str}"
         )
 
-        # Check foreign key indexes (PostgreSQL requires quoted camelCase)
-        result = await session.execute(
-            text('EXPLAIN SELECT * FROM walls WHERE "accountId" = 1')
+        # Check foreign key index on walls.accountId
+        plan = await conn.fetch(
+            f'EXPLAIN SELECT * FROM walls WHERE "accountId" = {account_id}'
         )
-        plan = result.fetchall()
-        assert any("Index" in str(row) for row in plan), (
-            f"Query not using index for walls.accountId. Plan: {plan}"
+        plan_str = "\n".join(str(row) for row in plan)
+        assert "Index" in plan_str, (
+            f"Query not using index for walls.accountId. Plan: {plan_str}"
         )

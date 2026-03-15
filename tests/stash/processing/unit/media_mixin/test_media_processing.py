@@ -42,7 +42,7 @@ class TestMediaProcessing:
             mimetype="image/jpeg",
             is_downloaded=True,
             accountId=account.id,
-            stash_id="stash_456",
+            stash_id=456,
         )
         media.variants = set()
 
@@ -57,7 +57,7 @@ class TestMediaProcessing:
 
         # Response 1: findImage - return image with visual_files
         image_file = {
-            "id": "file_123",
+            "id": "2123",
             "path": "/path/to/media_789.jpg",
             "basename": "media_789.jpg",
             "size": 1024,
@@ -68,7 +68,7 @@ class TestMediaProcessing:
             "mod_time": "2024-01-01T00:00:00Z",
         }
         image_result = create_image_dict(
-            id="image_stash_456",
+            id="456",
             title="Test Image",
             visual_files=[image_file],
         )
@@ -78,7 +78,7 @@ class TestMediaProcessing:
 
         # Response 3: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -87,7 +87,7 @@ class TestMediaProcessing:
 
         # Response 5: studioCreate for creator studio
         creator_studio = create_studio_dict(
-            id="studio_123",
+            id="1123",
             name=f"{account.username} (Fansly)",
             urls=[f"https://fansly.com/{account.username}"],
             parent_studio=fansly_studio,
@@ -95,7 +95,7 @@ class TestMediaProcessing:
 
         # Response 6: imageUpdate result
         updated_image = create_image_dict(
-            id="image_stash_456",
+            id="456",
             title="Test Image",
             visual_files=[image_file],
             studio=creator_studio,
@@ -169,7 +169,7 @@ class TestMediaProcessing:
 
         # Verify result contains the image
         assert len(result["images"]) == 1
-        assert result["images"][0].id == "image_stash_456"
+        assert result["images"][0].id == "456"
         assert len(result["scenes"]) == 0
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
@@ -181,7 +181,7 @@ class TestMediaProcessing:
         # Call 0: findImage (by stash_id)
         req0 = json.loads(calls[0].request.content)
         assert "findImage" in req0["query"]
-        assert req0["variables"]["id"] == "stash_456"
+        assert req0["variables"]["id"] == "456"
         resp0 = calls[0].response.json()
         assert "findImage" in resp0["data"]
 
@@ -214,14 +214,14 @@ class TestMediaProcessing:
         assert "studioCreate" in req4["query"]
         assert req4["variables"]["input"]["name"] == f"{account.username} (Fansly)"
         resp4 = calls[4].response.json()
-        assert resp4["data"]["studioCreate"]["id"] == "studio_123"
+        assert resp4["data"]["studioCreate"]["id"] == "1123"
 
         # Call 5: imageUpdate
         req5 = json.loads(calls[5].request.content)
         assert "imageUpdate" in req5["query"]
-        assert req5["variables"]["input"]["id"] == "image_stash_456"
+        assert req5["variables"]["input"]["id"] == "456"
         resp5 = calls[5].response.json()
-        assert resp5["data"]["imageUpdate"]["id"] == "image_stash_456"
+        assert resp5["data"]["imageUpdate"]["id"] == "456"
 
     @pytest.mark.asyncio
     async def test_process_media_with_stash_id(self, respx_stash_processor):
@@ -239,7 +239,7 @@ class TestMediaProcessing:
             mimetype="video/mp4",
             is_downloaded=True,
             accountId=account.id,
-            stash_id="stash_123",
+            stash_id=123,
         )
         media.variants = set()
 
@@ -253,7 +253,7 @@ class TestMediaProcessing:
 
         # Response 1: findScene - return scene with files
         video_file = {
-            "id": "file_456",
+            "id": "2456",
             "path": "/path/to/media_789.mp4",
             "basename": "media_789.mp4",
             "size": 2048,
@@ -268,7 +268,7 @@ class TestMediaProcessing:
             "bit_rate": 5000000,
         }
         scene_result = create_scene_dict(
-            id="scene_stash_123",
+            id="123",
             title="Test Scene",
             files=[video_file],
         )
@@ -278,7 +278,7 @@ class TestMediaProcessing:
 
         # Response 3: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -287,7 +287,7 @@ class TestMediaProcessing:
 
         # Response 5: studioCreate
         creator_studio = create_studio_dict(
-            id="studio_123",
+            id="1123",
             name=f"{account.username} (Fansly)",
             urls=[f"https://fansly.com/{account.username}"],
             parent_studio=fansly_studio,
@@ -295,7 +295,7 @@ class TestMediaProcessing:
 
         # Response 6: sceneUpdate result
         updated_scene = create_scene_dict(
-            id="scene_stash_123",
+            id="123",
             title="Test Scene",
             files=[video_file],
             studio=creator_studio,
@@ -341,7 +341,7 @@ class TestMediaProcessing:
 
         # Verify result contains the scene
         assert len(result["scenes"]) == 1
-        assert result["scenes"][0].id == "scene_stash_123"
+        assert result["scenes"][0].id == "123"
         assert len(result["images"]) == 0
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
@@ -353,7 +353,7 @@ class TestMediaProcessing:
         # Call 0: findScene (by stash_id)
         req0 = json.loads(calls[0].request.content)
         assert "findScene" in req0["query"]
-        assert req0["variables"]["id"] == "stash_123"
+        assert req0["variables"]["id"] == "123"
         resp0 = calls[0].response.json()
         assert "findScene" in resp0["data"]
 
@@ -386,14 +386,14 @@ class TestMediaProcessing:
         assert "studioCreate" in req4["query"]
         assert req4["variables"]["input"]["name"] == f"{account.username} (Fansly)"
         resp4 = calls[4].response.json()
-        assert resp4["data"]["studioCreate"]["id"] == "studio_123"
+        assert resp4["data"]["studioCreate"]["id"] == "1123"
 
         # Call 5: sceneUpdate (not imageUpdate - this is a video)
         req5 = json.loads(calls[5].request.content)
         assert "sceneUpdate" in req5["query"]
-        assert req5["variables"]["input"]["id"] == "scene_stash_123"
+        assert req5["variables"]["input"]["id"] == "123"
         resp5 = calls[5].response.json()
-        assert resp5["data"]["sceneUpdate"]["id"] == "scene_stash_123"
+        assert resp5["data"]["sceneUpdate"]["id"] == "123"
 
     @pytest.mark.asyncio
     async def test_process_media_with_variants(self, respx_stash_processor):
@@ -407,12 +407,12 @@ class TestMediaProcessing:
 
         # Create variant Media objects
         variant1 = MediaFactory.build(
-            id="variant_1",
+            id=7891,
             mimetype="image/jpeg",
             accountId=account.id,
         )
         variant2 = MediaFactory.build(
-            id="variant_2",
+            id=7892,
             mimetype="video/mp4",
             accountId=account.id,
         )
@@ -451,9 +451,9 @@ class TestMediaProcessing:
         # Response 1: findImages - return images matching path filter (variant1)
         image_file = {
             "__typename": "ImageFile",
-            "id": "file_variant_1",
-            "path": "/path/to/media_variant_1.jpg",
-            "basename": "media_variant_1.jpg",
+            "id": "10001",
+            "path": "/path/to/media_7891.jpg",
+            "basename": "media_7891.jpg",
             "size": 1024,
             "width": 1920,
             "height": 1080,
@@ -463,7 +463,7 @@ class TestMediaProcessing:
             "mod_time": "2024-01-01T00:00:00Z",
         }
         image_result = create_image_dict(
-            id="image_variant_1",
+            id="10002",
             title="Test Image Variant",
             visual_files=[image_file],
         )
@@ -478,7 +478,7 @@ class TestMediaProcessing:
         # Parent scene (ID=789)
         parent_video_file = {
             "__typename": "VideoFile",
-            "id": "file_789",
+            "id": "2789",
             "path": "/path/to/media_789.mp4",
             "basename": "media_789.mp4",
             "size": 3072,
@@ -495,17 +495,17 @@ class TestMediaProcessing:
             "mod_time": "2024-01-01T00:00:00Z",
         }
         parent_scene_result = create_scene_dict(
-            id="scene_789",
+            id="5789",
             title="Test Parent Scene",
             files=[parent_video_file],
         )
 
-        # Variant scene (ID=variant_2)
+        # Variant scene (ID=7892)
         variant_video_file = {
             "__typename": "VideoFile",
-            "id": "file_variant_2",
-            "path": "/path/to/media_variant_2.mp4",
-            "basename": "media_variant_2.mp4",
+            "id": "10003",
+            "path": "/path/to/media_7892.mp4",
+            "basename": "media_7892.mp4",
             "size": 2048,
             "parent_folder_id": None,
             "format": "mp4",
@@ -520,7 +520,7 @@ class TestMediaProcessing:
             "mod_time": "2024-01-01T00:00:00Z",
         }
         variant_scene_result = create_scene_dict(
-            id="scene_variant_2",
+            id="10004",
             title="Test Scene Variant",
             files=[variant_video_file],
         )
@@ -537,7 +537,7 @@ class TestMediaProcessing:
 
         # Response 4: findStudios for Fansly (network)
         fansly_studio = create_studio_dict(
-            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+            id="246", name="Fansly (network)", urls=["https://fansly.com"]
         )
         fansly_result = create_find_studios_result(count=1, studios=[fansly_studio])
 
@@ -546,7 +546,7 @@ class TestMediaProcessing:
 
         # Response 6, 10, 14: studioCreate (FILE 1 creates, FILES 2-3 try to create again)
         creator_studio = create_studio_dict(
-            id="studio_123",
+            id="1123",
             name=f"{account.username} (Fansly)",
             urls=[f"https://fansly.com/{account.username}"],
             parent_studio=fansly_studio,
@@ -554,7 +554,7 @@ class TestMediaProcessing:
 
         # Response 7: imageUpdate (image variant)
         updated_image = create_image_dict(
-            id="image_variant_1",
+            id="10002",
             title="Test Image Variant",
             visual_files=[image_file],
             studio=creator_studio,
@@ -562,7 +562,7 @@ class TestMediaProcessing:
 
         # Response 8: sceneUpdate (parent scene)
         updated_parent_scene = create_scene_dict(
-            id="scene_789",
+            id="5789",
             title="Test Parent Scene",
             files=[parent_video_file],
             studio=creator_studio,
@@ -570,7 +570,7 @@ class TestMediaProcessing:
 
         # Response 9: sceneUpdate (scene variant)
         updated_variant_scene = create_scene_dict(
-            id="scene_variant_2",
+            id="10004",
             title="Test Scene Variant",
             files=[variant_video_file],
             studio=creator_studio,
@@ -648,11 +648,11 @@ class TestMediaProcessing:
 
         # Verify result contains image and BOTH scenes (parent + variant)
         assert len(result["images"]) == 1
-        assert result["images"][0].id == "image_variant_1"
+        assert result["images"][0].id == "10002"
         assert len(result["scenes"]) == 2
         scene_ids = {s.id for s in result["scenes"]}
-        assert "scene_789" in scene_ids, "Parent scene should be in result"
-        assert "scene_variant_2" in scene_ids, "Variant scene should be in result"
+        assert "5789" in scene_ids, "Parent scene should be in result"
+        assert "10004" in scene_ids, "Variant scene should be in result"
 
         # Verify GraphQL call sequence (permanent assertion to catch regressions)
         # Cache-first pattern: file 1 populates studio cache, files 2-3 skip studio lookups
@@ -703,12 +703,12 @@ class TestMediaProcessing:
         req5 = json.loads(calls[5].request.content)
         assert "studioCreate" in req5["query"]
         resp5 = calls[5].response.json()
-        assert resp5["data"]["studioCreate"]["id"] == "studio_123"
+        assert resp5["data"]["studioCreate"]["id"] == "1123"
 
         # Call 6: imageUpdate
         req6 = json.loads(calls[6].request.content)
         assert "imageUpdate" in req6["query"]
-        assert req6["variables"]["input"]["id"] == "image_variant_1"
+        assert req6["variables"]["input"]["id"] == "10002"
 
         # FILE 2 (parent scene) - Calls 7-8 (studios cached from file 1)
         # Call 7: findPerformers
@@ -718,7 +718,7 @@ class TestMediaProcessing:
         # Call 8: sceneUpdate (parent scene — studios served from cache)
         req8 = json.loads(calls[8].request.content)
         assert "sceneUpdate" in req8["query"]
-        assert req8["variables"]["input"]["id"] == "scene_789"
+        assert req8["variables"]["input"]["id"] == "5789"
 
         # FILE 3 (scene variant) - Calls 9-10 (studios cached from file 1)
         # Call 9: findPerformers
@@ -728,4 +728,4 @@ class TestMediaProcessing:
         # Call 10: sceneUpdate (scene variant — studios served from cache)
         req10 = json.loads(calls[10].request.content)
         assert "sceneUpdate" in req10["query"]
-        assert req10["variables"]["input"]["id"] == "scene_variant_2"
+        assert req10["variables"]["input"]["id"] == "10004"

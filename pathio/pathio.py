@@ -27,7 +27,7 @@ except ImportError:
 from config.logging import textio_logger
 from download.downloadstate import DownloadState
 from download.types import DownloadType
-from media import MediaItem
+from metadata.models import Media
 
 from .types import PathConfig
 
@@ -184,7 +184,7 @@ def get_creator_metadata_path(config: PathConfig, creator_name: str) -> Path:
 
 
 def get_media_save_path(
-    config: PathConfig, state: DownloadState, media_item: MediaItem
+    config: PathConfig, state: DownloadState, media_item: Media
 ) -> tuple[Path, Path]:
     """Get the save directory and full path for a media item.
 

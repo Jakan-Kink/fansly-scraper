@@ -187,7 +187,7 @@ def mock_config():
     config.debug = False
     config.interactive = False
     config.fetched_timeline_duplication = False
-    config.creator_id = "test_creator_id"
+    config.creator_id = 99999
 
     # Mock retries as properties
     type(config).timeline_retries = PropertyMock(return_value=3)

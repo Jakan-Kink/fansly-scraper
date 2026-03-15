@@ -4,14 +4,13 @@ import asyncio
 from typing import Any
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
-from config import FanslyConfig, with_database_session
+from config import FanslyConfig
 from config.modes import DownloadMode
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
 from helpers.timer import timing_jitter
-from metadata import Base, TimelineStats, process_account_data
+from metadata import Account, TimelineStats, process_account_data
+from metadata.models import get_store
 from textio import json_output, print_error, print_info
 
 from .downloadstate import DownloadState
@@ -150,92 +149,96 @@ def _extract_account_data(
 def _update_state_from_account(
     config: FanslyConfig,
     state: DownloadState,
-    account: dict[str, Any],
+    account: Account,
 ) -> None:
-    """Update download state with account information.
+    """Update download state from the persisted Account object.
 
     Args:
         config: The program configuration
         state: Current download state
-        account: Account data dictionary
+        account: Account Pydantic object (from identity map after process_account_data)
 
     Raises:
         ApiAccountInfoError: If timeline stats are missing
     """
-    state.creator_id = account["id"]
+    state.creator_id = account.id
 
-    # Store wall IDs in DownloadState if they exist
-    if "walls" in account:
-        state.walls = {wall["id"] for wall in account["walls"]}
+    # Store wall IDs from the resolved relationship
+    if account.walls:
+        state.walls = {wall.id for wall in account.walls}
 
     # Skip timeline stats for client account info
     if state.creator_name is not None:
-        state.following = account.get("following", False)
-        state.subscribed = account.get("subscribed", False)
+        state.following = account.following or False
+        state.subscribed = account.subscribed or False
 
-        try:
-            state.total_timeline_pictures = account["timelineStats"]["imageCount"]
-        except KeyError:
+        if not account.timelineStats:
             raise ApiAccountInfoError(
-                f"Can not get timelineStats for creator username '{state.creator_name}'; you most likely misspelled it! (27)"
+                f"Can not get timelineStats for creator username '{state.creator_name}'; "
+                f"you most likely misspelled it! (27)"
             )
 
-        state.total_timeline_videos = account["timelineStats"]["videoCount"]
+        state.total_timeline_pictures = account.timelineStats.imageCount or 0
+        state.total_timeline_videos = account.timelineStats.videoCount or 0
 
-        # overwrite base dup threshold with custom 20% of total timeline content
         config.DUPLICATE_THRESHOLD = int(
-            0.2 * int(state.total_timeline_pictures + state.total_timeline_videos)
+            0.2 * (state.total_timeline_pictures + state.total_timeline_videos)
         )
 
         print_info(f"Targeted creator: '{state.creator_name}'")
         print()
 
 
-@with_database_session(async_session=True)
 async def get_creator_account_info(
     config: FanslyConfig,
     state: DownloadState,
-    session: AsyncSession | None = None,
 ) -> None:
-    """Get and process creator account information.
-
-    Args:
-        config: The program configuration
-        state: Current download state
-        session: Optional AsyncSession for database operations
-
-    Raises:
-        RuntimeError: If download mode is not set
-        ApiAccountInfoError: If API returns non-200 status code or creator name is invalid
-        ApiAuthenticationError: If authentication fails
-        ApiError: For other API errors
-    """
+    """Get and process creator account information."""
     print_info("Getting account information ...")
 
     _validate_download_mode(config, state)
     response = await _get_account_response(config, state)
     json_output(1, "account_info", response.json())
-    account = _extract_account_data(response, config)
-    json_output(1, "account_data", account)
+    account_data = _extract_account_data(response, config)
+    json_output(1, "account_data", account_data)
+
+    store = get_store()
+    account_id = (
+        int(account_data["id"])
+        if isinstance(account_data["id"], str)
+        else account_data["id"]
+    )
+
+    # Capture DB's fetchedAt BEFORE process_account_data merges API data
+    # into the identity map (preloaded TimelineStats has DB state)
+    db_fetched_at = None
+    if config.use_duplicate_threshold:
+        preloaded_stats = store.get_from_cache(TimelineStats, account_id)
+        if preloaded_stats:
+            db_fetched_at = preloaded_stats.fetchedAt
+
+    # Persist via Pydantic pipeline — model_validate handles nested
+    # timelineStats, mediaStoryState, walls, avatar, banner.
+    # This MERGES API data into preloaded cache (overwrites fetchedAt etc.)
+    await process_account_data(config=config, data=account_data, state=state)
+
+    # Retrieve the Account object from identity map
+    account = await store.get(Account, account_id)
+    if account is None:
+        raise ApiAccountInfoError(
+            f"Failed to persist account data for '{state.creator_name}'"
+        )
+
     _update_state_from_account(config, state, account)
 
-    # Check for timeline duplication if enabled
+    # Timeline duplication: compare DB's fetchedAt (captured before merge)
+    # with the API's fetchedAt (now on the merged TimelineStats object)
     if (
-        config.use_duplicate_threshold
-        and "timelineStats" in account
-        and "fetchedAt" in account["timelineStats"]
+        db_fetched_at
+        and account.timelineStats
+        and account.timelineStats.fetchedAt == db_fetched_at
     ):
-        # Get current TimelineStats from db
-        stmt = select(TimelineStats).where(TimelineStats.accountId == state.creator_id)
-        result = await session.execute(stmt)
-        if current_stats := await result.scalar_one_or_none():
-            # Convert API timestamp to datetime
-            stats_data = {"fetchedAt": account["timelineStats"]["fetchedAt"]}
-            Base.convert_timestamps(stats_data, ("fetchedAt",))
-            api_fetched_at = stats_data["fetchedAt"]
-            # Compare with db fetchedAt
-            if current_stats.fetchedAt == api_fetched_at:
-                state.fetched_timeline_duplication = True
+        state.fetched_timeline_duplication = True
 
 
 async def _make_rate_limited_request(
@@ -347,8 +350,6 @@ async def get_following_accounts(
     Args:
         config: FanslyConfig instance
         state: DownloadState instance containing client ID
-        session: Optional SQLAlchemy session. If not provided, a new session will be created.
-
     Returns:
         Set of usernames from the following list
 
@@ -408,32 +409,25 @@ async def get_following_accounts(
         # Process accounts and collect usernames
         usernames = set()
 
-        # Process all accounts in a single session
-        async with config._database.async_session_scope() as session:
-            # Process each account
-            for i, account in enumerate(following_accounts, 1):
-                username = account.get("username")
-                if username:
-                    usernames.add(username)
-                print_info(
-                    f"Processing followed account {i}/{total}: {username or 'unknown'}"
-                )
-
-                # Process account data in main DB if NOT using separate metadata
+        for i, account_data in enumerate(following_accounts, 1):
+            try:
                 if not config.separate_metadata:
-                    try:
-                        await process_account_data(
-                            config=config,
-                            state=state,
-                            data=account,
-                            session=session,  # Pass the session
-                        )
-                        # Flush to ensure data is written
-                        await session.flush()
-                    except Exception as e:
-                        print_error(f"Error processing account {username}: {e}")
-                        # Don't fail completely if one account fails
-                        continue
+                    await process_account_data(
+                        config=config, state=state, data=account_data
+                    )
+
+                # Use the Account object from identity map
+                account = Account.model_validate(account_data)
+                if account.username:
+                    usernames.add(account.username)
+                print_info(
+                    f"Processing followed account {i}/{total}: "
+                    f"{account.username or 'unknown'}"
+                )
+            except Exception as e:
+                username = account_data.get("username", "unknown")
+                print_error(f"Error processing account {username}: {e}")
+                continue
 
     except httpx.HTTPError as e:
         if (
