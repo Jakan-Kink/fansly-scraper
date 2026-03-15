@@ -10,14 +10,10 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
-from metadata.attachment import ContentType
-from metadata.post import Post
+from metadata import ContentType
 from stash.processing import StashProcessing
 from tests.fixtures import (
-    AccountFactory,
     AttachmentFactory,
     HashtagFactory,
     PostFactory,
@@ -29,53 +25,35 @@ class TestGalleryLookupMethods:
     """Test gallery lookup methods of StashProcessing using respx."""
 
     @pytest.fixture
-    async def post_with_attachment(self, factory_async_session, session):
-        """Create a post with attachment for testing."""
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
-            id=12345,
-            accountId=12345,
-            content="Test post content",
-            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-        )
-        AttachmentFactory(
-            postId=12345,
+    def post_with_attachment(self):
+        """Create a post with attachment for testing (in-memory only)."""
+        attachment = AttachmentFactory.build(
             contentId=12345,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(
-            select(Post).where(Post.id == 12345).options(selectinload(Post.attachments))
+        return PostFactory.build(
+            id=12345,
+            accountId=12345,
+            content="Test post content",
+            createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
+            attachments=[attachment],
         )
-        return result.unique().scalar_one()
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_no_id(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_stash_id with no stash_id."""
-        # Create post WITHOUT stash_id
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post WITHOUT stash_id
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-            stash_id=None,  # No stash_id
+            stash_id=None,
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Set up respx - will error if called (shouldn't be)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -92,26 +70,17 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_found(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_stash_id when gallery is found."""
-        # Create post WITH stash_id
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post WITH stash_id
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-            stash_id=123,  # Has stash_id
+            stash_id=123,
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Set up respx - findGallery returns gallery
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -149,26 +118,17 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_stash_id_not_found(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_stash_id when gallery not found."""
-        # Create post WITH stash_id
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post WITH stash_id
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
-            stash_id=999,  # Has stash_id but gallery doesn't exist
+            stash_id=999,
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Set up respx - findGallery returns null
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -190,25 +150,16 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_not_found(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_title when no galleries match."""
-        # Create post
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Create real studio
         studio = StudioFactory.build(id="studio_123", name="Test Studio")
@@ -241,25 +192,16 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_title_found(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_title when gallery matches."""
-        # Create post
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Create real studio
         studio = StudioFactory.build(id="studio_123", name="Test Studio")
@@ -339,25 +281,16 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_not_found(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_code when no galleries match."""
-        # Create post
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Set up respx - no galleries found
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -385,25 +318,16 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_code_found(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_code when gallery matches."""
-        # Create post
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Set up respx - gallery found
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -447,25 +371,16 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_found(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_url when gallery is found with correct code."""
-        # Create post
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Set up respx - gallery found with code already matching
         # store.find() makes 2 queries (count check + fetch)
@@ -533,26 +448,17 @@ class TestGalleryLookupMethods:
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_with_item_update(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_url updates item stash_id and gallery code."""
-        # Create post
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
             stash_id=None,  # No stash_id initially
         )
-
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
 
         # Set up respx - gallery found with different code (requires save)
         # store.find() makes 2 queries (count check + fetch)
@@ -646,30 +552,18 @@ class TestGalleryCreation:
     @pytest.mark.asyncio
     async def test_create_new_gallery(
         self,
-        factory_async_session,
-        session,
         respx_stash_processor: StashProcessing,
     ):
         """Test _create_new_gallery creates gallery with correct attributes."""
-        # Create post
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(
+        # Build post (in-memory only)
+        post = PostFactory.build(
             id=12345,
             accountId=12345,
             content="Test post content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
-        factory_async_session.commit()
-        await session.commit()
-
-        result = await session.execute(select(Post).where(Post.id == 12345))
-        post = result.unique().scalar_one()
-
         # Note: _create_new_gallery doesn't make HTTP calls - it builds a Gallery object
-        # The gallery is saved later via gallery.save()
-        # So this test doesn't need respx mocking
-
         title = "New Test Gallery"
         result = await respx_stash_processor._create_new_gallery(post, title)
 
@@ -699,7 +593,7 @@ class TestHashtagProcessing:
         # Set up respx - both tags exist
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
-                # Call 0: findTags for "test1" → found
+                # Call 0: findTags for "test1" -> found
                 httpx.Response(
                     200,
                     json={
@@ -711,7 +605,7 @@ class TestHashtagProcessing:
                         }
                     },
                 ),
-                # Call 1: findTags for "test2" → found
+                # Call 1: findTags for "test2" -> found
                 httpx.Response(
                     200,
                     json={

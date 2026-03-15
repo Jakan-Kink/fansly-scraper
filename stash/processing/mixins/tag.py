@@ -31,11 +31,13 @@ class TagProcessingMixin(StashProcessingProtocol):
         name_lower = name.lower()
         results = self.store.filter(
             Tag,
-            lambda t: (is_set(t.name) and t.name and t.name.lower() == name_lower)
-            or (
-                is_set(t.aliases)
-                and t.aliases
-                and any(a.lower() == name_lower for a in t.aliases)
+            lambda t: (
+                (is_set(t.name) and t.name and t.name.lower() == name_lower)
+                or (
+                    is_set(t.aliases)
+                    and t.aliases
+                    and any(a.lower() == name_lower for a in t.aliases)
+                )
             ),
         )
         return results[0] if results else None

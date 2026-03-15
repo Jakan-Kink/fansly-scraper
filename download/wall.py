@@ -5,12 +5,13 @@ from asyncio import sleep
 from typing import Any
 
 from httpx import Response
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import FanslyConfig, with_database_session
+from config import FanslyConfig
 from errors import ApiError, DuplicatePageError
+from helpers.rich_progress import get_progress_manager
 from helpers.timer import timing_jitter
 from metadata import Wall, process_wall_posts
+from metadata.models import get_store
 from textio import (
     input_enter_continue,
     print_debug,
@@ -25,20 +26,18 @@ from .common import (
     process_download_accessible_media,
 )
 from .core import DownloadState
-from .media import download_media_infos
-from .transaction import in_transaction_or_new
+from .media import fetch_and_process_media
 from .types import DownloadType
 
 
 async def process_wall_data(
     config: FanslyConfig,
     state: DownloadState,
-    wall_id: str,
+    wall_id: int | str,
     wall_data: dict[str, Any],
     before_cursor: str,
-    session: AsyncSession,
 ) -> None:
-    """Process wall data with proper transaction handling.
+    """Process wall data — check for duplicates and persist posts.
 
     Args:
         config: FanslyConfig instance
@@ -46,71 +45,47 @@ async def process_wall_data(
         wall_id: ID of the wall to download
         wall_data: Wall data from API response
         before_cursor: Pagination cursor
-        session: AsyncSession for database operations
     """
-    # Check for duplicates before processing posts
     await check_page_duplicates(
         config=config,
         page_data=wall_data,
         page_type="wall",
         page_id=wall_id,
         cursor=before_cursor if before_cursor != "0" else None,
-        session=session,
     )
-    await session.flush()
 
-    # Only process posts if no duplicates found
     await process_wall_posts(
         config,
         state,
         wall_id,
         wall_data,
-        session=session,
     )
-    await session.flush()
 
 
 async def process_wall_media(
     config: FanslyConfig,
     state: DownloadState,
     media_ids: list[str],
-    session: AsyncSession,
 ) -> bool:
-    """Process wall media with proper transaction handling.
+    """Process wall media — fetch info and download accessible items.
 
     Args:
         config: FanslyConfig instance
         state: Current download state
         media_ids: List of media IDs to download
-        session: AsyncSession for database operations
 
     Returns:
         False if deduplication error occurred, True otherwise
     """
-    media_infos = await download_media_infos(
-        config=config,
-        state=state,
-        media_ids=media_ids,
-        session=session,
-    )
-    await session.flush()
-
-    result = await process_download_accessible_media(
-        config,
-        state,
-        media_infos,
-        session=session,
-    )
-    await session.flush()
+    accessible = await fetch_and_process_media(config, state, media_ids)
+    result = await process_download_accessible_media(config, state, accessible)
     return result
 
 
-@with_database_session(async_session=True)
 async def download_wall(
     config: FanslyConfig,
     state: DownloadState,
-    wall_id: str,
-    session: AsyncSession | None = None,
+    wall_id: int | str,
 ) -> None:
     """Download all posts from a specific wall.
 
@@ -118,16 +93,21 @@ async def download_wall(
         config: FanslyConfig instance
         state: Current download state
         wall_id: ID of the wall to download
-        session: Optional AsyncSession for database operations
     """
-    if session is None:
-        raise RuntimeError("Database session is required for wall download")
+    store = get_store()
+
     # Get wall name from database
-    wall = await session.get(Wall, wall_id)
+    wall = await store.get(Wall, wall_id)
     wall_name = wall.name if wall and wall.name else None
     wall_info = f"'{wall_name}' ({wall_id})" if wall_name else wall_id
 
-    print_info(f"Downloading wall {wall_info}...")
+    # Update the walls progress bar description with the current wall name
+    progress = get_progress_manager()
+    progress.update_task(
+        "download_walls",
+        advance=0,
+        description=f"  ├─ Wall: {wall_name or wall_id}",
+    )
 
     # Set download type for directory creation
     state.download_type = DownloadType.WALL
@@ -178,12 +158,7 @@ async def download_wall(
             if wall_response.status_code == 200:
                 wall_data = config.get_api().get_json_response_contents(wall_response)
 
-                # Process the wall data with transaction handling
-                await in_transaction_or_new(
-                    session,
-                    process_wall_data,
-                    config.debug,
-                    "wall data processing",
+                await process_wall_data(
                     config,
                     state,
                     wall_id,
@@ -210,12 +185,7 @@ async def download_wall(
                 # Reset attempts eg. new page
                 attempts = 0
 
-                # Process media with transaction handling
-                should_continue = await in_transaction_or_new(
-                    session,
-                    process_wall_media,
-                    config.debug,
-                    "media processing",
+                should_continue = await process_wall_media(
                     config,
                     state,
                     all_media_ids,
@@ -237,7 +207,6 @@ async def download_wall(
                     )
 
                 print()
-                await session.commit()
 
                 # Get next before_cursor
                 try:

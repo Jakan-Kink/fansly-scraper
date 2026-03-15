@@ -6,11 +6,9 @@ import asyncio
 import traceback
 from typing import ClassVar
 
-from sqlalchemy.orm import Session
 from stash_graphql_client.types import Studio
 
 from metadata import Account
-from metadata.decorators import with_session
 from textio import print_error, print_info
 
 from ...logging import debug_print
@@ -50,11 +48,9 @@ class StudioProcessingMixin(StashProcessingProtocol):
         """
         return await self.process_creator_studio(account=account)
 
-    @with_session()
     async def process_creator_studio(
         self,
         account: Account,
-        session: Session | None = None,  # noqa: ARG002
     ) -> Studio | None:
         """Process creator studio metadata.
 

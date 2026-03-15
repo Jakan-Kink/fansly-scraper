@@ -1,11 +1,8 @@
 """True integration tests for StashProcessing - hits real Docker Stash."""
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from stash_graphql_client.types import Studio
 
-from metadata.post import Post
 from stash.processing import StashProcessing
 
 
@@ -16,7 +13,7 @@ class TestStashProcessingIntegration:
     async def test_process_creator_posts_end_to_end(
         self,
         real_stash_processor: StashProcessing,
-        session,
+        entity_store,
         test_account,
         test_post,
         stash_cleanup_tracker,
@@ -79,27 +76,15 @@ class TestStashProcessingIntegration:
                         raise
 
             # Configure processor state to match test account
-            real_stash_processor.state.creator_id = str(test_account.id)
+            real_stash_processor.state.creator_id = test_account.id
             real_stash_processor.state.creator_name = test_account.username
 
-            # Query post fresh from async session with relationships loaded
-            result = await session.execute(
-                select(Post)
-                .where(Post.id == test_post.id)
-                .options(selectinload(Post.attachments))
-            )
-            post = result.scalar_one()
-
             # Verify test data setup
-            assert post.accountId == test_account.id
-            # Note: attachments may be empty if test_post was created in different session
-            # This is OK - we're testing the processing workflow, not the test fixtures
+            assert test_post.accountId == test_account.id
 
             # Run the full integration workflow
             # Step 1: Create Performer from Account
-            account, performer = await real_stash_processor.process_creator(
-                session=session,
-            )
+            account, performer = await real_stash_processor.process_creator()
 
             # Track created performer for cleanup
             if performer:
@@ -112,7 +97,6 @@ class TestStashProcessingIntegration:
             # Step 2: Create Studio for the creator
             studio = await real_stash_processor.process_creator_studio(
                 account=account,
-                session=session,
             )
 
             # Track created studio for cleanup
@@ -130,14 +114,13 @@ class TestStashProcessingIntegration:
                 account=test_account,
                 performer=performer,
                 studio=studio,
-                session=session,
             )
 
     @pytest.mark.asyncio
     async def test_process_creator_messages_end_to_end(
         self,
         real_stash_processor: StashProcessing,
-        session,
+        entity_store,
         test_account,
         test_message,
         stash_cleanup_tracker,
@@ -200,13 +183,11 @@ class TestStashProcessingIntegration:
                         raise
 
             # Configure processor state to match test account
-            real_stash_processor.state.creator_id = str(test_account.id)
+            real_stash_processor.state.creator_id = test_account.id
             real_stash_processor.state.creator_name = test_account.username
 
             # Create performer and studio first
-            account, performer = await real_stash_processor.process_creator(
-                session=session,
-            )
+            account, performer = await real_stash_processor.process_creator()
 
             # Track created performer
             if performer:
@@ -215,7 +196,6 @@ class TestStashProcessingIntegration:
             # Create studio
             studio = await real_stash_processor.process_creator_studio(
                 account=account,
-                session=session,
             )
 
             # Track created studio
@@ -229,7 +209,6 @@ class TestStashProcessingIntegration:
                 account=test_account,
                 performer=performer,
                 studio=studio,
-                session=session,
             )
 
 
@@ -240,7 +219,7 @@ class TestIntegrationErrorHandling:
     async def test_missing_account_handling(
         self,
         real_stash_processor: StashProcessing,
-        session,
+        entity_store,
         stash_cleanup_tracker,
     ):
         """Test graceful handling when account is not found.
@@ -250,7 +229,7 @@ class TestIntegrationErrorHandling:
         """
         async with stash_cleanup_tracker(real_stash_processor.context.client):
             # Try to process a creator that doesn't exist in database
-            account = await real_stash_processor._find_account(session=session)
+            account = await real_stash_processor._find_account()
 
             # Should return None gracefully
             assert account is None
@@ -259,7 +238,7 @@ class TestIntegrationErrorHandling:
     async def test_duplicate_performer_creation(
         self,
         real_stash_processor: StashProcessing,
-        session,
+        entity_store,
         test_account,
         stash_cleanup_tracker,
     ):
@@ -274,22 +253,18 @@ class TestIntegrationErrorHandling:
             real_stash_processor.context.client
         ) as cleanup:
             # Configure processor state to match test account
-            real_stash_processor.state.creator_id = str(test_account.id)
+            real_stash_processor.state.creator_id = test_account.id
             real_stash_processor.state.creator_name = test_account.username
 
             # First call - creates performer
-            _account1, performer1 = await real_stash_processor.process_creator(
-                session=session,
-            )
+            _account1, performer1 = await real_stash_processor.process_creator()
 
             # Track for cleanup
             if performer1:
                 cleanup["performers"].append(performer1.id)
 
             # Second call - should find existing
-            _account2, performer2 = await real_stash_processor.process_creator(
-                session=session,
-            )
+            _account2, performer2 = await real_stash_processor.process_creator()
 
             # Should be the same performer (found existing)
             assert performer1 is not None

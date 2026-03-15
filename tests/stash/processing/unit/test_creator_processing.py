@@ -6,7 +6,7 @@ and factories instead of mock objects, following the fixture refactoring pattern
 Key improvements:
 - Uses real Account instances from AccountFactory
 - Uses respx to mock GraphQL HTTP responses at the edge (not internal methods!)
-- Uses real database fixtures instead of mocked database
+- Uses entity_store for database persistence (Pydantic EntityStore)
 - Maintains test isolation with proper cleanup
 """
 
@@ -45,22 +45,20 @@ class TestCreatorProcessing:
     """
 
     @pytest.mark.asyncio
-    async def test_process_creator(self, factory_session, respx_stash_processor):
+    async def test_process_creator(self, entity_store, respx_stash_processor):
         """Test process_creator method with real Account and respx HTTP mocking."""
         processor = respx_stash_processor
 
-        # Create real Account in test database (metadata)
-        # Note: id is auto-generated UUID, don't set it manually
-        real_account = AccountFactory(
+        # Create real Account in entity_store (production code uses get_store())
+        real_account = AccountFactory.build(
             username="test_user",
             displayName="Test User",
             stash_id=123,  # stash_id is integer field
         )
-        factory_session.add(real_account)
-        factory_session.commit()
+        await entity_store.save(real_account)
 
         # Configure processor state to find the account
-        processor.state.creator_id = str(real_account.id)
+        processor.state.creator_id = real_account.id
 
         # Create performer dict for GraphQL response
         performer_dict = create_performer_dict(
@@ -86,9 +84,8 @@ class TestCreatorProcessing:
         # Initialize client
         await processor.context.get_client()
 
-        # Call process_creator - uses real database and respx-mocked HTTP
-        async with processor.database.async_session_scope() as session:
-            account, performer = await processor.process_creator(session=session)
+        # Call process_creator (no session= parameter)
+        account, performer = await processor.process_creator()
 
         # Verify Account came from real database
         assert account.id == real_account.id
@@ -127,7 +124,7 @@ class TestCreatorProcessing:
 
     @pytest.mark.asyncio
     async def test_process_creator_no_account_raises_error(
-        self, factory_session, respx_stash_processor
+        self, entity_store, respx_stash_processor
     ):
         """Test process_creator raises ValueError when no account found.
 
@@ -137,15 +134,14 @@ class TestCreatorProcessing:
         processor = respx_stash_processor
 
         # Configure processor state with non-existent creator_id
-        processor.state.creator_id = "99999"  # No account with this ID exists
+        processor.state.creator_id = 99999  # No account with this ID exists
         processor.state.creator_name = "test_user"  # For error message
 
         # Expect ValueError when account not found
         with pytest.raises(
             ValueError, match=r"No account found for creator"
         ) as excinfo:
-            async with processor.database.async_session_scope() as session:
-                await processor.process_creator(session=session)
+            await processor.process_creator()
 
         # Verify error message includes creator details
         assert "No account found" in str(excinfo.value)
@@ -153,23 +149,21 @@ class TestCreatorProcessing:
 
     @pytest.mark.asyncio
     async def test_process_creator_creates_new_performer(
-        self, factory_session, respx_stash_processor
+        self, entity_store, respx_stash_processor
     ):
         """Test process_creator creates new performer when not found in Stash."""
         processor = respx_stash_processor
 
-        # Create real Account in database (no stash_id yet)
-        # Note: id is auto-generated UUID
-        real_account = AccountFactory(
+        # Create real Account in entity_store (no stash_id yet)
+        real_account = AccountFactory.build(
             username="new_user",
             displayName="New User",
             stash_id=None,
         )
-        factory_session.add(real_account)
-        factory_session.commit()
+        await entity_store.save(real_account)
 
         # Configure processor state
-        processor.state.creator_id = str(real_account.id)
+        processor.state.creator_id = real_account.id
 
         # Create performer dict for GraphQL response
         performer_dict = create_performer_dict(
@@ -215,9 +209,8 @@ class TestCreatorProcessing:
         # Initialize client
         await processor.context.get_client()
 
-        # Call process_creator
-        async with processor.database.async_session_scope() as session:
-            account, performer = await processor.process_creator(session=session)
+        # Call process_creator (no session= parameter)
+        account, performer = await processor.process_creator()
 
         # Verify results
         assert account.id == real_account.id
@@ -236,18 +229,16 @@ class TestCreatorProcessing:
         assert "performerCreate" in fourth_request.get("query", "")
 
     @pytest.mark.asyncio
-    async def test_find_existing_studio(self, factory_session, respx_stash_processor):
+    async def test_find_existing_studio(self, entity_store, respx_stash_processor):
         """Test _find_existing_studio method with respx HTTP mocking."""
         processor = respx_stash_processor
 
-        # Create real Account in database
-        # Note: id is auto-generated UUID
-        real_account = AccountFactory(
+        # Create real Account in entity_store
+        real_account = AccountFactory.build(
             username="test_user",
             displayName="Test User",
         )
-        factory_session.add(real_account)
-        factory_session.commit()
+        await entity_store.save(real_account)
 
         # Create performer for process_creator_studio
         # Note: Performer ID must be string(int) format until assigned by Stash
@@ -317,7 +308,7 @@ class TestCreatorProcessing:
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_no_stash_context(
-        self, factory_session, respx_stash_processor
+        self, entity_store, respx_stash_processor
     ):
         """Test start_creator_processing when stash_context_conn is not configured."""
         processor = respx_stash_processor
@@ -334,7 +325,7 @@ class TestCreatorProcessing:
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_with_stash_context(
-        self, factory_session, respx_stash_processor, tmp_path
+        self, entity_store, respx_stash_processor, tmp_path
     ):
         """Test start_creator_processing orchestrates scan, process, and background tasks.
 
@@ -351,16 +342,15 @@ class TestCreatorProcessing:
             "apikey": "",
         }
 
-        # Setup: Create real Account in database
-        real_account = AccountFactory(
+        # Setup: Create real Account in entity_store
+        real_account = AccountFactory.build(
             username="test_user",
             displayName="Test User",
         )
-        factory_session.add(real_account)
-        factory_session.commit()
+        await entity_store.save(real_account)
 
         # Configure processor state
-        processor.state.creator_id = str(real_account.id)
+        processor.state.creator_id = real_account.id
         processor.state.base_path = tmp_path / "creator_folder"
         processor.state.base_path.mkdir(parents=True, exist_ok=True)
 

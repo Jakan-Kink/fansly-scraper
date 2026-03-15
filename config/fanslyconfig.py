@@ -16,7 +16,7 @@ from config.modes import DownloadMode
 
 
 if TYPE_CHECKING:
-    from metadata import Base, Database
+    from metadata import Database
 
 
 @dataclass
@@ -33,7 +33,6 @@ class FanslyConfig:
     # The getters will ensure they're not None when accessed
     _api: FanslyApi | None = None
     _database: Database | None = None
-    _base: Base | None = None
     _stash: Any = None  # StashContext | None
 
     # Command line flags
@@ -183,10 +182,13 @@ class FanslyConfig:
                 and self.check_key
                 and (self.token_is_valid() or has_login_credentials)
             ):
-                # Initialize rate limiter
+                # Initialize rate limiter with visual display
                 from api.rate_limiter import RateLimiter
+                from api.rate_limiter_display import RateLimiterDisplay
 
                 rate_limiter = RateLimiter(self)
+                self._rate_limiter_display = RateLimiterDisplay(rate_limiter)
+                self._rate_limiter_display.start()
 
                 # Use empty string if token is invalid (for login flow)
                 # Otherwise use the valid unscrambled token
@@ -200,6 +202,7 @@ class FanslyConfig:
                     device_id_timestamp=self.cached_device_id_timestamp,
                     on_device_updated=self._save_config,
                     rate_limiter=rate_limiter,
+                    config=self,
                 )
 
                 # If we have login credentials but no valid token, perform login

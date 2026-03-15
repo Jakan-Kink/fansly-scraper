@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlparse, urlunparse
 
 import httpx
 
+from textio import print_error, print_warning
+
 
 def strip_url_params(url: str) -> str:
     """Strip all query parameters and fragments from a URL.
@@ -129,7 +131,6 @@ def split_url(url: str) -> NamedTuple:
 
 def guess_user_agent(user_agents: dict, based_on_browser: str, default_ua: str) -> str:
     """Returns the guessed browser's user agent or a default one."""
-    from textio import print_error, print_warning
 
     if based_on_browser == "Microsoft Edge":
         based_on_browser = "Edg"  # msedge only reports "Edg" as its identifier

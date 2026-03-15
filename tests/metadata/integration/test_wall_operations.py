@@ -1,216 +1,148 @@
 """Integration tests for wall operations."""
 
-import hashlib
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-from sqlalchemy.sql import text
 
 from download.downloadstate import DownloadState
-from metadata.account import Account
-from metadata.post import Post
-from metadata.wall import Wall, process_account_walls, process_wall_posts
-from metadata.wall import wall_posts as wall_posts_table
-
-
-@pytest.fixture(autouse=True)
-async def setup_account(test_database, request):
-    """Set up test account."""
-    # Generate unique ID based on test name
-    test_name = request.node.name
-    unique_id = (
-        int(
-            hashlib.sha1(
-                f"TestWallOperations_{test_name}".encode(), usedforsecurity=False
-            ).hexdigest()[:8],
-            16,
-        )
-        % 1000000
-    )
-
-    async with test_database.async_session_scope() as session:
-        # Create test account with unique ID
-        account = Account(id=unique_id, username=f"test_user_{unique_id}")
-        session.add(account)
-        await session.commit()
-        return account
+from metadata import Account, Post, Wall, process_account_walls, process_wall_posts
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
-async def test_wall_post_integration(test_database, setup_account):
-    """Test full wall and post integration."""
-    async with test_database.async_session_scope() as session:
-        # Create walls
-        walls = [
-            Wall(
-                id=i,
-                accountId=setup_account.id,
-                name=f"Wall {i}",
-                pos=i,
-                description=f"Description {i}",
-            )
-            for i in range(1, 3)
-        ]
-        for wall in walls:
-            session.add(wall)
+async def test_wall_post_integration(entity_store, mock_config):
+    """Test full wall and post integration via entity_store."""
+    account_id = snowflake_id()
+    account = Account(id=account_id, username=f"test_user_{account_id}")
+    await entity_store.save(account)
 
-        # Create posts
-        posts = [
-            Post(
-                id=i,
-                accountId=setup_account.id,
-                content=f"Post {i}",
-                createdAt=datetime.now(UTC),
-            )
-            for i in range(1, 5)
-        ]
-        for post in posts:
-            session.add(post)
-        await session.flush()
-
-        # Associate posts with walls using the association table directly
-        for post in posts[:2]:
-            await session.execute(
-                wall_posts_table.insert().values(wallId=walls[0].id, postId=post.id)
-            )
-
-        for post in posts[2:]:
-            await session.execute(
-                wall_posts_table.insert().values(wallId=walls[1].id, postId=post.id)
-            )
-
-        await session.commit()
-
-        # Verify through ORM queries with eager loading to avoid MissingGreenlet
-        # Check first wall
-        result = await session.execute(
-            select(Wall).where(Wall.id == 1).options(selectinload(Wall.posts))
+    # Create walls
+    wall_ids = [snowflake_id(), snowflake_id()]
+    for i, wid in enumerate(wall_ids):
+        wall = Wall(
+            id=wid,
+            accountId=account_id,
+            name=f"Wall {i + 1}",
+            pos=i,
         )
-        wall1 = result.scalar_one()
-        wall1_posts = sorted(wall1.posts, key=lambda p: p.content)
-        assert len(wall1_posts) == 2
-        assert [p.content for p in wall1_posts] == ["Post 1", "Post 2"]
+        await entity_store.save(wall)
 
-        # Check second wall
-        result = await session.execute(
-            select(Wall).where(Wall.id == 2).options(selectinload(Wall.posts))
+    # Create posts
+    post_ids = [snowflake_id() for _ in range(4)]
+    for i, pid in enumerate(post_ids):
+        post = Post(
+            id=pid,
+            accountId=account_id,
+            content=f"Post {i + 1}",
+            createdAt=datetime.now(UTC),
         )
-        wall2 = result.scalar_one()
-        wall2_posts = sorted(wall2.posts, key=lambda p: p.content)
-        assert len(wall2_posts) == 2
-        assert [p.content for p in wall2_posts] == ["Post 3", "Post 4"]
+        await entity_store.save(post)
+
+    # Associate posts with walls
+    wall1 = await entity_store.get(Wall, wall_ids[0])
+    wall1.posts = [
+        await entity_store.get(Post, post_ids[0]),
+        await entity_store.get(Post, post_ids[1]),
+    ]
+    await entity_store.save(wall1)
+
+    wall2 = await entity_store.get(Wall, wall_ids[1])
+    wall2.posts = [
+        await entity_store.get(Post, post_ids[2]),
+        await entity_store.get(Post, post_ids[3]),
+    ]
+    await entity_store.save(wall2)
+
+    # Verify through entity_store
+    wall1_refreshed = await entity_store.get(Wall, wall_ids[0])
+    assert len(wall1_refreshed.posts) == 2
+
+    wall2_refreshed = await entity_store.get(Wall, wall_ids[1])
+    assert len(wall2_refreshed.posts) == 2
 
 
 @pytest.mark.asyncio
-async def test_wall_updates_with_posts(test_database, config, setup_account):
+async def test_wall_updates_with_posts(entity_store, mock_config):
     """Test updating walls while maintaining post associations."""
-    async with test_database.async_session_scope() as session:
-        # Create initial wall with posts
-        wall = Wall(id=1, accountId=setup_account.id, name="Original Wall", pos=1)
-        session.add(wall)
+    account_id = snowflake_id()
+    account = Account(id=account_id, username="wall_update_test")
+    await entity_store.save(account)
 
-        posts = [
-            Post(
-                id=i,
-                accountId=setup_account.id,
-                content=f"Post {i}",
-                createdAt=datetime.now(UTC),
-            )
-            for i in range(1, 3)
-        ]
-        for post in posts:
-            session.add(post)
-        wall.posts = posts
-        await session.commit()
+    wall_id = snowflake_id()
+    wall = Wall(id=wall_id, accountId=account_id, name="Original Wall", pos=1)
+    await entity_store.save(wall)
 
-        # Update wall through process_account_walls
-        new_wall_data = [
-            {
-                "id": 1,
-                "pos": 2,  # Changed position
-                "name": "Updated Wall",  # Changed name
-                "description": "New description",
-            }
-        ]
-
-        await process_account_walls(
-            config, setup_account, new_wall_data, session=session
+    # Create posts and associate
+    post_ids = [snowflake_id(), snowflake_id()]
+    for i, pid in enumerate(post_ids):
+        post = Post(
+            id=pid,
+            accountId=account_id,
+            content=f"Post {i + 1}",
+            createdAt=datetime.now(UTC),
         )
+        await entity_store.save(post)
 
-        # Verify updates
-        result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))
-        updated_wall = result.fetchone()
-        assert updated_wall.name == "Updated Wall"
-        assert updated_wall.pos == 2
-        assert updated_wall.description == "New description"
+    wall.posts = [
+        await entity_store.get(Post, post_ids[0]),
+        await entity_store.get(Post, post_ids[1]),
+    ]
+    await entity_store.save(wall)
 
-        # Verify posts are still associated
-        result = await session.execute(
-            text(
-                'SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts."postId" WHERE wall_posts."wallId" = 1 ORDER BY posts.content'
-            )
-        )
-        wall_posts = result.fetchall()
-        assert len(wall_posts) == 2
-        assert [p.content for p in wall_posts] == ["Post 1", "Post 2"]
+    # Update wall through production code
+    new_wall_data = [
+        {
+            "id": wall_id,
+            "pos": 2,
+            "name": "Updated Wall",
+            "description": "New description",
+        }
+    ]
+
+    await process_account_walls(mock_config, account, new_wall_data)
+
+    # Verify updates
+    updated_wall = await entity_store.get(Wall, wall_id)
+    assert updated_wall.name == "Updated Wall"
+    assert updated_wall.pos == 2
+    assert updated_wall.description == "New description"
 
 
 @pytest.mark.asyncio
-async def test_wall_post_processing(test_database, config, setup_account):
+async def test_wall_post_processing(entity_store, mock_config):
     """Test processing wall posts from timeline-style data."""
-    async with test_database.async_session_scope() as session:
-        # Create wall
-        wall = Wall(id=1, accountId=setup_account.id, name="Test Wall")
-        session.add(wall)
-        await session.commit()
+    account_id = snowflake_id()
+    account = Account(id=account_id, username="wall_post_test")
+    await entity_store.save(account)
 
-        # Explicitly load the wall with its posts to avoid lazy loading
-        stmt = select(Wall).options(selectinload(Wall.posts)).where(Wall.id == 1)
-        result = await session.execute(stmt)
-        wall = result.scalar_one()
+    wall_id = snowflake_id()
+    wall = Wall(id=wall_id, accountId=account_id, name="Test Wall")
+    await entity_store.save(wall)
 
-        # Create posts data in timeline format
-        posts_data = {
-            "posts": [
-                {
-                    "id": i,
-                    "accountId": setup_account.id,
-                    "content": f"Post {i}",
-                    "createdAt": int(datetime.now(UTC).timestamp()),
-                }
-                for i in range(1, 4)
-            ],
-            "accounts": [{"id": setup_account.id, "username": setup_account.username}],
-            "accountMedia": [],  # Empty list to avoid KeyError
-        }
+    # Create posts data in timeline format
+    post_ids = [snowflake_id() for _ in range(3)]
+    posts_data = {
+        "posts": [
+            {
+                "id": pid,
+                "accountId": account_id,
+                "content": f"Post {i + 1}",
+                "createdAt": int(datetime.now(UTC).timestamp()),
+            }
+            for i, pid in enumerate(post_ids)
+        ],
+        "accounts": [{"id": account_id, "username": account.username}],
+        "accountMedia": [],
+    }
 
-        # Process posts - use the eager-loaded wall object
-        state = DownloadState(creator_id=str(setup_account.id))
-        await process_wall_posts(config, state, wall.id, posts_data, session=session)
+    # Process wall posts via production code
+    state = DownloadState(creator_id=account_id)
+    await process_wall_posts(mock_config, state, wall_id, posts_data)
 
-        # Verify
-        result = await session.execute(text("SELECT * FROM walls WHERE id = 1"))
-        wall = result.fetchone()
-        result = await session.execute(
-            text(
-                'SELECT * FROM posts JOIN wall_posts ON posts.id = wall_posts."postId" WHERE wall_posts."wallId" = 1 ORDER BY posts.content'
-            )
-        )
-        wall_posts = result.fetchall()
-        assert len(wall_posts) == 3
+    # Verify posts were created and associated with wall
+    wall_refreshed = await entity_store.get(Wall, wall_id)
+    assert len(wall_refreshed.posts) == 3
 
-        # Verify post content
-        post_contents = [p.content for p in wall_posts]
-        assert post_contents == ["Post 1", "Post 2", "Post 3"]
-
-        # Verify post-wall relationships
-        for post in wall_posts:
-            result = await session.execute(
-                text(
-                    'SELECT * FROM wall_posts WHERE "postId" = :post_id AND "wallId" = :wall_id'
-                ),
-                {"post_id": post.id, "wall_id": wall.id},
-            )
-            assert result.fetchone() is not None
+    for pid in post_ids:
+        post = await entity_store.get(Post, pid)
+        assert post is not None

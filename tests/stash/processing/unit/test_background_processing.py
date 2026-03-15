@@ -5,20 +5,16 @@ Uses real database and factory objects, mocks only Stash API calls via respx.
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
 from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
 
-from metadata import Account
-from metadata.attachment import ContentType
+from metadata import Account, ContentType
 from tests.fixtures import (
     AccountMediaFactory,
     MediaFactory,
-    MediaLocationFactory,
     PostFactory,
 )
 from tests.fixtures.metadata.metadata_factories import AccountFactory, AttachmentFactory
@@ -35,60 +31,46 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_success(
-        self, respx_stash_processor, factory_async_session, mock_performer, session
+        self, respx_stash_processor, entity_store, mock_performer
     ):
         """Test _safe_background_processing succeeds with real DB queries and sets cleanup event.
 
         Mocks only GraphQL HTTP calls, lets real database queries execute.
         """
         # Create real account in database
-        account = AccountFactory(id=12345, username="test_user", stash_id=123)
-        factory_async_session.commit()
+        account = AccountFactory.build(id=12345, username="test_user", stash_id=123)
+        await entity_store.save(account)
 
         # Create a post with attachments so process_creator_posts has data to process
-        post = PostFactory(accountId=12345)
-        factory_async_session.commit()
+        post = PostFactory.build(accountId=12345)
+        await entity_store.save(post)
 
         # Create media for the post
-        media = MediaFactory(
+        media = MediaFactory.build(
             id=99999, accountId=12345, mimetype="image/jpeg", is_downloaded=True
         )
-        factory_async_session.commit()
-
-        # Create media location
-        media_location = MediaLocationFactory(
-            mediaId=99999, locationId=1, location="https://example.com/image.jpg"
-        )
-        factory_async_session.commit()
+        await entity_store.save(media)
 
         # Create AccountMedia as attachment content
-        account_media = AccountMediaFactory(accountId=12345, mediaId=99999)
-        factory_async_session.commit()
+        account_media = AccountMediaFactory.build(accountId=12345, mediaId=99999)
+        await entity_store.save(account_media)
 
         # Create Attachment linking the post to the media
-        attachment = AttachmentFactory(
+        attachment = AttachmentFactory.build(
             postId=post.id,
             contentId=account_media.id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
-        factory_async_session.commit()
 
-        # Query fresh account from async session
-        result = await session.execute(select(Account).where(Account.id == 12345))
-        account = result.scalar_one()
+        # Add attachment to post relationship AFTER construction
+        # (model_validator filters non-dict attachments during construction)
+        # Don't save attachment separately - it's a FanslyObject with enum field
+        # that the entity_store handles via the post's relationship.
+        post.attachments = [attachment]
+        await entity_store.save(post)
 
         # Mock GraphQL HTTP responses for complete process_creator_studio flow
-        # Store TTL cache initialization happens first (Performer, Tag, Studio)
-        # Then per-creator media preload (Scene, Image, Gallery)
-        empty_performers = {"count": 0, "performers": []}
-        empty_tags = {"count": 0, "tags": []}
-        empty_studios = create_find_studios_result(count=0, studios=[])
-        empty_scenes = {"count": 0, "scenes": []}
-        empty_images = {"count": 0, "images": []}
-        empty_galleries = {"count": 0, "galleries": []}
-
-        # Then actual test flow
         fansly_studio = create_studio_dict(
             id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
@@ -100,6 +82,7 @@ class TestBackgroundProcessing:
             urls=["https://fansly.com/test_user"],
             parent_studio=fansly_studio,
         )
+        empty_galleries = {"count": 0, "galleries": []}
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
@@ -139,8 +122,8 @@ class TestBackgroundProcessing:
         assert respx_stash_processor._cleanup_event.is_set()
 
         # Verify account still exists in database (real query executed)
-        result = await session.execute(select(Account).where(Account.id == 12345))
-        assert result.scalar_one() is not None
+        found_account = await entity_store.get(Account, 12345)
+        assert found_account is not None
 
         # Verify GraphQL call sequence (no preload - continue_stash_processing
         # is called directly, preload only happens in start_creator_processing)
@@ -155,18 +138,15 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_cancelled(
-        self, respx_stash_processor, factory_async_session, mock_performer, session
+        self, respx_stash_processor, entity_store, mock_performer
     ):
         """Test _safe_background_processing handles CancelledError with real DB queries.
 
         Simulates task cancellation during GraphQL call by patching at continue_stash_processing level.
         """
         # Create real account
-        account = AccountFactory(id=12346, username="test_cancel", stash_id=124)
-        factory_async_session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12346))
-        account = result.scalar_one()
+        account = AccountFactory.build(id=12346, username="test_cancel", stash_id=124)
+        await entity_store.save(account)
 
         # Patch continue_stash_processing to raise CancelledError (simulates task cancellation)
         # This is acceptable because we're testing _safe_background_processing's error handling,
@@ -194,18 +174,15 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_safe_background_processing_exception(
-        self, respx_stash_processor, factory_async_session, mock_performer, session
+        self, respx_stash_processor, entity_store, mock_performer
     ):
         """Test _safe_background_processing handles exceptions with real DB queries.
 
         Simulates processing error by patching at continue_stash_processing level.
         """
         # Create real account
-        account = AccountFactory(id=12347, username="test_error", stash_id=125)
-        factory_async_session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12347))
-        account = result.scalar_one()
+        account = AccountFactory.build(id=12347, username="test_error", stash_id=125)
+        await entity_store.save(account)
 
         # Patch continue_stash_processing to raise error (simulates processing failure)
         # This is acceptable because we're testing _safe_background_processing's error handling,
@@ -233,40 +210,28 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing(
-        self, factory_async_session, respx_stash_processor, mock_performer, session
+        self, entity_store, respx_stash_processor, mock_performer
     ):
         """Test continue_stash_processing orchestration with real DB and respx GraphQL mocking.
 
         Verifies:
-        1. Real orchestration flow executes (process_creator_studio → posts → messages)
+        1. Real orchestration flow executes (process_creator_studio -> posts -> messages)
         2. Correct GraphQL requests sent to Stash with right variables
         3. Real database queries execute
         """
         # Create real account
-        account = AccountFactory(
+        account = AccountFactory.build(
             id=12345,
             username="test_user",
             displayName="Test User",
             stash_id=123,
         )
-        factory_async_session.commit()
-
-        # Query fresh account from async session
-        result = await session.execute(select(Account).where(Account.id == 12345))
-        account = result.scalar_one()
+        await entity_store.save(account)
 
         # Set mock_performer.id to match account.stash_id (avoids _update_account_stash_id)
         mock_performer.id = str(account.stash_id)
 
         # Mock complete GraphQL flow
-        # Store TTL cache initialization + per-creator media preload
-        empty_performers = {"count": 0, "performers": []}
-        empty_tags = {"count": 0, "tags": []}
-        empty_studios = create_find_studios_result(count=0, studios=[])
-        empty_scenes = {"count": 0, "scenes": []}
-        empty_images = {"count": 0, "images": []}
-        empty_galleries = {"count": 0, "galleries": []}
-
         fansly_studio = create_studio_dict(
             id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
@@ -298,11 +263,17 @@ class TestBackgroundProcessing:
                 ),
                 # process_creator_posts: check for existing galleries
                 httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries", {"count": 0, "galleries": []}
+                    ),
                 ),
                 # process_creator_messages: check for existing galleries
                 httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries", {"count": 0, "galleries": []}
+                    ),
                 ),
             ]
         )
@@ -310,13 +281,13 @@ class TestBackgroundProcessing:
         # Act - let real orchestration flow execute
         try:
             await respx_stash_processor.continue_stash_processing(
-                account, mock_performer, session=session
+                account, mock_performer
             )
         finally:
             dump_graphql_calls(graphql_route.calls, "test_continue_stash_processing")
 
         # Assert - verify correct GraphQL requests were sent
-        # (no preload calls — preload only happens in start_creator_processing)
+        # (no preload calls -- preload only happens in start_creator_processing)
         # Only 3 calls: studio lookup + creation. No findGalleries because
         # account has no posts/messages in database.
         calls = graphql_route.calls
@@ -336,40 +307,23 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_stash_id_update(
-        self, factory_async_session, respx_stash_processor, mock_performer, session
+        self, entity_store, respx_stash_processor, mock_performer
     ):
         """Test continue_stash_processing updates stash_id when mismatched.
 
         Verifies real database UPDATE executes and stash_id is persisted.
 
-        Note: Patches async_session_scope to return the existing session instead of
-        creating a new one. This is necessary because:
-        1. Tests use SERIALIZABLE isolation (snapshot at transaction start)
-        2. Production code doesn't pass session to _update_account_stash_id
-        3. Without patch, decorator creates NEW session, commits there
-        4. Test session (SERIALIZABLE) can't see changes from other transactions
-
-        This patch simulates what would happen under READ COMMITTED isolation
-        where session reuse is less critical.
+        The entity_store is the global singleton used by production code
+        (via get_store()), so _update_account_stash_id will use it directly.
         """
         # Create account with no stash_id
-        account = AccountFactory(id=12346, username="test_user2", stash_id=None)
-        factory_async_session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12346))
-        account = result.scalar_one()
+        account = AccountFactory.build(id=12346, username="test_user2", stash_id=None)
+        await entity_store.save(account)
 
         # Performer has stash_id
         mock_performer.id = "456"
 
         # Mock GraphQL responses
-        # Store TTL cache initialization
-        empty_performers = {"count": 0, "performers": []}
-        empty_tags = {"count": 0, "tags": []}
-        empty_studios = create_find_studios_result(count=0, studios=[])
-        empty_scenes = {"count": 0, "scenes": []}
-        empty_images = {"count": 0, "images": []}
-
         fansly_studio = create_studio_dict(
             id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
@@ -381,7 +335,6 @@ class TestBackgroundProcessing:
             urls=["https://fansly.com/test_user2"],
             parent_studio=fansly_studio,
         )
-        empty_galleries = {"count": 0, "galleries": []}
 
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
             side_effect=[
@@ -402,40 +355,37 @@ class TestBackgroundProcessing:
                 ),
                 # process_creator_posts: check for existing galleries
                 httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries", {"count": 0, "galleries": []}
+                    ),
                 ),
                 # process_creator_messages: check for existing galleries
                 httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries", {"count": 0, "galleries": []}
+                    ),
                 ),
             ]
         )
 
-        # Patch async_session_scope to return existing session
-        # This simulates session reuse that would happen naturally under READ COMMITTED
-        @asynccontextmanager
-        async def mock_session_scope():
-            yield session
-
-        with patch.object(
-            respx_stash_processor.database, "async_session_scope", mock_session_scope
-        ):
-            # Act
-            try:
-                await respx_stash_processor.continue_stash_processing(
-                    account, mock_performer, session=session
-                )
-            finally:
-                dump_graphql_calls(
-                    graphql_route.calls,
-                    "test_continue_stash_processing_stash_id_update",
-                )
-
-        # Refresh the account object to see changes made during processing
-        await session.refresh(account)
+        # Act
+        try:
+            await respx_stash_processor.continue_stash_processing(
+                account, mock_performer
+            )
+        finally:
+            dump_graphql_calls(
+                graphql_route.calls,
+                "test_continue_stash_processing_stash_id_update",
+            )
 
         # Assert - verify real database UPDATE executed
-        assert account.stash_id == 456  # int, not str
+        # Re-fetch from entity_store to see persisted changes
+        updated_account = await entity_store.get(Account, 12346)
+        assert updated_account is not None
+        assert updated_account.stash_id == 456  # int, not str
 
         # Verify GraphQL call sequence (no preload calls, no gallery calls
         # since account has no posts/messages in database)
@@ -456,7 +406,7 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_missing_inputs(
-        self, respx_stash_processor, session
+        self, respx_stash_processor
     ):
         """Test continue_stash_processing raises ValueError for missing account/performer.
 
@@ -465,28 +415,21 @@ class TestBackgroundProcessing:
         """
         # Case 1: Missing both
         with pytest.raises(ValueError, match="Missing account or performer data"):
-            await respx_stash_processor.continue_stash_processing(
-                None, None, session=session
-            )
+            await respx_stash_processor.continue_stash_processing(None, None)
 
         # Case 2: Missing performer
         account = Account(id=1, username="test")
         with pytest.raises(ValueError, match="Missing account or performer data"):
-            await respx_stash_processor.continue_stash_processing(
-                account, None, session=session
-            )
+            await respx_stash_processor.continue_stash_processing(account, None)
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_performer_dict(
-        self, factory_async_session, respx_stash_processor, session
+        self, entity_store, respx_stash_processor
     ):
         """Test continue_stash_processing with Performer object."""
         # Create account
-        account = AccountFactory(id=12347, username="test_user3", stash_id=789)
-        factory_async_session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12347))
-        account = result.scalar_one()
+        account = AccountFactory.build(id=12347, username="test_user3", stash_id=789)
+        await entity_store.save(account)
 
         # Create Performer object (Pydantic-based library, not dicts)
         from stash_graphql_client.types import Performer
@@ -494,14 +437,6 @@ class TestBackgroundProcessing:
         performer = Performer(id="789", name="test_user3")
 
         # Mock GraphQL responses
-        # Store TTL cache initialization + per-creator media preload
-        empty_performers = {"count": 0, "performers": []}
-        empty_tags = {"count": 0, "tags": []}
-        empty_studios = create_find_studios_result(count=0, studios=[])
-        empty_scenes = {"count": 0, "scenes": []}
-        empty_images = {"count": 0, "images": []}
-        empty_galleries = {"count": 0, "galleries": []}
-
         fansly_studio = create_studio_dict(
             id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
         )
@@ -533,20 +468,24 @@ class TestBackgroundProcessing:
                 ),
                 # process_creator_posts: check for existing galleries
                 httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries", {"count": 0, "galleries": []}
+                    ),
                 ),
                 # process_creator_messages: check for existing galleries
                 httpx.Response(
-                    200, json=create_graphql_response("findGalleries", empty_galleries)
+                    200,
+                    json=create_graphql_response(
+                        "findGalleries", {"count": 0, "galleries": []}
+                    ),
                 ),
             ]
         )
 
         # Act - Pass Performer object directly
         try:
-            await respx_stash_processor.continue_stash_processing(
-                account, performer, session=session
-            )
+            await respx_stash_processor.continue_stash_processing(account, performer)
         finally:
             dump_graphql_calls(
                 graphql_route.calls,
@@ -572,34 +511,29 @@ class TestBackgroundProcessing:
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_invalid_performer_type(
-        self, factory_async_session, respx_stash_processor, session
+        self, entity_store, respx_stash_processor
     ):
         """Test continue_stash_processing raises error for invalid performer type.
 
         Note: finally block tries to access performer.name, so AttributeError raised
         instead of the initial TypeError.
         """
-        account = AccountFactory(id=12348, username="test_user4", stash_id=123)
-        factory_async_session.commit()
-
-        result = await session.execute(select(Account).where(Account.id == 12348))
-        account = result.scalar_one()
+        account = AccountFactory.build(id=12348, username="test_user4", stash_id=123)
+        await entity_store.save(account)
 
         # Invalid performer type (string instead of Performer or dict)
         with pytest.raises(
             TypeError, match="performer must be a Stash Performer object"
         ):
-            await respx_stash_processor.continue_stash_processing(
-                account, "invalid", session=session
-            )
+            await respx_stash_processor.continue_stash_processing(account, "invalid")
 
     @pytest.mark.asyncio
     async def test_continue_stash_processing_invalid_account_type(
-        self, respx_stash_processor, mock_performer, session
+        self, respx_stash_processor, mock_performer
     ):
         """Test continue_stash_processing raises AttributeError for invalid account type."""
         # Invalid account type (string instead of Account object)
         with pytest.raises(AttributeError):
             await respx_stash_processor.continue_stash_processing(
-                "invalid", mock_performer, session=session
+                "invalid", mock_performer
             )

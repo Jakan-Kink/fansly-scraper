@@ -1,125 +1,113 @@
 """Test pagination duplication detection functionality."""
 
-import json
-from copy import deepcopy
-from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import text
 
 from download.common import check_page_duplicates
 from errors import DuplicatePageError
-from metadata import Post, Wall
+from metadata.models import Account, Post, Wall
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.fixture
 def timeline_data():
-    """Load sample timeline data."""
-    json_path = (
-        Path(__file__).parent.parent.parent / "json" / "timeline-sample-account.json"
-    )
-    with json_path.open(encoding="utf-8") as f:
-        data = json.load(f)["response"]
-        # Make sure we have at least two posts for testing
-        if len(data.get("posts", [])) < 2:
-            # Create sample posts if not enough in the file
-            data["posts"] = [
-                {"id": 1001, "accountId": 999},
-                {"id": 1002, "accountId": 999},
-                {"id": 1003, "accountId": 999},
-            ]
-        return data
+    """Generate timeline-like page data with multiple posts."""
+    account_id = snowflake_id()
+    return {
+        "posts": [
+            {"id": snowflake_id(), "accountId": account_id},
+            {"id": snowflake_id(), "accountId": account_id},
+            {"id": snowflake_id(), "accountId": account_id},
+        ],
+    }
 
 
-async def test_check_page_duplicates_no_posts(config, session):
+async def test_check_page_duplicates_no_posts(mock_config, entity_store):
     """Test handling of page data without posts."""
-    # Should not raise when no posts array
+    mock_config.use_pagination_duplication = True
+
+    # Should not raise when no posts key
     await check_page_duplicates(
-        config=config,
+        config=mock_config,
         page_data={},
         page_type="timeline",
-        session=session,
     )
 
     # Should not raise when empty posts array
     await check_page_duplicates(
-        config=config,
+        config=mock_config,
         page_data={"posts": []},
         page_type="timeline",
-        session=session,
     )
 
 
-async def test_check_page_duplicates_disabled(
-    config, timeline_data, session, test_account
-):
+async def test_check_page_duplicates_disabled(mock_config, entity_store, timeline_data):
     """Test that check is skipped when feature is disabled."""
-    config.use_pagination_duplication = False
+    mock_config.use_pagination_duplication = False
 
-    # Add all posts to metadata with accountId
-    for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"], accountId=test_account.id))
-    await session.commit()
+    account_id = snowflake_id()
+    account = Account(id=account_id, username="disabled_test")
+    await entity_store.save(account)
+
+    # Add all posts to store
+    for post_dict in timeline_data["posts"]:
+        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
     # Should not raise even though all posts are in metadata
     await check_page_duplicates(
-        config=config,
+        config=mock_config,
         page_data=timeline_data,
         page_type="timeline",
-        session=session,
     )
 
 
 async def test_check_page_duplicates_timeline_new_posts(
-    config, timeline_data, session, test_account
+    mock_config, entity_store, timeline_data
 ):
     """Test that check passes when new posts are found."""
-    config.use_pagination_duplication = True
+    mock_config.use_pagination_duplication = True
 
-    # Make a copy of the timeline data to modify
-    test_data = deepcopy(timeline_data)
+    account_id = snowflake_id()
+    account = Account(id=account_id, username="new_posts_test")
+    await entity_store.save(account)
 
-    # Get first post ID for adding to database
-    first_post_id = test_data["posts"][0]["id"]
+    # Add only first post to store — remaining are "new"
+    first_post_id = timeline_data["posts"][0]["id"]
+    await entity_store.save(Post(id=first_post_id, accountId=account_id))
 
-    # Add only first post to metadata
-    session.add(Post(id=first_post_id, accountId=test_account.id))
-    await session.commit()
-
-    # Verify only one post is in the database
-    result = await session.execute(text("SELECT COUNT(*) FROM posts"))
-    count = result.scalar()
-    assert count == 1, f"Expected 1 post in database, found {count}"
-
-    # Should not raise since not all posts are in metadata (at least one is new)
+    # Should not raise since not all posts are in metadata
     await check_page_duplicates(
-        config=config,
-        page_data=test_data,
+        config=mock_config,
+        page_data=timeline_data,
         page_type="timeline",
         cursor="123",
-        session=session,
     )
 
 
 async def test_check_page_duplicates_timeline_all_existing(
-    config, timeline_data, session, test_account
+    mock_config, entity_store, timeline_data
 ):
     """Test detection of all posts already in metadata for timeline."""
-    config.use_pagination_duplication = True
+    mock_config.use_pagination_duplication = True
 
-    # Add all posts to metadata with accountId
-    for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"], accountId=test_account.id))
-    await session.commit()
+    account_id = snowflake_id()
+    account = Account(id=account_id, username="all_existing_test")
+    await entity_store.save(account)
 
-    # Should raise DuplicatePageError
-    with pytest.raises(DuplicatePageError) as exc_info:
+    # Add all posts to store
+    for post_dict in timeline_data["posts"]:
+        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
+
+    with (
+        pytest.raises(DuplicatePageError) as exc_info,
+        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
+    ):
         await check_page_duplicates(
-            config=config,
+            config=mock_config,
             page_data=timeline_data,
             page_type="timeline",
             cursor="123",
-            session=session,
         )
 
     assert "timeline" in str(exc_info.value)
@@ -127,65 +115,61 @@ async def test_check_page_duplicates_timeline_all_existing(
 
 
 async def test_check_page_duplicates_wall_new_posts(
-    config, timeline_data, session, test_account
+    mock_config, entity_store, timeline_data
 ):
     """Test that check passes when new posts are found on wall."""
-    config.use_pagination_duplication = True
+    mock_config.use_pagination_duplication = True
 
-    # Make a copy of the timeline data to modify
-    test_data = deepcopy(timeline_data)
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+    account = Account(id=account_id, username="wall_new_test")
+    await entity_store.save(account)
 
     # Create wall
-    wall = Wall(id=456, name="Test Wall", accountId=test_account.id)
-    session.add(wall)
+    await entity_store.save(Wall(id=wall_id, name="Test Wall", accountId=account_id))
 
-    # Get first post ID for adding to database
-    first_post_id = test_data["posts"][0]["id"]
-
-    # Add only first post to metadata
-    session.add(Post(id=first_post_id, accountId=test_account.id))
-    await session.commit()
-
-    # Verify post is in the database
-    result = await session.execute(text("SELECT COUNT(*) FROM posts"))
-    count = result.scalar()
-    assert count == 1, f"Expected 1 post in database, found {count}"
+    # Add only first post
+    first_post_id = timeline_data["posts"][0]["id"]
+    await entity_store.save(Post(id=first_post_id, accountId=account_id))
 
     # Should not raise since not all posts are in metadata
     await check_page_duplicates(
-        config=config,
-        page_data=test_data,
+        config=mock_config,
+        page_data=timeline_data,
         page_type="wall",
-        page_id=456,
+        page_id=str(wall_id),
         cursor="123",
-        session=session,
     )
 
 
 async def test_check_page_duplicates_wall_all_existing(
-    config, timeline_data, session, test_account
+    mock_config, entity_store, timeline_data
 ):
     """Test detection of all posts already in metadata for wall."""
-    config.use_pagination_duplication = True
+    mock_config.use_pagination_duplication = True
 
-    # Create wall
-    wall = Wall(id=456, name="Test Wall", accountId=test_account.id)
-    session.add(wall)
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+    account = Account(id=account_id, username="wall_all_test")
+    await entity_store.save(account)
 
-    # Add all posts to metadata with accountId
-    for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"], accountId=test_account.id))
-    await session.commit()
+    # Create wall with name
+    await entity_store.save(Wall(id=wall_id, name="Test Wall", accountId=account_id))
 
-    # Should raise DuplicatePageError
-    with pytest.raises(DuplicatePageError) as exc_info:
+    # Add all posts to store
+    for post_dict in timeline_data["posts"]:
+        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
+
+    with (
+        pytest.raises(DuplicatePageError) as exc_info,
+        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
+    ):
         await check_page_duplicates(
-            config=config,
+            config=mock_config,
             page_data=timeline_data,
             page_type="wall",
-            page_id=456,
+            page_id=str(wall_id),
             cursor="123",
-            session=session,
         )
 
     assert "wall" in str(exc_info.value)
@@ -194,58 +178,67 @@ async def test_check_page_duplicates_wall_all_existing(
 
 
 async def test_check_page_duplicates_wall_no_name(
-    config, timeline_data, session, test_account
+    mock_config, entity_store, timeline_data
 ):
     """Test wall duplicate detection when wall has no name."""
-    config.use_pagination_duplication = True
+    mock_config.use_pagination_duplication = True
+
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+    account = Account(id=account_id, username="wall_noname_test")
+    await entity_store.save(account)
 
     # Create wall without name
-    wall = Wall(id=456, accountId=test_account.id)
-    session.add(wall)
+    await entity_store.save(Wall(id=wall_id, accountId=account_id))
 
-    # Add all posts to metadata with accountId
-    for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"], accountId=test_account.id))
-    await session.commit()
+    # Add all posts to store
+    for post_dict in timeline_data["posts"]:
+        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
 
-    # Should raise DuplicatePageError with just ID
-    with pytest.raises(DuplicatePageError) as exc_info:
+    with (
+        pytest.raises(DuplicatePageError) as exc_info,
+        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
+    ):
         await check_page_duplicates(
-            config=config,
+            config=mock_config,
             page_data=timeline_data,
             page_type="wall",
-            page_id=456,
+            page_id=str(wall_id),
             cursor="123",
-            session=session,
         )
 
     assert "wall" in str(exc_info.value)
-    assert "456" in str(exc_info.value)
+    assert str(wall_id) in str(exc_info.value)
     assert "123" in str(exc_info.value)
 
 
 async def test_check_page_duplicates_wall_nonexistent(
-    config, timeline_data, session, test_account
+    mock_config, entity_store, timeline_data
 ):
     """Test wall duplicate detection for nonexistent wall."""
-    config.use_pagination_duplication = True
+    mock_config.use_pagination_duplication = True
 
-    # Add all posts to metadata with accountId
-    for post in timeline_data["posts"]:
-        session.add(Post(id=post["id"], accountId=test_account.id))
-    await session.commit()
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+    account = Account(id=account_id, username="wall_nonexist_test")
+    await entity_store.save(account)
 
-    # Should raise DuplicatePageError with just ID
-    with pytest.raises(DuplicatePageError) as exc_info:
+    # Add all posts to store, but don't create the wall
+    for post_dict in timeline_data["posts"]:
+        await entity_store.save(Post(id=post_dict["id"], accountId=account_id))
+
+    with (
+        pytest.raises(DuplicatePageError) as exc_info,
+        patch("download.common.asyncio.sleep", new_callable=AsyncMock),
+    ):
         await check_page_duplicates(
-            config=config,
+            config=mock_config,
             page_data=timeline_data,
             page_type="wall",
-            page_id=456,
+            page_id=str(wall_id),
             cursor="123",
-            session=session,
         )
 
     assert "wall" in str(exc_info.value)
-    assert "456" in str(exc_info.value)
+    assert str(wall_id) in str(exc_info.value)
     assert "123" in str(exc_info.value)

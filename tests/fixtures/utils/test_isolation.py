@@ -34,6 +34,27 @@ def get_unique_test_id() -> str:
     return f"{worker_id}_{time_part}"
 
 
+def snowflake_id() -> int:
+    """Generate a unique snowflake-length ID from monotonic time.
+
+    Produces IDs similar to real Fansly API snowflake IDs (~18 digits),
+    ensuring each call returns a unique value via the monotonic clock.
+
+    Use this in tests wherever you need realistic entity IDs that
+    aren't hardcoded and won't collide across parallel workers.
+
+    Returns:
+        int: Unique 18-digit ID
+
+    Example:
+        from tests.fixtures.utils.test_isolation import snowflake_id
+
+        account_id = snowflake_id()
+        media_id = snowflake_id()
+    """
+    return time.monotonic_ns() % (10**18)
+
+
 def get_worker_id() -> str:
     """Get pytest-xdist worker ID.
 

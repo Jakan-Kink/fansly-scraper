@@ -130,7 +130,7 @@ def test_state(tmp_path):
     download_path.mkdir(parents=True, exist_ok=True)
 
     return DownloadStateFactory(
-        creator_id="12345",
+        creator_id=12345,
         creator_name="test_user",
         base_path=base_path,
         download_path=download_path,
@@ -222,7 +222,7 @@ async def real_stash_processor(config, test_database_sync, stash_context):
     # Create a real DownloadState with the Stash server's actual library path
     state = DownloadState(
         creator_name="test_user",
-        creator_id="12345",
+        creator_id=12345,
         base_path=stash_library_path,
         download_path=stash_library_path,
     )
@@ -863,9 +863,9 @@ async def message_media_generator(factory_session, real_stash_processor):
                         media = MediaFactory.build(**media_kwargs)
                         media_items.append(media)  # Store for test to commit
 
-                        # Build AccountMedia without accountId (test will set it)
+                        # Build AccountMedia with placeholder accountId (test will set it)
                         account_media = AccountMediaFactory.build(
-                            mediaId=media.id, accountId=None
+                            mediaId=media.id, accountId=0
                         )
 
                         # Store bundle link metadata (position in bundle)
@@ -911,9 +911,9 @@ async def message_media_generator(factory_session, real_stash_processor):
                         media = MediaFactory.build(**media_kwargs)
                         media_items.append(media)  # Store for test to commit
 
-                        # Build AccountMedia without accountId (test will set it)
+                        # Build AccountMedia with placeholder accountId (test will set it)
                         account_media = AccountMediaFactory.build(
-                            mediaId=media.id, accountId=None
+                            mediaId=media.id, accountId=0
                         )
                         account_media_items.append(account_media)
 
@@ -965,9 +965,9 @@ async def message_media_generator(factory_session, real_stash_processor):
                     media = MediaFactory.build(**media_kwargs)
                     media_items.append(media)  # Store for test to commit
 
-                    # Build AccountMedia without accountId (test will set it)
+                    # Build AccountMedia with placeholder accountId (test will set it)
                     account_media = AccountMediaFactory.build(
-                        mediaId=media.id, accountId=None
+                        mediaId=media.id, accountId=0
                     )
                     account_media_items.append(account_media)
 

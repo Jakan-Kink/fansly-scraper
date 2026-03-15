@@ -3,241 +3,168 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from download.downloadstate import DownloadState
 from metadata import Account, Post, Wall, process_account_walls, process_wall_posts
-from metadata.wall import wall_posts
-from tests.fixtures.metadata.metadata_factories import AccountFactory, PostFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
-async def test_wall_creation(session: AsyncSession, session_sync, factory_session):
-    """Test creating a wall with basic attributes.
+async def test_wall_creation(entity_store):
+    """Test creating a wall with basic attributes."""
+    store = entity_store
 
-    Uses AccountFactory to create test account.
-    Tests must explicitly request factory_session or fixtures that depend on it.
-    """
-    # Create account with factory - only use the ID
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id  # Get ID before session expires
-    session.expire_all()
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
     wall = Wall(
-        id=1,
+        id=wall_id,
         accountId=account_id,
         pos=1,
         name="Test Wall",
         description="Test Description",
     )
-    session.add(wall)
-    await session.commit()
+    await store.save(wall)
 
-    session.expire_all()
-    result = await session.execute(
-        select(Wall).execution_options(populate_existing=True)
-    )
-    saved_wall = result.unique().scalar_one_or_none()
-    assert saved_wall.name == "Test Wall"
-    assert saved_wall.description == "Test Description"
-    assert saved_wall.pos == 1
-    assert saved_wall.accountId == account_id
+    saved = await store.get(Wall, wall_id)
+    assert saved is not None
+    assert saved.name == "Test Wall"
+    assert saved.description == "Test Description"
+    assert saved.pos == 1
+    assert saved.accountId == account_id
 
 
 @pytest.mark.asyncio
-async def test_wall_post_association(
-    session: AsyncSession,
-    session_sync,
-    factory_session,
-):
-    """Test associating posts with a wall.
+async def test_wall_post_association(entity_store):
+    """Test associating posts with a wall."""
+    store = entity_store
 
-    Uses AccountFactory and PostFactory for creating test data.
-    Tests must explicitly request factory_session or fixtures that depend on it.
-    """
-    # Create account with factory - get ID immediately
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    session.expire_all()
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+    post_ids = [snowflake_id() for _ in range(3)]
 
-    # Create wall in async session
-    wall = Wall(id=1, accountId=account_id, name="Test Wall")
-    session.add(wall)
-    await session.commit()
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
-    # Create posts using factory - get IDs immediately
-    factory_posts = [
-        PostFactory(id=i, accountId=account_id, content=f"Post {i}")
-        for i in range(1, 4)
-    ]
-    post_ids = [p.id for p in factory_posts]
-    session_sync.commit()
+    wall = Wall(id=wall_id, accountId=account_id, name="Test Wall")
+    await store.save(wall)
 
-    # Query posts in async session
-    session.expire_all()
-    result = await session.execute(select(Post).where(Post.id.in_(post_ids)))
-    posts = result.unique().scalars().all()
+    # Create posts
+    for i, pid in enumerate(post_ids):
+        post = Post(id=pid, accountId=account_id, content=f"Post {i + 1}")
+        await store.save(post)
 
-    # Refresh wall.posts in a greenlet context
-    await session.run_sync(lambda s: s.refresh(wall, attribute_names=["posts"]))
+    # Associate posts with wall
+    wall.posts = [await store.get(Post, pid) for pid in post_ids]
+    await store.save(wall)
 
-    # Associate posts with wall inside a synchronous context
-    await session.run_sync(lambda _s: wall.posts.extend(posts))
-    await session.commit()
-
-    # Verify associations with eager loading
-    session.expire_all()
-    result = await session.execute(
-        select(Wall)
-        .where(Wall.id == 1)
-        .options(selectinload(Wall.posts))
-        .execution_options(populate_existing=True)
-    )
-    saved_wall = result.unique().scalar_one_or_none()
-    assert len(saved_wall.posts) == 3
-    assert sorted(p.content for p in saved_wall.posts) == ["Post 1", "Post 2", "Post 3"]
+    saved = await store.get(Wall, wall_id)
+    assert saved is not None
+    assert len(saved.posts) == 3
+    assert sorted(p.content for p in saved.posts) == ["Post 1", "Post 2", "Post 3"]
 
 
 @pytest.mark.asyncio
-async def test_process_account_walls(
-    config,
-    session: AsyncSession,
-    session_sync,
-    factory_session,
-):
+async def test_process_account_walls(entity_store, config):
     """Test processing walls data for an account.
 
-    Uses AccountFactory and centralized config/session fixtures.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    process_account_walls uses get_store() internally, wired via entity_store.
     """
-    # Create account with factory - get ID immediately
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    session.expire_all()
+    store = entity_store
 
-    # Query account in async session
-    result = await session.execute(select(Account).where(Account.id == account_id))
-    account = result.scalar_one()
+    account_id = snowflake_id()
+    wall_id1 = snowflake_id()
+    wall_id2 = snowflake_id()
 
-    # Test wall data matching test_wall fixture
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
     walls_data = [
-        {"id": 1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
-        {"id": 2, "pos": 2, "name": "Wall 2", "description": "Description 2"},
+        {"id": wall_id1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
+        {"id": wall_id2, "pos": 2, "name": "Wall 2", "description": "Description 2"},
     ]
 
-    await process_account_walls(
-        config=config,
-        account=account,
-        walls_data=walls_data,
-        session=session,
-    )
+    await process_account_walls(config=config, account=account, walls_data=walls_data)
 
-    session.expire_all()
-    result = await session.execute(select(Wall).where(Wall.accountId == account_id))
-    walls = result.scalars().all()
+    walls = await store.find(Wall, accountId=account_id)
     assert len(walls) == 2
-    assert walls[0].name == "Wall 1"
-    assert walls[1].name == "Wall 2"
-    assert walls[0].pos == 1
-    assert walls[1].pos == 2
+    walls_sorted = sorted(walls, key=lambda w: w.pos)
+    assert walls_sorted[0].name == "Wall 1"
+    assert walls_sorted[1].name == "Wall 2"
+    assert walls_sorted[0].pos == 1
+    assert walls_sorted[1].pos == 2
 
 
 @pytest.mark.asyncio
-async def test_wall_cleanup(
-    config,
-    session: AsyncSession,
-    session_sync,
-    factory_session,
-):
+async def test_wall_cleanup(entity_store, config):
     """Test cleanup of removed walls.
 
-    Uses AccountFactory and centralized config/session fixtures.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    process_account_walls deletes walls that are no longer in the data.
     """
-    # Create account with factory - get ID immediately
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    session.expire_all()
+    store = entity_store
 
-    # Query account in async session
-    result = await session.execute(select(Account).where(Account.id == account_id))
-    account = result.scalar_one()
+    account_id = snowflake_id()
+    wall_id1 = snowflake_id()
+    wall_id2 = snowflake_id()
+    wall_id3 = snowflake_id()
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
     # Create initial walls
-    walls = [
-        Wall(id=i, accountId=account_id, name=f"Wall {i}", pos=i) for i in range(1, 4)
-    ]
-    for wall in walls:
-        session.add(wall)
-    await session.commit()
+    for wid, i in zip([wall_id1, wall_id2, wall_id3], range(1, 4), strict=True):
+        wall = Wall(id=wid, accountId=account_id, name=f"Wall {i}", pos=i)
+        await store.save(wall)
 
+    # Process with only walls 1 and 3
     new_walls_data = [
-        {"id": 1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
-        {"id": 3, "pos": 2, "name": "Wall 3", "description": "Description 3"},
+        {"id": wall_id1, "pos": 1, "name": "Wall 1", "description": "Description 1"},
+        {"id": wall_id3, "pos": 2, "name": "Wall 3", "description": "Description 3"},
     ]
 
-    await process_account_walls(
-        config,
-        account,
-        new_walls_data,
-        session=session,  # Pass the session explicitly
-    )
+    await process_account_walls(config, account, new_walls_data)
 
     # Verify wall 2 was removed
-    session.expire_all()
-    result = await session.execute(
-        select(Wall).order_by(Wall.pos).execution_options(populate_existing=True)
-    )
-    remaining_walls = result.unique().scalars().all()
-    assert len(remaining_walls) == 2
-    assert [w.id for w in remaining_walls] == [1, 3]
+    remaining = await store.find(Wall, accountId=account_id)
+    remaining_ids = sorted([w.id for w in remaining])
+    assert remaining_ids == sorted([wall_id1, wall_id3])
 
 
 @pytest.mark.asyncio
-async def test_process_wall_posts(
-    config,
-    session: AsyncSession,
-    session_sync,
-    factory_session,
-):
+async def test_process_wall_posts(entity_store, config):
     """Test processing posts for a wall.
 
-    Uses AccountFactory and centralized config/session fixtures.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    process_wall_posts uses get_store() internally, wired via entity_store.
     """
-    # Create account with factory - get ID immediately
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    session.expire_all()
+    store = entity_store
 
-    # Create wall
-    wall = Wall(id=1, accountId=account_id, name="Test Wall")
-    session.add(wall)
-    await session.commit()
+    account_id = snowflake_id()
+    wall_id = snowflake_id()
+    post_id1 = snowflake_id()
+    post_id2 = snowflake_id()
 
-    # Extract wall ID before session operations
-    wall_id = wall.id
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
-    # Make sure wall.posts is properly initialized in the greenlet context
-    await session.run_sync(lambda s: s.refresh(wall, attribute_names=["posts"]))
+    wall = Wall(id=wall_id, accountId=account_id, name="Test Wall")
+    await store.save(wall)
 
-    # Create DownloadState for processing
     state = DownloadState()
     state.creator_id = account_id
 
-    # Create posts data
     posts_data = {
         "posts": [
             {
-                "id": 1,
+                "id": post_id1,
                 "accountId": account_id,
                 "content": "Post 1",
                 "createdAt": int(datetime.now(UTC).timestamp()),
             },
             {
-                "id": 2,
+                "id": post_id2,
                 "accountId": account_id,
                 "content": "Post 2",
                 "createdAt": int(datetime.now(UTC).timestamp()),
@@ -247,30 +174,18 @@ async def test_process_wall_posts(
         "accountMedia": [],
     }
 
-    await process_wall_posts(
-        config,
-        state,
-        wall_id,
-        posts_data,
-        session=session,
-    )
+    await process_wall_posts(config, state, str(wall_id), posts_data)
 
-    # Verify posts were created by checking count and IDs
-    session.expire_all()
-    result = await session.execute(select(Post.id).order_by(Post.id))
-    post_ids = [row[0] for row in result.fetchall()]
-    assert len(post_ids) == 2
-    assert post_ids == [1, 2]
+    # Verify posts were created
+    post1 = await store.get(Post, post_id1)
+    post2 = await store.get(Post, post_id2)
+    assert post1 is not None
+    assert post2 is not None
 
-    # Now verify the relationship from wall to posts using ORM query
-    stmt = (
-        select(Post.id)
-        .select_from(wall_posts)
-        .join(Post, Post.id == wall_posts.c.postId)
-        .where(wall_posts.c.wallId == wall_id)
-        .order_by(Post.id)
+    # Verify wall-post association via raw query
+    pool = await store._get_pool()
+    rows = await pool.fetch(
+        'SELECT "postId" FROM wall_posts WHERE "wallId" = $1 ORDER BY "postId"', wall_id
     )
-    result = await session.execute(stmt)
-    wall_post_ids = [row[0] for row in result.fetchall()]
-    assert len(wall_post_ids) == 2
-    assert sorted(wall_post_ids) == [1, 2]
+    post_ids_saved = [row["postId"] for row in rows]
+    assert post_ids_saved == sorted([post_id1, post_id2])

@@ -13,6 +13,7 @@ from helpers.browser import open_get_started_url
 from helpers.checkkey import guess_check_key
 from helpers.web import guess_user_agent
 from pathio.pathio import ask_correct_dir
+from textio.textio import input_enter_continue
 
 from .config import (
     save_config_or_raise,
@@ -414,8 +415,6 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
                     save_config_or_raise(config)
 
     else:
-        from textio.textio import input_enter_continue
-
         input_enter_continue(config.interactive)
 
 

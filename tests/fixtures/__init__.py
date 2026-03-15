@@ -40,6 +40,7 @@ from .database import (
     config,
     config_with_database,
     conversation_data,
+    entity_store,
     factory_async_session,
     factory_session,
     json_conversation_data,
@@ -67,12 +68,9 @@ from .download import (
     DownloadStateFactory,
     download_state,
     mock_download_dir,
-    mock_download_media,
     mock_metadata_dir,
-    mock_parse_media_info,
     mock_process_media_bundles,
     mock_process_media_download,
-    mock_process_media_info,
     mock_temp_dir,
     test_downloads_dir,
 )
@@ -180,6 +178,7 @@ from .utils import (
     cleanup_mock_patches,
     cleanup_rich_progress_state,
     cleanup_unawaited_coroutines,
+    snowflake_id,
 )
 
 
@@ -206,12 +205,9 @@ mod_download_factories = [
 mod_download_fixtures = [
     "download_state",
     "mock_download_dir",
-    "mock_download_media",
     "mock_metadata_dir",
-    "mock_parse_media_info",
     "mock_process_media_bundles",
     "mock_process_media_download",
-    "mock_process_media_info",
     "mock_temp_dir",
     "test_downloads_dir",
 ]
@@ -335,6 +331,7 @@ mod_database_fixtures = [
     "test_async_session",
     "config",
     "config_with_database",
+    "entity_store",
     "test_sync_engine",
     "session_factory",
     "test_database_sync",

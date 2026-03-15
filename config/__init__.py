@@ -32,7 +32,6 @@ from .validation import validate_adjust_config
 
 
 from .args import map_args_to_config  # isort:skip
-from .decorators import with_database_session  # isort:skip
 
 
 # Lazy-loaded browser functions (require optional plyvel dependency)
@@ -75,7 +74,6 @@ __all__ = [
     "username_has_valid_chars",
     "username_has_valid_length",
     "validate_adjust_config",
-    "with_database_session",
 ]
 
 

@@ -16,6 +16,7 @@ import traceback
 
 # from memory_profiler import profile
 from datetime import UTC, datetime
+from importlib.metadata import version as pkg_version
 from time import monotonic
 from types import FrameType
 
@@ -63,8 +64,10 @@ from errors import (
 )
 from fileio.dedupe import dedupe_init
 from helpers.common import open_location
+from helpers.rich_progress import get_progress_manager
 from helpers.timer import Timer, timing_jitter
 from metadata.account import process_account_data
+from metadata.database import Database
 from pathio import delete_temporary_pyinstaller_files
 from textio import (
     input_enter_continue,
@@ -80,9 +83,7 @@ from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 # Enforce minimum stash-graphql-client version
 def _check_stash_library_version() -> None:
-    from importlib.metadata import version
-
-    stash_version = version("stash-graphql-client")
+    stash_version = pkg_version("stash-graphql-client")
     major, minor = (int(x) for x in stash_version.split(".")[:2])
     if (major, minor) < (0, 11):
         raise RuntimeError(
@@ -249,16 +250,14 @@ async def load_client_account_into_db(
     await asyncio.sleep(timing_jitter(0.4, 0.75))
 
     try:
-        response = config.get_api().get_creator_account_info(
-            creator_name=client_user_name
-        )
-        json = response.json()
+        api = config.get_api()
+        response = api.get_creator_account_info(creator_name=client_user_name)
         json_output(
             1,
             "main - client-account-data",
-            (json),
+            response.json(),
         )
-        creator_dict = json["response"][0]
+        creator_dict = api.get_json_response_contents(response)[0]
     except Exception as e:
         print_error(f"Error getting client account info: {e}")
         print_error(f"Error getting client account info: {traceback.format_exc()}")
@@ -323,9 +322,6 @@ async def main(config: FanslyConfig) -> int:
     monitor_semaphores(threshold=20)  # Check what semaphores exist before DB init
 
     # Initialize database first since we need it for deduplication
-    from metadata.database import Database
-
-    # Initialize database first
     if config.separate_metadata:
         print_info("Using separate metadata databases per creator")
     else:
@@ -334,6 +330,7 @@ async def main(config: FanslyConfig) -> int:
             f"at {config.pg_host}:{config.pg_port}"
         )
         config._database = Database(config, creator_name=None)
+        await config._database.create_entity_store()
         # Register cleanup function to ensure database is closed on exit
         atexit.register(cleanup_database_sync, config)
     print()
@@ -401,7 +398,23 @@ async def main(config: FanslyConfig) -> int:
     )
     if config.reverse_order:
         print_info("Processing creators in reverse order")
+
+    creators_progress = get_progress_manager()
+    if len(creators_list) > 1:
+        creators_progress.add_task(
+            name="creators",
+            description="Processing creators",
+            total=len(creators_list),
+            show_elapsed=True,
+        )
+
     for creator_name in creators_list:
+        if len(creators_list) > 1:
+            creators_progress.update_task(
+                "creators",
+                advance=0,
+                description=f"Creator: {creator_name}",
+            )
         with Timer(creator_name):
             try:
                 state = DownloadState(creator_name=creator_name)
@@ -422,108 +435,128 @@ async def main(config: FanslyConfig) -> int:
                     orig_database = config._database
                     # Set up creator database context
                     creator_database = Database(config, creator_name=creator_name)
+                    await creator_database.create_entity_store()
                     config._database = creator_database
                     # Load client account into separate database
                     await load_client_account_into_db(config, state, client_user_name)
 
                 try:
                     creator_start_monotonic = monotonic()
+                    progress_mgr = get_progress_manager()
 
-                    print_download_info(config)
+                    with progress_mgr.session(auto_cleanup=True):
+                        print_download_info(config)
 
-                    await get_creator_account_info(config, state)
+                        await get_creator_account_info(config, state)
 
-                    print_info(f"Download mode is: {config.download_mode_str()}")
-                    print()
+                        print_info(f"Download mode is: {config.download_mode_str()}")
+                        print()
 
-                    # Special treatment for deviating folder names later
-                    if config.download_mode not in (
-                        DownloadMode.SINGLE,
-                        DownloadMode.STASH_ONLY,
-                    ):
-                        await dedupe_init(config, state)
-                        # await dedupe_init(config, state)
-
-                    # Download mode:
-                    # Normal: Downloads Timeline + Messages one after another.
-                    # Timeline: Scrapes only the creator's timeline content.
-                    # Messages: Scrapes only the creator's messages content.
-                    # Wall: Scrapes only the creator's wall content.
-                    # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
-                    # Collection: Download all content listed within the "Purchased Media Collection"
-                    # STASH_ONLY: Only process Stash metadata, skip downloading media.
-
-                    if config.download_mode == DownloadMode.SINGLE:
-                        await download_single_post(config, state)
-
-                    elif config.download_mode == DownloadMode.COLLECTION:
-                        await download_collections(config, state)
-
-                    elif config.download_mode != DownloadMode.STASH_ONLY:
-                        if any(
-                            [
-                                config.download_mode == DownloadMode.MESSAGES,
-                                config.download_mode == DownloadMode.NORMAL,
-                            ]
+                        # Special treatment for deviating folder names later
+                        if config.download_mode not in (
+                            DownloadMode.SINGLE,
+                            DownloadMode.STASH_ONLY,
                         ):
-                            await download_messages(config, state)
+                            await dedupe_init(config, state)
+                            # await dedupe_init(config, state)
 
-                        if any(
-                            [
-                                config.download_mode == DownloadMode.TIMELINE,
-                                config.download_mode == DownloadMode.NORMAL,
-                            ]
-                        ):
-                            await download_timeline(config, state)
+                        # Download mode:
+                        # Normal: Downloads Timeline + Messages one after another.
+                        # Timeline: Scrapes only the creator's timeline content.
+                        # Messages: Scrapes only the creator's messages content.
+                        # Wall: Scrapes only the creator's wall content.
+                        # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
+                        # Collection: Download all content listed within the "Purchased Media Collection"
+                        # STASH_ONLY: Only process Stash metadata, skip downloading media.
 
-                        if any(
-                            [
-                                config.download_mode == DownloadMode.WALL,
-                                config.download_mode == DownloadMode.NORMAL,
-                            ]
-                        ):
-                            for wall_id in state.walls:
-                                await download_wall(config, state, wall_id)
+                        if config.download_mode == DownloadMode.SINGLE:
+                            await download_single_post(config, state)
 
-                    update_global_statistics(
-                        global_download_state, download_state=state
-                    )
-                    print_statistics(config, state)
+                        elif config.download_mode == DownloadMode.COLLECTION:
+                            await download_collections(config, state)
 
-                    # open download folder
-                    if state.base_path is not None:
-                        open_location(
-                            state.base_path,
-                            config.open_folder_when_finished,
-                            config.interactive,
+                        elif config.download_mode != DownloadMode.STASH_ONLY:
+                            if any(
+                                [
+                                    config.download_mode == DownloadMode.MESSAGES,
+                                    config.download_mode == DownloadMode.NORMAL,
+                                ]
+                            ):
+                                await download_messages(config, state)
+
+                            if any(
+                                [
+                                    config.download_mode == DownloadMode.TIMELINE,
+                                    config.download_mode == DownloadMode.NORMAL,
+                                ]
+                            ):
+                                await download_timeline(config, state)
+
+                            if (
+                                any(
+                                    [
+                                        config.download_mode == DownloadMode.WALL,
+                                        config.download_mode == DownloadMode.NORMAL,
+                                    ]
+                                )
+                                and state.walls
+                            ):
+                                walls_list = sorted(state.walls)
+                                progress_mgr.add_task(
+                                    name="download_walls",
+                                    description="Processing walls",
+                                    total=len(walls_list),
+                                    parent_task="creators",
+                                    show_elapsed=True,
+                                )
+                                for wall_id in walls_list:
+                                    await download_wall(config, state, wall_id)
+                                    progress_mgr.update_task(
+                                        "download_walls", advance=1
+                                    )
+                                progress_mgr.remove_task("download_walls")
+
+                        update_global_statistics(
+                            global_download_state, download_state=state
                         )
+                        print_statistics(config, state)
 
-                    if config.stash_context_conn is not None:
-                        from stash import StashProcessing
+                        # open download folder
+                        if state.base_path is not None:
+                            open_location(
+                                state.base_path,
+                                config.open_folder_when_finished,
+                                config.interactive,
+                            )
 
-                        # Create processor using factory method
-                        stash_processor = StashProcessing.from_config(config, state)
+                        if config.stash_context_conn is not None:
+                            from stash import StashProcessing
 
-                        # Run initial processing and wait for background tasks
-                        await stash_processor.start_creator_processing()
+                            # Create processor using factory method
+                            stash_processor = StashProcessing.from_config(config, state)
 
-                        # Wait for background processing to complete
-                        if stash_processor._background_task:
-                            try:
-                                # print_info(
-                                #     "Waiting for background processing to complete..."
-                                # )
-                                await stash_processor._background_task
-                                # print_info("Background processing complete")
-                            except Exception as e:
-                                print_error(f"Background processing failed: {e}")
-                                # Continue to next creator even if background processing fails
-                                exit_code = SOME_USERS_FAILED
+                            # Run initial processing and wait for background tasks
+                            await stash_processor.start_creator_processing()
 
-                        # Clean up processor
-                        await stash_processor.cleanup()
-                    monitor_semaphores(threshold=20)  # Warn if too many semaphores
-                    cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
+                            # Wait for background processing to complete
+                            if stash_processor._background_task:
+                                try:
+                                    # print_info(
+                                    #     "Waiting for background processing to complete..."
+                                    # )
+                                    await stash_processor._background_task
+                                    # print_info("Background processing complete")
+                                except Exception as e:
+                                    print_error(f"Background processing failed: {e}")
+                                    # Continue to next creator even if background processing fails
+                                    exit_code = SOME_USERS_FAILED
+
+                            # Clean up processor
+                            await stash_processor.cleanup()
+                        monitor_semaphores(threshold=20)  # Warn if too many semaphores
+                        cleanup_semaphores(
+                            r"/mp-.*"
+                        )  # Clean up multiprocessing semaphores
 
                 finally:
                     # Log creator processing time
@@ -542,6 +575,14 @@ async def main(config: FanslyConfig) -> int:
                 print_error(str(e))
                 input_enter_continue(config.interactive)
                 exit_code = SOME_USERS_FAILED
+
+            # Advance creator progress regardless of success/failure
+            finally:
+                if len(creators_list) > 1:
+                    creators_progress.update_task("creators", advance=1)
+
+    if len(creators_list) > 1:
+        creators_progress.remove_task("creators")
 
     timer.stop()
 

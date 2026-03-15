@@ -1,17 +1,18 @@
-"""FactoryBoy factories for SQLAlchemy metadata models.
+"""FactoryBoy factories for Pydantic metadata models.
 
-This module provides factories for creating test instances of SQLAlchemy models
-using FactoryBoy. These factories create real database objects with sensible defaults,
-replacing the need for extensive Mock usage in tests.
+This module provides factories for creating test instances of Pydantic models
+using FactoryBoy. These factories create in-memory model instances with sensible
+defaults — use EntityStore.save() to persist them when database access is needed.
 
 Usage:
     from tests.fixtures import AccountFactory, MediaFactory
 
-    # Create a test account
+    # Create an in-memory test account
     account = AccountFactory(username="testuser")
 
-    # Create media with specific values
+    # Create and persist via EntityStore
     media = MediaFactory(accountId=account.id, mimetype="video/mp4")
+    await store.save(media)
 """
 
 import os
@@ -19,7 +20,7 @@ import random
 import time
 from datetime import UTC, datetime
 
-from factory.alchemy import SQLAlchemyModelFactory
+import factory
 from factory.declarations import LazyAttribute, LazyFunction, Sequence
 from faker import Faker
 from faker.providers import BaseProvider
@@ -29,6 +30,7 @@ from metadata import (
     AccountMedia,
     AccountMediaBundle,
     Attachment,
+    ContentType,
     Group,
     Hashtag,
     Media,
@@ -41,7 +43,6 @@ from metadata import (
     TimelineStats,
     Wall,
 )
-from metadata.attachment import ContentType
 
 
 # Helper for pytest-xdist worker isolation
@@ -246,22 +247,17 @@ fake = Faker()
 fake.add_provider(FanslyContentProvider)
 
 
-class BaseFactory(SQLAlchemyModelFactory):
-    """Base factory for all SQLAlchemy model factories.
+class BaseFactory(factory.Factory):
+    """Base factory for all Pydantic model factories.
 
-    This provides common configuration for all factories, including:
-    - Session management
-    - Automatic ID generation
-    - Timestamp handling
+    Creates in-memory model instances with realistic defaults.
+    Use EntityStore.save() to persist when database access is needed.
     """
 
     class Meta:
         """Factory configuration."""
 
         abstract = True
-        # Session will be set via factory_session fixture
-        sqlalchemy_session = None
-        sqlalchemy_session_persistence = "commit"
 
 
 class AccountFactory(BaseFactory):
@@ -659,61 +655,39 @@ class StubTrackerFactory(BaseFactory):
     reason = None
 
 
-async def create_groups_from_messages(session, messages: list[dict]) -> None:
+async def create_groups_from_messages(messages: list[dict]) -> None:
     """Helper to create Group entities for messages that reference groupIds.
 
     This function should be called AFTER creating all necessary accounts and
     before processing messages to ensure all referenced Groups exist in the
     database, preventing foreign key violations.
 
-    IMPORTANT: This function assumes all referenced accounts already exist.
-    Create accounts first before calling this helper.
+    Uses the global EntityStore (via get_store()) instead of SA ORM session.
 
     Args:
-        session: Async database session
         messages: List of message data dictionaries
-
-    Example:
-        # First create accounts
-        for acc_data in conversation_data["response"]["accounts"]:
-            AccountFactory(id=acc_data["id"], username=acc_data["username"])
-
-        # Then create groups
-        await create_groups_from_messages(session, conversation_data["response"]["messages"])
-
-        # Finally process messages
-        await process_messages_metadata(
-            config, None, {"messages": messages}, session=session
-        )
     """
-    from sqlalchemy import select
+    from metadata.models import get_store
 
-    groups_to_create = []
+    store = get_store()
+    seen_group_ids: set[int] = set()
+
     for msg in messages:
         if msg.get("groupId"):
-            group_id = int(msg["groupId"])  # Convert to int for bigint column
-            # Check if group already created
-            result = await session.execute(select(Group).where(Group.id == group_id))
-            if not result.scalar_one_or_none():
-                # Use senderId or recipientId as createdBy
+            group_id = int(msg["groupId"])
+            if group_id in seen_group_ids:
+                continue
+            seen_group_ids.add(group_id)
+
+            existing = store.get_from_cache(Group, group_id)
+            if not existing:
                 created_by_id = int(msg.get("senderId") or msg.get("recipientId"))
-
-                # Create group directly in async session to avoid transaction isolation issues
-                group = Group(
-                    id=group_id,
-                    createdBy=created_by_id,
-                    lastMessageId=None,
-                )
-                session.add(group)
-                groups_to_create.append(group_id)
-
-    if groups_to_create:
-        await session.commit()
-        session.expire_all()
+                group = Group(id=group_id, createdBy=created_by_id)
+                await store.save(group)
 
 
 async def setup_accounts_and_groups(
-    session, conversation_data: dict, messages: list[dict] | None = None
+    conversation_data: dict, messages: list[dict] | None = None
 ) -> None:
     """Helper to create accounts and groups from conversation data.
 
@@ -723,37 +697,30 @@ async def setup_accounts_and_groups(
     2. Identifying and creating missing accounts referenced by messages
     3. Creating groups for messages that reference them
 
-    All accounts are created directly in the async session to avoid transaction
-    isolation issues between sync and async sessions.
+    Uses the global EntityStore (via get_store()) instead of SA ORM session.
 
     Args:
-        session: Async database session
         conversation_data: Full conversation data with accounts and messages
-        messages: Optional specific list of messages (defaults to all messages in conversation_data)
-
-    Example:
-        await setup_accounts_and_groups(session, conversation_data)
-        await process_messages_metadata(
-            config, None, {"messages": messages}, session=session
-        )
+        messages: Optional specific list of messages (defaults to all messages)
     """
+    from metadata.models import get_store
+
+    store = get_store()
 
     if messages is None:
         messages = conversation_data.get("response", {}).get("messages", [])
 
-    # Create accounts from explicit accounts list using factory
+    # Create accounts from explicit accounts list
     account_data = conversation_data.get("response", {}).get("accounts", [])
     account_ids = set()
     for acc_data in account_data:
         acc_id = int(acc_data["id"])
         account_ids.add(acc_id)
-        account = AccountFactory.build(
+        account = Account(
             id=acc_id,
             username=acc_data.get("username", f"user_{acc_id}"),
         )
-        session.add(account)
-    if account_ids:
-        await session.commit()
+        await store.save(account)
 
     # Check what senderIds/recipientIds are in messages
     msg_account_ids = set()
@@ -763,19 +730,14 @@ async def setup_accounts_and_groups(
         if msg.get("recipientId"):
             msg_account_ids.add(int(msg["recipientId"]))
 
-    # Create any missing accounts that messages reference using factory
+    # Create any missing accounts that messages reference
     missing_ids = msg_account_ids - account_ids
     for missing_id in missing_ids:
-        account = AccountFactory.build(
-            id=missing_id,
-            username=f"user_{missing_id}",
-        )
-        session.add(account)
-    if missing_ids:
-        await session.commit()
+        account = Account(id=missing_id, username=f"user_{missing_id}")
+        await store.save(account)
 
     # Create groups for messages that reference them
-    await create_groups_from_messages(session, messages)
+    await create_groups_from_messages(messages)
 
 
 # Export all factories and utilities

@@ -18,8 +18,6 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import Any
 
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.orm import Session
     from stash_graphql_client import ServerCapabilities, StashContext
     from stash_graphql_client.store import StashEntityStore
     from stash_graphql_client.types import (
@@ -46,7 +44,6 @@ class HasMetadata(Protocol):
     attachments: list[Any]
     accountMentions: list[Account] | None
     stash_id: int | None
-    awaitable_attrs: Callable | None
 
 
 class StashProcessingProtocol(Protocol):
@@ -107,9 +104,7 @@ class StashProcessingProtocol(Protocol):
 
     # --- AccountProcessingMixin methods ---
 
-    async def process_creator(
-        self, session: Session | None = None
-    ) -> tuple[Account, Performer]: ...
+    async def process_creator(self) -> tuple[Account, Performer]: ...
 
     async def _find_existing_performer(self, account: Account) -> Performer | None: ...
 
@@ -119,7 +114,6 @@ class StashProcessingProtocol(Protocol):
         self,
         account: Account,
         performer: Performer,
-        session: AsyncSession | None = None,
     ) -> None: ...
 
     # --- StudioProcessingMixin methods ---
@@ -129,7 +123,6 @@ class StashProcessingProtocol(Protocol):
     async def process_creator_studio(
         self,
         account: Account,
-        session: Session | None = None,
     ) -> Studio | None: ...
 
     # --- TagProcessingMixin methods ---
@@ -151,7 +144,6 @@ class StashProcessingProtocol(Protocol):
     async def _find_stash_files_by_id(
         self,
         stash_files: list[tuple[str | int, str]],
-        session: Session | None = None,
     ) -> list[tuple[dict, Scene | Image]]: ...
 
     async def _process_media_batch_by_mimetype(
@@ -175,7 +167,6 @@ class StashProcessingProtocol(Protocol):
         studio: Studio | None,
         item_type: str,
         url_pattern: str,
-        session: Session | None = None,
     ) -> None: ...
 
     async def _has_media_content(self, item: HasMetadata) -> bool: ...
@@ -194,7 +185,6 @@ class StashProcessingProtocol(Protocol):
         item_type: str,
         items: list[Message | Post],
         url_pattern_func: Callable,
-        session: Session | None = None,
     ) -> None: ...
 
     # --- BatchProcessingMixin methods ---
@@ -219,5 +209,4 @@ class StashProcessingProtocol(Protocol):
         self,
         account: Account | None,
         performer: Performer | None,
-        session: AsyncSession | None = None,
     ) -> None: ...

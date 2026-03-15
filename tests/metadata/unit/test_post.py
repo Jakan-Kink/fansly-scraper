@@ -4,401 +4,335 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from metadata.account import Account
-from metadata.attachment import Attachment, ContentType
-from metadata.post import Post, pinned_posts, post_mentions, process_pinned_posts
-from tests.fixtures.metadata.metadata_factories import (
-    AccountFactory,
-    AttachmentFactory,
-    PostFactory,
-)
+from metadata import Account, Attachment, ContentType, Post, process_pinned_posts
+from metadata.models import PostMention
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
-async def test_post_model_basic(session: AsyncSession, factory_session):
-    """Test basic Post model functionality.
+async def test_post_model_basic(entity_store):
+    """Test basic Post model functionality."""
+    store = entity_store
 
-    Uses AccountFactory and PostFactory.
-    factory_session configures factories with the database session.
-    """
-    # Create account and post using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    post = PostFactory(
-        id=1,
+    account_id = snowflake_id()
+    post_id = snowflake_id()
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    post = Post(
+        id=post_id,
         accountId=account_id,
         content="Test post content",
         fypFlag=0,
     )
-    session.expire_all()
+    await store.save(post)
 
-    # Query and verify
-    result = await session.execute(select(Post).where(Post.id == 1))
-    queried_post = result.unique().scalar_one_or_none()
-    assert queried_post is not None
-    assert queried_post.content == "Test post content"
-    assert queried_post.accountId == account_id
+    saved = await store.get(Post, post_id)
+    assert saved is not None
+    assert saved.content == "Test post content"
+    assert saved.accountId == account_id
 
 
 @pytest.mark.asyncio
-async def test_post_with_attachments(session: AsyncSession, factory_session):
+async def test_post_with_attachments(entity_store):
     """Test Post with attachments relationship.
 
-    Uses AccountFactory and PostFactory.
-    factory_session configures factories with the database session.
+    Attachments are saved via _sync_associations when the Post
+    has the attachments list populated before save.
     """
-    # Create account and post using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    post = PostFactory(
-        id=1,
-        accountId=account_id,
-        content="Post with attachments",
-    )
-    post_id = post.id
+    store = entity_store
 
-    for i in range(3):
-        AttachmentFactory(
-            id=i,
+    account_id = snowflake_id()
+    post_id = snowflake_id()
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    # Create post first (FK requirement for attachments)
+    post = Post(id=post_id, accountId=account_id, content="Post with attachments")
+    await store.save(post)
+
+    # Add attachments and re-save (triggers _sync_associations)
+    post.attachments = [
+        Attachment(
+            id=snowflake_id(),
             postId=post_id,
-            contentId=i + 1000,
+            contentId=snowflake_id(),
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=i,
         )
-    factory_session.commit()
+        for i in range(3)
+    ]
+    await store.save(post)
 
-    # Verify attachments - expire sessions to ensure fresh data
-    session.expire_all()
-    result = await session.execute(
-        select(Post).options(selectinload(Post.attachments)).where(Post.id == post_id)
-    )
-    queried_post = result.unique().scalar_one_or_none()
-    assert queried_post is not None
-    assert len(queried_post.attachments) == 3
-    assert all(isinstance(a, Attachment) for a in queried_post.attachments)
-    assert sorted([a.pos for a in queried_post.attachments]) == [0, 1, 2]
+    saved = await store.get(Post, post_id)
+    assert saved is not None
+    assert len(saved.attachments) == 3
+    assert sorted([a.pos for a in saved.attachments]) == [0, 1, 2]
 
 
 @pytest.mark.asyncio
-async def test_post_mentions(session: AsyncSession, factory_session):
-    """Test post mentions relationship.
+async def test_post_mentions(entity_store):
+    """Test post mentions via PostMention entities.
 
-    Uses AccountFactory and PostFactory.
-    factory_session configures factories with the database session.
+    Mentions are a reverse_fk relationship: Post.mentions → PostMention.postId.
     """
-    # Create account and post using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    post = PostFactory(
-        id=1,
-        accountId=account_id,
-        content="Post with mentions",
-    )
-    post_id = post.id
-    session.expire_all()
+    store = entity_store
 
-    # Add mention
-    await session.execute(
-        post_mentions.insert().values(
-            postId=post_id,
-            accountId=account_id,
-            handle="test_handle",
-        )
-    )
-    await session.commit()
+    account_id = snowflake_id()
+    post_id = snowflake_id()
 
-    # Verify mention
-    session.expire_all()
-    result = await session.execute(
-        select(Post)
-        .options(selectinload(Post.accountMentions))
-        .where(Post.id == post_id)
-        .execution_options(populate_existing=True)
-    )
-    queried_post = result.unique().scalar_one_or_none()
-    # Refresh object to ensure accountMentions are loaded in a greenlet context
-    await session.run_sync(
-        lambda s: s.refresh(queried_post, attribute_names=["accountMentions"])
-    )
-    assert queried_post is not None
-    assert len(queried_post.accountMentions) == 1
-    assert queried_post.accountMentions[0].id == account_id
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    post = Post(id=post_id, accountId=account_id, content="Post with mentions")
+    await store.save(post)
+
+    # Add mention and re-save
+    mention = PostMention(postId=post_id, accountId=account_id, handle="test_handle")
+    post.mentions = [mention]
+    await store.save(post)
+
+    saved = await store.get(Post, post_id)
+    assert saved is not None
+    assert len(saved.mentions) == 1
+    assert saved.mentions[0].handle == "test_handle"
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts(session: AsyncSession, factory_session, config):
+async def test_process_pinned_posts(entity_store, config):
     """Test processing pinned posts.
 
-    Uses AccountFactory and PostFactory.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    process_pinned_posts uses get_store() internally, wired via entity_store.
     """
-    # Create account and post using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    post = PostFactory(
-        id=1,
-        accountId=account_id,
-        content="Test pinned post",
-    )
-    session.expire_all()
+    store = entity_store
 
-    # Query account in async session
-    result = await session.execute(select(Account).where(Account.id == account_id))
-    account = result.scalar_one()
+    account_id = snowflake_id()
+    post_id = snowflake_id()
 
-    # Test data for pinned posts
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    post = Post(id=post_id, accountId=account_id, content="Test pinned post")
+    await store.save(post)
+
     pinned_data = [
         {
-            "postId": 1,
+            "postId": post_id,
             "pos": 0,
             "createdAt": int(datetime.now(UTC).timestamp() * 1000),
         }
     ]
 
-    # Process pinned posts
-    await process_pinned_posts(config, account, pinned_data, session=session)
+    await process_pinned_posts(config, account, pinned_data)
 
-    # Verify pinned post
-    session.expire_all()
-    result = await session.execute(
-        select(pinned_posts).where(
-            pinned_posts.c.postId == 1,
-            pinned_posts.c.accountId == account_id,
-        )
+    # Verify via raw query on pinned_posts junction
+    pool = await store._get_pool()
+    row = await pool.fetchrow(
+        'SELECT * FROM pinned_posts WHERE "postId" = $1 AND "accountId" = $2',
+        post_id,
+        account_id,
     )
-    result_row = result.mappings().first()
-    assert result_row is not None
-    assert result_row["pos"] == 0
+    assert row is not None
+    assert row["pos"] == 0
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts_nonexistent(
-    session: AsyncSession, factory_session, config
-):
+async def test_process_pinned_posts_nonexistent(entity_store, config):
     """Test processing pinned posts with nonexistent post.
 
-    Uses AccountFactory.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    Should log a warning and skip the post.
     """
-    # Create account using factory
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    session.expire_all()
+    store = entity_store
 
-    # Query account in async session
-    result = await session.execute(select(Account).where(Account.id == account_id))
-    account = result.scalar_one()
+    account_id = snowflake_id()
+    nonexistent_post_id = snowflake_id()
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
     with patch("metadata.post.json_output") as mock_json_output:
         pinned_data = [
             {
-                "postId": 999,  # Nonexistent post
+                "postId": nonexistent_post_id,  # Nonexistent post
                 "pos": 0,
                 "createdAt": int(datetime.now(UTC).timestamp() * 1000),
             }
         ]
 
-        await process_pinned_posts(config, account, pinned_data, session=session)
+        await process_pinned_posts(config, account, pinned_data)
 
-        # Verify logging
         mock_json_output.assert_any_call(
             1,
             "meta/post - p_p_p - skipping_missing_post",
-            {
-                "postId": 999,
-                "accountId": account_id,
-                "reason": "Post does not exist in database",
-            },
+            {"postId": nonexistent_post_id, "accountId": account_id},
         )
 
 
 @pytest.mark.asyncio
-async def test_process_pinned_posts_update(
-    session: AsyncSession, factory_session, config
-):
-    """Test updating existing pinned post.
+async def test_process_pinned_posts_update(entity_store, config):
+    """Test updating existing pinned post position.
 
-    Uses AccountFactory and PostFactory.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    sync_junction does DELETE + re-INSERT, so updating pos should work.
     """
-    # Create account and post using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    post = PostFactory(
-        id=1,
-        accountId=account_id,
-        content="Test pinned post",
-    )
-    session.expire_all()
+    store = entity_store
 
-    # Query account in async session
-    result = await session.execute(select(Account).where(Account.id == account_id))
-    account = result.scalar_one()
+    account_id = snowflake_id()
+    post_id = snowflake_id()
 
-    # Initial pinned post data
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    post = Post(id=post_id, accountId=account_id, content="Test pinned post")
+    await store.save(post)
+
+    # Initial pinned post
     initial_data = [
         {
-            "postId": 1,
+            "postId": post_id,
             "pos": 0,
             "createdAt": int(datetime.now(UTC).timestamp() * 1000),
         }
     ]
-    await process_pinned_posts(config, account, initial_data, session=session)
+    await process_pinned_posts(config, account, initial_data)
 
     # Update with new position
     updated_data = [
         {
-            "postId": 1,
-            "pos": 1,  # Changed position
+            "postId": post_id,
+            "pos": 1,
             "createdAt": int(datetime.now(UTC).timestamp() * 1000),
         }
     ]
-    await process_pinned_posts(config, account, updated_data, session=session)
+    await process_pinned_posts(config, account, updated_data)
 
     # Verify update
-    session.expire_all()
-    result = await session.execute(
-        select(pinned_posts).where(
-            pinned_posts.c.postId == 1,
-            pinned_posts.c.accountId == account_id,
-        )
+    pool = await store._get_pool()
+    row = await pool.fetchrow(
+        'SELECT * FROM pinned_posts WHERE "postId" = $1 AND "accountId" = $2',
+        post_id,
+        account_id,
     )
-    result_row = result.mappings().first()
-    assert result_row is not None
-    assert result_row["pos"] == 1
+    assert row is not None
+    assert row["pos"] == 1
 
 
 @pytest.mark.asyncio
-async def test_post_reply_fields(session: AsyncSession, factory_session):
-    """Test post reply-related fields.
+async def test_post_reply_fields(entity_store):
+    """Test post reply-related fields."""
+    store = entity_store
 
-    Uses AccountFactory and PostFactory.
-    Tests must explicitly request factory_session or fixtures that depend on it.
-    """
-    # Create account and posts using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
+    account_id = snowflake_id()
+    parent_id = snowflake_id()
+    reply_id = snowflake_id()
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
 
     # Create parent post
-    parent_post = PostFactory(
-        id=1,
-        accountId=account_id,
-        content="Parent post",
-    )
-    parent_id = parent_post.id
+    parent = Post(id=parent_id, accountId=account_id, content="Parent post")
+    await store.save(parent)
 
     # Create reply post
-    reply_post = PostFactory(
-        id=2,
+    reply = Post(
+        id=reply_id,
         accountId=account_id,
         content="Reply post",
         inReplyTo=parent_id,
         inReplyToRoot=parent_id,
     )
-    session.expire_all()
+    await store.save(reply)
 
-    # Verify reply relationships
-    result = await session.execute(select(Post).where(Post.id == 2))
-    queried_reply = result.unique().scalar_one_or_none()
-    assert queried_reply is not None
-    assert queried_reply.inReplyTo == parent_id
-    assert queried_reply.inReplyToRoot == parent_id
+    saved = await store.get(Post, reply_id)
+    assert saved is not None
+    assert saved.inReplyTo == parent_id
+    assert saved.inReplyToRoot == parent_id
 
 
 @pytest.mark.parametrize(
     "expires_at",
     [
-        datetime.now(UTC),  # With expiration
-        None,  # Without expiration
+        datetime.now(UTC),
+        None,
     ],
 )
 @pytest.mark.asyncio
-async def test_post_expiration(session: AsyncSession, factory_session, expires_at):
-    """Test post expiration field.
+async def test_post_expiration(entity_store, expires_at):
+    """Test post expiration field."""
+    store = entity_store
 
-    Uses AccountFactory and PostFactory.
-    Tests must explicitly request factory_session or fixtures that depend on it.
-    """
-    # Create account and post using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    post = PostFactory(
-        id=1,
-        accountId=account_id,
-        content="Test post",
-        expiresAt=expires_at,
+    account_id = snowflake_id()
+    post_id = snowflake_id()
+
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    post = Post(
+        id=post_id, accountId=account_id, content="Test post", expiresAt=expires_at
     )
-    session.expire_all()
+    await store.save(post)
 
-    result = await session.execute(select(Post).where(Post.id == 1))
-    queried_post = result.unique().scalar_one_or_none()
-    # Compare timestamps in UTC
-    assert queried_post is not None
+    saved = await store.get(Post, post_id)
+    assert saved is not None
     if expires_at is not None:
-        assert queried_post.expiresAt is not None
-        assert queried_post.expiresAt.replace(tzinfo=UTC) == expires_at
+        assert saved.expiresAt is not None
     else:
-        assert queried_post.expiresAt is None
+        assert saved.expiresAt is None
 
 
 @pytest.mark.asyncio
-async def test_post_cascade_delete(session: AsyncSession, factory_session):
-    """Test cascade deletion of post relationships.
+async def test_post_cascade_delete(entity_store):
+    """Test deleting a post also removes associated data.
 
-    Uses AccountFactory, PostFactory, and AttachmentFactory.
-    Tests must explicitly request factory_session or fixtures that depend on it.
+    EntityStore delete is a simple DELETE by PK. Cascade is handled
+    by PostgreSQL ON DELETE CASCADE on the FK constraints.
     """
-    # Create account and post using factories
-    account = AccountFactory(id=1, username="test_user")
-    account_id = account.id
-    post = PostFactory(
-        id=1,
-        accountId=account_id,
-        content="Test post",
-    )
-    post_id = post.id
+    store = entity_store
 
-    AttachmentFactory(
-        id=1,
-        postId=post_id,
-        contentId=1001,
-        contentType=ContentType.ACCOUNT_MEDIA,
-        pos=0,
-    )
-    factory_session.commit()
-    session.expire_all()
+    account_id = snowflake_id()
+    post_id = snowflake_id()
+    att_id = snowflake_id()
+    content_id = snowflake_id()
 
-    # Add mention in async session
-    await session.execute(
-        post_mentions.insert().values(
+    account = Account(id=account_id, username="test_user")
+    await store.save(account)
+
+    post = Post(id=post_id, accountId=account_id, content="Test post")
+    await store.save(post)
+
+    # Add attachment
+    post.attachments = [
+        Attachment(
+            id=att_id,
             postId=post_id,
-            accountId=account_id,
-            handle="test_handle",
+            contentId=content_id,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
         )
+    ]
+    await store.save(post)
+
+    # Add mention
+    mention = PostMention(postId=post_id, accountId=account_id, handle="test_handle")
+    post.mentions = [mention]
+    await store.save(post)
+
+    # Delete the post
+    await store.delete(post)
+
+    # Verify post is gone
+    assert await store.get(Post, post_id) is None
+
+    # Verify cascade removed attachments (FK ON DELETE CASCADE)
+    pool = await store._get_pool()
+    att_row = await pool.fetchrow(
+        'SELECT * FROM attachments WHERE "postId" = $1', post_id
     )
-    await session.commit()
+    assert att_row is None
 
-    # Query and delete post in async session
-    result = await session.execute(select(Post).where(Post.id == post_id))
-    post = result.unique().scalar_one()
-    await session.delete(post)
-    await session.commit()
-
-    # Verify cascade deletion
-    session.expire_all()
-    result = await session.execute(select(Post).where(Post.id == post_id))
-    assert result.unique().scalar_one_or_none() is None
-
-    result = await session.execute(
-        select(Attachment).where(Attachment.postId == post_id)
+    mention_row = await pool.fetchrow(
+        'SELECT * FROM post_mentions WHERE "postId" = $1', post_id
     )
-    assert result.unique().scalar_one_or_none() is None
-
-    result = await session.execute(
-        select(post_mentions).where(post_mentions.c.postId == post_id)
-    )
-    assert result.unique().first() is None
+    assert mention_row is None

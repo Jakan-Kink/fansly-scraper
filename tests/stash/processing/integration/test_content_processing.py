@@ -10,14 +10,9 @@ from functools import wraps
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from stash_graphql_client.types import Performer
 
-from metadata import Account, AccountMedia, Post
-from metadata.account import account_media_bundle_media
-from metadata.attachment import Attachment, ContentType
-from metadata.messages import group_users
+from metadata import ContentType
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AttachmentFactory,
@@ -36,9 +31,8 @@ class TestContentProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_creator_posts_integration(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         message_media_generator,
         stash_cleanup_tracker,
     ):
@@ -49,8 +43,8 @@ class TestContentProcessingIntegration:
             media_meta = await message_media_generator(spread_over_objs=3)
 
             test_id = get_unique_test_id()
-            account = AccountFactory(username=f"post_creator_{test_id}")
-            factory_session.commit()
+            account = AccountFactory.build(username=f"post_creator_{test_id}")
+            await entity_store.save(account)
 
             posts = []
             for i in range(len(media_meta)):
@@ -58,49 +52,58 @@ class TestContentProcessingIntegration:
 
                 for media in post_media.media_items:
                     media.accountId = account.id
-                    factory_session.add(media)
-                factory_session.commit()
+                    await entity_store.save(media)
 
                 for account_media in post_media.account_media_items:
                     account_media.accountId = account.id
-                    factory_session.add(account_media)
-                factory_session.commit()
+                    await entity_store.save(account_media)
 
                 if post_media.has_bundle and post_media.bundle:
                     post_media.bundle.accountId = account.id
-                    factory_session.add(post_media.bundle)
-                    factory_session.commit()
+                    await entity_store.save(post_media.bundle)
 
-                    for link_data in post_media.bundle_media_links:
-                        factory_session.execute(
-                            account_media_bundle_media.insert().values(
-                                bundle_id=post_media.bundle.id,
-                                media_id=link_data["account_media"].id,
-                                pos=link_data["pos"],
-                            )
-                        )
-                    factory_session.commit()
+                    await entity_store.sync_junction(
+                        "account_media_bundle_media",
+                        "bundle_id",
+                        post_media.bundle.id,
+                        [
+                            {
+                                "media_id": link_data["account_media"].id,
+                                "pos": link_data["pos"],
+                            }
+                            for link_data in post_media.bundle_media_links
+                        ],
+                    )
+
+                    # Wire up bundle.accountMedia so _collect_media_from_attachments
+                    # can traverse bundle → accountMedia → media
+                    post_media.bundle.accountMedia = [
+                        link_data["account_media"]
+                        for link_data in post_media.bundle_media_links
+                    ]
 
                 # Use a date earlier than any Stash image date so
                 # _update_stash_metadata doesn't skip the update
-                post = PostFactory(
+                post = PostFactory.build(
                     accountId=account.id,
                     content=f"Post {i}",
                     createdAt=datetime(2000, 1, 1, tzinfo=UTC),
                 )
-                factory_session.commit()
+                await entity_store.save(post)
 
                 # Attach media to post (bundle + individual, mimics real Fansly API behavior)
                 attachments_created = 0
+                post_attachments = []
 
                 if post_media.has_bundle and post_media.bundle:
-                    attachment = AttachmentFactory(
+                    attachment = AttachmentFactory.build(
                         postId=post.id,
                         contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
                         contentId=post_media.bundle.id,
                         pos=attachments_created,
                     )
-                    factory_session.add(attachment)
+                    await entity_store.save(attachment)
+                    post_attachments.append(attachment)
                     attachments_created += 1
 
                 if post_media.account_media_items:
@@ -113,17 +116,19 @@ class TestContentProcessingIntegration:
                             if is_in_bundle:
                                 continue
 
-                        attachment = AttachmentFactory(
+                        attachment = AttachmentFactory.build(
                             postId=post.id,
                             contentType=ContentType.ACCOUNT_MEDIA,
                             contentId=account_media.id,
                             pos=attachments_created,
                         )
-                        factory_session.add(attachment)
+                        await entity_store.save(attachment)
+                        post_attachments.append(attachment)
                         attachments_created += 1
 
+                # Wire up post.attachments so identity map lookups work
+                post.attachments = post_attachments
                 posts.append(post)
-            factory_session.commit()
 
             performer = Performer(
                 name="[TEST] Post Creator",
@@ -134,61 +139,45 @@ class TestContentProcessingIntegration:
             )
             cleanup["performers"].append(performer.id)
 
-            async with test_database_sync.async_session_scope() as async_session:
-                result = await async_session.execute(
-                    select(Account).where(Account.id == account.id)
-                )
-                async_account = result.scalar_one()
+            # SPY: Validate media lookup routing (by path vs by ID)
+            lookup_routing = {"by_path": 0, "by_id": 0}
+            original_find_by_path = real_stash_processor._find_stash_files_by_path
 
-                # SPY: Validate media lookup routing (by path vs by ID)
-                lookup_routing = {"by_path": 0, "by_id": 0}
-                original_find_by_path = real_stash_processor._find_stash_files_by_path
+            @wraps(original_find_by_path)
+            async def spy_find_by_path(media_files):
+                lookup_routing["by_path"] += len(media_files)
+                return await original_find_by_path(media_files)
 
-                @wraps(original_find_by_path)
-                async def spy_find_by_path(media_files):
-                    lookup_routing["by_path"] += len(media_files)
-                    return await original_find_by_path(media_files)
+            original_find_by_id = real_stash_processor._find_stash_files_by_id
 
-                original_find_by_id = real_stash_processor._find_stash_files_by_id
+            @wraps(original_find_by_id)
+            async def spy_find_by_id(stash_files):
+                lookup_routing["by_id"] += len(stash_files)
+                return await original_find_by_id(stash_files)
 
-                @wraps(original_find_by_id)
-                async def spy_find_by_id(stash_files, session=None):
-                    lookup_routing["by_id"] += len(stash_files)
-                    return await original_find_by_id(stash_files, session=session)
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
 
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
-
-                # Capture GraphQL calls made to real Stash API
-                with (
-                    capture_graphql_calls(real_stash_processor.context.client) as calls,
-                    patch.object(
-                        real_stash_processor,
-                        "_find_stash_files_by_path",
-                        spy_find_by_path,
-                    ),
-                    patch.object(
-                        real_stash_processor, "_find_stash_files_by_id", spy_find_by_id
-                    ),
-                ):
-                    try:
-                        await real_stash_processor.process_creator_posts(
-                            account=async_account,
-                            performer=performer,
-                            studio=None,
-                            session=async_session,
-                        )
-                    finally:
-                        # DEBUG: Print ALL calls to understand what's happening
-                        print(f"\n{'=' * 80}")
-                        print(f"DEBUG: Total GraphQL calls made: {len(calls)}")
-                        print(f"{'=' * 80}")
-                        for idx, call in enumerate(calls):
-                            print(f"\n--- Call {idx + 1} ---")
-                            print(f"Query: {call.get('query', 'N/A')[:200]}...")
-                            print(f"Variables: {call.get('variables', {})}")
-                            print(f"Result: {call.get('result', {})}")
-                        print(f"{'=' * 80}\n")
+            # Capture GraphQL calls made to real Stash API
+            with (
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+                patch.object(
+                    real_stash_processor,
+                    "_find_stash_files_by_path",
+                    spy_find_by_path,
+                ),
+                patch.object(
+                    real_stash_processor, "_find_stash_files_by_id", spy_find_by_id
+                ),
+            ):
+                try:
+                    await real_stash_processor.process_creator_posts(
+                        account=account,
+                        performer=performer,
+                        studio=None,
+                    )
+                finally:
+                    dump_graphql_calls(calls, "test_process_creator_posts_integration")
 
                 gallery_creates = [c for c in calls if "galleryCreate" in c["query"]]
                 # Media deduplication: Shared media from Docker Stash causes variable gallery counts
@@ -307,9 +296,8 @@ class TestContentProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_creator_messages_integration(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         message_media_generator,
         stash_cleanup_tracker,
     ):
@@ -320,16 +308,12 @@ class TestContentProcessingIntegration:
             media_meta = await message_media_generator(spread_over_objs=3)
 
             test_id = get_unique_test_id()
-            account = AccountFactory(username=f"message_creator_{test_id}")
-            factory_session.commit()
+            account = AccountFactory.build(username=f"message_creator_{test_id}")
+            await entity_store.save(account)
 
-            group = GroupFactory(createdBy=account.id)
-            factory_session.commit()
-
-            factory_session.execute(
-                group_users.insert().values(groupId=group.id, accountId=account.id)
-            )
-            factory_session.commit()
+            group = GroupFactory.build(createdBy=account.id)
+            group.users = [account]
+            await entity_store.save(group)
 
             messages = []
             for i in range(len(media_meta)):
@@ -337,50 +321,59 @@ class TestContentProcessingIntegration:
 
                 for media in message_media.media_items:
                     media.accountId = account.id
-                    factory_session.add(media)
-                factory_session.commit()
+                    await entity_store.save(media)
 
                 for account_media in message_media.account_media_items:
                     account_media.accountId = account.id
-                    factory_session.add(account_media)
-                factory_session.commit()
+                    await entity_store.save(account_media)
 
                 if message_media.has_bundle and message_media.bundle:
                     message_media.bundle.accountId = account.id
-                    factory_session.add(message_media.bundle)
-                    factory_session.commit()
+                    await entity_store.save(message_media.bundle)
 
-                    for link_data in message_media.bundle_media_links:
-                        factory_session.execute(
-                            account_media_bundle_media.insert().values(
-                                bundle_id=message_media.bundle.id,
-                                media_id=link_data["account_media"].id,
-                                pos=link_data["pos"],
-                            )
-                        )
-                    factory_session.commit()
+                    await entity_store.sync_junction(
+                        "account_media_bundle_media",
+                        "bundle_id",
+                        message_media.bundle.id,
+                        [
+                            {
+                                "media_id": link_data["account_media"].id,
+                                "pos": link_data["pos"],
+                            }
+                            for link_data in message_media.bundle_media_links
+                        ],
+                    )
+
+                    # Wire up bundle.accountMedia so _collect_media_from_attachments
+                    # can traverse bundle → accountMedia → media
+                    message_media.bundle.accountMedia = [
+                        link_data["account_media"]
+                        for link_data in message_media.bundle_media_links
+                    ]
 
                 # Use a date earlier than any Stash image date so
                 # _update_stash_metadata doesn't skip the update
-                message = MessageFactory(
+                message = MessageFactory.build(
                     groupId=group.id,
                     senderId=account.id,
                     content=f"Message {i}",
                     createdAt=datetime(2000, 1, 1, tzinfo=UTC),
                 )
-                factory_session.commit()
+                await entity_store.save(message)
 
                 # Attach media to message (bundle + individual, mimics real Fansly API behavior)
                 attachments_created = 0
+                msg_attachments = []
 
                 if message_media.has_bundle and message_media.bundle:
-                    attachment = AttachmentFactory(
+                    attachment = AttachmentFactory.build(
                         messageId=message.id,
                         contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
                         contentId=message_media.bundle.id,
                         pos=attachments_created,
                     )
-                    factory_session.add(attachment)
+                    await entity_store.save(attachment)
+                    msg_attachments.append(attachment)
                     attachments_created += 1
 
                 if message_media.account_media_items:
@@ -393,17 +386,19 @@ class TestContentProcessingIntegration:
                             if is_in_bundle:
                                 continue
 
-                        attachment = AttachmentFactory(
+                        attachment = AttachmentFactory.build(
                             messageId=message.id,
                             contentType=ContentType.ACCOUNT_MEDIA,
                             contentId=account_media.id,
                             pos=attachments_created,
                         )
-                        factory_session.add(attachment)
+                        await entity_store.save(attachment)
+                        msg_attachments.append(attachment)
                         attachments_created += 1
 
+                # Wire up message.attachments so identity map lookups work
+                message.attachments = msg_attachments
                 messages.append(message)
-            factory_session.commit()
 
             performer = Performer(
                 name="[TEST] Message Creator",
@@ -414,23 +409,19 @@ class TestContentProcessingIntegration:
             )
             cleanup["performers"].append(performer.id)
 
-            async with test_database_sync.async_session_scope() as async_session:
-                result = await async_session.execute(
-                    select(Account).where(Account.id == account.id)
-                )
-                async_account = result.scalar_one()
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
 
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
-
-                with capture_graphql_calls(
-                    real_stash_processor.context.client
-                ) as calls:
+            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+                try:
                     await real_stash_processor.process_creator_messages(
-                        account=async_account,
+                        account=account,
                         performer=performer,
                         studio=None,
-                        session=async_session,
+                    )
+                finally:
+                    dump_graphql_calls(
+                        calls, "test_process_creator_messages_integration"
                     )
 
                 # Permanent GraphQL Call Assertions
@@ -565,9 +556,8 @@ class TestContentProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_items_with_gallery(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         message_media_generator,
         stash_cleanup_tracker,
     ):
@@ -578,66 +568,75 @@ class TestContentProcessingIntegration:
             # Generate realistic media for 2 posts using Docker Stash data
             media_meta = await message_media_generator(spread_over_objs=2)
 
-            # Create real account and posts using factories
+            # Create real account and posts using entity_store
             test_id = get_unique_test_id()
-            account = AccountFactory(username=f"gallery_creator_{test_id}")
-            factory_session.commit()
+            account = AccountFactory.build(username=f"gallery_creator_{test_id}")
+            await entity_store.save(account)
 
             # Create 2 posts, each with its own media distribution
             posts = []
             for i in range(len(media_meta)):
                 post_media = media_meta[i]  # Get media for this specific post
 
-                # Set accountId on media and commit
+                # Save media to entity_store
                 for media in post_media.media_items:
                     media.accountId = account.id
-                    factory_session.add(media)
-                factory_session.commit()
+                    await entity_store.save(media)
 
-                # Set accountId on AccountMedia and commit
+                # Save AccountMedia to entity_store
                 for account_media in post_media.account_media_items:
                     account_media.accountId = account.id
-                    factory_session.add(account_media)
-                factory_session.commit()
+                    await entity_store.save(account_media)
 
                 # Handle bundle if present for this post
                 if post_media.has_bundle and post_media.bundle:
                     post_media.bundle.accountId = account.id
-                    factory_session.add(post_media.bundle)
-                    factory_session.commit()
+                    await entity_store.save(post_media.bundle)
 
                     # Link AccountMedia to bundle
-                    for link_data in post_media.bundle_media_links:
-                        factory_session.execute(
-                            account_media_bundle_media.insert().values(
-                                bundle_id=post_media.bundle.id,
-                                media_id=link_data["account_media"].id,
-                                pos=link_data["pos"],
-                            )
-                        )
-                    factory_session.commit()
+                    await entity_store.sync_junction(
+                        "account_media_bundle_media",
+                        "bundle_id",
+                        post_media.bundle.id,
+                        [
+                            {
+                                "media_id": link_data["account_media"].id,
+                                "pos": link_data["pos"],
+                            }
+                            for link_data in post_media.bundle_media_links
+                        ],
+                    )
+
+                    # Wire up bundle.accountMedia so _collect_media_from_attachments
+                    # can traverse bundle → accountMedia → media
+                    post_media.bundle.accountMedia = [
+                        link_data["account_media"]
+                        for link_data in post_media.bundle_media_links
+                    ]
 
                 # Create post with date earlier than any Stash image date so
                 # _update_stash_metadata doesn't skip the update
-                post = PostFactory(
+                post = PostFactory.build(
                     accountId=account.id,
                     createdAt=datetime(2000, 1, 1, tzinfo=UTC),
                 )
-                factory_session.commit()
+                await entity_store.save(post)
 
                 # Attach media to post (mimics real Fansly API)
                 # Real API can have: bundle only, individual only, OR bundle + individual
                 attachments_created = 0
+                post_attachments = []
 
                 # First: Add bundle attachment if present
                 if post_media.has_bundle and post_media.bundle:
-                    attachment = AttachmentFactory(
+                    attachment = AttachmentFactory.build(
                         postId=post.id,
                         contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
                         contentId=post_media.bundle.id,
                         pos=attachments_created,
                     )
-                    factory_session.add(attachment)
+                    await entity_store.save(attachment)
+                    post_attachments.append(attachment)
                     attachments_created += 1
 
                 # Second: Add individual media attachments (videos or non-bundled images)
@@ -653,17 +652,19 @@ class TestContentProcessingIntegration:
                                 continue  # Already covered by bundle attachment
 
                         # Create attachment for non-bundled media (videos, or images when ≤3)
-                        attachment = AttachmentFactory(
+                        attachment = AttachmentFactory.build(
                             postId=post.id,
                             contentType=ContentType.ACCOUNT_MEDIA,
                             contentId=account_media.id,
                             pos=attachments_created,
                         )
-                        factory_session.add(attachment)
+                        await entity_store.save(attachment)
+                        post_attachments.append(attachment)
                         attachments_created += 1
 
+                # Wire up post.attachments so identity map lookups work
+                post.attachments = post_attachments
                 posts.append(post)
-            factory_session.commit()
 
             # Create real performer in Stash
             performer = Performer(
@@ -679,39 +680,22 @@ class TestContentProcessingIntegration:
             def url_pattern_func(item):
                 return f"https://example.com/{item.id}"
 
-            # Use async session from the database
-            async with test_database_sync.async_session_scope() as async_session:
-                # Load posts with relationships
-                posts_result = await async_session.execute(
-                    select(Post)
-                    .where(Post.id.in_([p.id for p in posts]))
-                    .options(
-                        selectinload(Post.attachments)
-                        .selectinload(Attachment.media)
-                        .selectinload(AccountMedia.media)
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
+
+            # Capture GraphQL calls made to real Stash API
+            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+                try:
+                    await real_stash_processor._process_items_with_gallery(
+                        account=account,
+                        performer=performer,
+                        studio=None,
+                        item_type="post",
+                        items=posts,
+                        url_pattern_func=url_pattern_func,
                     )
-                )
-                async_posts = posts_result.scalars().all()
-
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
-
-                # Capture GraphQL calls made to real Stash API
-                with capture_graphql_calls(
-                    real_stash_processor.context.client
-                ) as calls:
-                    try:
-                        await real_stash_processor._process_items_with_gallery(
-                            account=account,
-                            performer=performer,
-                            studio=None,
-                            item_type="post",
-                            items=async_posts,
-                            url_pattern_func=url_pattern_func,
-                            session=async_session,
-                        )
-                    finally:
-                        dump_graphql_calls(calls, "test_process_items_with_gallery")
+                finally:
+                    dump_graphql_calls(calls, "test_process_items_with_gallery")
 
                 # Permanent GraphQL Call Assertions
 
@@ -736,7 +720,7 @@ class TestContentProcessingIntegration:
                     matching_post = next(
                         (
                             p
-                            for p in async_posts
+                            for p in posts
                             if any(
                                 str(p.id) in url for url in input_data.get("urls", [])
                             )
@@ -859,9 +843,8 @@ class TestContentProcessingIntegration:
     @pytest.mark.asyncio
     async def test_process_items_with_gallery_error_handling(
         self,
-        factory_session,
+        entity_store,
         real_stash_processor,
-        test_database_sync,
         message_media_generator,
         stash_cleanup_tracker,
         mocker,
@@ -873,66 +856,75 @@ class TestContentProcessingIntegration:
             # Generate realistic media for 2 posts using Docker Stash data
             media_meta = await message_media_generator(spread_over_objs=2)
 
-            # Create real account and posts using factories
+            # Create real account and posts using entity_store
             test_id = get_unique_test_id()
-            account = AccountFactory(username=f"error_creator_{test_id}")
-            factory_session.commit()
+            account = AccountFactory.build(username=f"error_creator_{test_id}")
+            await entity_store.save(account)
 
             # Create 2 posts, each with its own media distribution
             posts = []
             for i in range(len(media_meta)):
                 post_media = media_meta[i]  # Get media for this specific post
 
-                # Set accountId on media and commit
+                # Save media to entity_store
                 for media in post_media.media_items:
                     media.accountId = account.id
-                    factory_session.add(media)
-                factory_session.commit()
+                    await entity_store.save(media)
 
-                # Set accountId on AccountMedia and commit
+                # Save AccountMedia to entity_store
                 for account_media in post_media.account_media_items:
                     account_media.accountId = account.id
-                    factory_session.add(account_media)
-                factory_session.commit()
+                    await entity_store.save(account_media)
 
                 # Handle bundle if present for this post
                 if post_media.has_bundle and post_media.bundle:
                     post_media.bundle.accountId = account.id
-                    factory_session.add(post_media.bundle)
-                    factory_session.commit()
+                    await entity_store.save(post_media.bundle)
 
                     # Link AccountMedia to bundle
-                    for link_data in post_media.bundle_media_links:
-                        factory_session.execute(
-                            account_media_bundle_media.insert().values(
-                                bundle_id=post_media.bundle.id,
-                                media_id=link_data["account_media"].id,
-                                pos=link_data["pos"],
-                            )
-                        )
-                    factory_session.commit()
+                    await entity_store.sync_junction(
+                        "account_media_bundle_media",
+                        "bundle_id",
+                        post_media.bundle.id,
+                        [
+                            {
+                                "media_id": link_data["account_media"].id,
+                                "pos": link_data["pos"],
+                            }
+                            for link_data in post_media.bundle_media_links
+                        ],
+                    )
+
+                    # Wire up bundle.accountMedia so _collect_media_from_attachments
+                    # can traverse bundle → accountMedia → media
+                    post_media.bundle.accountMedia = [
+                        link_data["account_media"]
+                        for link_data in post_media.bundle_media_links
+                    ]
 
                 # Create post with date earlier than any Stash image date
-                post = PostFactory(
+                post = PostFactory.build(
                     accountId=account.id,
                     content=f"Error test post {i}",
                     createdAt=datetime(2000, 1, 1, tzinfo=UTC),
                 )
-                factory_session.commit()
+                await entity_store.save(post)
 
                 # Attach media to post (mimics real Fansly API)
                 # Real API can have: bundle only, individual only, OR bundle + individual
                 attachments_created = 0
+                post_attachments = []
 
                 # First: Add bundle attachment if present
                 if post_media.has_bundle and post_media.bundle:
-                    attachment = AttachmentFactory(
+                    attachment = AttachmentFactory.build(
                         postId=post.id,
                         contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
                         contentId=post_media.bundle.id,
                         pos=attachments_created,
                     )
-                    factory_session.add(attachment)
+                    await entity_store.save(attachment)
+                    post_attachments.append(attachment)
                     attachments_created += 1
 
                 # Second: Add individual media attachments (videos or non-bundled images)
@@ -948,17 +940,19 @@ class TestContentProcessingIntegration:
                                 continue  # Already covered by bundle attachment
 
                         # Create attachment for non-bundled media (videos, or images when ≤3)
-                        attachment = AttachmentFactory(
+                        attachment = AttachmentFactory.build(
                             postId=post.id,
                             contentType=ContentType.ACCOUNT_MEDIA,
                             contentId=account_media.id,
                             pos=attachments_created,
                         )
-                        factory_session.add(attachment)
+                        await entity_store.save(attachment)
+                        post_attachments.append(attachment)
                         attachments_created += 1
 
+                # Wire up post.attachments so identity map lookups work
+                post.attachments = post_attachments
                 posts.append(post)
-            factory_session.commit()
 
             # Create real performer in Stash
             performer = Performer(
@@ -996,110 +990,96 @@ class TestContentProcessingIntegration:
             def url_pattern_func(item):
                 return f"https://example.com/{item.id}"
 
-            # Use async session from the database
-            async with test_database_sync.async_session_scope() as async_session:
-                # Load posts with relationships
-                posts_result = await async_session.execute(
-                    select(Post)
-                    .where(Post.id.in_([p.id for p in posts]))
-                    .options(
-                        selectinload(Post.attachments)
-                        .selectinload(Attachment.media)
-                        .selectinload(AccountMedia.media)
-                    )
-                )
-                async_posts = posts_result.scalars().all()
+            # Clear store cache so processing makes fresh GraphQL calls
+            real_stash_processor.context.store.invalidate_all()
 
-                # Clear store cache so processing makes fresh GraphQL calls
-                real_stash_processor.context.store.invalidate_all()
-
-                # Capture GraphQL calls - should only see calls from second post (first fails early)
-                with capture_graphql_calls(
-                    real_stash_processor.context.client
-                ) as calls:
+            # Capture GraphQL calls - should only see calls from second post (first fails early)
+            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+                try:
                     await real_stash_processor._process_items_with_gallery(
                         account=account,
                         performer=performer,
                         studio=None,
                         item_type="post",
-                        items=async_posts,
+                        items=posts,
                         url_pattern_func=url_pattern_func,
-                        session=async_session,
+                    )
+                finally:
+                    dump_graphql_calls(
+                        calls, "test_process_items_with_gallery_error_handling"
                     )
 
-                # Permanent GraphQL Call Assertions for Error Handling
+            # Permanent GraphQL Call Assertions for Error Handling
 
-                # 1. Verify error recovery - both posts were attempted despite first failing
-                assert call_count == 2, (
-                    f"Expected 2 calls to _process_item_gallery, got {call_count}"
+            # 1. Verify error recovery - both posts were attempted despite first failing
+            assert call_count == 2, (
+                f"Expected 2 calls to _process_item_gallery, got {call_count}"
+            )
+
+            # 2. Verify second post still processed (first post failed, second succeeded)
+            # The second post should have made GraphQL calls for:
+            # - Gallery creation (1 call)
+            # - Media lookups (findImages/findScenes)
+            # - Media updates (imageUpdate/sceneUpdate) including gallery linking
+            assert len(calls) >= 3, (
+                f"Expected at least 3 GraphQL calls from second post, got {len(calls)}"
+            )
+
+            # 3. Verify galleries created (first post failed, second may create 0-1 depending on deduplication)
+            gallery_creates = [c for c in calls if "galleryCreate" in c["query"]]
+            assert len(gallery_creates) <= 1, (
+                f"Expected 0-1 galleries (second post only, may dedupe), got {len(gallery_creates)}"
+            )
+
+            # Verify gallery was created for second post with correct URL
+            if gallery_creates:
+                call = gallery_creates[0]
+                variables = call["variables"]
+                assert "input" in variables
+                input_data = variables["input"]
+
+                # Verify URL uses our custom pattern and is for the second post
+                assert "urls" in input_data
+                assert "example.com" in input_data["urls"][0]
+                # URL should be for second post (posts[1])
+                assert str(posts[1].id) in input_data["urls"][0]
+
+                # Response Assertions
+                result = call["result"]
+                if result is not None:
+                    assert "galleryCreate" in result
+                    assert "id" in result["galleryCreate"]
+
+            # 4. Verify media operations occurred for second post
+            # Accept both singular (by ID) and plural (by path/filter) lookups
+            find_calls = [
+                c
+                for c in calls
+                if "findImage" in c["query"] or "findScene" in c["query"]
+            ]
+            assert len(find_calls) > 0, "Expected media lookup calls for second post"
+
+            # 5. Verify media updates occurred
+            image_updates = [c for c in calls if "imageUpdate" in c["query"]]
+            scene_updates = [c for c in calls if "sceneUpdate" in c["query"]]
+            total_updates = len(image_updates) + len(scene_updates)
+            assert total_updates > 0, "Expected media updates for second post"
+
+            # 6. Verify gallery image linking via imageUpdate
+            # In stash-graphql-client v0.11, gallery image linking uses
+            # image.add_to_gallery(gallery) + store.save(image) which produces
+            # imageUpdate mutations with gallery_ids, not addGalleryImages.
+            image_updates = [c for c in calls if "imageUpdate" in c["query"]]
+            updates_with_gallery_ids = [
+                c
+                for c in image_updates
+                if c["result"] is not None
+                and "gallery_ids" in c["variables"].get("input", {})
+            ]
+            # Second post has images that should be linked to its gallery
+            second_post_media = media_meta[1] if len(media_meta) > 1 else None
+            if second_post_media and second_post_media.num_images > 0:
+                assert len(updates_with_gallery_ids) >= 1, (
+                    f"Expected at least 1 imageUpdate with gallery_ids "
+                    f"for second post, got {len(updates_with_gallery_ids)}"
                 )
-
-                # 2. Verify second post still processed (first post failed, second succeeded)
-                # The second post should have made GraphQL calls for:
-                # - Gallery creation (1 call)
-                # - Media lookups (findImages/findScenes)
-                # - Media updates (imageUpdate/sceneUpdate) including gallery linking
-                assert len(calls) >= 3, (
-                    f"Expected at least 3 GraphQL calls from second post, got {len(calls)}"
-                )
-
-                # 3. Verify galleries created (first post failed, second may create 0-1 depending on deduplication)
-                gallery_creates = [c for c in calls if "galleryCreate" in c["query"]]
-                assert len(gallery_creates) <= 1, (
-                    f"Expected 0-1 galleries (second post only, may dedupe), got {len(gallery_creates)}"
-                )
-
-                # Verify gallery was created for second post with correct URL
-                if gallery_creates:
-                    call = gallery_creates[0]
-                    variables = call["variables"]
-                    assert "input" in variables
-                    input_data = variables["input"]
-
-                    # Verify URL uses our custom pattern and is for the second post
-                    assert "urls" in input_data
-                    assert "example.com" in input_data["urls"][0]
-                    # URL should be for second post (posts[1])
-                    assert str(posts[1].id) in input_data["urls"][0]
-
-                    # Response Assertions
-                    result = call["result"]
-                    if result is not None:
-                        assert "galleryCreate" in result
-                        assert "id" in result["galleryCreate"]
-
-                # 4. Verify media operations occurred for second post
-                # Accept both singular (by ID) and plural (by path/filter) lookups
-                find_calls = [
-                    c
-                    for c in calls
-                    if "findImage" in c["query"] or "findScene" in c["query"]
-                ]
-                assert len(find_calls) > 0, (
-                    "Expected media lookup calls for second post"
-                )
-
-                # 5. Verify media updates occurred
-                image_updates = [c for c in calls if "imageUpdate" in c["query"]]
-                scene_updates = [c for c in calls if "sceneUpdate" in c["query"]]
-                total_updates = len(image_updates) + len(scene_updates)
-                assert total_updates > 0, "Expected media updates for second post"
-
-                # 6. Verify gallery image linking via imageUpdate
-                # In stash-graphql-client v0.11, gallery image linking uses
-                # image.add_to_gallery(gallery) + store.save(image) which produces
-                # imageUpdate mutations with gallery_ids, not addGalleryImages.
-                image_updates = [c for c in calls if "imageUpdate" in c["query"]]
-                updates_with_gallery_ids = [
-                    c
-                    for c in image_updates
-                    if c["result"] is not None
-                    and "gallery_ids" in c["variables"].get("input", {})
-                ]
-                # Second post has images that should be linked to its gallery
-                second_post_media = media_meta[1] if len(media_meta) > 1 else None
-                if second_post_media and second_post_media.num_images > 0:
-                    assert len(updates_with_gallery_ids) >= 1, (
-                        f"Expected at least 1 imageUpdate with gallery_ids "
-                        f"for second post, got {len(updates_with_gallery_ids)}"
-                    )

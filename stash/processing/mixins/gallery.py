@@ -8,12 +8,9 @@ import traceback
 from pprint import pformat
 from typing import Any
 
-from sqlalchemy import inspect
-from sqlalchemy.orm import Session
 from stash_graphql_client.types import Gallery, GalleryChapter, Studio, is_set
 
-from metadata import Account, Post
-from metadata.attachment import ContentType
+from metadata import Account, ContentType, Post
 from textio import print_error
 
 from ...logging import debug_print
@@ -69,9 +66,11 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         target_date = item.createdAt.strftime("%Y-%m-%d")
         galleries = self.store.filter(
             Gallery,
-            lambda g: g.title == title
-            and g.date == target_date
-            and (not studio or (g.studio and g.studio.id == studio.id)),
+            lambda g: (
+                g.title == title
+                and g.date == target_date
+                and (not studio or (g.studio and g.studio.id == studio.id))
+            ),
         )
         gallery = galleries[0] if galleries else None
 
@@ -228,12 +227,7 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         Returns:
             Tuple of (username, title, url)
         """
-        # Get username
-        username = (
-            await account.awaitable_attrs.username
-            if hasattr(account, "awaitable_attrs")
-            else account.username
-        )
+        username = account.username
 
         # Generate title
         title = self._generate_title_from_content(
@@ -267,17 +261,13 @@ class GalleryProcessingMixin(StashProcessingProtocol):
             performers.append(performer)
 
         # Add mentioned accounts as performers
-        try:
-            mentions = await item.awaitable_attrs.accountMentions
-            if mentions:
-                mention_tasks = [
-                    self._find_existing_performer(mention) for mention in mentions
-                ]
-                mention_results = await asyncio.gather(*mention_tasks)
-                performers.extend([p for p in mention_results if p is not None])
-        except AttributeError:
-            # Item doesn't have accountMentions attribute (e.g., Messages)
-            pass
+        mentions = getattr(item, "mentions", None)
+        if mentions:
+            mention_tasks = [
+                self._find_existing_performer(mention) for mention in mentions
+            ]
+            mention_results = await asyncio.gather(*mention_tasks)
+            performers.extend([p for p in mention_results if p is not None])
 
         # Add performers using relationship helper for bidirectional sync
         for perf in performers:
@@ -457,7 +447,6 @@ class GalleryProcessingMixin(StashProcessingProtocol):
         studio: Studio | None,
         item_type: str,
         url_pattern: str,
-        session: Session | None = None,
     ) -> None:
         """Process a single item's gallery.
 
@@ -468,7 +457,6 @@ class GalleryProcessingMixin(StashProcessingProtocol):
             studio: Optional studio to associate with gallery
             item_type: Type of item ("post" or "message")
             url_pattern: URL pattern for the item
-            session: Optional database session
         """
         debug_print(
             {
@@ -482,244 +470,227 @@ class GalleryProcessingMixin(StashProcessingProtocol):
             }
         )
 
-        async with contextlib.AsyncExitStack() as stack:
-            if session is None:
-                session = await stack.enter_async_context(
-                    self.database.get_async_session()
-                )
-
-            attachments = await item.awaitable_attrs.attachments or []
+        attachments = item.attachments or []
+        debug_print(
+            {
+                "method": "StashProcessing - _process_item_gallery",
+                "status": "got_attachments",
+                "item_id": item.id,
+                "attachment_count": len(attachments),
+                "attachment_ids": ([a.id for a in attachments] if attachments else []),
+            }
+        )
+        if not attachments:
             debug_print(
                 {
                     "method": "StashProcessing - _process_item_gallery",
-                    "status": "got_attachments",
+                    "status": "no_attachments",
                     "item_id": item.id,
-                    "attachment_count": len(attachments),
-                    "attachment_ids": (
-                        [a.id for a in attachments] if attachments else []
-                    ),
                 }
             )
-            if not attachments:
-                debug_print(
-                    {
-                        "method": "StashProcessing - _process_item_gallery",
-                        "status": "no_attachments",
-                        "item_id": item.id,
-                    }
-                )
-                return
+            return
 
+        debug_print(
+            {
+                "method": "StashProcessing - _process_item_gallery",
+                "status": "processing_attachments",
+                "item_id": item.id,
+                "attachment_count": len(attachments),
+                "attachment_ids": [a.id for a in attachments],
+            }
+        )
+
+        # Collect all media from attachments for batch processing
+        media_batch = await self._collect_media_from_attachments(attachments)
+
+        debug_print(
+            {
+                "method": "StashProcessing - _process_item_gallery",
+                "status": "collected_media_batch",
+                "item_id": item.id,
+                "media_count": len(media_batch),
+                "account_id": account.id if account else None,
+            }
+        )
+
+        debug_print(
+            {
+                "method": "StashProcessing - _process_item_gallery",
+                "status": "creating_gallery",
+                "item_id": item.id,
+            }
+        )
+        gallery = await self._get_or_create_gallery(
+            item=item,
+            account=account,
+            performer=performer,
+            studio=studio,
+            item_type=item_type,
+            url_pattern=url_pattern,
+        )
+        if not gallery:
             debug_print(
                 {
                     "method": "StashProcessing - _process_item_gallery",
-                    "status": "processing_attachments",
-                    "item_id": item.id,
-                    "attachment_count": len(attachments),
-                    "attachment_ids": [a.id for a in attachments],
-                }
-            )
-
-            # Collect all media from attachments for batch processing
-            media_batch = await self._collect_media_from_attachments(attachments)
-
-            debug_print(
-                {
-                    "method": "StashProcessing - _process_item_gallery",
-                    "status": "collected_media_batch",
-                    "item_id": item.id,
-                    "media_count": len(media_batch),
-                    "account_id": inspect(account).identity[0] if account else None,
-                }
-            )
-
-            debug_print(
-                {
-                    "method": "StashProcessing - _process_item_gallery",
-                    "status": "creating_gallery",
+                    "status": "gallery_creation_failed",
                     "item_id": item.id,
                 }
             )
-            gallery = await self._get_or_create_gallery(
-                item=item,
-                account=account,
-                performer=performer,
-                studio=studio,
-                item_type=item_type,
-                url_pattern=url_pattern,
-            )
-            if not gallery:
-                debug_print(
-                    {
-                        "method": "StashProcessing - _process_item_gallery",
-                        "status": "gallery_creation_failed",
-                        "item_id": item.id,
-                    }
-                )
-                return
-            debug_print(
-                {
-                    "method": "StashProcessing - _process_item_gallery",
-                    "status": "gallery_created",
-                    "item_id": item.id,
-                    "gallery_id": gallery.id if gallery else None,
-                }
-            )
+            return
+        debug_print(
+            {
+                "method": "StashProcessing - _process_item_gallery",
+                "status": "gallery_created",
+                "item_id": item.id,
+                "gallery_id": gallery.id if gallery else None,
+            }
+        )
 
-            # Add hashtags as tags using relationship helper
+        # Add hashtags as tags using relationship helper
+        hashtags = getattr(item, "hashtags", None)
+        if hashtags:
+            tags = await self._process_hashtags_to_tags(hashtags)
+            for tag in tags:
+                await gallery.add_tag(tag)
+
+        # Process media batch
+        all_images = []
+        all_scenes = []
+
+        # Only process media if we have a batch
+        if media_batch:
             try:
-                hashtags = await item.awaitable_attrs.hashtags
-                if hashtags:
-                    tags = await self._process_hashtags_to_tags(hashtags)
-                    for tag in tags:
-                        await gallery.add_tag(tag)
-            except AttributeError:
-                # Item doesn't have hashtags attribute (e.g., Messages)
-                pass
+                # Group media by mimetype group (image, video, application)
+                image_media = []
+                video_media = []
+                app_media = []
 
-            # Process media batch
-            all_images = []
-            all_scenes = []
+                for media in media_batch:
+                    mimetype = getattr(media, "mimetype", "")
+                    if mimetype and mimetype.startswith("image/"):
+                        image_media.append(media)
+                    elif mimetype and mimetype.startswith("video/"):
+                        video_media.append(media)
+                    elif mimetype and mimetype.startswith("application/"):
+                        app_media.append(media)
 
-            # Only process media if we have a batch
-            if media_batch:
-                try:
-                    # Create batches by mimetype group for more efficient processing
-                    # Group media by mimetype group (image, video, application)
-                    image_media = []
-                    video_media = []
-                    app_media = []
-
-                    for media in media_batch:
-                        if hasattr(media, "awaitable_attrs"):
-                            await media.awaitable_attrs.mimetype
-
-                        mimetype = getattr(media, "mimetype", "")
-                        if mimetype and mimetype.startswith("image/"):
-                            image_media.append(media)
-                        elif mimetype and mimetype.startswith("video/"):
-                            video_media.append(media)
-                        elif mimetype and mimetype.startswith("application/"):
-                            app_media.append(media)
-
-                    # Process each batch separately
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_item_gallery",
-                            "status": "processing_media_by_mimetype",
-                            "item_id": item.id,
-                            "image_count": len(image_media),
-                            "video_count": len(video_media),
-                            "application_count": len(app_media),
-                        }
-                    )
-
-                    # Process images batch
-                    if image_media:
-                        image_result = await self._process_media_batch_by_mimetype(
-                            media_list=image_media,
-                            item=item,
-                            account=account,
-                        )
-                        all_images.extend(image_result["images"])
-
-                    # Process videos batch
-                    if video_media:
-                        video_result = await self._process_media_batch_by_mimetype(
-                            media_list=video_media,
-                            item=item,
-                            account=account,
-                        )
-                        all_scenes.extend(video_result["scenes"])
-
-                    # Process application batch
-                    if app_media:
-                        app_result = await self._process_media_batch_by_mimetype(
-                            media_list=app_media,
-                            item=item,
-                            account=account,
-                        )
-                        all_scenes.extend(app_result["scenes"])
-
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_item_gallery",
-                            "status": "media_batch_processed",
-                            "item_id": item.id,
-                            "images_processed": len(all_images),
-                            "scenes_processed": len(all_scenes),
-                        }
-                    )
-                except Exception as e:
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_item_gallery",
-                            "status": "media_batch_failed",
-                            "item_id": item.id,
-                            "error": str(e),
-                            "traceback": traceback.format_exc(),
-                        }
-                    )
-
-            if not all_images and not all_scenes:
-                # No content was processed, delete the gallery if we just created it
-                if gallery.is_new():
-                    debug_print(
-                        {
-                            "method": "StashProcessing - _process_item_gallery",
-                            "status": "deleting_empty_gallery",
-                            "item_id": item.id,
-                            "gallery_id": gallery.id,
-                        }
-                    )
-                    await self.store.delete(gallery)
-                return
-
-            debug_print(
-                {
-                    "method": "StashProcessing - _process_item_gallery",
-                    "status": "content_summary",
-                    "item_id": item.id,
-                    "gallery_id": gallery.id,
-                    "image_count": len(all_images),
-                    "scene_count": len(all_scenes),
-                }
-            )
-
-            # Link images and scenes to gallery using relationship helpers
-            for image in all_images:
-                await image.add_to_gallery(gallery)
-                await self.store.save(image)
-            for scene in all_scenes:
-                await gallery.add_scene(scene)
-            if all_scenes:
                 debug_print(
                     {
                         "method": "StashProcessing - _process_item_gallery",
-                        "status": "gallery_scenes_added",
+                        "status": "processing_media_by_mimetype",
                         "item_id": item.id,
-                        "gallery_id": gallery.id,
-                        "scene_count": len(all_scenes),
-                        "scenes": pformat(all_scenes),
+                        "image_count": len(image_media),
+                        "video_count": len(video_media),
+                        "application_count": len(app_media),
                     }
                 )
 
-            # Save gallery
-            try:
-                await self.store.save(gallery)
+                # Process images batch
+                if image_media:
+                    image_result = await self._process_media_batch_by_mimetype(
+                        media_list=image_media,
+                        item=item,
+                        account=account,
+                    )
+                    all_images.extend(image_result["images"])
+
+                # Process videos batch
+                if video_media:
+                    video_result = await self._process_media_batch_by_mimetype(
+                        media_list=video_media,
+                        item=item,
+                        account=account,
+                    )
+                    all_scenes.extend(video_result["scenes"])
+
+                # Process application batch
+                if app_media:
+                    app_result = await self._process_media_batch_by_mimetype(
+                        media_list=app_media,
+                        item=item,
+                        account=account,
+                    )
+                    all_scenes.extend(app_result["scenes"])
+
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_item_gallery",
+                        "status": "media_batch_processed",
+                        "item_id": item.id,
+                        "images_processed": len(all_images),
+                        "scenes_processed": len(all_scenes),
+                    }
+                )
             except Exception as e:
-                logger.exception(
-                    f"Failed to save gallery for {item_type} {item.id}",
-                    exc_info=e,
-                )
                 debug_print(
                     {
                         "method": "StashProcessing - _process_item_gallery",
-                        "status": "gallery_save_error",
+                        "status": "media_batch_failed",
                         "item_id": item.id,
-                        "gallery_id": gallery.id,
                         "error": str(e),
                         "traceback": traceback.format_exc(),
                     }
                 )
-                print_error(f"Failed to save gallery for {item_type} {item.id}: {e}")
+
+        if not all_images and not all_scenes:
+            # No content was processed, delete the gallery if we just created it
+            if gallery.is_new():
+                debug_print(
+                    {
+                        "method": "StashProcessing - _process_item_gallery",
+                        "status": "deleting_empty_gallery",
+                        "item_id": item.id,
+                        "gallery_id": gallery.id,
+                    }
+                )
+                await self.store.delete(gallery)
+            return
+
+        debug_print(
+            {
+                "method": "StashProcessing - _process_item_gallery",
+                "status": "content_summary",
+                "item_id": item.id,
+                "gallery_id": gallery.id,
+                "image_count": len(all_images),
+                "scene_count": len(all_scenes),
+            }
+        )
+
+        # Link images and scenes to gallery using relationship helpers
+        for image in all_images:
+            await image.add_to_gallery(gallery)
+            await self.store.save(image)
+        for scene in all_scenes:
+            await gallery.add_scene(scene)
+        if all_scenes:
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "gallery_scenes_added",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
+                    "scene_count": len(all_scenes),
+                    "scenes": pformat(all_scenes),
+                }
+            )
+
+        # Save gallery
+        try:
+            await self.store.save(gallery)
+        except Exception as e:
+            logger.exception(
+                f"Failed to save gallery for {item_type} {item.id}",
+                exc_info=e,
+            )
+            debug_print(
+                {
+                    "method": "StashProcessing - _process_item_gallery",
+                    "status": "gallery_save_error",
+                    "item_id": item.id,
+                    "gallery_id": gallery.id,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            print_error(f"Failed to save gallery for {item_type} {item.id}: {e}")

@@ -213,7 +213,6 @@ temp_folder = {temp_dir}
 
     # Test database initialization
     assert config._database is None  # Database not initialized yet
-    assert config._base is None  # Base not initialized yet
 
     # Restore the original database mock for other tests
     config._database = original_db

@@ -12,10 +12,6 @@ import pytest
 import respx
 from PIL import Image
 
-# Re-query account to ensure relationship is properly loaded
-from sqlalchemy import select
-
-from metadata import Account
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_graphql_response,
@@ -28,19 +24,18 @@ class TestAccountProcessingMixin:
     """Test the account processing mixin functionality."""
 
     @pytest.mark.asyncio
-    async def test_find_account(self, respx_stash_processor, session):
+    async def test_find_account(self, respx_stash_processor, entity_store):
         """Test _find_account method.
 
         This test doesn't require GraphQL mocking since it only tests database queries.
         """
-        # Create test account in database
+        # Create test account in entity_store (production code uses get_store())
         account = AccountFactory.build(id=12345, username="test_user", stash_id=12345)
-        session.add(account)
-        await session.commit()
+        await entity_store.save(account)
 
         # Call _find_account with creator_id
         await respx_stash_processor.context.get_client()
-        found_account = await respx_stash_processor._find_account(session=session)
+        found_account = await respx_stash_processor._find_account()
 
         # Verify account was found
         assert found_account is not None
@@ -51,7 +46,7 @@ class TestAccountProcessingMixin:
         respx_stash_processor.state.creator_id = None
 
         # Call _find_account again
-        found_account = await respx_stash_processor._find_account(session=session)
+        found_account = await respx_stash_processor._find_account()
 
         # Verify account was found by username
         assert found_account is not None
@@ -64,7 +59,7 @@ class TestAccountProcessingMixin:
         with patch(
             "stash.processing.mixins.account.print_warning"
         ) as mock_print_warning:
-            found_account = await respx_stash_processor._find_account(session=session)
+            found_account = await respx_stash_processor._find_account()
 
         # Verify no account and warning was printed
         assert found_account is None
@@ -72,18 +67,16 @@ class TestAccountProcessingMixin:
         assert "nonexistent_user" in str(mock_print_warning.call_args)
 
     @pytest.mark.asyncio
-    async def test_process_creator(self, respx_stash_processor, session):
+    async def test_process_creator(self, respx_stash_processor, entity_store):
         """Test process_creator method."""
-        # Create test account in database
+        # Create test account in entity_store
         account = AccountFactory.build(
             id=12345,
             username="test_user",
-            stash_id=12345,
+            stash_id=None,
             displayName=None,  # Explicitly set to None to test username fallback
         )
-        account.stash_id = None
-        session.add(account)
-        await session.commit()
+        await entity_store.save(account)
 
         # Setup edge mock for get_or_create_performer flow:
         # 1. findPerformers (fuzzy search) returns empty
@@ -129,10 +122,8 @@ class TestAccountProcessingMixin:
             ]
         )
 
-        # Call process_creator
-        result_account, performer = await respx_stash_processor.process_creator(
-            session=session
-        )
+        # Call process_creator (no session= parameter)
+        result_account, performer = await respx_stash_processor.process_creator()
 
         # Verify results
         assert result_account.id == account.id
@@ -152,26 +143,21 @@ class TestAccountProcessingMixin:
 
         # Call process_creator and expect error
         with pytest.raises(ValueError) as excinfo:
-            await respx_stash_processor.process_creator(session=session)
+            await respx_stash_processor.process_creator()
 
         # Verify error message
         assert "No account found for creator" in str(excinfo.value)
         assert "nonexistent" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_update_performer_avatar(self, respx_stash_processor, session):
+    async def test_update_performer_avatar(self, respx_stash_processor):
         """Test _update_performer_avatar method."""
-        # Create account with no avatar
+        # Create account with no avatar (avatar=None by default)
         account = AccountFactory.build(
             id=12345,
             username="test_user",
             stash_id=12345,
         )
-        session.add(account)
-        await session.commit()
-
-        # Refresh to get awaitable_attrs
-        await session.refresh(account)
 
         # Call _update_performer_avatar with no avatar
         await respx_stash_processor.context.get_client()
@@ -186,27 +172,13 @@ class TestAccountProcessingMixin:
         # Verify no GraphQL calls (no avatar to update)
         assert len(respx.calls) == 0
 
-        # Create account with avatar
+        # Now set avatar on account (Pydantic relationship — direct attribute)
         avatar = MediaFactory.build(
             id=1,
-            accountId=account.id,  # Set foreign key to match account
+            accountId=account.id,
             local_filename="avatar.jpg",
         )
-        session.add(avatar)
-        await session.commit()
-
-        # Link avatar to account through association table
-        from metadata import account_avatar
-
-        await session.execute(
-            account_avatar.insert().values(accountId=account.id, mediaId=avatar.id)
-        )
-        await session.commit()
-
-        # Re-query account to get fresh instance
-        stmt = select(Account).where(Account.id == account.id)
-        result = await session.execute(stmt)
-        account = result.scalar_one()
+        account.avatar = avatar
 
         # Mock performer with default image
         mock_performer.image_path = "default=true"
@@ -219,7 +191,6 @@ class TestAccountProcessingMixin:
 
         try:
             # Mock GraphQL responses for avatar update
-            # Import create_image_dict for proper dict creation
             from tests.fixtures.stash.stash_graphql_fixtures import create_image_dict
 
             # Create image dict with visual_files
@@ -229,7 +200,7 @@ class TestAccountProcessingMixin:
                 visual_files=[
                     {
                         "id": "file_123",
-                        "path": str(temp_avatar_path),  # Use the actual temp file path
+                        "path": str(temp_avatar_path),
                         "basename": "avatar.jpg",
                         "parent_folder_id": "folder_123",
                         "mod_time": "2024-01-01T00:00:00Z",
@@ -268,9 +239,9 @@ class TestAccountProcessingMixin:
                 ]
             )
 
-            # Call _update_performer_avatar with session
+            # Call _update_performer_avatar (no session= parameter)
             await respx_stash_processor._update_performer_avatar(
-                account, mock_performer, session=session
+                account, mock_performer
             )
 
             # Verify GraphQL calls were made
@@ -280,16 +251,14 @@ class TestAccountProcessingMixin:
             temp_avatar_path.unlink(missing_ok=True)
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer_by_id(self, respx_stash_processor, session):
+    async def test_find_existing_performer_by_id(self, respx_stash_processor):
         """Test _find_existing_performer finds performer by stash_id."""
-        # Create account with stash_id (integer)
+        # Create account with stash_id — just an in-memory object, no DB needed
         account = AccountFactory.build(
             id=12345,
             username="test_user",
             stash_id=999,
         )
-        session.add(account)
-        await session.commit()
 
         # Setup context.client
         await respx_stash_processor.context.get_client()
@@ -314,18 +283,14 @@ class TestAccountProcessingMixin:
         assert graphql_route.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer_by_name(
-        self, respx_stash_processor, session
-    ):
+    async def test_find_existing_performer_by_name(self, respx_stash_processor):
         """Test _find_existing_performer finds performer by username."""
         # Create account without stash_id
         account = AccountFactory.build(
             id=12345,
             username="test_user",
+            stash_id=None,
         )
-        account.stash_id = None
-        session.add(account)
-        await session.commit()
 
         # Setup context.client
         await respx_stash_processor.context.get_client()
@@ -352,18 +317,14 @@ class TestAccountProcessingMixin:
         assert graphql_route.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_find_existing_performer_not_found(
-        self, respx_stash_processor, session
-    ):
+    async def test_find_existing_performer_not_found(self, respx_stash_processor):
         """Test _find_existing_performer returns None when not found."""
         # Create account without stash_id
         account = AccountFactory.build(
             id=12345,
             username="test_user",
+            stash_id=None,
         )
-        account.stash_id = None
-        session.add(account)
-        await session.commit()
 
         # Setup context.client
         await respx_stash_processor.context.get_client()
@@ -388,37 +349,32 @@ class TestAccountProcessingMixin:
         assert graphql_route.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_update_account_stash_id(self, respx_stash_processor, session):
+    async def test_update_account_stash_id(self, respx_stash_processor, entity_store):
         """Test _update_account_stash_id method.
 
         This test doesn't require GraphQL mocking since it only updates the database.
         """
-        # Create account
+        # Create account in entity_store (production code uses get_store())
         account = AccountFactory.build(
             id=12345,
             username="test_user",
-            stash_id=12345,
+            stash_id=None,
         )
-        account.stash_id = None
-        session.add(account)
-        await session.commit()
+        await entity_store.save(account)
 
         # Create mock performer
         mock_performer = PerformerFactory.build(id="123", name="test_user")
 
-        # Call _update_account_stash_id
+        # Call _update_account_stash_id (no session= parameter)
         await respx_stash_processor.context.get_client()
-        await respx_stash_processor._update_account_stash_id(
-            account, mock_performer, session=session
-        )
+        await respx_stash_processor._update_account_stash_id(account, mock_performer)
 
         # Verify stash_id was updated (performer.id is string "123", converted to int)
-        await session.refresh(account)
         assert account.stash_id == int(mock_performer.id)
 
     @pytest.mark.asyncio
     async def test_get_or_create_performer_found_by_alias_raw_syntax(
-        self, respx_stash_processor, session
+        self, respx_stash_processor
     ):
         """Test _get_or_create_performer with raw GraphQL filter syntax for aliases.
 
@@ -426,8 +382,6 @@ class TestAccountProcessingMixin:
         This is the workaround for stash-graphql-client v0.10.5.
         """
         account = AccountFactory.build(id=12345, username="test_user")
-        session.add(account)
-        await session.commit()
 
         # Create performer data that will be found by alias
         existing_performer_dict = create_performer_dict(
@@ -465,7 +419,7 @@ class TestAccountProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_get_or_create_performer_found_by_alias_django_style(
-        self, respx_stash_processor, session
+        self, respx_stash_processor
     ):
         """Test _get_or_create_performer with Django-style alias filtering.
 
@@ -477,8 +431,6 @@ class TestAccountProcessingMixin:
         from stash_graphql_client.types import Performer
 
         account = AccountFactory.build(id=12345, username="test_user")
-        session.add(account)
-        await session.commit()
 
         # Create performer that will be found by alias
         existing_performer_dict = create_performer_dict(
@@ -551,13 +503,9 @@ class TestAccountProcessingMixin:
         assert graphql_route.call_count == 2  # Name search + alias search only
 
     @pytest.mark.asyncio
-    async def test_get_or_create_performer_found_by_url(
-        self, respx_stash_processor, session
-    ):
+    async def test_get_or_create_performer_found_by_url(self, respx_stash_processor):
         """Test _get_or_create_performer when performer found by URL (lines 131-132)."""
         account = AccountFactory.build(id=12345, username="test_user")
-        session.add(account)
-        await session.commit()
 
         # Create performer data that will be found by URL
         existing_performer_dict = create_performer_dict(
@@ -603,19 +551,15 @@ class TestAccountProcessingMixin:
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_with_custom_image(
-        self, respx_stash_processor, session
+        self, respx_stash_processor
     ):
         """Test _update_performer_avatar when performer has custom image (line 242->exit)."""
+        # Create account with avatar set directly (Pydantic relationship)
         account = AccountFactory.build(id=12345, username="test_user")
-        session.add(account)
-
-        # Create avatar media
         avatar = MediaFactory.build(
             id=999, accountId=12345, mimetype="image/jpeg", local_filename="avatar.jpg"
         )
         account.avatar = avatar
-        session.add(avatar)
-        await session.commit()
 
         # Create performer with custom image (not default)
         performer = PerformerFactory.build(
@@ -624,56 +568,16 @@ class TestAccountProcessingMixin:
             image_path="/path/to/custom_image.jpg",  # Custom image, no default=true
         )
 
-        # Call _update_performer_avatar
+        # Call _update_performer_avatar (no session= parameter)
         await respx_stash_processor.context.get_client()
-        await respx_stash_processor._update_performer_avatar(
-            account, performer, session=session
-        )
+        await respx_stash_processor._update_performer_avatar(account, performer)
 
         # Should return early without making any GraphQL calls
         # (line 242->exit branch)
 
     @pytest.mark.asyncio
-    async def test_update_performer_avatar_query_exception(
-        self, respx_stash_processor, session
-    ):
-        """Test _update_performer_avatar with avatar query exception (lines 223-224)."""
-        account = AccountFactory.build(id=12345, username="test_user")
-        session.add(account)
-        await session.commit()
-
-        # Create performer
-        performer = PerformerFactory.build(id="123", name="test_user")
-
-        # Mock session.execute to raise an exception
-
-        original_execute = session.execute
-
-        async def failing_execute(stmt):
-            # Only fail for the avatar query, not other queries
-            if "avatar" in str(stmt):
-                raise RuntimeError("Database error!")
-            return await original_execute(stmt)
-
-        session.execute = failing_execute
-
-        # Call _update_performer_avatar (should handle exception gracefully)
-        await respx_stash_processor.context.get_client()
-        with patch("stash.processing.mixins.account.logger.error") as mock_logger:
-            await respx_stash_processor._update_performer_avatar(
-                account, performer, session=session
-            )
-
-            # Verify exception was logged (lines 223-224)
-            mock_logger.assert_called_once()
-            assert "Failed to query avatar" in str(mock_logger.call_args)
-
-        # Restore original execute
-        session.execute = original_execute
-
-    @pytest.mark.asyncio
     async def test_find_existing_performer_stash_id_returns_none(
-        self, respx_stash_processor, session
+        self, respx_stash_processor
     ):
         """Test _find_existing_performer when stash_id lookup returns None (line 302->314)."""
         account = AccountFactory.build(
@@ -681,8 +585,6 @@ class TestAccountProcessingMixin:
             username="test_user",
             stash_id=999,  # Has stash_id but lookup fails
         )
-        session.add(account)
-        await session.commit()
 
         # Mock HTTP responses - stash_id lookup fails (404), username search succeeds
         await respx_stash_processor.context.get_client()

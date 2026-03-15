@@ -22,6 +22,7 @@ from helpers.web import get_flat_qs_dict, split_url
 
 if TYPE_CHECKING:
     from api.rate_limiter import RateLimiter
+    from config import FanslyConfig
 
 
 class FanslyApi:
@@ -35,10 +36,12 @@ class FanslyApi:
         device_id_timestamp: int | None = None,
         on_device_updated: Callable[[], Any] | None = None,
         rate_limiter: "RateLimiter | None" = None,
+        config: "FanslyConfig | None" = None,
     ) -> None:
         self.token = token
         self.user_agent = user_agent
         self.rate_limiter = rate_limiter
+        self.config = config
 
         # Define HTTP client with retry transport and HTTP/2 support
         # Create retry configuration with exponential backoff
@@ -47,15 +50,16 @@ class FanslyApi:
         # - backoff_factor: exponential backoff multiplier (default 0.0)
         # - status_forcelist: HTTP status codes to retry (default [429, 502, 503, 504])
         # - allowed_methods: HTTP methods that can be retried (default HEAD, GET, PUT, DELETE, OPTIONS, TRACE)
-        # NOTE: When rate_limiter is provided, 429 is removed from status_forcelist
-        # because rate limiting is handled by the RateLimiter class
+        # NOTE: When rate_limiter is provided, 429 is removed from
+        # status_forcelist — get_with_ngsw handles 429 retries itself
+        # using the RateLimiter's adaptive backoff.
         retry = Retry(
             total=3,
             backoff_factor=0.5,  # 0.5s base delay with exponential backoff: 0.5s, 1s, 2s
             status_forcelist=(
-                [429, 500, 502, 503, 504]
+                [418, 429, 500, 502, 503, 504]
                 if rate_limiter is None
-                else [500, 502, 503, 504]
+                else [418, 500, 502, 503, 504]
             ),
         )
 
@@ -198,11 +202,6 @@ class FanslyApi:
     ) -> httpx.Response:
         self.update_client_timestamp()
 
-        # Rate limiting before request (synchronous)
-        # Skip rate limiting for TS segments and other high-volume downloads
-        if self.rate_limiter is not None and not bypass_rate_limit:
-            self.rate_limiter.wait_for_request()
-
         default_params = self.get_ngsw_params()
 
         existing_params = get_flat_qs_dict(url)
@@ -232,32 +231,70 @@ class FanslyApi:
         if len(cookies) > 0:
             arguments["cookies"] = cookies
 
-        # Make request and record response for rate limiter
-        start_time = time.time()
+        max_retries = self.config.api_max_retries if self.config else 1
+        has_rate_limiter = self.rate_limiter is not None and not bypass_rate_limit
 
-        if stream:
-            request = self.http_session.build_request("GET", **arguments)
-            response = self.http_session.send(request, stream=True)
-        else:
-            response = self.http_session.get(**arguments)
+        for attempt in range(max_retries):
+            # Rate limiting before each attempt
+            if has_rate_limiter:
+                self.rate_limiter.wait_for_request()
 
-        # Calculate response time
-        response_time = time.time() - start_time
+            start_time = time.time()
 
-        # Extract endpoint name from URL for logging
-        parsed_url = urlparse(file_url)
-        endpoint = parsed_url.path.split("/")[-1] if parsed_url.path else "unknown"
+            if stream:
+                request = self.http_session.build_request("GET", **arguments)
+                response = self.http_session.send(request, stream=True)
+            else:
+                response = self.http_session.get(**arguments)
 
-        # Log request details
-        bypassed_str = " [BYPASS]" if bypass_rate_limit else ""
-        logger.debug(
-            f"API Request: {endpoint} → HTTP {response.status_code} "
-            f"({response_time:.2f}s){bypassed_str}"
-        )
+            response_time = time.time() - start_time
 
-        # Record response for adaptive rate limiting (skip if bypassing)
-        if self.rate_limiter is not None and not bypass_rate_limit:
-            self.rate_limiter.record_response(response.status_code, response_time)
+            # Extract meaningful endpoint name and params for logging
+            parsed_url = urlparse(file_url)
+            parts = [
+                p for p in parsed_url.path.split("/") if p and p not in ("api", "v1")
+            ]
+            while parts and parts[-1].isdigit():
+                parts.pop()
+            endpoint = "/".join(parts) if parts else "unknown"
+
+            # Summarize interesting params (skip ngsw/internal ones)
+            _skip = {"ngsw-bypass", "fansly-client-id", "fansly-client-ts"}
+            param_parts = []
+            for k, v in request_params.items():
+                if k in _skip:
+                    continue
+                sv = str(v)
+                if "," in sv and len(sv) > 40:
+                    param_parts.append(f"{k}=<{sv.count(',') + 1} ids>")
+                elif len(sv) > 50:
+                    param_parts.append(f"{k}={sv[:20]}…")
+                else:
+                    param_parts.append(f"{k}={sv}")
+            param_str = f" [{', '.join(param_parts)}]" if param_parts else ""
+
+            bypassed_str = " [BYPASS]" if bypass_rate_limit else ""
+            logger.debug(
+                f"API Request: {endpoint} → HTTP {response.status_code} "
+                f"({response_time:.2f}s){bypassed_str}{param_str}"
+            )
+
+            # Record response for adaptive rate limiting
+            if has_rate_limiter:
+                self.rate_limiter.record_response(response.status_code, response_time)
+
+            # Retry on 429 — rate limiter backoff will throttle the next attempt
+            if (
+                response.status_code == 429
+                and has_rate_limiter
+                and attempt < max_retries - 1
+            ):
+                logger.debug(
+                    f"Rate limited (429), retrying ({attempt + 1}/{max_retries})..."
+                )
+                continue
+
+            break
 
         return response
 
@@ -369,7 +406,9 @@ class FanslyApi:
             params=custom_params,
         )
 
-    def get_timeline(self, creator_id: str, timeline_cursor: str) -> httpx.Response:
+    def get_timeline(
+        self, creator_id: int | str, timeline_cursor: str
+    ) -> httpx.Response:
         custom_params = {
             "before": timeline_cursor,
             "after": "0",
@@ -383,7 +422,7 @@ class FanslyApi:
         )
 
     def get_wall_posts(
-        self, creator_id: str, wall_id: str, before_cursor: str = "0"
+        self, creator_id: int | str, wall_id: int | str, before_cursor: str = "0"
     ) -> httpx.Response:
         """Get posts from a specific wall.
 
@@ -868,26 +907,24 @@ class FanslyApi:
 
     @staticmethod
     def convert_ids_to_int(data: Any) -> Any:
-        """Recursively convert ID fields from strings to integers in JSON responses.
+        """Recursively convert ID fields from strings to integers.
 
-        This is required for PostgreSQL compatibility, which strictly enforces type
-        matching and won't auto-convert strings to BigInteger like SQLite does.
-
-        Args:
-            data: JSON data (dict, list, or primitive)
-
-        Returns:
-            Data with ID fields converted to integers
+        The Fansly API returns all IDs as strings. Converting at the API
+        boundary avoids str/int mismatches in cache lookups, asyncpg params,
+        and dict comparisons throughout the codebase.
         """
         if isinstance(data, dict):
             result = {}
             for key, value in data.items():
-                # Convert fields ending with 'Id' or named 'id' from strings to ints
                 if (key == "id" or key.endswith("Id")) and isinstance(value, str):
                     try:
                         result[key] = int(value)
                     except (ValueError, TypeError):
                         result[key] = value
+                elif key.endswith("Ids") and isinstance(value, list):
+                    result[key] = [
+                        int(item) if isinstance(item, str) else item for item in value
+                    ]
                 elif isinstance(value, (dict, list)):
                     result[key] = FanslyApi.convert_ids_to_int(value)
                 else:
@@ -898,10 +935,9 @@ class FanslyApi:
         return data
 
     def get_json_response_contents(self, response: httpx.Response) -> dict:
+        """Validate response, extract payload, convert string IDs to ints."""
         self.validate_json_response(response)
-
         json_data = response.json()["response"]
-        # Convert all ID fields from strings to integers for PostgreSQL compatibility
         return self.convert_ids_to_int(json_data)
 
     def get_client_user_name(self, alternate_token: str | None = None) -> str | None:

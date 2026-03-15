@@ -64,7 +64,7 @@ def get_post_id_from_request(requested_post: str) -> str:
     """
     post_id = requested_post
     if requested_post.startswith("https://fansly.com/"):
-        post_id = requested_post.split("/")[-1]
+        post_id = requested_post.rsplit("/", maxsplit=1)[-1]
     return post_id
 
 

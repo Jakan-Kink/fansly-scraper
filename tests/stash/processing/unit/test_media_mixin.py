@@ -8,13 +8,10 @@ import json
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from stash_graphql_client.types import Image
 
 # Import the modules instead of the classes to avoid fixture issues
-from metadata import Account, AccountMedia, Media, Post
-from metadata.attachment import ContentType
+from metadata import ContentType
 from tests.fixtures import (
     AccountFactory,
     AccountMediaFactory,
@@ -33,48 +30,34 @@ class TestMediaProcessingWithRealData:
 
     @pytest.mark.asyncio
     async def test_process_media_with_real_data(
-        self, respx_stash_processor, factory_async_session, session
+        self, respx_stash_processor, entity_store
     ):
         """Test processing media with real data using factories."""
         await respx_stash_processor.context.get_client()
 
-        # Create test data with factories
-        AccountFactory(id=12345, username="test_user")
-        PostFactory(id=200, accountId=12345, content="Test post #test")
-        MediaFactory(id=123, accountId=12345, mimetype="image/jpeg", is_downloaded=True)
-        AccountMediaFactory(id=123, accountId=12345, mediaId=123)
-        AttachmentFactory(
+        # Create test data with factories and save via entity_store
+        account = AccountFactory.build(id=12345, username="test_user")
+        await entity_store.save(account)
+
+        post = PostFactory.build(id=200, accountId=12345, content="Test post #test")
+        await entity_store.save(post)
+
+        media = MediaFactory.build(
+            id=123, accountId=12345, mimetype="image/jpeg", is_downloaded=True
+        )
+        await entity_store.save(media)
+
+        account_media = AccountMediaFactory.build(id=123, accountId=12345, mediaId=123)
+        await entity_store.save(account_media)
+
+        attachment = AttachmentFactory.build(
             id=60001,
             postId=200,
             contentId=123,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
-
-        # Commit factory changes
-        factory_async_session.commit()
-
-        # Query fresh objects from async session with eager loading
-        result_account = await session.execute(
-            select(Account).where(Account.id == 12345)
-        )
-        account = result_account.scalar_one()
-
-        # Eager load relationships to prevent lazy loading in async context
-        result_post = await session.execute(
-            select(Post)
-            .where(Post.id == 200)
-            .options(
-                selectinload(Post.accountMentions),
-                selectinload(Post.hashtags),
-            )
-        )
-        post = result_post.unique().scalar_one()
-
-        result_media = await session.execute(
-            select(Media).where(Media.id == 123).options(selectinload(Media.variants))
-        )
-        media = result_media.unique().scalar_one()
+        await entity_store.save(attachment)
 
         # Create image dict for GraphQL response using fixture
         image_dict = create_image_dict(
@@ -238,49 +221,32 @@ class TestMediaProcessingWithRealData:
 
     @pytest.mark.asyncio
     async def test_process_creator_attachment_with_real_data(
-        self, respx_stash_processor, factory_async_session, session
+        self, respx_stash_processor, entity_store
     ):
         """Test process_creator_attachment with real data using factories."""
         await respx_stash_processor.context.get_client()
 
-        # Create test data with factories
-        AccountFactory(id=12346, username="test_user_2")
-        PostFactory(id=201, accountId=12346, content="Test post #test")
-        MediaFactory(id=124, accountId=12346, mimetype="image/jpeg")
-        AccountMediaFactory(id=124, accountId=12346, mediaId=124)
-        AttachmentFactory(
+        # Create test data with factories and save via entity_store
+        account = AccountFactory.build(id=12346, username="test_user_2")
+        await entity_store.save(account)
+
+        post = PostFactory.build(id=201, accountId=12346, content="Test post #test")
+        await entity_store.save(post)
+
+        media = MediaFactory.build(id=124, accountId=12346, mimetype="image/jpeg")
+        await entity_store.save(media)
+
+        account_media = AccountMediaFactory.build(id=124, accountId=12346, mediaId=124)
+        await entity_store.save(account_media)
+
+        attachment = AttachmentFactory.build(
             id=60002,
             postId=201,
             contentId=124,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
-
-        # Commit factory changes
-        factory_async_session.commit()
-
-        # Query fresh objects from async session
-        result_account = await session.execute(
-            select(Account).where(Account.id == 12346)
-        )
-        account = result_account.scalar_one()
-
-        result_post = await session.execute(select(Post).where(Post.id == 201))
-        post = result_post.unique().scalar_one()
-
-        # Query attachment with eager loading of media relationship
-        from metadata.attachment import Attachment
-
-        result_attachment = await session.execute(
-            select(Attachment)
-            .where(Attachment.id == 60002)
-            .options(
-                selectinload(Attachment.media).selectinload(AccountMedia.media),
-                selectinload(Attachment.bundle),
-                selectinload(Attachment.aggregated_post),
-            )
-        )
-        attachment = result_attachment.scalar_one()
+        await entity_store.save(attachment)
 
         # Create image dict for GraphQL response using fixture
         image_dict = create_image_dict(

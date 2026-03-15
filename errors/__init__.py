@@ -124,8 +124,8 @@ class DuplicatePageError(RuntimeError):
     def __init__(
         self,
         page_type: str,
-        page_id: str | None = None,
-        cursor: str | None = None,
+        page_id: int | str | None = None,
+        cursor: int | str | None = None,
         wall_name: str | None = None,
     ) -> None:
         self.page_type = page_type

@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 import respx
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.modes import DownloadMode
 from download.account import (
@@ -20,6 +19,8 @@ from download.account import (
 )
 from download.downloadstate import DownloadState
 from errors import ApiAccountInfoError, ApiAuthenticationError, ApiError
+from metadata import Account, TimelineStats, Wall
+from tests.fixtures.utils import snowflake_id
 
 
 # Removed create_mock_response - all tests now use respx for edge mocking
@@ -340,22 +341,26 @@ class TestUpdateStateFromAccount:
 
     def test_update_client_state(self, mock_config):
         """Test updating state for client account."""
-        # Account data for client
-        account_data = {
-            "id": "client123",
-            "username": "clientuser",
-            "walls": [{"id": "wall1"}, {"id": "wall2"}],
-        }
+        account_id = snowflake_id()
+        wall_id_1 = snowflake_id()
+        wall_id_2 = snowflake_id()
+
+        account = Account(
+            id=account_id,
+            username="clientuser",
+            walls=[
+                Wall(id=wall_id_1, accountId=account_id),
+                Wall(id=wall_id_2, accountId=account_id),
+            ],
+        )
 
         state = DownloadState()
         state.creator_name = None  # Client account
 
-        # Update state
-        _update_state_from_account(mock_config, state, account_data)
+        _update_state_from_account(mock_config, state, account)
 
-        # Verify state updates
-        assert state.creator_id == "client123"
-        assert state.walls == {"wall1", "wall2"}
+        assert state.creator_id == account_id
+        assert state.walls == {wall_id_1, wall_id_2}
         # These should not be set for client
         assert state.following is False
         assert state.subscribed is False
@@ -364,55 +369,57 @@ class TestUpdateStateFromAccount:
 
     def test_update_creator_state(self, mock_config):
         """Test updating state for creator account."""
-        # Account data for creator
-        account_data = {
-            "id": "creator123",
-            "username": "creatoruser",
-            "following": True,
-            "subscribed": True,
-            "timelineStats": {
-                "imageCount": 100,
-                "videoCount": 50,
-            },
-            "walls": [{"id": "wall1"}, {"id": "wall2"}],
-        }
+        account_id = snowflake_id()
+        wall_id_1 = snowflake_id()
+        wall_id_2 = snowflake_id()
+
+        account = Account(
+            id=account_id,
+            username="creatoruser",
+            following=True,
+            subscribed=True,
+            timelineStats=TimelineStats(
+                accountId=account_id,
+                imageCount=100,
+                videoCount=50,
+            ),
+            walls=[
+                Wall(id=wall_id_1, accountId=account_id),
+                Wall(id=wall_id_2, accountId=account_id),
+            ],
+        )
 
         mock_config.DUPLICATE_THRESHOLD = 10  # Initial value
 
         state = DownloadState()
         state.creator_name = "creatoruser"  # Creator account
 
-        # Update state
-        _update_state_from_account(mock_config, state, account_data)
+        _update_state_from_account(mock_config, state, account)
 
-        # Verify state updates
-        assert state.creator_id == "creator123"
+        assert state.creator_id == account_id
         assert state.following is True
         assert state.subscribed is True
         assert state.total_timeline_pictures == 100
         assert state.total_timeline_videos == 50
-        assert state.walls == {"wall1", "wall2"}
+        assert state.walls == {wall_id_1, wall_id_2}
 
         # Custom duplicate threshold - 20% of timeline content
         assert int(0.2 * (100 + 50)) == mock_config.DUPLICATE_THRESHOLD
 
     def test_update_creator_missing_timeline_stats(self, mock_config):
         """Test error when timeline stats are missing for creator."""
-        # Account data without timelineStats
-        account_data = {
-            "id": "creator123",
-            "username": "creatoruser",
-            "following": True,
-            "subscribed": True,
-            # No timelineStats
-        }
+        account = Account(
+            id=snowflake_id(),
+            username="creatoruser",
+            following=True,
+            subscribed=True,
+        )
 
         state = DownloadState()
         state.creator_name = "creatoruser"  # Creator account
 
-        # Should raise ApiAccountInfoError
         with pytest.raises(ApiAccountInfoError) as excinfo:
-            _update_state_from_account(mock_config, state, account_data)
+            _update_state_from_account(mock_config, state, account)
 
         assert "Can not get timelineStats for creator" in str(excinfo.value)
         assert "creatoruser" in str(excinfo.value)
@@ -514,114 +521,121 @@ class TestMakeRateLimitedRequest:
             mock_request_func.assert_called_once()
 
 
-@patch("download.account._validate_download_mode")
-@patch("download.account._get_account_response")
-@patch("download.account._extract_account_data")
-@patch("download.account._update_state_from_account")
-@patch("download.account.json_output")
 class TestGetCreatorAccountInfo:
-    """Tests for the get_creator_account_info function."""
+    """Tests for the get_creator_account_info function.
+
+    Uses respx to mock HTTP at the edge and entity_store for real DB.
+    No internal functions are patched — the full code path runs end-to-end.
+    """
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_get_creator_account_info_success(
-        self,
-        mock_json_output,
-        mock_update_state,
-        mock_extract_data,
-        mock_get_response,
-        mock_validate_mode,
-        mock_config_with_api,
+        self, mock_config_with_api, entity_store
     ):
         """Test successful retrieval of creator account info."""
-        # Setup mocks
+        creator_id = snowflake_id()
+
+        state = DownloadState()
+        state.creator_name = "testcreator"
+        mock_config_with_api.download_mode = DownloadMode.TIMELINE
+
+        # Mock HTTP at the edge (OPTIONS preflight + GET)
+        respx.options(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
+        ).mock(return_value=httpx.Response(200))
+
+        respx.get(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": "true",
+                    "response": [
+                        {
+                            "id": str(creator_id),
+                            "username": "testcreator",
+                            "following": True,
+                            "subscribed": True,
+                            "timelineStats": {
+                                "accountId": str(creator_id),
+                                "imageCount": 100,
+                                "videoCount": 50,
+                            },
+                        }
+                    ],
+                },
+            )
+        )
+
+        await get_creator_account_info(mock_config_with_api, state)
+
+        # Verify real _update_state_from_account ran
+        assert state.creator_id == creator_id
+        assert state.following is True
+        assert state.subscribed is True
+        assert state.total_timeline_pictures == 100
+        assert state.total_timeline_videos == 50
+
+        # Account persisted to real store
+        account = await entity_store.get(Account, creator_id)
+        assert account is not None
+        assert account.username == "testcreator"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_creator_account_info_timeline_duplication(
+        self, mock_config_with_api, entity_store
+    ):
+        """Test timeline duplication detection via store cache."""
+        creator_id = snowflake_id()
+        fetched_at = datetime.fromtimestamp(1633046400, UTC)
+
+        mock_config_with_api.use_duplicate_threshold = True
+        mock_config_with_api.download_mode = DownloadMode.TIMELINE
+
         state = DownloadState()
         state.creator_name = "testcreator"
 
-        # Mock response
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = {"response": [{"id": "creator123"}]}
-        mock_get_response.return_value = mock_response
+        # Pre-seed store: Account must exist before TimelineStats (FK constraint)
+        await entity_store.save(Account(id=creator_id, username="testcreator"))
+        await entity_store.save(
+            TimelineStats(accountId=creator_id, fetchedAt=fetched_at)
+        )
 
-        # Mock extracted data
-        mock_account_data = {
-            "id": "creator123",
-            "timelineStats": {
-                "imageCount": 100,
-                "videoCount": 50,
-            },
-        }
-        mock_extract_data.return_value = mock_account_data
+        # Mock HTTP — API returns same fetchedAt as pre-seeded DB value
+        respx.options(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator"
+        ).mock(return_value=httpx.Response(200))
 
-        # Call function
+        respx.get(
+            "https://apiv3.fansly.com/api/v1/account?usernames=testcreator&ngsw-bypass=true"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "success": "true",
+                    "response": [
+                        {
+                            "id": str(creator_id),
+                            "username": "testcreator",
+                            "following": True,
+                            "subscribed": True,
+                            "timelineStats": {
+                                "accountId": str(creator_id),
+                                "imageCount": 100,
+                                "videoCount": 50,
+                                "fetchedAt": 1633046400000,
+                            },
+                        }
+                    ],
+                },
+            )
+        )
+
         await get_creator_account_info(mock_config_with_api, state)
 
-        # Verify function calls
-        mock_validate_mode.assert_called_once_with(mock_config_with_api, state)
-        mock_get_response.assert_called_once_with(mock_config_with_api, state)
-        mock_extract_data.assert_called_once_with(mock_response, mock_config_with_api)
-        mock_update_state.assert_called_once_with(
-            mock_config_with_api, state, mock_account_data
-        )
-        assert mock_json_output.call_count == 2  # Two json_output calls
-
-    @pytest.mark.asyncio
-    async def test_get_creator_account_info_with_database(
-        self,
-        mock_json_output,
-        mock_update_state,
-        mock_extract_data,
-        mock_get_response,
-        mock_validate_mode,
-        mock_config_with_api,
-    ):
-        """Test account info retrieval with database session and timeline duplication check."""
-        # Setup mocks
-        mock_config_with_api.use_duplicate_threshold = True
-
-        state = DownloadState()
-        state.creator_id = "creator123"
-
-        session = MagicMock(spec=AsyncSession)
-
-        # Mock response
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_account_data = {
-            "id": "creator123",
-            "timelineStats": {
-                "imageCount": 100,
-                "videoCount": 50,
-                "fetchedAt": 1633046400000,  # Milliseconds timestamp
-            },
-        }
-        mock_response.json.return_value = {"response": [mock_account_data]}
-        mock_get_response.return_value = mock_response
-        mock_extract_data.return_value = mock_account_data
-
-        # Mock database query result - same fetchedAt as API
-        mock_query_result = MagicMock()
-        mock_timelinestats = MagicMock()
-
-        mock_timelinestats.fetchedAt = datetime.fromtimestamp(
-            1633046400, UTC
-        )  # Datetime object
-        mock_query_result.scalar_one_or_none = AsyncMock(
-            return_value=mock_timelinestats
-        )
-        session.execute = AsyncMock(return_value=mock_query_result)
-
-        # Call function
-        await get_creator_account_info(mock_config_with_api, state, session=session)
-
-        # Verify function calls
-        mock_validate_mode.assert_called_once_with(mock_config_with_api, state)
-        mock_get_response.assert_called_once_with(mock_config_with_api, state)
-        mock_extract_data.assert_called_once_with(mock_response, mock_config_with_api)
-        mock_update_state.assert_called_once_with(
-            mock_config_with_api, state, mock_account_data
-        )
-
-        # Verify timeline duplication check
-        session.execute.assert_called_once()
         assert state.fetched_timeline_duplication is True
 
 
@@ -631,19 +645,17 @@ class TestGetFollowingAccounts:
 
     @pytest.mark.asyncio
     async def test_get_following_accounts_success(
-        self, mock_make_request, mock_config_with_api
+        self, mock_make_request, mock_config_with_api, entity_store
     ):
         """Test successful retrieval of following accounts."""
-        # Setup mocks
-        mock_config_with_api.separate_metadata = False  # Process accounts in main DB
+        mock_config_with_api.separate_metadata = False
+
+        creator1_id = snowflake_id()
+        creator2_id = snowflake_id()
 
         state = DownloadState()
-        state.creator_id = "client123"
+        state.creator_id = snowflake_id()
 
-        # Create mock session to track calls
-        mock_session = AsyncMock(spec=AsyncSession)
-
-        # Create httpx.Request for response construction
         request = httpx.Request("GET", "https://example.com")
 
         # Mock following list response
@@ -651,7 +663,10 @@ class TestGetFollowingAccounts:
             status_code=200,
             json={
                 "success": "true",
-                "response": [{"accountId": "creator1"}, {"accountId": "creator2"}],
+                "response": [
+                    {"accountId": str(creator1_id)},
+                    {"accountId": str(creator2_id)},
+                ],
             },
             request=request,
         )
@@ -662,55 +677,28 @@ class TestGetFollowingAccounts:
             json={
                 "success": "true",
                 "response": [
-                    {"id": "creator1", "username": "creator1user"},
-                    {"id": "creator2", "username": "creator2user"},
+                    {"id": str(creator1_id), "username": "creator1user"},
+                    {"id": str(creator2_id), "username": "creator2user"},
                 ],
             },
             request=request,
         )
 
-        # Configure _make_rate_limited_request to return our mock responses
         mock_make_request.side_effect = [
-            following_list_response,  # First call - following list
-            account_details_response,  # Second call - account details
+            following_list_response,
+            account_details_response,
         ]
 
-        # Mock database async_session_scope to yield our mock session
-        with (
-            patch.object(
-                mock_config_with_api._database,
-                "async_session_scope",
-                return_value=AsyncMock(
-                    __aenter__=AsyncMock(return_value=mock_session),
-                    __aexit__=AsyncMock(),
-                ),
-            ),
-            patch("download.account.process_account_data", AsyncMock()) as mock_process,
-        ):
-            # Call function
+        with patch("asyncio.sleep", AsyncMock()):
             result = await get_following_accounts(mock_config_with_api, state)
 
-            # Verify result
-            assert result == {"creator1user", "creator2user"}
+        assert result == {"creator1user", "creator2user"}
+        assert mock_make_request.call_count == 2
 
-            # Verify API calls
-            assert mock_make_request.call_count == 2
-
-            # Verify account processing
-            assert mock_process.call_count == 2
-            # Should process both accounts
-            mock_process.assert_any_call(
-                config=mock_config_with_api,
-                state=state,
-                data={"id": "creator1", "username": "creator1user"},
-                session=mock_session,
-            )
-            mock_process.assert_any_call(
-                config=mock_config_with_api,
-                state=state,
-                data={"id": "creator2", "username": "creator2user"},
-                session=mock_session,
-            )
+        # Accounts persisted to real store
+        account1 = await entity_store.get(Account, creator1_id)
+        assert account1 is not None
+        assert account1.username == "creator1user"
 
     @pytest.mark.asyncio
     async def test_get_following_accounts_empty(
@@ -719,7 +707,7 @@ class TestGetFollowingAccounts:
         """Test handling empty following list."""
         # Setup mocks
         state = DownloadState()
-        state.creator_id = "client123"
+        state.creator_id = 123456
 
         # Create httpx.Request for response construction
         request = httpx.Request("GET", "https://example.com")
@@ -763,7 +751,7 @@ class TestGetFollowingAccounts:
         # Setup mocks
         mock_config_with_api.token = "invalid_token"
         state = DownloadState()
-        state.creator_id = "client123"
+        state.creator_id = 123456
 
         # Create httpx.Request for error construction
         request = httpx.Request("GET", "https://example.com")
@@ -796,7 +784,7 @@ class TestGetFollowingAccounts:
         """Test handling general request error."""
         # Setup mocks
         state = DownloadState()
-        state.creator_id = "client123"
+        state.creator_id = 123456
 
         # Make the request raise httpx.HTTPError (without response attribute)
         error = httpx.HTTPError("Connection error")
@@ -812,89 +800,57 @@ class TestGetFollowingAccounts:
 
     @pytest.mark.asyncio
     async def test_get_following_accounts_pagination(
-        self, mock_make_request, mock_config_with_api
+        self, mock_make_request, mock_config_with_api, entity_store
     ):
         """Test following list pagination."""
-        # Setup mocks
-        mock_config_with_api.separate_metadata = True  # Skip account processing
+        mock_config_with_api.separate_metadata = True  # Skip process_account_data
 
         state = DownloadState()
-        state.creator_id = "client123"
+        state.creator_id = snowflake_id()
 
-        # Create mock session to track calls
-        mock_session = AsyncMock(spec=AsyncSession)
-
-        # Create httpx.Request for response construction
         request = httpx.Request("GET", "https://example.com")
 
-        # Mock following list responses - use enough items to trigger pagination
-        # Page size is 50, so first page needs to have exactly 50 items to continue
-        # Create 50 accountIds for first page
-        first_page_accounts = [{"accountId": f"creator{i}"} for i in range(1, 51)]
-        # Create account details for first page
+        # Generate stable snowflake IDs for 52 creators
+        creator_ids = [snowflake_id() for _ in range(52)]
+
+        # Page 1: 50 items (triggers pagination since count == page_size)
+        first_page_accounts = [{"accountId": str(cid)} for cid in creator_ids[:50]]
         first_page_details = [
-            {"id": f"creator{i}", "username": f"creator{i}user"} for i in range(1, 51)
+            {"id": str(cid), "username": f"user_{cid}"} for cid in creator_ids[:50]
         ]
 
-        # Second page with fewer items (will stop pagination)
-        second_page_accounts = [
-            {"accountId": f"creator{i}"} for i in range(51, 53)
-        ]  # 2 items
+        # Page 2: 2 items (count < page_size → stops)
+        second_page_accounts = [{"accountId": str(cid)} for cid in creator_ids[50:]]
         second_page_details = [
-            {"id": f"creator{i}", "username": f"creator{i}user"} for i in range(51, 53)
+            {"id": str(cid), "username": f"user_{cid}"} for cid in creator_ids[50:]
         ]
 
-        following_list_response1 = httpx.Response(
-            status_code=200,
-            json={"success": "true", "response": first_page_accounts},
-            request=request,
-        )
-
-        following_list_response2 = httpx.Response(
-            status_code=200,
-            json={"success": "true", "response": second_page_accounts},
-            request=request,
-        )
-
-        # Mock account details responses
-        account_details_response1 = httpx.Response(
-            status_code=200,
-            json={"success": "true", "response": first_page_details},
-            request=request,
-        )
-
-        account_details_response2 = httpx.Response(
-            status_code=200,
-            json={"success": "true", "response": second_page_details},
-            request=request,
-        )
-
-        # Configure _make_rate_limited_request to return our mock responses in sequence
-        # Note: pagination stops when count < page_size (50)
         mock_make_request.side_effect = [
-            following_list_response1,  # First page of following list (50 items - continues)
-            account_details_response1,  # Account details for first page
-            following_list_response2,  # Second page of following list (2 items < page_size, stops here)
-            account_details_response2,  # Account details for second page
+            httpx.Response(
+                200,
+                json={"success": "true", "response": first_page_accounts},
+                request=request,
+            ),
+            httpx.Response(
+                200,
+                json={"success": "true", "response": first_page_details},
+                request=request,
+            ),
+            httpx.Response(
+                200,
+                json={"success": "true", "response": second_page_accounts},
+                request=request,
+            ),
+            httpx.Response(
+                200,
+                json={"success": "true", "response": second_page_details},
+                request=request,
+            ),
         ]
 
-        # Mock database async_session_scope to yield our mock session
-        with (
-            patch.object(
-                mock_config_with_api._database,
-                "async_session_scope",
-                return_value=AsyncMock(
-                    __aenter__=AsyncMock(return_value=mock_session),
-                    __aexit__=AsyncMock(),
-                ),
-            ),
-            patch("asyncio.sleep", AsyncMock()),
-        ):
-            # Call function
+        with patch("asyncio.sleep", AsyncMock()):
             result = await get_following_accounts(mock_config_with_api, state)
 
-        # Verify result - all usernames from both pages (52 total)
-        expected_usernames = {f"creator{i}user" for i in range(1, 53)}
+        expected_usernames = {f"user_{cid}" for cid in creator_ids}
         assert result == expected_usernames
-        # Should make 4 calls total
         assert mock_make_request.call_count == 4

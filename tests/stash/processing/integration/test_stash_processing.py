@@ -6,9 +6,9 @@ real GraphQL calls to a Stash instance.
 """
 
 import time
+from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
 from stash_graphql_client.types import Performer, Studio
 
 from metadata import Account
@@ -42,20 +42,24 @@ class TestStashProcessingIntegration:
         factory_session,
         real_stash_processor,
         test_database_sync,
+        entity_store,
         stash_cleanup_tracker,
     ):
         """Test _find_account method using creator_id with real database."""
-        # Create a real account in the database
-        _account = AccountFactory(id=12345, username="test_user")
-        factory_session.commit()
+        # Create a real account in the database via entity_store
+        account_obj = Account(
+            id=12345,
+            username="test_user",
+            createdAt=datetime.now(UTC),
+        )
+        await entity_store.save(account_obj)
 
         # Setup state to search by ID
-        real_stash_processor.state.creator_id = "12345"
+        real_stash_processor.state.creator_id = 12345
         real_stash_processor.state.creator_name = None
 
-        # Use real async session from database
-        async with test_database_sync.async_session_scope() as async_session:
-            result = await real_stash_processor._find_account(session=async_session)
+        # _find_account no longer accepts session - uses get_store() internally
+        result = await real_stash_processor._find_account()
 
         # Verify result
         assert result is not None
@@ -68,20 +72,24 @@ class TestStashProcessingIntegration:
         factory_session,
         real_stash_processor,
         test_database_sync,
+        entity_store,
         stash_cleanup_tracker,
     ):
         """Test _find_account method using creator_name with real database."""
-        # Create a real account in the database
-        _account = AccountFactory(username="test_creator")
-        factory_session.commit()
+        # Create a real account in the database via entity_store
+        account_obj = Account(
+            id=99998,
+            username="test_creator",
+            createdAt=datetime.now(UTC),
+        )
+        await entity_store.save(account_obj)
 
         # Setup state to search by name
         real_stash_processor.state.creator_id = None
         real_stash_processor.state.creator_name = "test_creator"
 
-        # Use real async session from database
-        async with test_database_sync.async_session_scope() as async_session:
-            result = await real_stash_processor._find_account(session=async_session)
+        # _find_account no longer accepts session - uses get_store() internally
+        result = await real_stash_processor._find_account()
 
         # Verify result
         assert result is not None
@@ -92,17 +100,16 @@ class TestStashProcessingIntegration:
         self,
         factory_session,
         real_stash_processor,
-        test_database_sync,
+        entity_store,
         stash_cleanup_tracker,
     ):
         """Test _find_account method when account not found."""
         # Setup state for non-existent account
-        real_stash_processor.state.creator_id = "99999"
+        real_stash_processor.state.creator_id = 99999
         real_stash_processor.state.creator_name = None
 
-        # Use real async session - no account exists so will return None
-        async with test_database_sync.async_session_scope() as async_session:
-            result = await real_stash_processor._find_account(session=async_session)
+        # _find_account no longer accepts session - uses get_store() internally
+        result = await real_stash_processor._find_account()
 
         # Verify result is None
         assert result is None
@@ -340,7 +347,7 @@ class TestStashProcessingIntegration:
 
     @pytest.mark.asyncio
     async def test_update_performer_avatar_no_avatar(
-        self, factory_session, real_stash_processor, stash_cleanup_tracker, session
+        self, factory_session, real_stash_processor, stash_cleanup_tracker
     ):
         """Test _update_performer_avatar when account has no avatar.
 
@@ -352,12 +359,6 @@ class TestStashProcessingIntegration:
             # Create a real account WITHOUT avatar (no Media associated)
             account = AccountFactory(username="no_avatar_user_test")
             factory_session.commit()
-
-            # Refresh account in async session
-            result = await session.execute(
-                select(Account).where(Account.id == account.id)
-            )
-            account = result.scalar_one()
 
             # Create a real performer in Stash
             test_performer = Performer(
@@ -374,9 +375,9 @@ class TestStashProcessingIntegration:
             # Store original image_path (should be None or default)
             original_image_path = created_performer.image_path
 
-            # Call _update_performer_avatar - should return early since no avatar
+            # Call _update_performer_avatar - no longer accepts session param
             await real_stash_processor._update_performer_avatar(
-                account, created_performer, session=session
+                account, created_performer
             )
 
             # Fetch performer again to verify image_path unchanged

@@ -517,7 +517,7 @@ def mock_download_state():
     from tests.fixtures import DownloadStateFactory
 
     return DownloadStateFactory(
-        creator_id="12345",
+        creator_id=12345,
         creator_name="test_user",
         messages_enabled=True,
         verbose_logs=False,

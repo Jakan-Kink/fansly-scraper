@@ -10,25 +10,19 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from config import FanslyConfig
-from config.decorators import with_database_session
 from download.downloadstate import DownloadState
 from errors import MediaHashMismatchError
 from fileio.fnmanip import get_hash_for_image, get_hash_for_other_content
 from fileio.normalize import get_id_from_filename, normalize_filename
 from helpers.rich_progress import get_progress_manager
-from metadata.database import require_database_config
-from metadata.decorators import retry_on_locked_db
-from metadata.media import Media
+from metadata import Account, Media
+from metadata.models import get_store
 from pathio import set_create_directory_for_download
 from textio import json_output, print_info, print_warning
 
 
-@require_database_config
-async def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
+async def migrate_full_paths_to_filenames() -> None:
     """Update database records that have full paths stored in local_filename.
 
     This is a one-time migration to convert any full paths to just filenames.
@@ -39,55 +33,49 @@ async def migrate_full_paths_to_filenames(config: FanslyConfig) -> None:
     """
     print_info("Starting migration of full paths to filenames in database...")
 
-    async with config._database.async_session_scope() as session:
-        # First, let's count how many records need updating
-        # Look for records containing path separators (both / and \)
-        count_query = (
-            select(func.count())  # pylint: disable=not-callable
-            .select_from(Media)
-            .where(
-                or_(Media.local_filename.like("%/%"), Media.local_filename.like("%\\%"))
-            )
+    store = get_store()
+
+    # Find records containing path separators (both / and \)
+    records_with_slash = await store.find(Media, local_filename__contains="/")
+    records_with_backslash = await store.find(Media, local_filename__contains="\\")
+
+    # Merge and deduplicate
+    seen_ids = set()
+    records = []
+    for media in records_with_slash + records_with_backslash:
+        if media.id not in seen_ids:
+            seen_ids.add(media.id)
+            records.append(media)
+
+    if not records:
+        print_info("No records found with full paths. Migration not needed.")
+        return
+
+    print_info(f"Found {len(records)} records with full paths to update...")
+
+    progress = get_progress_manager()
+    updated = 0
+
+    with progress.session():
+        migrate_task = progress.add_task(
+            name="migrate_paths",
+            description="Migrating paths to filenames",
+            total=len(records),
+            show_elapsed=True,
         )
-        count = (await session.execute(count_query)).scalar()
 
-        if count == 0:
-            print_info("No records found with full paths. Migration not needed.")
-            return
-
-        print_info(f"Found {count} records with full paths to update...")
-
-        # Get all records that need updating
-        records_query = select(Media.id, Media.local_filename).where(
-            or_(Media.local_filename.like("%/%"), Media.local_filename.like("%\\%"))
-        )
-        records = (await session.execute(records_query)).fetchall()
-
-        # Update each record and commit immediately to prevent data loss
-        updated = 0
-        for record in records:
+        for media in records:
             try:
-                # Convert the path to just filename
-                new_filename = get_filename_only(record.local_filename)
-
-                # Update the record
-                media = await session.get(Media, record.id)
-                if media:
-                    media.local_filename = new_filename
-                    # Commit immediately after each update
-                    await session.commit()
-                    updated += 1
-
-                    # Print progress every 100 records
-                    if updated % 100 == 0:
-                        print_info(f"Updated {updated} of {count} records...")
-
+                new_filename = get_filename_only(media.local_filename)
+                media.local_filename = new_filename
+                await store.save(media)
+                updated += 1
             except Exception as e:
-                print_info(f"Error updating record {record.id}: {e}")
-                # Rollback the failed transaction
-                await session.rollback()
+                print_info(f"Error updating record {media.id}: {e}")
+            finally:
+                progress.update_task(migrate_task, advance=1)
 
-        print_info(f"Migration complete! Updated {updated} of {count} records.")
+    print_info(f"Migration complete! Updated {updated} of {len(records)} records.")
 
 
 def get_filename_only(path: Path | str) -> str:
@@ -132,51 +120,6 @@ async def file_exists_in_download_path(
         if await loop.run_in_executor(None, found_file.is_file):
             return True
     return False
-
-
-async def find_media_records(
-    session: AsyncSession,
-    conditions: dict[str, Any],
-) -> list[Media]:
-    """Find media records matching any of the given conditions.
-
-    Args:
-        session: SQLAlchemy async session
-        conditions: Dict of field -> value pairs to match on
-
-    Returns:
-        List of matching Media records
-    """
-    query = select(Media)
-    or_conditions = []
-    and_conditions = []
-
-    for field, value in conditions.items():
-        if field == "id":
-            or_conditions.append(Media.id == value)
-        elif field == "content_hash":
-            or_conditions.append(Media.content_hash == value)
-        elif field == "local_filename":
-            or_conditions.extend(
-                [
-                    # Handle both exact and normalized matches
-                    Media.local_filename.ilike(value),
-                    Media.local_filename == value,
-                ]
-            )
-        elif field == "accountId":
-            and_conditions.append(Media.accountId == int(value))  # Convert to int
-        elif field == "is_downloaded":
-            and_conditions.append(Media.is_downloaded == value)
-
-    if or_conditions:
-        and_conditions.append(or_(*or_conditions))
-
-    if and_conditions:
-        query = query.where(and_(*and_conditions))
-
-    result = await session.execute(query)
-    return list(result.scalars().all())
 
 
 async def verify_file_existence(
@@ -290,10 +233,6 @@ async def calculate_file_hash(
     return file_path, None, debug_info
 
 
-@with_database_session(async_session=True)
-@retry_on_locked_db(
-    retries=5, delay=0.2
-)  # More retries and longer delay for media creation
 async def get_or_create_media(
     file_path: Path,
     media_id: str | None,
@@ -302,16 +241,16 @@ async def get_or_create_media(
     file_hash: str | None = None,
     trust_filename: bool = False,
     config: FanslyConfig | None = None,
-    session: AsyncSession | None = None,
 ) -> tuple[Media, bool]:
     """Get or create a media record with optimized database access.
 
     Strategy:
-    1. One query to get media by ID and/or hash
+    1. Look up media by ID and/or hash
     2. Calculate hash only if needed
-    3. One update/insert at the end
+    3. One save at the end
     """
-    filename = normalize_filename(get_filename_only(file_path), config=config)
+    store = get_store()
+    filename = await normalize_filename(get_filename_only(file_path), config=config)
     hash_verified = False
 
     json_output(
@@ -327,39 +266,30 @@ async def get_or_create_media(
         },
     )
 
-    # Build query to find existing media
-    query = select(Media)
-    conditions = []
+    # Find existing media by ID and by hash separately
+    existing_by_id = await store.get(Media, media_id) if media_id else None
+    existing_by_hash = (
+        await store.find_one(Media, content_hash=file_hash) if file_hash else None
+    )
 
-    if media_id:
-        conditions.append(Media.id == media_id)
-    if file_hash:
-        conditions.append(Media.content_hash == file_hash)
+    # Collect all found media for iteration
+    existing_media = []
+    if existing_by_id:
+        existing_media.append(existing_by_id)
+    if existing_by_hash and (
+        not existing_by_id or existing_by_hash.id != existing_by_id.id
+    ):
+        existing_media.append(existing_by_hash)
 
-    # If we have conditions, try to find existing media
-    if conditions:
-        query = query.where(or_(*conditions))
-        result = await session.execute(query)
-        existing_media = result.scalars().all()
-        json_output(
-            1,
-            "get_or_create_media",
-            {
-                "state": "query_existing",
-                "conditions": [str(c) for c in conditions],
-                "found_count": len(existing_media),
-                "found_ids": [m.id for m in existing_media],
-            },
-        )
-    else:
-        existing_media = []
-        json_output(
-            1,
-            "get_or_create_media",
-            {
-                "state": "no_query_conditions",
-            },
-        )
+    json_output(
+        1,
+        "get_or_create_media",
+        {
+            "state": "query_existing",
+            "found_count": len(existing_media),
+            "found_ids": [m.id for m in existing_media],
+        },
+    )
 
     # Fast path for trusted filenames
     if trust_filename and media_id:
@@ -374,11 +304,6 @@ async def get_or_create_media(
                 )
             ):
                 preserve_existing = True
-                # print_warning(
-                #     "Preserving existing filename for media "
-                #     f"{media_id} because it exists on disk: "
-                #     f"{media_by_id.local_filename}"
-                # )
 
             # Update filename and mark as downloaded
             if not preserve_existing:
@@ -386,7 +311,8 @@ async def get_or_create_media(
             media_by_id.is_downloaded = True
             media_by_id.mimetype = mimetype
             if not media_by_id.accountId:
-                media_by_id.accountId = await get_account_id(session, state)
+                media_by_id.accountId = await get_account_id(state)
+            await store.save(media_by_id)
             hash_verified = bool(media_by_id.content_hash)
             return media_by_id, hash_verified
 
@@ -474,11 +400,6 @@ async def get_or_create_media(
             )
         ):
             preserve_existing = True
-            # print_warning(
-            #     "Preserving existing filename for media "
-            #     f"{media_id} because it exists on disk: "
-            #     f"{media_by_id.local_filename}"
-            # )
 
         # Update existing record
         media_by_id.content_hash = file_hash
@@ -487,7 +408,8 @@ async def get_or_create_media(
         media_by_id.is_downloaded = True
         media_by_id.mimetype = mimetype
         if not media_by_id.accountId:
-            media_by_id.accountId = await get_account_id(session, state)
+            media_by_id.accountId = await get_account_id(state)
+        await store.save(media_by_id)
 
         hash_verified = bool(file_hash)
         json_output(
@@ -553,9 +475,9 @@ async def get_or_create_media(
         local_filename=filename,
         is_downloaded=True,
         mimetype=mimetype,
-        accountId=(await get_account_id(session, state)),
+        accountId=(await get_account_id(state)),
     )
-    session.add(media)
+    await store.save(media)
     hash_verified = bool(file_hash)
 
     json_output(
@@ -571,30 +493,24 @@ async def get_or_create_media(
     return media, hash_verified
 
 
-async def get_account_id(session: AsyncSession, state: DownloadState) -> int | None:
+async def get_account_id(state: DownloadState) -> int | None:
     """Get account ID from state, looking up by creator_name if creator_id is not available."""
-    from metadata.account import Account
+    store = get_store()
 
     # First try creator_id if available
     if state.creator_id:
-        return int(state.creator_id)
+        return state.creator_id
 
     # Then try to find by username
     if state.creator_name:
-        account = (
-            await session.execute(
-                select(Account).where(Account.username == state.creator_name)
-            )
-        ).scalar_one_or_none()
+        account = await store.find_one(Account, username=state.creator_name)
         if account:
-            # Update state.creator_id for future use
-            state.creator_id = str(account.id)
+            state.creator_id = account.id
             return account.id
         # Create new account if it doesn't exist
         account = Account(username=state.creator_name)
-        session.add(account)
-        await session.flush()  # This will assign an ID
-        state.creator_id = str(account.id)
+        await store.save(account)
+        state.creator_id = account.id
         return account.id
 
     return None
@@ -625,12 +541,9 @@ async def categorize_file(
     return "needs_hash", (file_path, mimetype)
 
 
-@require_database_config
-@with_database_session(async_session=True)
 async def dedupe_init(
     config: FanslyConfig,
     state: DownloadState,
-    session: AsyncSession | None = None,
 ) -> None:
     """Initialize deduplication by scanning existing files and updating the database.
 
@@ -643,11 +556,7 @@ async def dedupe_init(
     6. Updates the database with file information
     7. Marks files as downloaded in the database
     """
-    # The @with_database_session decorator ensures session is not None
-    if session is None:
-        raise RuntimeError(
-            "Session must be provided by @with_database_session decorator"
-        )
+    store = get_store()
 
     # Use function attribute to track pass count (avoids global variable)
     if not hasattr(dedupe_init, "pass_count"):
@@ -668,7 +577,7 @@ async def dedupe_init(
     )
 
     # First, migrate any full paths in the database to filenames only
-    await migrate_full_paths_to_filenames(config)
+    await migrate_full_paths_to_filenames()
 
     # Create the base user path download_directory/creator_name
     set_create_directory_for_download(config, state)
@@ -695,12 +604,10 @@ async def dedupe_init(
     )
 
     # Count existing records
-    existing_media = await find_media_records(
-        session,
-        {
-            "accountId": state.creator_id,
-            "is_downloaded": True,
-        },
+    existing_media = await store.find(
+        Media,
+        accountId=state.creator_id,
+        is_downloaded=True,
     )
     existing_downloaded = len(existing_media)
     print_info(f"Existing downloaded records: {existing_downloaded}")
@@ -762,10 +669,7 @@ async def dedupe_init(
                     file_hash=hash2_value,
                     trust_filename=True,
                     config=config,
-                    session=session,
                 )
-                # Commit after each get_or_create_media to prevent autoflush warnings
-                await session.commit()
                 if hash_verified:
                     preserved_count += 1
                 progress_mgr.update_task(hash2_task, advance=1)
@@ -788,9 +692,6 @@ async def dedupe_init(
                 file_path, media_id, mimetype = file_info
                 async with semaphore:
                     try:
-                        # Don't pass session - let get_or_create_media create its own
-                        # session via @with_database_session to avoid concurrent
-                        # access to the same PostgreSQL connection
                         result = await get_or_create_media(
                             file_path=file_path,
                             media_id=media_id,
@@ -798,9 +699,7 @@ async def dedupe_init(
                             state=state,
                             trust_filename=True,
                             config=config,
-                            # session=session,  # Not passed - each task gets its own session
                         )
-                        # No commit needed - decorator handles session lifecycle
                         return result
                     finally:
                         progress_mgr.update_task(media_id_task, advance=1)
@@ -859,10 +758,7 @@ async def dedupe_init(
                                     file_hash=file_hash,
                                     trust_filename=False,
                                     config=config,
-                                    session=session,
                                 )
-                                # Commit after each get_or_create_media to prevent autoflush warnings
-                                await session.commit()
                                 if hash_verified:
                                     processed_count += 1
                             except Exception as e:
@@ -890,12 +786,10 @@ async def dedupe_init(
                     finally:
                         pool.close()
 
-    downloaded_list = await find_media_records(
-        session,
-        {
-            "is_downloaded": True,
-            "accountId": state.creator_id,
-        },
+    downloaded_list = await store.find(
+        Media,
+        is_downloaded=True,
+        accountId=state.creator_id,
     )
     # Log start of database check
     json_output(
@@ -916,7 +810,7 @@ async def dedupe_init(
             show_elapsed=True,  # Show elapsed time for verification tasks
         )
 
-        # Process each record and commit immediately to prevent data loss
+        # Process each record
         for media in downloaded_list:
             # Update progress description with current ID
             progress_mgr.update_task(
@@ -961,19 +855,16 @@ async def dedupe_init(
                 media.content_hash = None
                 needs_update = True
 
-            # Commit immediately after each update to persist changes
             if needs_update:
-                await session.commit()
+                await store.save(media)
 
             progress_mgr.update_task(db_check_task, advance=1)
 
     # Get updated counts
-    result = await find_media_records(
-        session=session,
-        conditions={
-            "is_downloaded": True,
-            "accountId": state.creator_id,
-        },
+    result = await store.find(
+        Media,
+        is_downloaded=True,
+        accountId=state.creator_id,
     )
     final_downloaded = len(result)
 
@@ -1062,15 +953,12 @@ async def _check_file_exists(
     return False
 
 
-@require_database_config  # Uses config._database directly
-@with_database_session(async_session=True)
 async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with many edge cases
     config: FanslyConfig,
     state: DownloadState,
     mimetype: str,
     filename: Path,
     media_record: Media,
-    session: AsyncSession | None = None,
 ) -> bool:
     """Update a Media record with file information and check for duplicates.
 
@@ -1086,16 +974,11 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
         mimetype: The MIME type of the media item
         filename: The full path of the file to examine
         media_record: Media record to update
-        session: Optional AsyncSession for database operations
 
     Returns:
         bool: True if it is a duplicate or False otherwise
     """
-    # The @with_database_session decorator ensures session is not None
-    if session is None:
-        raise RuntimeError(
-            "Session must be provided by @with_database_session decorator"
-        )
+    store = get_store()
 
     json_output(
         1,
@@ -1111,8 +994,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
     # First try by ID
     media_id, _ = get_id_from_filename(filename.name)
     if media_id:
-        result = await session.execute(select(Media).filter_by(id=media_id))
-        existing_by_id = result.scalar_one_or_none()
+        existing_by_id = await store.get(Media, media_id)
         if existing_by_id:
             # Calculate hash if needed
             file_hash = None
@@ -1124,8 +1006,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 if file_hash:
                     existing_by_id.content_hash = file_hash
                 existing_by_id.is_downloaded = True
-                session.add(existing_by_id)
-                await session.flush()
+                await store.save(existing_by_id)
                 return True
 
             # Handle missing filename
@@ -1136,14 +1017,13 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
 
                 # Before marking as not duplicate, check if hash matches another media
                 if file_hash:
-                    result = await session.execute(
-                        select(Media).filter(
-                            Media.content_hash == file_hash,
-                            Media.id != existing_by_id.id,
-                            Media.is_downloaded.is_(True),
-                        )
+                    duplicates = await store.find(
+                        Media,
+                        content_hash=file_hash,
+                        id__ne=existing_by_id.id,
+                        is_downloaded=True,
                     )
-                    duplicate_media = result.scalar_one_or_none()
+                    duplicate_media = duplicates[0] if duplicates else None
                     if duplicate_media:
                         # Found duplicate by hash - check if its file exists
                         db_file_exists = await _check_file_exists(
@@ -1156,8 +1036,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                                 duplicate_media.local_filename
                             )
                             existing_by_id.is_downloaded = True
-                            session.add(existing_by_id)
-                            await session.flush()
+                            await store.save(existing_by_id)
                             # Remove the new file since it's a duplicate
                             await asyncio.get_running_loop().run_in_executor(
                                 None, filename.unlink
@@ -1169,8 +1048,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 existing_by_id.is_downloaded = True
                 if file_hash:
                     existing_by_id.content_hash = file_hash
-                session.add(existing_by_id)
-                await session.flush()
+                await store.save(existing_by_id)
                 return False
 
             # Handle path normalization
@@ -1180,8 +1058,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
             ):
                 existing_by_id.local_filename = get_filename_only(filename)
                 existing_by_id.is_downloaded = True
-                session.add(existing_by_id)
-                await session.flush()
+                await store.save(existing_by_id)
                 return True
 
             # Different filename but same ID - check if it's actually the same file
@@ -1195,8 +1072,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     if db_filename == str(filename):
                         existing_by_id.local_filename = get_filename_only(filename)
                         existing_by_id.is_downloaded = True
-                        session.add(existing_by_id)
-                        await session.flush()
+                        await store.save(existing_by_id)
                         return True
 
                     db_file_exists = await _check_file_exists(
@@ -1222,12 +1098,11 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     # DB's file is missing but this is the same content - update DB filename
                     existing_by_id.local_filename = get_filename_only(filename)
                     existing_by_id.is_downloaded = True
-                    session.add(existing_by_id)
-                    await session.flush()
+                    await store.save(existing_by_id)
                     return True
 
         # Try by normalized filename
-        normalized_path = normalize_filename(filename.name, config=config)
+        normalized_path = await normalize_filename(filename.name, config=config)
 
         # If original and normalized paths are different, check both
         paths_to_check = [normalized_path]
@@ -1239,25 +1114,21 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
         if id_part_match:
             id_part = id_part_match.group(1)
             # Search for any files with this ID part
-            result = await session.execute(
-                select(Media).filter(
-                    Media.local_filename.like(f"%{id_part}.%"),
-                    Media.is_downloaded,
-                )
+            existing_by_id_pattern = await store.find(
+                Media,
+                local_filename__contains=f"{id_part}.",
+                is_downloaded=True,
             )
-            existing_by_id_pattern = result.scalars().all()
             for existing in existing_by_id_pattern:
                 if existing.local_filename not in paths_to_check:
                     paths_to_check.append(existing.local_filename)
 
         for path_to_check in paths_to_check:
-            result = await session.execute(
-                select(Media).filter(
-                    Media.local_filename.ilike(path_to_check),
-                    Media.is_downloaded,
-                )
+            existing_by_name = await store.find_one(
+                Media,
+                local_filename__iexact=path_to_check,
+                is_downloaded=True,
             )
-            existing_by_name = result.scalar_one_or_none()
             if existing_by_name:
                 # First check if filenames match
                 if existing_by_name.local_filename == get_filename_only(filename):
@@ -1282,18 +1153,14 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                             return True
                         # DB's file is missing but content matches - update DB filename
                         existing_by_name.local_filename = get_filename_only(filename)
-                        session.add(existing_by_name)
-                        await session.flush()
+                        await store.save(existing_by_name)
                         return True
 
         # If not in DB or no hash match, calculate hash and update DB
         file_hash = await _calculate_hash_for_file(filename, mimetype)
         if file_hash:
             # Check if hash exists in database
-            result = await session.execute(
-                select(Media).filter_by(content_hash=file_hash)
-            )
-            media = result.scalar_one_or_none()
+            media = await store.find_one(Media, content_hash=file_hash)
             if media:
                 # Found by hash - check if DB's file exists
                 db_file_exists = await _check_file_exists(
@@ -1305,8 +1172,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     media_record.content_hash = file_hash
                     media_record.local_filename = media.local_filename
                     media_record.is_downloaded = True
-                    session.add(media_record)
-                    await session.flush()
+                    await store.save(media_record)
 
                     # DB's file exists, this is a duplicate - remove it
                     await asyncio.get_running_loop().run_in_executor(
@@ -1317,13 +1183,12 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 # Update both the old record and current record to point to new file
                 media.local_filename = get_filename_only(filename)
                 media.is_downloaded = True
-                session.add(media)
+                await store.save(media)
 
                 media_record.content_hash = file_hash
                 media_record.local_filename = get_filename_only(filename)
                 media_record.is_downloaded = True
-                session.add(media_record)
-                await session.flush()
+                await store.save(media_record)
                 return True
 
             # No match found, update our media record
@@ -1334,14 +1199,12 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 media_record.content_hash = file_hash
                 media_record.local_filename = get_filename_only(filename)
                 media_record.is_downloaded = True
-                session.add(media_record)
-                await session.flush()
+                await store.save(media_record)
             else:
                 # File disappeared between download and verification
                 media_record.is_downloaded = False
                 media_record.content_hash = None
                 media_record.local_filename = None
-                session.add(media_record)
-                await session.flush()
+                await store.save(media_record)
 
     return False

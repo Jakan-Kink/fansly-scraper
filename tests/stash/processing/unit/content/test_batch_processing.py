@@ -1,7 +1,7 @@
 """Tests for batch processing functionality in ContentProcessingMixin.
 
-This test module uses real database fixtures and factories with respx edge mocking
-to provide reliable unit testing while letting real code flow execute.
+This test module uses entity_store for Pydantic model persistence and respx for
+HTTP mocking to provide reliable unit testing while letting real code flow execute.
 """
 
 import asyncio
@@ -11,12 +11,13 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 import respx
-from sqlalchemy import insert, select
-from sqlalchemy.orm import selectinload
 
-from metadata import Account, AccountMedia, AccountMediaBundle, Attachment, Post
-from metadata.account import account_media_bundle_media
-from metadata.attachment import ContentType
+from metadata import (
+    Account,
+    ContentType,
+    Post,
+)
+from metadata.models import get_store
 from tests.fixtures import (
     AccountFactory,
     AccountMediaBundleFactory,
@@ -32,32 +33,45 @@ from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFa
 
 @pytest.mark.asyncio
 async def test_process_creator_posts_with_batch_processing(
-    factory_async_session, session, respx_stash_processor
+    entity_store, respx_stash_processor
 ):
     """Test process_creator_posts processes galleries correctly."""
     await respx_stash_processor.context.get_client()
+    store = get_store()
 
     # Create account with factory
-    AccountFactory(id=12345, username="test_user", displayName="Test User")
+    account = AccountFactory.build(
+        id=12345, username="test_user", displayName="Test User"
+    )
+    await store.save(account)
 
     # Create post with attachment (required by INNER JOIN in process_creator_posts)
-    PostFactory(id=200, accountId=12345, content="Test post")
-    MediaFactory(id=123, accountId=12345, mimetype="image/jpeg", is_downloaded=True)
-    AccountMediaFactory(id=123, accountId=12345, mediaId=123)
-    AttachmentFactory(
+    post = PostFactory.build(id=200, accountId=12345, content="Test post")
+    await store.save(post)
+
+    media = MediaFactory.build(
+        id=123, accountId=12345, mimetype="image/jpeg", is_downloaded=True
+    )
+    await store.save(media)
+
+    account_media = AccountMediaFactory.build(id=123, accountId=12345, mediaId=123)
+    await store.save(account_media)
+
+    attachment = AttachmentFactory.build(
         id=60001,
         postId=200,  # Link attachment to post
         contentId=123,  # Points to AccountMedia
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
+    await store.save(attachment)
 
-    # Commit factory changes
-    factory_async_session.commit()
+    # Add attachment to post's relationship
+    post.attachments = [attachment]
+    await store.save(post)
 
-    # Query fresh from async session
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
+    # Retrieve account from store
+    account = await store.get(Account, 12345)
 
     # Create performer and studio using factories
     performer = PerformerFactory.build(id="500", name="test_user")
@@ -113,7 +127,6 @@ async def test_process_creator_posts_with_batch_processing(
             account=account,
             performer=performer,
             studio=studio,
-            session=session,
         )
     finally:
         dump_graphql_calls(
@@ -157,48 +170,56 @@ async def test_process_creator_posts_with_batch_processing(
 
 @pytest.mark.asyncio
 async def test_collect_media_from_attachments_with_aggregated_post(
-    factory_async_session,
-    session,
+    entity_store,
     respx_stash_processor,
 ):
     """Test _collect_media_from_attachments with an aggregated post."""
+    store = get_store()
+
     # Create account and media
-    account = AccountFactory(id=12345, username="test_user")
-    media = MediaFactory(id=125, accountId=12345, mimetype="image/jpeg")
-    account_media = AccountMediaFactory(id=125, accountId=12345, mediaId=125)
+    account = AccountFactory.build(id=12345, username="test_user")
+    await store.save(account)
+
+    media = MediaFactory.build(id=125, accountId=12345, mimetype="image/jpeg")
+    await store.save(media)
+
+    account_media = AccountMediaFactory.build(id=125, accountId=12345, mediaId=125)
+    await store.save(account_media)
+    # account_media.media auto-resolves via identity map (Media already saved)
 
     # Create aggregated post with nested attachment
-    agg_post = PostFactory(id=201, accountId=12345, content="Aggregated post")
-    nested_attachment = AttachmentFactory(
+    agg_post = PostFactory.build(id=201, accountId=12345, content="Aggregated post")
+    await store.save(agg_post)
+
+    nested_attachment = AttachmentFactory.build(
         id=60003,
         postId=201,  # Link nested attachment to aggregated post
         contentId=125,  # Points to AccountMedia
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
+    await store.save(nested_attachment)
+
+    # Add nested attachment to aggregated post
+    agg_post.attachments = [nested_attachment]
+    await store.save(agg_post)
+
+    # nested_attachment.media auto-resolves via identity map (AccountMedia already saved)
 
     # Create main post with attachment pointing to aggregated post
-    main_post = PostFactory(id=202, accountId=12345, content="Main post")
-    main_attachment = AttachmentFactory(
+    main_post = PostFactory.build(id=202, accountId=12345, content="Main post")
+    await store.save(main_post)
+
+    main_attachment = AttachmentFactory.build(
         id=60004,
         postId=202,  # Link attachment to main post
         contentId=201,  # Points to aggregated post
         contentType=ContentType.AGGREGATED_POSTS,
         pos=0,
     )
+    await store.save(main_attachment)
 
-    # Query fresh from async session with eager loading
-    result = await session.execute(
-        select(Attachment)
-        .where(Attachment.id == 60004)
-        .options(
-            selectinload(Attachment.aggregated_post)
-            .selectinload(Post.attachments)
-            .selectinload(Attachment.media)
-            .selectinload(AccountMedia.media)
-        )
-    )
-    main_attachment = result.scalar_one()
+    # main_attachment.aggregated_post auto-resolves via identity map (Post already saved)
 
     # Call the method
     result = await respx_stash_processor._collect_media_from_attachments(
@@ -212,62 +233,53 @@ async def test_collect_media_from_attachments_with_aggregated_post(
 
 @pytest.mark.asyncio
 async def test_collect_media_from_attachments_with_bundle(
-    factory_async_session,
-    session,
+    entity_store,
     respx_stash_processor,
 ):
     """Test _collect_media_from_attachments with a media bundle."""
+    store = get_store()
+
     # Create account
-    account = AccountFactory(id=12345, username="test_user")
+    account = AccountFactory.build(id=12345, username="test_user")
+    await store.save(account)
 
     # Create bundle
-    bundle = AccountMediaBundleFactory(id=80001, accountId=12345)
+    bundle = AccountMediaBundleFactory.build(id=80001, accountId=12345)
+    await store.save(bundle)
 
     # Create media for bundle
-    media1 = MediaFactory(id=126, accountId=12345, mimetype="image/jpeg")
-    preview1 = MediaFactory(id=127, accountId=12345, mimetype="image/jpeg")
-    account_media1 = AccountMediaFactory(
-        id=126, accountId=12345, mediaId=126, previewId=127
-    )
+    media1 = MediaFactory.build(id=126, accountId=12345, mimetype="image/jpeg")
+    await store.save(media1)
 
-    media2 = MediaFactory(id=128, accountId=12345, mimetype="video/mp4")
-    account_media2 = AccountMediaFactory(id=128, accountId=12345, mediaId=128)
+    account_media1 = AccountMediaFactory.build(id=126, accountId=12345, mediaId=126)
+    await store.save(account_media1)
+    # account_media1.media auto-resolves via identity map (Media already saved)
 
-    # Create post attachment pointing to bundle BEFORE bundle association
-    # This ensures attachment exists before we try to load relationships
-    post = PostFactory(id=203, accountId=12345, content="Post with bundle")
-    attachment = AttachmentFactory(
+    media2 = MediaFactory.build(id=128, accountId=12345, mimetype="video/mp4")
+    await store.save(media2)
+
+    account_media2 = AccountMediaFactory.build(id=128, accountId=12345, mediaId=128)
+    await store.save(account_media2)
+    # account_media2.media auto-resolves via identity map (Media already saved)
+
+    # Add media to bundle
+    bundle.accountMedia = [account_media1, account_media2]
+    await store.save(bundle)
+
+    # Create post attachment pointing to bundle
+    post = PostFactory.build(id=203, accountId=12345, content="Post with bundle")
+    await store.save(post)
+
+    attachment = AttachmentFactory.build(
         id=60005,
         postId=203,  # Link attachment to post
         contentId=80001,  # Points to bundle
         contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
         pos=0,
     )
+    await store.save(attachment)
 
-    # Now add media to bundle via association table
-    await session.execute(
-        insert(account_media_bundle_media).values(
-            [
-                {"bundle_id": 80001, "media_id": 126, "pos": 0},
-                {"bundle_id": 80001, "media_id": 128, "pos": 1},
-            ]
-        )
-    )
-
-    # Flush to ensure all objects are persisted before querying
-    await session.flush()
-
-    # Query fresh from async session with eager loading
-    result = await session.execute(
-        select(Attachment)
-        .where(Attachment.id == 60005)
-        .options(
-            selectinload(Attachment.bundle)
-            .selectinload(AccountMediaBundle.accountMedia)
-            .selectinload(AccountMedia.media)
-        )
-    )
-    attachment = result.scalar_one()
+    # attachment.bundle auto-resolves via identity map (AccountMediaBundle already saved)
 
     # Call the method
     result = await respx_stash_processor._collect_media_from_attachments([attachment])
@@ -281,34 +293,43 @@ async def test_collect_media_from_attachments_with_bundle(
 
 @pytest.mark.asyncio
 async def test_process_items_with_gallery_error_handling(
-    factory_async_session, session, respx_stash_processor
+    entity_store, respx_stash_processor
 ):
     """Test error handling in _process_items_with_gallery."""
+    store = get_store()
+
     # Create account
-    AccountFactory(id=12345, username="test_user", displayName="Test User")
+    account = AccountFactory.build(
+        id=12345, username="test_user", displayName="Test User"
+    )
+    await store.save(account)
 
     # Create a working post with attachment
-    PostFactory(id=204, accountId=12345, content="Working post #test")
-    MediaFactory(id=129, accountId=12345, mimetype="image/jpeg")
-    AccountMediaFactory(id=129, accountId=12345, mediaId=129)
-    AttachmentFactory(
+    post = PostFactory.build(id=204, accountId=12345, content="Working post #test")
+    await store.save(post)
+
+    media = MediaFactory.build(id=129, accountId=12345, mimetype="image/jpeg")
+    await store.save(media)
+
+    account_media = AccountMediaFactory.build(id=129, accountId=12345, mediaId=129)
+    await store.save(account_media)
+
+    attachment = AttachmentFactory.build(
         id=60006,
         postId=204,  # Link attachment to post
         contentId=129,  # Points to AccountMedia
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
-    # Commit factory changes
-    factory_async_session.commit()
+    await store.save(attachment)
 
-    # Query fresh from async session
-    result = await session.execute(select(Account).where(Account.id == 12345))
-    account = result.scalar_one()
+    # Add attachment to post
+    post.attachments = [attachment]
+    await store.save(post)
 
-    result = await session.execute(
-        select(Post).where(Post.id == 204).options(selectinload(Post.attachments))
-    )
-    working_post = result.unique().scalar_one()
+    # Retrieve fresh account and post from store
+    account = await store.get(Account, 12345)
+    working_post = await store.get(Post, 204)
 
     # Create performer and studio
     performer = PerformerFactory.build(id="500", name="test_user")
@@ -325,7 +346,6 @@ async def test_process_items_with_gallery_error_handling(
             item_type="post",
             items=[working_post],
             url_pattern_func=lambda x: f"https://example.com/post/{x.id}",
-            session=session,
         )
 
         # Verify the working post was processed

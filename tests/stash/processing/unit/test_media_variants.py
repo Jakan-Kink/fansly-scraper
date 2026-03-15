@@ -10,7 +10,8 @@ import httpx
 import pytest
 import respx
 
-from tests.fixtures import MediaLocationFactory
+from metadata import MediaLocation
+from metadata.models import get_store
 from tests.fixtures.metadata.metadata_factories import AccountMediaFactory, MediaFactory
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_images_result,
@@ -32,7 +33,7 @@ async def test_process_hls_variant(
     mock_performer,
     test_account,
     test_post,
-    session,
+    entity_store,
 ):
     """Test processing media with HLS stream variant.
 
@@ -40,6 +41,8 @@ async def test_process_hls_variant(
     1. Finding the scene in Stash via find_scenes GraphQL query
     2. Updating the scene metadata via sceneUpdate mutation
     """
+    store = get_store()
+
     # Arrange - Create REAL HLS variant Media using factory
     hls_variant = MediaFactory.build(
         id=100102,
@@ -49,26 +52,22 @@ async def test_process_hls_variant(
         meta_info='{"variants":[{"w":1920,"h":1080},{"w":1280,"h":720}]}',
         is_downloaded=True,
     )
-    session.add(hls_variant)
-    await session.commit()
+    await store.save(hls_variant)
 
     # Create MediaLocation for the variant
-    hls_location = MediaLocationFactory.build(
+    hls_location = MediaLocation(
         mediaId=hls_variant.id,
         locationId=102,
         location="https://example.com/test.m3u8",
     )
-    session.add(hls_location)
-    await session.commit()
+    hls_variant.locations = [hls_location]
+    await store.save(hls_variant)
 
-    # Add variant to test_media - use async session to avoid lazy-load issues
-    # First, ensure all objects are in the session and load existing relationships
-    await session.refresh(test_media, attribute_names=["variants"])
-    test_media.variants = {hls_variant}
+    # Add variant to test_media
+    test_media.variants = [hls_variant]
     test_media.stash_id = None
     test_media.is_downloaded = True
-    session.add(test_media)
-    await session.commit()
+    await store.save(test_media)
 
     # Mock Stash GraphQL HTTP responses using helpers
     # The code makes MULTIPLE GraphQL calls in this order:
@@ -218,7 +217,7 @@ async def test_process_dash_variant(
     mock_performer,
     test_account,
     test_post,
-    session,
+    entity_store,
 ):
     """Test processing media with DASH stream variant.
 
@@ -226,6 +225,8 @@ async def test_process_dash_variant(
     1. Finding the scene in Stash via find_scenes GraphQL query
     2. Updating the scene metadata via sceneUpdate mutation
     """
+    store = get_store()
+
     # Arrange - Create REAL DASH variant Media using factory
     dash_variant = MediaFactory.build(
         id=100103,
@@ -235,26 +236,22 @@ async def test_process_dash_variant(
         meta_info='{"variants":[{"w":1920,"h":1080},{"w":1280,"h":720}]}',
         is_downloaded=True,
     )
-    session.add(dash_variant)
-    await session.commit()
+    await store.save(dash_variant)
 
     # Create MediaLocation for the variant
-    dash_location = MediaLocationFactory.build(
+    dash_location = MediaLocation(
         mediaId=dash_variant.id,
         locationId=103,
         location="https://example.com/test.mpd",
     )
-    session.add(dash_location)
-    await session.commit()
+    dash_variant.locations = [dash_location]
+    await store.save(dash_variant)
 
-    # Add variant to test_media - use async session to avoid lazy-load issues
-    # First, ensure all objects are in the session and load existing relationships
-    await session.refresh(test_media, attribute_names=["variants"])
-    test_media.variants = {dash_variant}
+    # Add variant to test_media
+    test_media.variants = [dash_variant]
     test_media.stash_id = None
     test_media.is_downloaded = True
-    session.add(test_media)
-    await session.commit()
+    await store.save(test_media)
 
     # Mock Stash GraphQL HTTP responses using helpers
     # The code makes MULTIPLE GraphQL calls in this order:
@@ -314,7 +311,6 @@ async def test_process_dash_variant(
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
-    # v0.10.4: creator_studio_dict used directly in studioCreate response (not wrapped)
 
     # Response 6: sceneUpdate - mutation returns the updated scene
     updated_scene_data = create_scene_dict(
@@ -387,7 +383,7 @@ async def test_process_preview_variant(
     mock_performer,
     test_account,
     test_post,
-    session,
+    entity_store,
 ):
     """Test processing media with preview image variant.
 
@@ -395,6 +391,8 @@ async def test_process_preview_variant(
     1. Finding the image in Stash via find_images GraphQL query
     2. Updating the image metadata via imageUpdate mutation
     """
+    store = get_store()
+
     # Arrange - Create REAL preview variant Media using factory
     preview_variant = MediaFactory.build(
         id=100001,
@@ -404,26 +402,22 @@ async def test_process_preview_variant(
         meta_info='{"resolutionMode":1}',
         is_downloaded=True,
     )
-    session.add(preview_variant)
-    await session.commit()
+    await store.save(preview_variant)
 
     # Create MediaLocation for the variant
-    preview_location = MediaLocationFactory.build(
+    preview_location = MediaLocation(
         mediaId=preview_variant.id,
         locationId=1,
         location="https://example.com/preview.jpg",
     )
-    session.add(preview_location)
-    await session.commit()
+    preview_variant.locations = [preview_location]
+    await store.save(preview_variant)
 
-    # Add variant to test_media - use async session to avoid lazy-load issues
-    # First, ensure all objects are in the session and load existing relationships
-    await session.refresh(test_media, attribute_names=["variants"])
-    test_media.variants = {preview_variant}
+    # Add variant to test_media
+    test_media.variants = [preview_variant]
     test_media.stash_id = None
     test_media.is_downloaded = True
-    session.add(test_media)
-    await session.commit()
+    await store.save(test_media)
 
     # Mock Stash GraphQL HTTP responses using helpers
     # The code makes MULTIPLE GraphQL calls in this order:
@@ -485,7 +479,6 @@ async def test_process_preview_variant(
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
-    # v0.10.4: creator_studio_dict used directly in studioCreate response (not wrapped)
 
     # Response 7: imageUpdate - mutation returns the updated image
     updated_image_data = create_image_dict(
@@ -560,33 +553,30 @@ async def test_process_bundle_ordering(
     respx_stash_processor,
     mock_performer,
     test_account,
-    session,
+    entity_store,
 ):
     """Test processing media bundle with specific ordering.
 
     Tests that _process_bundle_media correctly processes bundles and maintains
     the order of media items within the bundle.
     """
+    store = get_store()
+
     # Arrange
-    # Create multiple REAL media items in bundle using factories
-    from metadata.account import account_media_bundle_media
     from tests.fixtures import PostFactory
     from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
-
-    # Create bundle fresh in the async session
     from tests.fixtures.metadata.metadata_fixtures import ACCOUNT_MEDIA_BUNDLE_ID_BASE
 
+    # Create bundle
     test_media_bundle = AccountMediaBundleFactory.build(
         id=ACCOUNT_MEDIA_BUNDLE_ID_BASE + 111222,
         accountId=test_account.id,
     )
-    session.add(test_media_bundle)
-    await session.commit()
+    await store.save(test_media_bundle)
 
     # Create a post to pass to _process_bundle_media
     test_post = PostFactory.build(accountId=test_account.id)
-    session.add(test_post)
-    await session.commit()
+    await store.save(test_post)
 
     media_items = []
     for i in range(3):
@@ -597,46 +587,30 @@ async def test_process_bundle_ordering(
             mimetype="image/jpeg",
             is_downloaded=True,
         )
-        session.add(media)
-        await session.commit()
+        await store.save(media)
 
         # Create MediaLocation for the media
-        media_location = MediaLocationFactory.build(
+        media_location = MediaLocation(
             mediaId=media.id,
             locationId=200 + i,
             location=f"https://example.com/bundle_media_{i}.jpg",
         )
-        session.add(media_location)
-        await session.commit()
+        media.locations = [media_location]
+        await store.save(media)
 
         # Create AccountMedia to link Media to Account
         account_media = AccountMediaFactory.build(
             accountId=test_media_bundle.accountId,
             mediaId=media.id,
         )
-        session.add(account_media)
-        await session.commit()
+        await store.save(account_media)
+        # account_media.media auto-resolves via identity map (Media already saved)
 
         media_items.append(account_media)
 
-    # Link AccountMedia items to bundle using the junction table
-    # This is the proper way to add media to a bundle!
-    for i, account_media in enumerate(media_items):
-        await session.execute(
-            account_media_bundle_media.insert().values(
-                bundle_id=test_media_bundle.id,
-                media_id=account_media.id,
-                pos=i,
-            )
-        )
-    await session.commit()
-
-    # Refresh bundle to load relationships
-    await session.refresh(test_media_bundle, attribute_names=["accountMedia"])
-
-    # Eagerly load media and preview relationships for each account_media
-    for account_media in media_items:
-        await session.refresh(account_media, attribute_names=["media", "preview"])
+    # Set accountMedia on the bundle (the relationship)
+    test_media_bundle.accountMedia = media_items
+    await store.save(test_media_bundle)
 
     # Mock Stash GraphQL HTTP responses
     # Bundle processing: findImages, findScenes, then for EACH image: findPerformers, 2x findStudios, imageUpdate
@@ -689,7 +663,6 @@ async def test_process_bundle_ordering(
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
-    # v0.10.4: creator_studio_dict used directly in studioCreate response (not wrapped)
 
     # findPerformers: by name (not found - _find_existing_performer doesn't create)
     empty_performers_result = create_find_performers_result(count=0, performers=[])
@@ -758,15 +731,9 @@ async def test_process_bundle_ordering(
     # Verify all 3 images were processed
     assert len(result["images"]) == 3
 
-    # Verify items are in correct order by manually querying the junction table
-    stmt = (
-        account_media_bundle_media.select()
-        .where(account_media_bundle_media.c.bundle_id == test_media_bundle.id)
-        .order_by(account_media_bundle_media.c.pos)
-    )
-    result_rows = await session.execute(stmt)
-    bundle_media_ids = [row.media_id for row in result_rows.all()]
-    assert len(bundle_media_ids) == 3
+    # Verify items are in correct order
+    assert len(test_media_bundle.accountMedia) == 3
+    bundle_media_ids = [m.id for m in test_media_bundle.accountMedia]
     assert bundle_media_ids == [m.id for m in media_items]
 
     # Verify GraphQL call sequence (permanent assertion)
@@ -802,29 +769,29 @@ async def test_process_bundle_with_preview(
     respx_stash_processor,
     mock_performer,
     test_account,
-    session,
+    entity_store,
 ):
     """Test processing media bundle with preview image.
 
     Tests that _process_bundle_media correctly handles bundles with preview images.
     """
+    store = get_store()
+
     # Arrange
     from tests.fixtures import PostFactory
     from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
     from tests.fixtures.metadata.metadata_fixtures import ACCOUNT_MEDIA_BUNDLE_ID_BASE
 
-    # Create bundle fresh in the async session
+    # Create bundle
     test_media_bundle = AccountMediaBundleFactory.build(
         id=ACCOUNT_MEDIA_BUNDLE_ID_BASE + 111223,
         accountId=test_account.id,
     )
-    session.add(test_media_bundle)
-    await session.commit()
+    await store.save(test_media_bundle)
 
     # Create a post to pass to _process_bundle_media
     test_post = PostFactory.build(accountId=test_account.id)
-    session.add(test_post)
-    await session.commit()
+    await store.save(test_post)
 
     # Create REAL preview media using factory
     preview_media = MediaFactory.build(
@@ -834,29 +801,27 @@ async def test_process_bundle_with_preview(
         type=1,  # Image type
         is_downloaded=True,
     )
-    session.add(preview_media)
-    await session.commit()
+    await store.save(preview_media)
 
     # Create MediaLocation for preview
-    preview_location = MediaLocationFactory.build(
+    preview_location = MediaLocation(
         mediaId=preview_media.id,
         locationId=999,
         location="https://example.com/preview.jpg",
     )
-    session.add(preview_location)
-    await session.commit()
+    preview_media.locations = [preview_location]
+    await store.save(preview_media)
 
     # Update bundle to reference this preview
     test_media_bundle.previewId = preview_media.id
-    session.add(test_media_bundle)
-    await session.commit()
-    await session.refresh(test_media_bundle, attribute_names=["preview"])
+    test_media_bundle.preview = preview_media  # Resolve relationship in-memory
+    await store.save(test_media_bundle)
 
     # Mock Stash GraphQL HTTP responses
     # Bundle with preview (IMAGE only, NO videos):
-    # 1. findStudios (Fansly network) — hoisted to batch level
-    # 2. findStudios (creator studio — not found) — hoisted to batch level
-    # 3. studioCreate (creator studio) — hoisted to batch level
+    # 1. findStudios (Fansly network) -- hoisted to batch level
+    # 2. findStudios (creator studio -- not found) -- hoisted to batch level
+    # 3. studioCreate (creator studio) -- hoisted to batch level
     # 4. findImages (for preview image by path)
     # 5. findPerformers (by name via _find_existing_performer - not found)
     # 6. imageUpdate (save metadata)
@@ -896,7 +861,6 @@ async def test_process_bundle_with_preview(
         name=f"{test_account.username} (Fansly)",
         urls=[f"https://fansly.com/{test_account.username}"],
     )
-    # v0.10.4: creator_studio_dict used directly in studioCreate response (not wrapped)
 
     graphql_route = respx.post("http://localhost:9999/graphql").mock(
         side_effect=[
@@ -992,31 +956,30 @@ async def test_bundle_permission_inheritance(
     respx_stash_processor,
     mock_performer,
     test_account,
-    session,
+    entity_store,
 ):
     """Test that media items inherit bundle permissions.
 
     Note: permissions is just data, not a database field in AccountMediaBundle.
     This test verifies that _process_bundle_media properly handles permissions.
     """
+    store = get_store()
+
     # Arrange
-    from metadata.account import account_media_bundle_media
     from tests.fixtures import PostFactory
     from tests.fixtures.metadata.metadata_factories import AccountMediaBundleFactory
     from tests.fixtures.metadata.metadata_fixtures import ACCOUNT_MEDIA_BUNDLE_ID_BASE
 
-    # Create bundle fresh in the async session
+    # Create bundle
     test_media_bundle = AccountMediaBundleFactory.build(
         id=ACCOUNT_MEDIA_BUNDLE_ID_BASE + 111224,
         accountId=test_account.id,
     )
-    session.add(test_media_bundle)
-    await session.commit()
+    await store.save(test_media_bundle)
 
     # Create a post to pass to _process_bundle_media
     test_post = PostFactory.build(accountId=test_account.id)
-    session.add(test_post)
-    await session.commit()
+    await store.save(test_post)
 
     # Create REAL media items using factories
     media_items = []
@@ -1028,45 +991,30 @@ async def test_bundle_permission_inheritance(
             mimetype="image/jpeg",
             is_downloaded=True,
         )
-        session.add(media)
-        await session.commit()
+        await store.save(media)
 
         # Create MediaLocation
-        media_location = MediaLocationFactory.build(
+        media_location = MediaLocation(
             mediaId=media.id,
             locationId=300 + i,
             location=f"https://example.com/permission_media_{i}.jpg",
         )
-        session.add(media_location)
-        await session.commit()
+        media.locations = [media_location]
+        await store.save(media)
 
         # Create AccountMedia to link Media to Account
         account_media = AccountMediaFactory.build(
             accountId=test_media_bundle.accountId,
             mediaId=media.id,
         )
-        session.add(account_media)
-        await session.commit()
+        await store.save(account_media)
+        # account_media.media auto-resolves via identity map (Media already saved)
 
         media_items.append(account_media)
 
-    # Link AccountMedia items to bundle using the junction table
-    for i, account_media in enumerate(media_items):
-        await session.execute(
-            account_media_bundle_media.insert().values(
-                bundle_id=test_media_bundle.id,
-                media_id=account_media.id,
-                pos=i,
-            )
-        )
-    await session.commit()
-
-    # Refresh bundle to load relationships
-    await session.refresh(test_media_bundle, attribute_names=["accountMedia"])
-
-    # Eagerly load media and preview relationships
-    for account_media in media_items:
-        await session.refresh(account_media, attribute_names=["media", "preview"])
+    # Set accountMedia on the bundle (the relationship)
+    test_media_bundle.accountMedia = media_items
+    await store.save(test_media_bundle)
 
     # Mock Stash GraphQL HTTP responses
     # 2 images: findImages, findScenes, findPerformers, 2x findStudios, 2x imageUpdate
@@ -1169,15 +1117,9 @@ async def test_bundle_permission_inheritance(
     # Verify bundle was processed
     assert len(result["images"]) == 2
 
-    # Verify items are in correct order by manually querying the junction table
-    stmt = (
-        account_media_bundle_media.select()
-        .where(account_media_bundle_media.c.bundle_id == test_media_bundle.id)
-        .order_by(account_media_bundle_media.c.pos)
-    )
-    result_rows = await session.execute(stmt)
-    bundle_media_ids = [row.media_id for row in result_rows.all()]
-    assert len(bundle_media_ids) == 2
+    # Verify items are in correct order
+    assert len(test_media_bundle.accountMedia) == 2
+    bundle_media_ids = [m.id for m in test_media_bundle.accountMedia]
     assert bundle_media_ids == [m.id for m in media_items]
 
     # Verify GraphQL call sequence

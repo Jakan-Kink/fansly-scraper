@@ -12,7 +12,7 @@ Philosophy:
 
 import pytest
 
-from metadata.attachment import ContentType
+from metadata import ContentType
 
 from .metadata_factories import (
     ACCOUNT_ID_BASE,

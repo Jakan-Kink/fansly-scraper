@@ -200,7 +200,7 @@ class TestMetadataUpdate:
             createdAt=datetime(2024, 3, 1, 0, 0, 0, tzinfo=UTC),  # Earlier!
         )
         earlier_item.hashtags = []
-        earlier_item.accountMentions = []
+        earlier_item.mentions = []
 
         # Mock GraphQL responses for the update path (performer, studios already exist)
         performer_dict = create_performer_dict(
@@ -284,51 +284,27 @@ class TestMetadataUpdate:
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_performers(
-        self, respx_stash_processor, mock_item, mock_account, mock_image, session
+        self, respx_stash_processor, mock_item, mock_account, mock_image
     ):
         """Test _update_stash_metadata method with performers.
 
         Unit test using respx - tests performer lookup and creation for account mentions.
+        PostMention objects (not Account) are used since Pydantic migration changed
+        the mentions relationship from Account objects to PostMention objects.
         """
-        # Create account mentions using AccountFactory
-        from contextlib import asynccontextmanager
+        from metadata import PostMention
 
-        from tests.fixtures.metadata.metadata_factories import AccountFactory
-
-        mention1 = AccountFactory.build(
+        mention1 = PostMention(
             id=22222,
-            username="mention_user1",
+            postId=mock_item.id,
+            handle="mention_user1",
         )
-        mention2 = AccountFactory.build(
+        mention2 = PostMention(
             id=33333,
-            username="mention_user2",
+            postId=mock_item.id,
+            handle="mention_user2",
         )
-        mock_item.accountMentions = [mention1, mention2]
-
-        # Create REAL Account objects in database (_update_account_stash_id needs to query them)
-        real_main_account = AccountFactory.build(
-            id=mock_account.id,
-            username=mock_account.username,
-        )
-        real_mention1 = AccountFactory.build(
-            id=22222,
-            username="mention_user1",
-        )
-        real_mention2 = AccountFactory.build(
-            id=33333,
-            username="mention_user2",
-        )
-        session.add(real_main_account)
-        session.add(real_mention1)
-        session.add(real_mention2)
-        await session.commit()
-
-        # Mock database.async_session_scope() to return our session for @with_session() decorator
-        @asynccontextmanager
-        async def mock_session_scope():
-            yield session
-
-        respx_stash_processor.database.async_session_scope = mock_session_scope
+        mock_item.mentions = [mention1, mention2]
 
         # Mock GraphQL HTTP responses - 8 sequential calls:
         # 1: findPerformers for main account (by name)
@@ -352,7 +328,7 @@ class TestMetadataUpdate:
         # Response 2: findPerformers for mention1 (found)
         mention1_performer_dict = create_performer_dict(
             id="456",
-            name=mention1.displayName or mention1.username,
+            name=mention1.handle,
         )
         mention1_performers_result = create_find_performers_result(
             count=1, performers=[mention1_performer_dict]
@@ -370,7 +346,7 @@ class TestMetadataUpdate:
         # Response 6: performerCreate for mention2
         new_performer = create_performer_dict(
             id="789",
-            name=mention2.displayName or mention2.username,
+            name=mention2.handle,
         )
 
         # Response 7: findStudios for Fansly (network)
@@ -465,9 +441,9 @@ class TestMetadataUpdate:
         # Performers are Pydantic models from stash-graphql-client
         performer_names = [p.name for p in mock_image.performers]
         assert mock_account.username in performer_names
-        # Mentions have displayName set, so check if username is contained in the name
-        assert any(mention1.username in name for name in performer_names)
-        assert any(mention2.username in name for name in performer_names)
+        # PostMention uses handle as the performer name
+        assert any(mention1.handle in name for name in performer_names)
+        assert any(mention2.handle in name for name in performer_names)
 
         # Verify GraphQL call sequence (permanent assertion)
         assert len(graphql_route.calls) == 10, "Expected exactly 10 GraphQL calls"

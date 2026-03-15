@@ -36,7 +36,7 @@ class TestBatchProcessing:
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
-                stash_id=f"stash_{20000 + i}",
+                stash_id=20000 + i,
             )
             media_list.append(media)
 
@@ -85,7 +85,7 @@ class TestBatchProcessing:
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
-                stash_id=f"stash_{30000 + i}",
+                stash_id=30000 + i,
             )
             media_list.append(media)
 
@@ -135,7 +135,7 @@ class TestBatchProcessing:
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
-                stash_id=f"stash_id_{40000 + i}",
+                stash_id=40000 + i,
             )
             media_list.append(media)
 
@@ -147,7 +147,7 @@ class TestBatchProcessing:
             # Return fake results
             results = []
             for stash_id, _mimetype in lookup_data:
-                image = ImageFactory(id=stash_id)
+                image = ImageFactory(id=str(stash_id))
                 image_file = ImageFileFactory()
                 results.append((image, image_file))
             return results
@@ -165,7 +165,7 @@ class TestBatchProcessing:
             )
 
         # Mock studio lookup (hoisted to top of _process_batch_internal)
-        mock_studio = Studio(id="test_studio_id", name="test (Fansly)")
+        mock_studio = Studio(id="9999", name="test (Fansly)")
 
         # Mock the methods using patch.object
         with (
@@ -238,7 +238,7 @@ class TestBatchProcessing:
             update_calls.append({"media_id": media_id})
 
         # Mock studio lookup (hoisted to top of _process_batch_internal)
-        mock_studio = Studio(id="test_studio_id", name="test (Fansly)")
+        mock_studio = Studio(id="9999", name="test (Fansly)")
 
         # Mock the methods using patch.object
         with (
@@ -319,7 +319,7 @@ class TestBatchProcessing:
             """No-op async mock for metadata update."""
 
         # Mock studio lookup (hoisted to top of _process_batch_internal)
-        mock_studio = Studio(id="test_studio_id", name="test (Fansly)")
+        mock_studio = Studio(id="9999", name="test (Fansly)")
 
         # Mock the methods using patch.object
         with (

@@ -4,15 +4,12 @@ import re
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
-
 from config import FanslyConfig
-from metadata.database import require_database_config
-from metadata.media import Media
+from metadata import Media
+from metadata.models import get_store
 
 
-@require_database_config
-def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str:  # noqa: PLR0911 - Multiple validation checks with early returns
+async def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str:  # noqa: PLR0911 - Multiple validation checks with early returns
     """Normalize filename to handle timezone differences.
 
     Converts filenames with different timezone formats to a standard format:
@@ -75,12 +72,10 @@ def normalize_filename(filename: str, config: FanslyConfig | None = None) -> str
             id_number_match = re.search(r"(?:preview_)?id_(\d+)", id_part)
             if id_number_match:
                 media_id = int(id_number_match.group(1))  # Extract just the numeric ID
-                with config._database.session_scope() as session:
-                    media = session.execute(
-                        select(Media).where(Media.id == media_id)
-                    ).scalar_one_or_none()
-                    if media and media.createdAt:
-                        created_at = media.createdAt
+                store = get_store()
+                media = await store.get(Media, media_id)
+                if media and media.createdAt:
+                    created_at = media.createdAt
 
         # When we have a database match, use the database timestamp
         if created_at:

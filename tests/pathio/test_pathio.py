@@ -9,7 +9,7 @@ import pytest
 
 from download.downloadstate import DownloadState
 from download.types import DownloadType
-from media import MediaItem
+from metadata import Media
 from pathio import (
     ask_correct_dir,
     delete_temporary_pyinstaller_files,
@@ -262,7 +262,7 @@ class TestPathIO:
         pictures_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item
-        media_item = mock.MagicMock(spec=MediaItem)
+        media_item = mock.MagicMock(spec=Media)
         media_item.mimetype = "image/jpeg"
         media_item.is_preview = False
         media_item.get_file_name.return_value = "image.jpg"
@@ -297,7 +297,7 @@ class TestPathIO:
         videos_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item
-        media_item = mock.MagicMock(spec=MediaItem)
+        media_item = mock.MagicMock(spec=Media)
         media_item.mimetype = "video/mp4"
         media_item.is_preview = False
         media_item.get_file_name.return_value = "video.mp4"
@@ -332,7 +332,7 @@ class TestPathIO:
         audio_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item
-        media_item = mock.MagicMock(spec=MediaItem)
+        media_item = mock.MagicMock(spec=Media)
         media_item.mimetype = "audio/mp3"
         media_item.is_preview = False
         media_item.get_file_name.return_value = "audio.mp3"
@@ -369,7 +369,7 @@ class TestPathIO:
         previews_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item
-        media_item = mock.MagicMock(spec=MediaItem)
+        media_item = mock.MagicMock(spec=Media)
         media_item.mimetype = "image/jpeg"
         media_item.is_preview = True
         media_item.get_file_name.return_value = "preview.jpg"
@@ -400,7 +400,7 @@ class TestPathIO:
         base_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item
-        media_item = mock.MagicMock(spec=MediaItem)
+        media_item = mock.MagicMock(spec=Media)
         media_item.mimetype = "application/unknown"
 
         # Assert
@@ -420,7 +420,7 @@ class TestPathIO:
         collections_dir.mkdir(parents=True, exist_ok=True)
 
         # Mock the media item
-        media_item = mock.MagicMock(spec=MediaItem)
+        media_item = mock.MagicMock(spec=Media)
         media_item.mimetype = "image/jpeg"
         media_item.is_preview = False
         media_item.get_file_name.return_value = "collection_image.jpg"

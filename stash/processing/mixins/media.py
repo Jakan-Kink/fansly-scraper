@@ -22,13 +22,10 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.orm import Session
 from stash_graphql_client.types import Image, ImageFile, Scene, Studio, VideoFile
 from stash_graphql_client.types.base import is_set
 
-from errors import ConfigError
 from metadata import Account, AccountMediaBundle, Attachment, Media
-from metadata.decorators import with_session
 
 from ...logging import debug_print
 from ...logging import processing_logger as logger
@@ -130,25 +127,20 @@ class MediaProcessingMixin(StashProcessingProtocol):
         # Fallback: match any of the codes without path constraint
         return "|".join(escaped_codes)
 
-    @with_session()
     async def _find_stash_files_by_id(
         self,
         stash_files: list[
             tuple[str | int, str]
         ],  # List of (stash_id, mime_type) tuples
-        session: Session | None = None,
     ) -> list[tuple[dict, Scene | Image]]:
         """Find files in Stash by stash ID.
 
         Args:
             stash_files: List of (stash_id, mime_type) tuples to search for
-            session: Optional database session (provided by decorator)
 
         Returns:
             List of (raw stash object, processed file object) tuples
         """
-        if session is None:
-            raise ConfigError("Database session is required")
         found = []
 
         # Group by mime type
@@ -518,12 +510,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 return
 
         # This is either the first instance or an earlier one - update the metadata
-        # Get username using awaitable attrs to avoid sync IO in async context
-        username = (
-            await account.awaitable_attrs.username
-            if hasattr(account, "awaitable_attrs")
-            else account.username
-        )
+        username = account.username
 
         # Pattern 6: Only update fields we explicitly want to change
         # Use UNSET for fields we don't touch to preserve server values
@@ -567,27 +554,28 @@ class MediaProcessingMixin(StashProcessingProtocol):
             await stash_obj.add_performer(main_performer)
 
         # Add mentioned performers with simplified creation
-        try:
-            mentions = await item.awaitable_attrs.accountMentions
-        except AttributeError:
-            mentions = None
+        # Uses field name 'mentions' (not alias 'accountMentions') for Pydantic access
+        mentions = getattr(item, "mentions", None)
 
         if mentions:
             for mention in mentions:
                 # Use get_or_create for automatic conflict handling
                 mention_performer = await self._get_or_create_performer(mention)
                 if mention_performer:
-                    # Update stash_id in database
+                    # Update stash_id in database (skip for PostMention — no stash_id)
                     await self._update_account_stash_id(mention, mention_performer)
 
                     # Use relationship helper for bidirectional sync
                     await stash_obj.add_performer(mention_performer)
 
+                    mention_name = getattr(mention, "username", None) or getattr(
+                        mention, "handle", None
+                    )
                     debug_print(
                         {
                             "method": "StashProcessing - _update_stash_metadata",
                             "status": "mention_performer_added",
-                            "username": mention.username,
+                            "username": mention_name,
                             "stash_id": mention_performer.id,
                         }
                     )
@@ -605,15 +593,11 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 stash_obj.studio = studio
 
         # Add hashtags as tags using relationship helper
-        try:
-            hashtags = await item.awaitable_attrs.hashtags
-            if hashtags:
-                tags = await self._process_hashtags_to_tags(hashtags)
-                for tag in tags:
-                    await stash_obj.add_tag(tag)
-        except AttributeError:
-            # Item doesn't have hashtags attribute (e.g., Messages)
-            pass
+        hashtags = getattr(item, "hashtags", None)
+        if hashtags:
+            tags = await self._process_hashtags_to_tags(hashtags)
+            for tag in tags:
+                await stash_obj.add_tag(tag)
 
         # Mark as preview if needed
         if is_preview:
@@ -658,11 +642,6 @@ class MediaProcessingMixin(StashProcessingProtocol):
             account: Account that created the content
             result: Dictionary to add results to
         """
-        if hasattr(media, "awaitable_attrs"):
-            await media.awaitable_attrs.variants
-            await media.awaitable_attrs.mimetype
-            await media.awaitable_attrs.is_downloaded
-
         debug_print(
             {
                 "method": "StashProcessing - _process_media",
@@ -670,15 +649,11 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 "media_id": media.id,
                 "stash_id": media.stash_id,
                 "is_downloaded": media.is_downloaded,
-                "variant_count": (
-                    len(media.variants) if hasattr(media, "variants") else 0
-                ),
-                "variants": (
-                    [v.id for v in media.variants] if hasattr(media, "variants") else []
-                ),
+                "variant_count": len(media.variants) if media.variants else 0,
+                "variants": ([v.id for v in media.variants] if media.variants else []),
                 "variant_details": (
                     [{"id": v.id, "mimetype": v.mimetype} for v in media.variants]
-                    if hasattr(media, "variants") and media.variants
+                    if media.variants
                     else []
                 ),
             }
@@ -695,7 +670,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
         else:
             # Collect all media IDs (original + variants)
             media_files = [(str(media.id), media.mimetype)]
-            if hasattr(media, "variants") and media.variants:
+            if media.variants:
                 # Log variant relationships in detail
                 debug_print(
                     {
@@ -746,17 +721,12 @@ class MediaProcessingMixin(StashProcessingProtocol):
             account: Account that created the content
             result: Dictionary to add results to
         """
-        if hasattr(bundle, "awaitable_attrs"):
-            await bundle.awaitable_attrs.accountMedia
-
         debug_print(
             {
                 "method": "StashProcessing - _process_bundle_media",
                 "status": "processing_bundle",
                 "bundle_id": bundle.id,
-                "media_count": (
-                    len(bundle.accountMedia) if hasattr(bundle, "accountMedia") else 0
-                ),
+                "media_count": (len(bundle.accountMedia) if bundle.accountMedia else 0),
             }
         )
 
@@ -794,13 +764,11 @@ class MediaProcessingMixin(StashProcessingProtocol):
             result["images"].extend(batch_result["images"])
             result["scenes"].extend(batch_result["scenes"])
 
-    @with_session()
     async def process_creator_attachment(
         self,
         attachment: Attachment,
         item: Any,
         account: Account,
-        session: Session | None = None,
     ) -> dict[str, list[Image | Scene]]:
         """Process attachment into Image and Scene objects.
 
@@ -851,21 +819,12 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 "method": "StashProcessing - process_creator_attachment",
                 "status": "checking_bundle",
                 "attachment_id": attachment.id,
-                "has_bundle": hasattr(attachment, "bundle"),
-                "bundle_loaded": hasattr(attachment, "awaitable_attrs"),
+                "has_bundle": bool(attachment.bundle),
             }
         )
 
-        # Load and process bundle if present
-        if hasattr(attachment, "awaitable_attrs"):
-            await attachment.awaitable_attrs.bundle
         if attachment.bundle:
-            # Collect media from bundle for batch processing
-            if hasattr(attachment.bundle, "awaitable_attrs"):
-                await attachment.bundle.awaitable_attrs.accountMedia
-                await attachment.bundle.awaitable_attrs.preview
-
-            if hasattr(attachment.bundle, "accountMedia"):
+            if attachment.bundle.accountMedia:
                 for account_media in attachment.bundle.accountMedia:
                     if account_media.media:
                         media_batch.append(account_media.media)
@@ -881,15 +840,9 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 "method": "StashProcessing - process_creator_attachment",
                 "status": "checking_aggregated",
                 "attachment_id": attachment.id,
-                "has_aggregated_post": hasattr(attachment, "aggregated_post"),
+                "is_aggregated_post": getattr(attachment, "is_aggregated_post", False),
             }
         )
-
-        # Load and process aggregated post if present
-        if hasattr(attachment, "awaitable_attrs"):
-            await attachment.awaitable_attrs.is_aggregated_post
-            if getattr(attachment, "is_aggregated_post", False):
-                await attachment.awaitable_attrs.aggregated_post
 
         if (
             getattr(attachment, "is_aggregated_post", False)
@@ -897,34 +850,26 @@ class MediaProcessingMixin(StashProcessingProtocol):
         ):
             agg_post = attachment.aggregated_post
 
-            # Load post attributes
-            if hasattr(agg_post, "awaitable_attrs"):
-                await agg_post.awaitable_attrs.attachments
-
             debug_print(
                 {
                     "method": "StashProcessing - process_creator_attachment",
                     "status": "processing_aggregated",
                     "attachment_id": attachment.id,
                     "post_id": agg_post.id,
-                    "has_attachments": hasattr(agg_post, "attachments"),
                     "attachment_count": (
-                        len(agg_post.attachments)
-                        if hasattr(agg_post, "attachments")
-                        else 0
+                        len(agg_post.attachments) if agg_post.attachments else 0
                     ),
                 }
             )
 
             # Process each attachment if any
-            if hasattr(agg_post, "attachments") and agg_post.attachments:
+            if agg_post.attachments:
                 for agg_attachment in agg_post.attachments:
                     # Recursively process attachments from aggregated post
                     agg_result = await self.process_creator_attachment(
                         attachment=agg_attachment,
                         item=agg_post,
                         account=account,
-                        session=session,
                     )
                     result["images"].extend(agg_result["images"])
                     result["scenes"].extend(agg_result["scenes"])
@@ -1052,13 +997,6 @@ class MediaProcessingMixin(StashProcessingProtocol):
         if studio is None:
             studio = await self._find_existing_studio(account)
 
-        # Load awaitable attributes for all media in one pass
-        for media in media_list:
-            if hasattr(media, "awaitable_attrs"):
-                await media.awaitable_attrs.mimetype
-                await media.awaitable_attrs.is_downloaded
-                await media.awaitable_attrs.variants
-
         # Group media by stash_id vs path-based lookup
         stash_id_media = []
         path_media = []
@@ -1071,7 +1009,7 @@ class MediaProcessingMixin(StashProcessingProtocol):
                 # Start with the media itself
                 path_media.append((str(media.id), media.mimetype, media.id))
                 # Add variants
-                if hasattr(media, "variants") and media.variants:
+                if media.variants:
                     path_media.extend(
                         (str(variant.id), variant.mimetype, media.id)
                         for variant in media.variants
