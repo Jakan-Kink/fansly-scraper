@@ -115,7 +115,6 @@ async def test_message_with_attachment(entity_store):
     sender_id = snowflake_id()
     recipient_id = snowflake_id()
     msg_id = snowflake_id()
-    att_id = snowflake_id()
     content_id = snowflake_id()
 
     account1 = Account(id=sender_id, username="sender")
@@ -136,7 +135,6 @@ async def test_message_with_attachment(entity_store):
     # Add attachment and re-save
     message.attachments = [
         Attachment(
-            id=att_id,
             contentId=content_id,
             messageId=msg_id,
             contentType=ContentType.ACCOUNT_MEDIA,
@@ -164,7 +162,6 @@ async def test_process_messages_metadata(entity_store, config):
     sender_id = snowflake_id()
     recipient_id = snowflake_id()
     msg_id = snowflake_id()
-    att_id = snowflake_id()
     content_id = snowflake_id()
 
     account1 = Account(id=sender_id, username="sender")
@@ -181,7 +178,6 @@ async def test_process_messages_metadata(entity_store, config):
             "createdAt": int(datetime.now(UTC).timestamp()),
             "attachments": [
                 {
-                    "id": att_id,
                     "contentId": content_id,
                     "contentType": ContentType.ACCOUNT_MEDIA.value,
                     "pos": 1,

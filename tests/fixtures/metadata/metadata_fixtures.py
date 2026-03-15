@@ -18,7 +18,6 @@ from .metadata_factories import (
     ACCOUNT_ID_BASE,
     ACCOUNT_MEDIA_BUNDLE_ID_BASE,
     ACCOUNT_MEDIA_ID_BASE,
-    ATTACHMENT_ID_BASE,
     GROUP_ID_BASE,
     MEDIA_ID_BASE,
     MESSAGE_ID_BASE,
@@ -138,7 +137,7 @@ def test_attachment(session_sync, test_account, test_media):
         test_media: Media to attach
 
     Returns:
-        Attachment: Real Attachment object with id in 60-bit range
+        Attachment: Real Attachment object with auto-increment id
     """
     # First create an AccountMedia that links the Media to an Account
     account_media = AccountMediaFactory.build(
@@ -151,7 +150,6 @@ def test_attachment(session_sync, test_account, test_media):
 
     # Create attachment that references the AccountMedia
     attachment = AttachmentFactory.build(
-        id=ATTACHMENT_ID_BASE + 60123,  # Snowflake-style 60-bit ID
         contentId=account_media.id,  # References AccountMedia.id
         contentType=ContentType.ACCOUNT_MEDIA,
         postId=None,  # Will be updated by tests if needed
@@ -232,7 +230,6 @@ def test_posts(session_sync, test_account):
 
         # Create attachment that references the AccountMedia
         attachment = AttachmentFactory.build(
-            id=ATTACHMENT_ID_BASE + 60000 + i,  # Snowflake-style 60-bit ID
             contentId=account_media.id,  # References AccountMedia.id
             contentType=ContentType.ACCOUNT_MEDIA,
             postId=post.id,
@@ -325,7 +322,6 @@ def test_messages(session_sync, test_group, test_account):
             session_sync.add(account_media)
 
             attachment = AttachmentFactory.build(
-                id=ATTACHMENT_ID_BASE + 70000 + i,  # Snowflake-style 60-bit ID
                 contentId=account_media.id,  # References AccountMedia.id
                 contentType=ContentType.ACCOUNT_MEDIA,
                 messageId=message.id,

@@ -1175,6 +1175,8 @@ class Attachment(FanslyObject):
             data["contentType"] = ContentType[ct]
         return data
 
+    id: int | None = None  # auto-increment, not a Snowflake (API sends no id)
+
     postId: SnowflakeId | None = None
     messageId: SnowflakeId | None = None
     contentId: SnowflakeId

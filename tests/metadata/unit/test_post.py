@@ -57,7 +57,6 @@ async def test_post_with_attachments(entity_store):
     # Add attachments and re-save (triggers _sync_associations)
     post.attachments = [
         Attachment(
-            id=snowflake_id(),
             postId=post_id,
             contentId=snowflake_id(),
             contentType=ContentType.ACCOUNT_MEDIA,
@@ -293,7 +292,6 @@ async def test_post_cascade_delete(entity_store):
 
     account_id = snowflake_id()
     post_id = snowflake_id()
-    att_id = snowflake_id()
     content_id = snowflake_id()
 
     account = Account(id=account_id, username="test_user")
@@ -305,7 +303,6 @@ async def test_post_cascade_delete(entity_store):
     # Add attachment
     post.attachments = [
         Attachment(
-            id=att_id,
             postId=post_id,
             contentId=content_id,
             contentType=ContentType.ACCOUNT_MEDIA,

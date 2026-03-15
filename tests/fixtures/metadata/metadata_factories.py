@@ -446,7 +446,7 @@ class AttachmentFactory(BaseFactory):
     class Meta:
         model = Attachment
 
-    id = Sequence(lambda n: ATTACHMENT_ID_BASE + n)
+    # ID is autoincrement - do not set it (API sends no id for attachments)
     contentId = Sequence(
         lambda n: ACCOUNT_MEDIA_ID_BASE + n
     )  # References AccountMedia.id or AccountMediaBundle.id

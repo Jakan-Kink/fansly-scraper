@@ -162,7 +162,7 @@ walls = Table(
 attachments = Table(
     "attachments",
     metadata,
-    Column("id", BigInteger, primary_key=True),
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
     Column("postId", BigInteger, ForeignKey("posts.id"), nullable=True),
     Column("messageId", BigInteger, ForeignKey("messages.id"), nullable=True),
     Column("contentId", BigInteger, nullable=False),

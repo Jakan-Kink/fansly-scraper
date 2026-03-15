@@ -20,9 +20,6 @@ async def test_post_attachment_ordering(entity_store):
 
     account_id = snowflake_id()
     post_id = snowflake_id()
-    att_id1 = snowflake_id()
-    att_id2 = snowflake_id()
-    att_id3 = snowflake_id()
     content_id1 = snowflake_id()
     content_id2 = snowflake_id()
     content_id3 = snowflake_id()
@@ -41,21 +38,18 @@ async def test_post_attachment_ordering(entity_store):
     # Set attachments in pos order (simulating sorted API data)
     post.attachments = [
         Attachment(
-            id=att_id2,
             postId=post_id,
             contentId=content_id2,
             pos=1,
             contentType=ContentType.ACCOUNT_MEDIA,
         ),
         Attachment(
-            id=att_id3,
             postId=post_id,
             contentId=content_id3,
             pos=2,
             contentType=ContentType.ACCOUNT_MEDIA,
         ),
         Attachment(
-            id=att_id1,
             postId=post_id,
             contentId=content_id1,
             pos=3,
@@ -82,9 +76,6 @@ async def test_message_attachment_ordering(entity_store):
 
     account_id = snowflake_id()
     msg_id = snowflake_id()
-    att_id1 = snowflake_id()
-    att_id2 = snowflake_id()
-    att_id3 = snowflake_id()
     content_id1 = snowflake_id()
     content_id2 = snowflake_id()
     content_id3 = snowflake_id()
@@ -103,21 +94,18 @@ async def test_message_attachment_ordering(entity_store):
     # Set attachments in pos order
     message.attachments = [
         Attachment(
-            id=att_id3,
             messageId=msg_id,
             contentId=content_id3,
             pos=1,
             contentType=ContentType.ACCOUNT_MEDIA,
         ),
         Attachment(
-            id=att_id1,
             messageId=msg_id,
             contentId=content_id1,
             pos=2,
             contentType=ContentType.ACCOUNT_MEDIA,
         ),
         Attachment(
-            id=att_id2,
             messageId=msg_id,
             contentId=content_id2,
             pos=3,
@@ -146,21 +134,18 @@ async def test_attachment_content_resolution(entity_store):
     content_id3 = snowflake_id()
 
     att_media = Attachment(
-        id=snowflake_id(),
         postId=post_id,
         contentId=content_id1,
         pos=1,
         contentType=ContentType.ACCOUNT_MEDIA,
     )
     att_bundle = Attachment(
-        id=snowflake_id(),
         postId=post_id,
         contentId=content_id2,
         pos=2,
         contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
     )
     att_story = Attachment(
-        id=snowflake_id(),
         postId=post_id,
         contentId=content_id3,
         pos=3,
@@ -193,7 +178,6 @@ async def test_attachment_exclusivity(entity_store):
 
     # Pydantic allows both — the CHECK constraint is DB-level
     att = Attachment(
-        id=snowflake_id(),
         contentId=content_id,
         pos=1,
         contentType=ContentType.ACCOUNT_MEDIA,
@@ -214,7 +198,6 @@ async def test_invalid_content_type_raises(entity_store):
     """
     with pytest.raises(ValidationError, match="contentType"):
         Attachment(
-            id=snowflake_id(),
             contentId=snowflake_id(),
             contentType=99999,
             pos=0,

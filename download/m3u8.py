@@ -324,6 +324,13 @@ def _try_direct_download_ffmpeg(
             probe = ffmpeg.probe(variant_url)
             total_duration = float(probe.get("format", {}).get("duration", 0))
             print_debug(f"HLS video duration: {total_duration:.2f}s")
+        except ffmpeg.Error as probe_err:
+            stderr_msg = (
+                probe_err.stderr.decode(errors="replace").strip()
+                if probe_err.stderr
+                else "no stderr"
+            )
+            print_debug(f"Could not probe HLS duration: {stderr_msg}")
         except Exception as probe_err:
             print_debug(f"Could not probe HLS duration: {probe_err}")
 
