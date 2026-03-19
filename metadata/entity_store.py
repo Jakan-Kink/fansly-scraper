@@ -260,6 +260,11 @@ class PostgresEntityStore:
             init=self._init_pg_connection,
         )
         with self._thread_pool_lock:
+            # Double-check: another coroutine may have created one while
+            # we were awaiting create_pool (TOCTOU race).
+            if tid in self._thread_pools:
+                await pool.close()
+                return self._thread_pools[tid]
             self._thread_pools[tid] = pool
         db_logger.info(
             f"Created thread-local asyncpg pool for thread {tid} "
@@ -529,6 +534,7 @@ class PostgresEntityStore:
             data = self._prepare_row_data(model_type, dict(row))
             obj = model_type.model_validate(data)
             obj._is_new = False  # loaded from DB
+            self.cache_instance(obj)
             results.append(obj)  # type: ignore[arg-type]
 
         return results
@@ -1079,8 +1085,8 @@ class PostgresEntityStore:
         pool = await self._get_pool()
         return await pool.fetchrow(sql, entity_id)
 
-    @staticmethod
     def _build_where_clauses(
+        self,
         table_name: str,
         parsed_filters: list[tuple[str, str, Any]],
         start_idx: int = 1,
@@ -1091,7 +1097,7 @@ class PostgresEntityStore:
         idx = start_idx
 
         for field, lookup, value in parsed_filters:
-            col = f"{table_name}.{field}"
+            col = f"{table_name}.{self._q(field)}"
 
             if lookup == "null":
                 conditions.append(f"{col} IS NULL" if value else f"{col} IS NOT NULL")

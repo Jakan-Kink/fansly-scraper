@@ -52,7 +52,7 @@ def snowflake_id() -> int:
         account_id = snowflake_id()
         media_id = snowflake_id()
     """
-    return time.monotonic_ns() % (10**18)
+    return (time.monotonic_ns() % (10**18 - 10**15)) + 10**15
 
 
 def get_worker_id() -> str:
