@@ -14,6 +14,7 @@ from stash_graphql_client.types import Performer, Studio
 from metadata import Account
 from tests.fixtures.metadata.metadata_factories import AccountFactory
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestStashProcessingIntegration:
@@ -47,15 +48,16 @@ class TestStashProcessingIntegration:
     ):
         """Test _find_account method using creator_id with real database."""
         # Create a real account in the database via entity_store
+        acct_id = snowflake_id()
         account_obj = Account(
-            id=12345,
+            id=acct_id,
             username="test_user",
             createdAt=datetime.now(UTC),
         )
         await entity_store.save(account_obj)
 
         # Setup state to search by ID
-        real_stash_processor.state.creator_id = 12345
+        real_stash_processor.state.creator_id = acct_id
         real_stash_processor.state.creator_name = None
 
         # _find_account no longer accepts session - uses get_store() internally
@@ -63,7 +65,7 @@ class TestStashProcessingIntegration:
 
         # Verify result
         assert result is not None
-        assert result.id == 12345
+        assert result.id == acct_id
         assert result.username == "test_user"
 
     @pytest.mark.asyncio
@@ -77,8 +79,9 @@ class TestStashProcessingIntegration:
     ):
         """Test _find_account method using creator_name with real database."""
         # Create a real account in the database via entity_store
+        acct_id = snowflake_id()
         account_obj = Account(
-            id=99998,
+            id=acct_id,
             username="test_creator",
             createdAt=datetime.now(UTC),
         )
@@ -105,7 +108,7 @@ class TestStashProcessingIntegration:
     ):
         """Test _find_account method when account not found."""
         # Setup state for non-existent account
-        real_stash_processor.state.creator_id = 99999
+        real_stash_processor.state.creator_id = snowflake_id()
         real_stash_processor.state.creator_name = None
 
         # _find_account no longer accepts session - uses get_store() internally

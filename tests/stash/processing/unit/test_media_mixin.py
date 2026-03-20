@@ -23,6 +23,7 @@ from tests.fixtures import (
     create_studio_dict,
 )
 from tests.fixtures.stash.stash_graphql_fixtures import create_image_dict
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestMediaProcessingWithRealData:
@@ -35,25 +36,34 @@ class TestMediaProcessingWithRealData:
         """Test processing media with real data using factories."""
         await respx_stash_processor.context.get_client()
 
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        media_id = snowflake_id()
+        acct_media_id = snowflake_id()
+
         # Create test data with factories and save via entity_store
-        account = AccountFactory.build(id=12345, username="test_user")
+        account = AccountFactory.build(id=acct_id, username="test_user")
         await entity_store.save(account)
 
-        post = PostFactory.build(id=200, accountId=12345, content="Test post #test")
+        post = PostFactory.build(
+            id=post_id, accountId=acct_id, content="Test post #test"
+        )
         await entity_store.save(post)
 
         media = MediaFactory.build(
-            id=123, accountId=12345, mimetype="image/jpeg", is_downloaded=True
+            id=media_id, accountId=acct_id, mimetype="image/jpeg", is_downloaded=True
         )
         await entity_store.save(media)
 
-        account_media = AccountMediaFactory.build(id=123, accountId=12345, mediaId=123)
+        account_media = AccountMediaFactory.build(
+            id=acct_media_id, accountId=acct_id, mediaId=media_id
+        )
         await entity_store.save(account_media)
 
         attachment = AttachmentFactory.build(
             id=60001,
-            postId=200,
-            contentId=123,
+            postId=post_id,
+            contentId=acct_media_id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
@@ -196,7 +206,7 @@ class TestMediaProcessingWithRealData:
         path_pattern = find_images_calls[0]["variables"]["image_filter"]["path"][
             "value"
         ]
-        assert "(123)" in path_pattern
+        assert f"({media_id})" in path_pattern
 
         # Verify findPerformers was called
         find_performers_calls = [
@@ -226,23 +236,34 @@ class TestMediaProcessingWithRealData:
         """Test process_creator_attachment with real data using factories."""
         await respx_stash_processor.context.get_client()
 
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        media_id = snowflake_id()
+        acct_media_id = snowflake_id()
+
         # Create test data with factories and save via entity_store
-        account = AccountFactory.build(id=12346, username="test_user_2")
+        account = AccountFactory.build(id=acct_id, username="test_user_2")
         await entity_store.save(account)
 
-        post = PostFactory.build(id=201, accountId=12346, content="Test post #test")
+        post = PostFactory.build(
+            id=post_id, accountId=acct_id, content="Test post #test"
+        )
         await entity_store.save(post)
 
-        media = MediaFactory.build(id=124, accountId=12346, mimetype="image/jpeg")
+        media = MediaFactory.build(
+            id=media_id, accountId=acct_id, mimetype="image/jpeg"
+        )
         await entity_store.save(media)
 
-        account_media = AccountMediaFactory.build(id=124, accountId=12346, mediaId=124)
+        account_media = AccountMediaFactory.build(
+            id=acct_media_id, accountId=acct_id, mediaId=media_id
+        )
         await entity_store.save(account_media)
 
         attachment = AttachmentFactory.build(
             id=60002,
-            postId=201,
-            contentId=124,
+            postId=post_id,
+            contentId=acct_media_id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
@@ -255,8 +276,8 @@ class TestMediaProcessingWithRealData:
             visual_files=[
                 {
                     "id": "801",
-                    "path": "/path/to/124.jpg",
-                    "basename": "124.jpg",
+                    "path": f"/path/to/{media_id}.jpg",
+                    "basename": f"{media_id}.jpg",
                     "parent_folder_id": "folder_1",
                     "size": 1024000,
                     "width": 1920,
@@ -386,7 +407,7 @@ class TestMediaProcessingWithRealData:
         path_pattern = find_images_calls[0]["variables"]["image_filter"]["path"][
             "value"
         ]
-        assert "(124)" in path_pattern
+        assert f"({media_id})" in path_pattern
 
         # Verify findPerformers was called
         find_performers_calls = [

@@ -16,6 +16,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_studio_dict,
     create_tag_dict,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestMetadataUpdate:
@@ -194,7 +195,7 @@ class TestMetadataUpdate:
         from tests.fixtures.metadata.metadata_factories import PostFactory
 
         earlier_item = PostFactory.build(
-            id=99999,
+            id=snowflake_id(),
             accountId=mock_account.id,
             content="Earlier content",
             createdAt=datetime(2024, 3, 1, 0, 0, 0, tzinfo=UTC),  # Earlier!

@@ -26,6 +26,7 @@ from stash.processing.mixins.gallery import GalleryProcessingMixin
 from stash.processing.mixins.media import MediaProcessingMixin
 from stash.processing.mixins.studio import StudioProcessingMixin
 from stash.processing.mixins.tag import TagProcessingMixin
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 __all__ = [
@@ -204,9 +205,10 @@ def mock_item():
     from tests.fixtures.metadata.metadata_factories import PostFactory
 
     # Create real Post object (detached from database)
+    acct_id = snowflake_id()
     item = PostFactory.build(
-        id=12345,
-        accountId=12345,
+        id=snowflake_id(),
+        accountId=acct_id,
         content="Test content #test #hashtag",
         createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
     )

@@ -24,6 +24,7 @@ from tests.fixtures.stash import (
     create_studio_dict,
     dump_graphql_calls,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestBackgroundProcessing:
@@ -37,22 +38,25 @@ class TestBackgroundProcessing:
 
         Mocks only GraphQL HTTP calls, lets real database queries execute.
         """
+        acct_id = snowflake_id()
+        media_id = snowflake_id()
+
         # Create real account in database
-        account = AccountFactory.build(id=12345, username="test_user", stash_id=123)
+        account = AccountFactory.build(id=acct_id, username="test_user", stash_id=123)
         await entity_store.save(account)
 
         # Create a post with attachments so process_creator_posts has data to process
-        post = PostFactory.build(accountId=12345)
+        post = PostFactory.build(accountId=acct_id)
         await entity_store.save(post)
 
         # Create media for the post
         media = MediaFactory.build(
-            id=99999, accountId=12345, mimetype="image/jpeg", is_downloaded=True
+            id=media_id, accountId=acct_id, mimetype="image/jpeg", is_downloaded=True
         )
         await entity_store.save(media)
 
         # Create AccountMedia as attachment content
-        account_media = AccountMediaFactory.build(accountId=12345, mediaId=99999)
+        account_media = AccountMediaFactory.build(accountId=acct_id, mediaId=media_id)
         await entity_store.save(account_media)
 
         # Create Attachment linking the post to the media
@@ -122,7 +126,7 @@ class TestBackgroundProcessing:
         assert respx_stash_processor._cleanup_event.is_set()
 
         # Verify account still exists in database (real query executed)
-        found_account = await entity_store.get(Account, 12345)
+        found_account = await entity_store.get(Account, acct_id)
         assert found_account is not None
 
         # Verify GraphQL call sequence (no preload - continue_stash_processing
@@ -144,8 +148,10 @@ class TestBackgroundProcessing:
 
         Simulates task cancellation during GraphQL call by patching at continue_stash_processing level.
         """
+        acct_id = snowflake_id()
+
         # Create real account
-        account = AccountFactory.build(id=12346, username="test_cancel", stash_id=124)
+        account = AccountFactory.build(id=acct_id, username="test_cancel", stash_id=124)
         await entity_store.save(account)
 
         # Patch continue_stash_processing to raise CancelledError (simulates task cancellation)
@@ -180,8 +186,10 @@ class TestBackgroundProcessing:
 
         Simulates processing error by patching at continue_stash_processing level.
         """
+        acct_id = snowflake_id()
+
         # Create real account
-        account = AccountFactory.build(id=12347, username="test_error", stash_id=125)
+        account = AccountFactory.build(id=acct_id, username="test_error", stash_id=125)
         await entity_store.save(account)
 
         # Patch continue_stash_processing to raise error (simulates processing failure)
@@ -219,9 +227,11 @@ class TestBackgroundProcessing:
         2. Correct GraphQL requests sent to Stash with right variables
         3. Real database queries execute
         """
+        acct_id = snowflake_id()
+
         # Create real account
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
             stash_id=123,
@@ -316,8 +326,10 @@ class TestBackgroundProcessing:
         The entity_store is the global singleton used by production code
         (via get_store()), so _update_account_stash_id will use it directly.
         """
+        acct_id = snowflake_id()
+
         # Create account with no stash_id
-        account = AccountFactory.build(id=12346, username="test_user2", stash_id=None)
+        account = AccountFactory.build(id=acct_id, username="test_user2", stash_id=None)
         await entity_store.save(account)
 
         # Performer has stash_id
@@ -383,7 +395,7 @@ class TestBackgroundProcessing:
 
         # Assert - verify real database UPDATE executed
         # Re-fetch from entity_store to see persisted changes
-        updated_account = await entity_store.get(Account, 12346)
+        updated_account = await entity_store.get(Account, acct_id)
         assert updated_account is not None
         assert updated_account.stash_id == 456  # int, not str
 
@@ -418,7 +430,7 @@ class TestBackgroundProcessing:
             await respx_stash_processor.continue_stash_processing(None, None)
 
         # Case 2: Missing performer
-        account = Account(id=1, username="test")
+        account = Account(id=snowflake_id(), username="test")
         with pytest.raises(ValueError, match="Missing account or performer data"):
             await respx_stash_processor.continue_stash_processing(account, None)
 
@@ -427,8 +439,10 @@ class TestBackgroundProcessing:
         self, entity_store, respx_stash_processor
     ):
         """Test continue_stash_processing with Performer object."""
+        acct_id = snowflake_id()
+
         # Create account
-        account = AccountFactory.build(id=12347, username="test_user3", stash_id=789)
+        account = AccountFactory.build(id=acct_id, username="test_user3", stash_id=789)
         await entity_store.save(account)
 
         # Create Performer object (Pydantic-based library, not dicts)
@@ -518,7 +532,8 @@ class TestBackgroundProcessing:
         Note: finally block tries to access performer.name, so AttributeError raised
         instead of the initial TypeError.
         """
-        account = AccountFactory.build(id=12348, username="test_user4", stash_id=123)
+        acct_id = snowflake_id()
+        account = AccountFactory.build(id=acct_id, username="test_user4", stash_id=123)
         await entity_store.save(account)
 
         # Invalid performer type (string instead of Performer or dict)

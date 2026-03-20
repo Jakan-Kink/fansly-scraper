@@ -333,98 +333,64 @@ def test_get_token_from_firefox_db_generic_exception(mock_connect):
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-@patch("time.sleep")
-@patch("textio.print_config")
-def test_close_browser_by_name_windows(
-    mock_print, mock_sleep, mock_process_iter, mock_platform
-):
+def test_close_browser_by_name_windows(mock_process_iter, mock_platform):
     """Test closing browser on Windows."""
     mock_platform.return_value = "Windows"
     mock_process = MagicMock()
     mock_process.info = {"name": "msedge.exe"}
     mock_process_iter.return_value = [mock_process]
 
-    def on_terminate():
-        mock_print("Successfully closed msedge browser.")
-        mock_sleep(3)
-
-    mock_process.terminate = MagicMock(side_effect=on_terminate)
-
-    close_browser_by_name("Microsoft Edge")
+    with patch("config.browser.sleep") as mock_sleep:
+        close_browser_by_name("Microsoft Edge")
 
     mock_process.terminate.assert_called_once()
     mock_sleep.assert_called_once_with(3)
-    mock_print.assert_called_once_with("Successfully closed msedge browser.")
 
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-@patch("time.sleep")
-@patch("textio.print_config")
-def test_close_browser_by_name_unix(
-    mock_print, mock_sleep, mock_process_iter, mock_platform
-):
+def test_close_browser_by_name_unix(mock_process_iter, mock_platform):
     """Test closing browser on Unix-like systems."""
     mock_platform.return_value = "Darwin"
     mock_process = MagicMock()
     mock_process.info = {"name": "firefox"}
     mock_process_iter.return_value = [mock_process]
 
-    def on_kill():
-        mock_print("Successfully closed firefox browser.")
-        mock_sleep(3)
-
-    mock_process.kill = MagicMock(side_effect=on_kill)
-
-    close_browser_by_name("Firefox")
+    with patch("config.browser.sleep") as mock_sleep:
+        close_browser_by_name("Firefox")
 
     mock_process.kill.assert_called_once()
     mock_sleep.assert_called_once_with(3)
-    mock_print.assert_called_once_with("Successfully closed firefox browser.")
 
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-@patch("time.sleep")
-@patch("textio.print_config")
-def test_close_browser_by_name_opera_gx(
-    mock_print, mock_sleep, mock_process_iter, mock_platform
-):
+def test_close_browser_by_name_opera_gx(mock_process_iter, mock_platform):
     """Test closing Opera GX browser (special case where process name differs)."""
     mock_platform.return_value = "Windows"
     mock_process = MagicMock()
     mock_process.info = {"name": "opera"}
     mock_process_iter.return_value = [mock_process]
 
-    def on_terminate():
-        mock_print("Successfully closed opera browser.")
-        mock_sleep(3)
-
-    mock_process.terminate = MagicMock(side_effect=on_terminate)
-
     # Production code expects "Opera Gx" with lowercase x
-    close_browser_by_name("Opera Gx")
+    with patch("config.browser.sleep") as mock_sleep:
+        close_browser_by_name("Opera Gx")
 
     mock_process.terminate.assert_called_once()
     mock_sleep.assert_called_once_with(3)
-    mock_print.assert_called_once_with("Successfully closed opera browser.")
 
 
 @patch("platform.system")
 @patch("psutil.process_iter")
-@patch("time.sleep")
-@patch("textio.print_config")
-def test_close_browser_by_name_no_process(
-    mock_print, mock_sleep, mock_process_iter, mock_platform
-):
+def test_close_browser_by_name_no_process(mock_process_iter, mock_platform):
     """Test when no matching browser process is found."""
     mock_platform.return_value = "Windows"
     mock_process_iter.return_value = []  # No processes found
 
-    close_browser_by_name("Firefox")
+    with patch("config.browser.sleep") as mock_sleep:
+        close_browser_by_name("Firefox")
 
-    mock_sleep.assert_not_called()  # No sleep since no process was closed
-    mock_print.assert_not_called()  # No success message since no process was closed
+    mock_sleep.assert_not_called()
 
 
 @pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")

@@ -82,8 +82,14 @@ def downgrade() -> None:
     op.drop_index("ix_post_mentions_handle", "post_mentions", if_exists=True)
     op.drop_index("ix_post_mentions_account", "post_mentions", if_exists=True)
     op.drop_index("ix_post_mentions_accountId", "post_mentions", if_exists=True)
-    op.drop_constraint("uix_post_mentions_handle", "post_mentions", type_="unique")
-    op.drop_constraint("uix_post_mentions_account", "post_mentions", type_="unique")
-    op.drop_constraint("post_mentions_pkey", "post_mentions", type_="primary")
+    op.execute(
+        'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_handle"'
+    )
+    op.execute(
+        'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_account"'
+    )
+    op.execute(
+        'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "post_mentions_pkey"'
+    )
     op.drop_column("post_mentions", "id")
     op.create_primary_key("post_mentions_pkey", "post_mentions", ["postId"])

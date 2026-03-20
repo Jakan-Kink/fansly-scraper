@@ -6,6 +6,7 @@ import pytest
 
 from fileio.normalize import normalize_filename
 from metadata import Account, Media
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestNormalizeFilenameIntegration:
@@ -16,21 +17,24 @@ class TestNormalizeFilenameIntegration:
         """Test normalize_filename with database match."""
         store = entity_store
 
-        account = Account(id=555000000000000000, username="test_user")
+        acct_id = snowflake_id()
+        media_id = snowflake_id()
+
+        account = Account(id=acct_id, username="test_user")
         await store.save(account)
 
         media = Media(
-            id=12345,
-            accountId=555000000000000000,
+            id=media_id,
+            accountId=acct_id,
             createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
         )
         await store.save(media)
 
-        filename = "2023-01-01_at_10-30_id_12345.jpg"
+        filename = f"2023-01-01_at_10-30_id_{media_id}.jpg"
         result = await normalize_filename(filename, config=config)
-        assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
+        assert result == f"2023-01-01_at_15-30_UTC_id_{media_id}.jpg"
 
-        filename = "2023-01-01_at_15-30_UTC_id_12345.jpg"
+        filename = f"2023-01-01_at_15-30_UTC_id_{media_id}.jpg"
         result = await normalize_filename(filename, config=config)
         assert result == filename
 
@@ -39,9 +43,10 @@ class TestNormalizeFilenameIntegration:
         self, entity_store, config
     ):
         """Test normalize_filename without database match."""
-        filename = "2023-01-01_at_10-30_id_12345.jpg"
+        media_id = snowflake_id()
+        filename = f"2023-01-01_at_10-30_id_{media_id}.jpg"
         result = await normalize_filename(filename, config=config)
-        assert result == "2023-01-01_at_15-30_UTC_id_12345.jpg"
+        assert result == f"2023-01-01_at_15-30_UTC_id_{media_id}.jpg"
 
     @pytest.mark.parametrize("ext", ["mp4", "m3u8", "ts"])
     @pytest.mark.asyncio
@@ -49,21 +54,24 @@ class TestNormalizeFilenameIntegration:
         """Test normalize_filename preserves different extensions."""
         store = entity_store
 
-        account = Account(id=555000000000000000, username="test_user")
+        acct_id = snowflake_id()
+        media_id = snowflake_id()
+
+        account = Account(id=acct_id, username="test_user")
         await store.save(account)
 
         media = Media(
-            id=12345,
-            accountId=555000000000000000,
+            id=media_id,
+            accountId=acct_id,
             createdAt=datetime(2023, 1, 1, 15, 30, tzinfo=UTC),
         )
         await store.save(media)
 
-        filename = f"2023-01-01_at_10-30_id_12345.{ext}"
+        filename = f"2023-01-01_at_10-30_id_{media_id}.{ext}"
         result = await normalize_filename(filename, config=config)
-        assert result == f"2023-01-01_at_15-30_UTC_id_12345.{ext}"
+        assert result == f"2023-01-01_at_15-30_UTC_id_{media_id}.{ext}"
 
-        filename = f"2023-01-01_at_15-30_UTC_id_12345.{ext}"
+        filename = f"2023-01-01_at_15-30_UTC_id_{media_id}.{ext}"
         result = await normalize_filename(filename, config=config)
         assert result == filename
 

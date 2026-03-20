@@ -25,6 +25,7 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestCollectMediaFromAttachments:
@@ -51,17 +52,20 @@ class TestCollectMediaFromAttachments:
         respx_stash_processor: StashProcessing,
     ):
         """Test _collect_media_from_attachments with attachments that have no media."""
+        content_id_1 = snowflake_id()
+        content_id_2 = snowflake_id()
+
         # Create attachments with contentType but no media relationship set
         att1 = AttachmentFactory.build(
             id=60001,
             contentType=ContentType.ACCOUNT_MEDIA,
-            contentId=99999,  # Non-existent AccountMedia
+            contentId=content_id_1,  # Non-existent AccountMedia
             pos=0,
         )
         att2 = AttachmentFactory.build(
             id=60002,
             contentType=ContentType.ACCOUNT_MEDIA,
-            contentId=99998,  # Non-existent AccountMedia
+            contentId=content_id_2,  # Non-existent AccountMedia
             pos=1,
         )
 
@@ -77,22 +81,26 @@ class TestCollectMediaFromAttachments:
         respx_stash_processor: StashProcessing,
     ):
         """Test _collect_media_from_attachments with attachments that have media."""
+        acct_id = snowflake_id()
+        media_id_1 = snowflake_id()
+        media_id_2 = snowflake_id()
+
         # Create account first (FK parent for media)
-        account = AccountFactory.build(id=12345, username="test_user")
+        account = AccountFactory.build(id=acct_id, username="test_user")
         await entity_store.save(account)
 
         # Create media objects and save to entity_store (populates identity map)
         media1 = MediaFactory.build(
-            id=123,
-            accountId=12345,
+            id=media_id_1,
+            accountId=acct_id,
             mimetype="image/jpeg",
             location="https://example.com/media_123.jpg",
             width=800,
             height=600,
         )
         media2 = MediaFactory.build(
-            id=456,
-            accountId=12345,
+            id=media_id_2,
+            accountId=acct_id,
             mimetype="video/mp4",
             location="https://example.com/media_456.mp4",
             width=1280,
@@ -102,8 +110,12 @@ class TestCollectMediaFromAttachments:
         await entity_store.save(media2)
 
         # Create AccountMedia and save (identity map resolves .media property)
-        acct_media1 = AccountMediaFactory.build(id=123, accountId=12345, mediaId=123)
-        acct_media2 = AccountMediaFactory.build(id=456, accountId=12345, mediaId=456)
+        acct_media1 = AccountMediaFactory.build(
+            id=media_id_1, accountId=acct_id, mediaId=media_id_1
+        )
+        acct_media2 = AccountMediaFactory.build(
+            id=media_id_2, accountId=acct_id, mediaId=media_id_2
+        )
         await entity_store.save(acct_media1)
         await entity_store.save(acct_media2)
 
@@ -112,14 +124,14 @@ class TestCollectMediaFromAttachments:
         att1 = AttachmentFactory.build(
             id=60003,
             contentType=ContentType.ACCOUNT_MEDIA,
-            contentId=123,  # Points to AccountMedia.id
+            contentId=media_id_1,  # Points to AccountMedia.id
             pos=0,
         )
 
         att2 = AttachmentFactory.build(
             id=60004,
             contentType=ContentType.ACCOUNT_MEDIA,
-            contentId=456,  # Points to AccountMedia.id
+            contentId=media_id_2,  # Points to AccountMedia.id
             pos=1,
         )
 
@@ -130,8 +142,8 @@ class TestCollectMediaFromAttachments:
         # Verify we got media objects back
         assert len(result) == 2
         media_ids = [m.id for m in result]
-        assert 123 in media_ids
-        assert 456 in media_ids
+        assert media_id_1 in media_ids
+        assert media_id_2 in media_ids
 
 
 class TestProcessItemsWithGallery:
@@ -147,9 +159,11 @@ class TestProcessItemsWithGallery:
         respx_stash_processor: StashProcessing,
     ):
         """Test _process_items_with_gallery with empty items list."""
+        acct_id = snowflake_id()
+
         # Create real account using factory and save to entity_store
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
         )
@@ -184,17 +198,20 @@ class TestProcessItemsWithGallery:
         respx_stash_processor: StashProcessing,
     ):
         """Test _process_items_with_gallery with item that has no attachments."""
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+
         # Create account and post without attachments
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
         )
         await entity_store.save(account)
 
         post = PostFactory.build(
-            id=123,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
         )
@@ -230,9 +247,15 @@ class TestProcessItemsWithGallery:
         respx_stash_processor: StashProcessing,
     ):
         """Test _process_items_with_gallery with multiple items."""
+        acct_id = snowflake_id()
+        post_id_1 = snowflake_id()
+        post_id_2 = snowflake_id()
+        content_id_1 = snowflake_id()
+        content_id_2 = snowflake_id()
+
         # Create account
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
         )
@@ -240,14 +263,14 @@ class TestProcessItemsWithGallery:
 
         # Create posts with attachments set via Pydantic relationships
         post1 = PostFactory.build(
-            id=123,
-            accountId=12345,
+            id=post_id_1,
+            accountId=acct_id,
             content="Test post 1",
             createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
         )
         att1 = AttachmentFactory.build(
-            postId=123,
-            contentId=123,
+            postId=post_id_1,
+            contentId=content_id_1,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
@@ -256,14 +279,14 @@ class TestProcessItemsWithGallery:
         await post1._add_to_relationship("attachments", att1)
 
         post2 = PostFactory.build(
-            id=456,
-            accountId=12345,
+            id=post_id_2,
+            accountId=acct_id,
             content="Test post 2",
             createdAt=datetime(2024, 5, 2, 12, 0, 0, tzinfo=UTC),
         )
         att2 = AttachmentFactory.build(
-            postId=456,
-            contentId=456,
+            postId=post_id_2,
+            contentId=content_id_2,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
@@ -314,7 +337,7 @@ class TestProcessItemsWithGallery:
                 assert "title" in input_data
                 # Gallery should have code matching post ID
                 if "code" in input_data:
-                    assert input_data["code"] in ["123", "456"]
+                    assert input_data["code"] in [str(post_id_1), str(post_id_2)]
                 # Gallery should have date
                 if "date" in input_data:
                     assert input_data["date"].startswith("2024-05")
@@ -333,9 +356,11 @@ class TestProcessCreatorContent:
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_posts with no posts."""
+        acct_id = snowflake_id()
+
         # Create account without posts in entity_store
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
         )
@@ -367,9 +392,11 @@ class TestProcessCreatorContent:
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_messages with no messages."""
+        acct_id = snowflake_id()
+
         # Create account without messages in entity_store
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
         )
@@ -401,23 +428,27 @@ class TestProcessCreatorContent:
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_posts handles exceptions during processing (lines 249-257)."""
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        content_id = snowflake_id()
+
         # Create account and post with attachments in entity_store
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
         )
         await entity_store.save(account)
 
         post = PostFactory.build(
-            id=123,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test post",
             createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
         )
         att = AttachmentFactory.build(
-            postId=123,
-            contentId=123,
+            postId=post_id,
+            contentId=content_id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
@@ -450,32 +481,36 @@ class TestProcessCreatorContent:
         respx_stash_processor: StashProcessing,
     ):
         """Test process_creator_messages handles exceptions during processing (lines 129-137)."""
+        acct_id = snowflake_id()
+        group_id = snowflake_id()
+        msg_id = snowflake_id()
+        content_id = snowflake_id()
 
         # Create account
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             displayName="Test User",
         )
         await entity_store.save(account)
 
         # Create group with proper foreign key
-        group = GroupFactory.build(id=999, createdBy=12345)
+        group = GroupFactory.build(id=group_id, createdBy=acct_id)
         # Add user via _add_to_relationship to avoid validate_assignment issues
         await group._add_to_relationship("users", account)
         await entity_store.save(group)
 
         # Create message with proper foreign keys and attachment
         message = MessageFactory.build(
-            id=123,
-            groupId=999,
-            senderId=12345,
+            id=msg_id,
+            groupId=group_id,
+            senderId=acct_id,
             content="Test message",
             createdAt=datetime(2024, 5, 1, 12, 0, 0, tzinfo=UTC),
         )
         att = AttachmentFactory.build(
-            messageId=123,
-            contentId=123,
+            messageId=msg_id,
+            contentId=content_id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )

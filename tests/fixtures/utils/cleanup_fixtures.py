@@ -130,15 +130,18 @@ def cleanup_http_sessions():
             if hasattr(session, "aclose"):
                 # AsyncClient - need to close asynchronously
                 with contextlib.suppress(Exception):
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # If loop is running, schedule the close
-                        task = asyncio.create_task(session.aclose())
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                    if loop is not None:
+                        # Loop is running — schedule the close
+                        task = loop.create_task(session.aclose())
                         # Store reference to avoid RUF006, though we can't await in cleanup
                         _ = task
                     else:
-                        # If loop is not running, run until complete
-                        loop.run_until_complete(session.aclose())
+                        # No running loop — use asyncio.run()
+                        asyncio.run(session.aclose())
             elif hasattr(session, "close"):
                 # Regular Client - sync close
                 session.close()

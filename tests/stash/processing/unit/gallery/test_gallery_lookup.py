@@ -20,6 +20,7 @@ from tests.fixtures import (
     create_gallery_dict,
     create_graphql_response,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestGalleryLookup:
@@ -30,8 +31,11 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_stash_id when gallery is found."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post with stash_id set (no DB persistence needed)
-        post_obj = PostFactory.build(id=67890, accountId=12345, stash_id=123)
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id, stash_id=123)
 
         # Set up respx - findGallery returns the gallery
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -43,7 +47,7 @@ class TestGalleryLookup:
                             "findGallery": {
                                 "id": "123",
                                 "title": "Test Gallery",
-                                "code": "67890",
+                                "code": str(post_id),
                             }
                         }
                     },
@@ -71,8 +75,11 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_stash_id when post has no stash_id."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post without stash_id
-        post_obj = PostFactory.build(id=67891, accountId=12346, stash_id=None)
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id, stash_id=None)
 
         # Set up respx - expect NO calls for post without stash_id
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -92,8 +99,11 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_stash_id when gallery not found in Stash."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post with stash_id
-        post_obj = PostFactory.build(id=67892, accountId=12347, stash_id=999)
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id, stash_id=999)
 
         # Set up respx - findGallery returns null
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -118,10 +128,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_title when matching gallery found."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post with specific date
         post_obj = PostFactory.build(
-            id=67890,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -204,10 +217,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_title when no matching gallery found."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post
         post_obj = PostFactory.build(
-            id=67891,
-            accountId=12346,
+            id=post_id,
+            accountId=acct_id,
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -238,10 +254,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_title rejects gallery with wrong date."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post
         post_obj = PostFactory.build(
-            id=67892,
-            accountId=12347,
+            id=post_id,
+            accountId=acct_id,
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -311,10 +330,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_title rejects gallery with wrong studio."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post
         post_obj = PostFactory.build(
-            id=67893,
-            accountId=12348,
+            id=post_id,
+            accountId=acct_id,
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -384,10 +406,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_title with no studio parameter matches any studio."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post
         post_obj = PostFactory.build(
-            id=67894,
-            accountId=12349,
+            id=post_id,
+            accountId=acct_id,
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -457,8 +482,11 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_code when matching gallery found."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post
-        post_obj = PostFactory.build(id=67890, accountId=12345)
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
 
         # Set up respx - findGalleries returns matching gallery (find_one needs 1 response)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -473,7 +501,7 @@ class TestGalleryLookup:
                                 create_gallery_dict(
                                     id="300",
                                     title=None,
-                                    code="67890",
+                                    code=str(post_id),
                                 )
                             ],
                         ),
@@ -487,7 +515,7 @@ class TestGalleryLookup:
         # Verify gallery was found
         assert gallery is not None
         assert gallery.id == "300"
-        assert gallery.code == "67890"
+        assert gallery.code == str(post_id)
         assert post_obj.stash_id == 300  # Should update item's stash_id
 
         # Verify exactly 1 call
@@ -496,7 +524,7 @@ class TestGalleryLookup:
         # Verify request contains findGalleries with code filter
         req = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["code"]["value"] == "67890"
+        assert req["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
         assert req["variables"]["gallery_filter"]["code"]["modifier"] == "EQUALS"
 
     @pytest.mark.asyncio
@@ -504,8 +532,11 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_code when no matching gallery found."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post
-        post_obj = PostFactory.build(id=67891, accountId=12346)
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
 
         # Set up respx - findGalleries returns empty
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -528,8 +559,11 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_code rejects gallery with wrong code."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build Post
-        post_obj = PostFactory.build(id=67892, accountId=12347)
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
 
         # Set up respx - returns gallery with different code (find_one needs 1 response)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -544,7 +578,7 @@ class TestGalleryLookup:
                                 create_gallery_dict(
                                     id="301",
                                     title=None,
-                                    code="54321",  # Wrong code (expected 67892)
+                                    code="54321",  # Wrong code (expected post_id)
                                 )
                             ],
                         ),
@@ -563,10 +597,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_url when matching gallery found."""
-        # Build Post
-        post_obj = PostFactory.build(id=67890, accountId=12345)
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
 
-        test_url = "https://test.com/post/67890"
+        # Build Post
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
+
+        test_url = f"https://test.com/post/{post_id}"
 
         # Set up respx - findGalleries returns matching gallery (find() needs 2 responses)
         # Then galleryUpdate for save
@@ -616,7 +653,7 @@ class TestGalleryLookup:
                         create_gallery_dict(
                             id="400",
                             title=None,
-                            code="67890",
+                            code=str(post_id),
                             urls=[test_url],
                         ),
                     ),
@@ -650,10 +687,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_url when no matching gallery found."""
-        # Build Post
-        post_obj = PostFactory.build(id=67891, accountId=12346)
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
 
-        test_url = "https://test.com/post/67891"
+        # Build Post
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
+
+        test_url = f"https://test.com/post/{post_id}"
 
         # Set up respx - findGalleries returns empty
         graphql_route = respx.post("http://localhost:9999/graphql").mock(
@@ -676,10 +716,13 @@ class TestGalleryLookup:
         self, respx_stash_processor: StashProcessing
     ):
         """Test _get_gallery_by_url rejects gallery with wrong URL."""
-        # Build Post
-        post_obj = PostFactory.build(id=67892, accountId=12347)
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
 
-        test_url = "https://test.com/post/67892"
+        # Build Post
+        post_obj = PostFactory.build(id=post_id, accountId=acct_id)
+
+        test_url = f"https://test.com/post/{post_id}"
 
         # Set up respx - returns gallery with different URL (find() needs 2 responses)
         graphql_route = respx.post("http://localhost:9999/graphql").mock(

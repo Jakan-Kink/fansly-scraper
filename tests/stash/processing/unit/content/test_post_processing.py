@@ -21,6 +21,7 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestPostProcessing:
@@ -35,23 +36,27 @@ class TestPostProcessing:
         """Test process_creator_posts processes posts and makes GraphQL calls."""
         store = get_store()
 
+        acct_id = snowflake_id()
+        post_ids = [snowflake_id() for _ in range(3)]
+        content_ids = [snowflake_id() for _ in range(3)]
+
         # Create real account
-        account = AccountFactory.build(id=12345, username="test_user")
+        account = AccountFactory.build(id=acct_id, username="test_user")
         await store.save(account)
 
         # Create 3 posts with attachments (required for query to find them)
         for i in range(3):
             post = PostFactory.build(
-                id=200 + i,
-                accountId=12345,
+                id=post_ids[i],
+                accountId=acct_id,
                 content=f"Test post {i}",
             )
             await store.save(post)
 
             # Create attachment for each post
             attachment = AttachmentFactory.build(
-                postId=200 + i,
-                contentId=200 + i,
+                postId=post_ids[i],
+                contentId=content_ids[i],
                 contentType=ContentType.ACCOUNT_MEDIA,
                 pos=0,
             )
@@ -62,7 +67,7 @@ class TestPostProcessing:
             await store.save(post)
 
         # Refresh account from store
-        account = await store.get(Account, 12345)
+        account = await store.get(Account, acct_id)
 
         # Create real Performer and Studio using factories
         performer = PerformerFactory.build(id="performer_123", name="test_user")
@@ -112,12 +117,14 @@ class TestPostProcessing:
         """Test process_creator_posts with no posts makes no GraphQL calls."""
         store = get_store()
 
+        acct_id = snowflake_id()
+
         # Create account but no posts
-        account = AccountFactory.build(id=12346, username="test_user_2")
+        account = AccountFactory.build(id=acct_id, username="test_user_2")
         await store.save(account)
 
         # Refresh account from store
-        account = await store.get(Account, 12346)
+        account = await store.get(Account, acct_id)
 
         performer = PerformerFactory.build(id="performer_124", name="test_user_2")
         studio = StudioFactory.build(id="studio_124", name="Test Studio 2")
@@ -148,21 +155,25 @@ class TestPostProcessing:
         """Test that database query correctly retrieves posts with attachments."""
         store = get_store()
 
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        content_id = snowflake_id()
+
         # Create account and post with attachment
-        account = AccountFactory.build(id=12347, username="test_user_3")
+        account = AccountFactory.build(id=acct_id, username="test_user_3")
         await store.save(account)
 
         # Create 1 post with attachment
         post = PostFactory.build(
-            id=600,
-            accountId=12347,
+            id=post_id,
+            accountId=acct_id,
             content="Test post with attachment",
         )
         await store.save(post)
 
         attachment = AttachmentFactory.build(
-            postId=600,
-            contentId=600,
+            postId=post_id,
+            contentId=content_id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
@@ -173,7 +184,7 @@ class TestPostProcessing:
         await store.save(post)
 
         # Refresh account from store
-        account = await store.get(Account, 12347)
+        account = await store.get(Account, acct_id)
 
         performer = PerformerFactory.build(id="performer_125", name="test_user_3")
         studio = StudioFactory.build(id="studio_125", name="Test Studio 3")
@@ -212,21 +223,24 @@ class TestPostProcessing:
         """Test that posts without attachments are not processed."""
         store = get_store()
 
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+
         # Create account and post WITHOUT attachment
-        account = AccountFactory.build(id=12348, username="test_user_4")
+        account = AccountFactory.build(id=acct_id, username="test_user_4")
         await store.save(account)
 
         # Create post WITHOUT attachment - should not be found by query
         post = PostFactory.build(
-            id=700,
-            accountId=12348,
+            id=post_id,
+            accountId=acct_id,
             content="Test post without attachment",
         )
         await store.save(post)
         # No attachment - post has no attachments
 
         # Refresh account from store
-        account = await store.get(Account, 12348)
+        account = await store.get(Account, acct_id)
 
         performer = PerformerFactory.build(id="performer_126", name="test_user_4")
         studio = StudioFactory.build(id="studio_126", name="Test Studio 4")

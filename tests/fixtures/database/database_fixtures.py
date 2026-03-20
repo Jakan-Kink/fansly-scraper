@@ -70,6 +70,7 @@ from tests.fixtures.metadata.metadata_factories import (
     TimelineStatsFactory,
     WallFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 T = TypeVar("T")
@@ -690,8 +691,8 @@ def _generate_unique_id(test_name: str) -> int:
     test_name = test_name.replace("::", "_")
     return (
         int(hashlib.sha1(test_name.encode(), usedforsecurity=False).hexdigest()[:8], 16)
-        % 1000000
-    )
+        % (10**18 - 10**15)
+    ) + 10**15
 
 
 @pytest_asyncio.fixture
@@ -858,8 +859,9 @@ def mock_account():
     Returns:
         Account: A built (not persisted) Account instance
     """
+    acct_id = snowflake_id()
     return AccountFactory.build(
-        id=12345,
+        id=acct_id,
         username="test_user",
         displayName="Test User",
     )

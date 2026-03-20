@@ -21,6 +21,7 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestProcessItemGallery:
@@ -33,11 +34,14 @@ class TestProcessItemGallery:
         respx_stash_processor,
     ):
         """Test _process_item_gallery returns early when no attachments."""
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+
         # Create real Account and Post with no media
-        account = AccountFactory.build(id=12345, username="test_user")
+        account = AccountFactory.build(id=acct_id, username="test_user")
         await entity_store.save(account)
 
-        post = PostFactory.build(id=67890, accountId=12345, content="Test post")
+        post = PostFactory.build(id=post_id, accountId=acct_id, content="Test post")
         await entity_store.save(post)
 
         # Post has no attachments - method should return early
@@ -75,22 +79,33 @@ class TestProcessItemGallery:
         respx_stash_processor,
     ):
         """Test _process_item_gallery processes posts with media and verifies data flow."""
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        media_id_1 = snowflake_id()
+        media_id_2 = snowflake_id()
+        acct_media_id_1 = snowflake_id()
+        acct_media_id_2 = snowflake_id()
+
         # Create REAL Account
-        account = AccountFactory.build(id=12345, username="test_user")
+        account = AccountFactory.build(id=acct_id, username="test_user")
         await entity_store.save(account)
 
         # Create REAL Media and save to entity_store (populates identity map)
-        media1 = MediaFactory.build(id=1001, accountId=12345, mimetype="image/jpeg")
-        media2 = MediaFactory.build(id=1002, accountId=12345, mimetype="video/mp4")
+        media1 = MediaFactory.build(
+            id=media_id_1, accountId=acct_id, mimetype="image/jpeg"
+        )
+        media2 = MediaFactory.build(
+            id=media_id_2, accountId=acct_id, mimetype="video/mp4"
+        )
         await entity_store.save(media1)
         await entity_store.save(media2)
 
         # Create REAL AccountMedia and save (identity map resolves .media property)
         account_media1 = AccountMediaFactory.build(
-            id=2001, accountId=12345, mediaId=1001
+            id=acct_media_id_1, accountId=acct_id, mediaId=media_id_1
         )
         account_media2 = AccountMediaFactory.build(
-            id=2002, accountId=12345, mediaId=1002
+            id=acct_media_id_2, accountId=acct_id, mediaId=media_id_2
         )
         await entity_store.save(account_media1)
         await entity_store.save(account_media2)
@@ -99,16 +114,16 @@ class TestProcessItemGallery:
         # Attachment.media is a read-only property that resolves via identity map
         att1 = AttachmentFactory.build(
             id=3001,
-            postId=67890,
-            contentId=2001,  # Points to AccountMedia.id in identity map
+            postId=post_id,
+            contentId=acct_media_id_1,  # Points to AccountMedia.id in identity map
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
 
         att2 = AttachmentFactory.build(
             id=3002,
-            postId=67890,
-            contentId=2002,  # Points to AccountMedia.id in identity map
+            postId=post_id,
+            contentId=acct_media_id_2,  # Points to AccountMedia.id in identity map
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=1,
         )
@@ -120,7 +135,9 @@ class TestProcessItemGallery:
         # Create post and add attachments/hashtags via _add_to_relationship.
         # Direct assignment (post.attachments = [...]) triggers validate_assignment
         # which re-runs _prepare_post_data and filters non-dict attachments to [].
-        post = PostFactory.build(id=67890, accountId=12345, content="Test post #test")
+        post = PostFactory.build(
+            id=post_id, accountId=acct_id, content="Test post #test"
+        )
         await post._add_to_relationship("attachments", att1)
         await post._add_to_relationship("attachments", att2)
         await post._add_to_relationship("hashtags", hashtag)
@@ -182,6 +199,8 @@ class TestProcessItemGallery:
         found_performer_id = False
         found_studio_id = False
 
+        post_id_str = str(post_id)
+
         # Verify each request contains proper data
         for i, call in enumerate(calls):
             req = json.loads(call.request.content)
@@ -204,8 +223,8 @@ class TestProcessItemGallery:
             if '"test"' in variables_str.lower() and ("tag" in query.lower()):
                 found_hashtag = True
 
-            # Look for post URL with post ID 67890
-            if "67890" in variables_str and (
+            # Look for post URL with post ID
+            if post_id_str in variables_str and (
                 "url" in variables_str.lower() or "fansly.com" in variables_str.lower()
             ):
                 found_post_url = True
@@ -246,8 +265,8 @@ class TestProcessItemGallery:
 
                 # Verify URLs include post URL
                 if "urls" in gallery_input:
-                    assert any("67890" in url for url in gallery_input["urls"]), (
-                        f"Call {i}: galleryCreate URLs should include post ID 67890, "
+                    assert any(post_id_str in url for url in gallery_input["urls"]), (
+                        f"Call {i}: galleryCreate URLs should include post ID {post_id}, "
                         f"got {gallery_input['urls']}"
                     )
 
@@ -276,7 +295,9 @@ class TestProcessItemGallery:
         assert found_hashtag, (
             "Hashtag 'test' should appear in tag-related GraphQL calls"
         )
-        assert found_post_url, "Post URL with ID 67890 should appear in GraphQL calls"
+        assert found_post_url, (
+            f"Post URL with ID {post_id} should appear in GraphQL calls"
+        )
         assert found_performer_id, (
             f"Performer ID '{performer.id}' should appear in GraphQL calls"
         )

@@ -24,6 +24,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_performer_dict,
 )
 from tests.fixtures.stash.stash_type_factories import PerformerFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestStashProcessingAccount:
@@ -35,22 +36,24 @@ class TestStashProcessingAccount:
 
         Verifies this is a pure database operation with NO HTTP calls.
         """
+        acct_id = snowflake_id()
+
         # Create test account in entity_store (production code uses get_store())
         test_account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
         )
         await entity_store.save(test_account)
 
         # Set processor state to match account
-        respx_stash_processor.state.creator_id = 12345
+        respx_stash_processor.state.creator_id = acct_id
 
         # Call _find_account (no session= parameter)
         account = await respx_stash_processor._find_account()
 
         # Verify account was found via entity_store
         assert account is not None
-        assert account.id == 12345
+        assert account.id == acct_id
         assert account.username == "test_user"
 
         # Verify NO HTTP calls were made via respx routes
@@ -60,7 +63,7 @@ class TestStashProcessingAccount:
         )
 
         # Test with no account found
-        respx_stash_processor.state.creator_id = 99999  # Non-existent ID
+        respx_stash_processor.state.creator_id = snowflake_id()  # Non-existent ID
 
         # Call _find_account and verify warning
         with patch(
@@ -86,9 +89,11 @@ class TestStashProcessingAccount:
 
         Verifies this is a pure database operation with NO HTTP calls.
         """
+        acct_id = snowflake_id()
+
         # Create test account in entity_store
         test_account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
         )
         test_account.stash_id = None  # Start with no stash_id
@@ -225,9 +230,11 @@ class TestStashProcessingPerformer:
             image_path="default=true",
         )
 
+        acct_id = snowflake_id()
+
         # Create account with no avatar (Pydantic — avatar is None by default)
         test_account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
         )
 
@@ -254,16 +261,19 @@ class TestStashProcessingPerformer:
             image_path="default=true",
         )
 
+        acct_id = snowflake_id()
+        avatar_media_id = snowflake_id()
+
         # Create account with avatar but no local_filename (Pydantic relationship)
         test_account = AccountFactory.build(
-            id=12346,
+            id=acct_id,
             username="test_user_2",
         )
 
         # Create avatar media with no local_filename and set on account
         avatar = MediaFactory.build(
-            id=99998,
-            accountId=12346,
+            id=avatar_media_id,
+            accountId=acct_id,
             local_filename=None,  # No local file
         )
         test_account.avatar = avatar
@@ -292,16 +302,19 @@ class TestStashProcessingPerformer:
             image_path="default=true",
         )
 
+        acct_id = snowflake_id()
+        avatar_media_id = snowflake_id()
+
         # Create account with avatar and local_filename (Pydantic relationship)
         test_account = AccountFactory.build(
-            id=12348,
+            id=acct_id,
             username="test_user_4",
         )
 
         # Create avatar media with local_filename and set on account
         avatar = MediaFactory.build(
-            id=99997,
-            accountId=12348,
+            id=avatar_media_id,
+            accountId=acct_id,
             local_filename="missing_avatar.jpg",
         )
         test_account.avatar = avatar
@@ -344,16 +357,19 @@ class TestStashProcessingPerformer:
             image_path="default=true",
         )
 
+        acct_id = snowflake_id()
+        avatar_media_id = snowflake_id()
+
         # Create account with avatar and local_filename (Pydantic relationship)
         test_account = AccountFactory.build(
-            id=12347,
+            id=acct_id,
             username="test_user_3",
         )
 
         # Create avatar media with local_filename pointing to temp file
         avatar = MediaFactory.build(
-            id=99999,
-            accountId=12347,
+            id=avatar_media_id,
+            accountId=acct_id,
             local_filename=str(test_image),  # Use real temp file path
         )
         test_account.avatar = avatar
@@ -438,9 +454,12 @@ class TestStashProcessingPerformer:
             image_path="default=true",
         )
 
+        acct_id = snowflake_id()
+        avatar_media_id = snowflake_id()
+
         # Create account with avatar and local_filename (Pydantic relationship)
         test_account = AccountFactory.build(
-            id=12349,
+            id=acct_id,
             username="test_user_5",
         )
 
@@ -450,8 +469,8 @@ class TestStashProcessingPerformer:
 
         # Create avatar media with non-existent file path and set on account
         avatar = MediaFactory.build(
-            id=99996,
-            accountId=12349,
+            id=avatar_media_id,
+            accountId=acct_id,
             local_filename=str(nonexistent_file),  # File doesn't exist
         )
         test_account.avatar = avatar
@@ -522,9 +541,11 @@ class TestStashProcessingPerformer:
         self, respx_stash_processor, entity_store
     ):
         """Test continue_stash_processing skips update when stash_id already matches (line 126->133)."""
+        acct_id = snowflake_id()
+
         # Create test account with stash_id already set in entity_store
         test_account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=123,  # Already synced with performer ID (integer)
         )

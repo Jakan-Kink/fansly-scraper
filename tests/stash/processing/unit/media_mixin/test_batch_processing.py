@@ -18,6 +18,7 @@ from tests.fixtures.stash.stash_type_factories import (
     SceneFactory,
     VideoFileFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestBatchProcessing:
@@ -32,7 +33,7 @@ class TestBatchProcessing:
         media_list = []
         for i in range(5):
             media = MediaFactory.build(
-                id=20000 + i,
+                id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
@@ -81,7 +82,7 @@ class TestBatchProcessing:
         media_list = []
         for i in range(45):  # 45 items should split into 3 batches (20+20+5)
             media = MediaFactory.build(
-                id=30000 + i,
+                id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
@@ -131,7 +132,7 @@ class TestBatchProcessing:
         media_list = []
         for i in range(3):
             media = MediaFactory.build(
-                id=40000 + i,
+                id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
@@ -206,9 +207,9 @@ class TestBatchProcessing:
         """Test _process_batch_internal processes media without stash_ids (path-based)."""
         # Create media WITHOUT stash_ids (will use path-based lookup)
         media_list = []
-        for i in range(3):
+        for _i in range(3):
             media = MediaFactory.build(
-                id=50000 + i,
+                id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
@@ -281,9 +282,9 @@ class TestBatchProcessing:
         media_list = []
 
         # Add 2 images
-        for i in range(2):
+        for _i in range(2):
             media = MediaFactory.build(
-                id=60000 + i,
+                id=snowflake_id(),
                 mimetype="image/jpeg",
                 is_downloaded=True,
                 accountId=mock_account.id,
@@ -292,9 +293,9 @@ class TestBatchProcessing:
             media_list.append(media)
 
         # Add 2 videos
-        for i in range(2):
+        for _i in range(2):
             media = MediaFactory.build(
-                id=60010 + i,
+                id=snowflake_id(),
                 mimetype="video/mp4",
                 is_downloaded=True,
                 accountId=mock_account.id,

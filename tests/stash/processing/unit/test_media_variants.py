@@ -24,6 +24,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_scene_dict,
     create_studio_dict,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
@@ -45,7 +46,7 @@ async def test_process_hls_variant(
 
     # Arrange - Create REAL HLS variant Media using factory
     hls_variant = MediaFactory.build(
-        id=100102,
+        id=snowflake_id(),
         accountId=test_account.id,
         type=302,  # HLS stream
         mimetype="application/vnd.apple.mpegurl",
@@ -229,7 +230,7 @@ async def test_process_dash_variant(
 
     # Arrange - Create REAL DASH variant Media using factory
     dash_variant = MediaFactory.build(
-        id=100103,
+        id=snowflake_id(),
         accountId=test_account.id,
         type=303,  # DASH stream
         mimetype="application/dash+xml",
@@ -395,7 +396,7 @@ async def test_process_preview_variant(
 
     # Arrange - Create REAL preview variant Media using factory
     preview_variant = MediaFactory.build(
-        id=100001,
+        id=snowflake_id(),
         accountId=test_account.id,
         type=1,  # Preview image
         mimetype="image/jpeg",
@@ -582,7 +583,7 @@ async def test_process_bundle_ordering(
     for i in range(3):
         # Create Media with unique ID and downloaded status
         media = MediaFactory.build(
-            id=200000 + i,  # Unique IDs for each media
+            id=snowflake_id(),
             accountId=test_media_bundle.accountId,
             mimetype="image/jpeg",
             is_downloaded=True,
@@ -795,7 +796,7 @@ async def test_process_bundle_with_preview(
 
     # Create REAL preview media using factory
     preview_media = MediaFactory.build(
-        id=123456,  # Specific ID for this test
+        id=snowflake_id(),
         accountId=test_media_bundle.accountId,
         mimetype="image/jpeg",
         type=1,  # Image type
@@ -986,7 +987,7 @@ async def test_bundle_permission_inheritance(
     for i in range(2):
         # Create Media
         media = MediaFactory.build(
-            id=300000 + i,
+            id=snowflake_id(),
             accountId=test_media_bundle.accountId,
             mimetype="image/jpeg",
             is_downloaded=True,

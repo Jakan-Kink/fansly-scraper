@@ -19,6 +19,7 @@ from tests.fixtures import (
     PostFactory,
     StudioFactory,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestGalleryLookupMethods:
@@ -27,14 +28,17 @@ class TestGalleryLookupMethods:
     @pytest.fixture
     def post_with_attachment(self):
         """Create a post with attachment for testing (in-memory only)."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+        content_id = snowflake_id()
         attachment = AttachmentFactory.build(
-            contentId=12345,
+            contentId=content_id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
         return PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test post content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
             attachments=[attachment],
@@ -46,10 +50,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_stash_id with no stash_id."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post WITHOUT stash_id
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
             stash_id=None,
@@ -73,10 +80,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_stash_id when gallery is found."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post WITH stash_id
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
             stash_id=123,
@@ -92,7 +102,7 @@ class TestGalleryLookupMethods:
                             "findGallery": {
                                 "id": "123",
                                 "title": "Test Gallery",
-                                "code": "12345",
+                                "code": str(post_id),
                                 "date": "2024-04-01",
                             }
                         }
@@ -121,10 +131,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_stash_id when gallery not found."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post WITH stash_id
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
             stash_id=999,
@@ -153,10 +166,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_title when no galleries match."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
@@ -195,10 +211,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_title when gallery matches."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
@@ -219,7 +238,7 @@ class TestGalleryLookupMethods:
                                     {
                                         "id": "123",
                                         "title": "Test Title",
-                                        "code": "12345",
+                                        "code": str(post_id),
                                         "date": "2024-04-01",
                                         "studio": {
                                             "id": "studio_123",
@@ -242,7 +261,7 @@ class TestGalleryLookupMethods:
                                     {
                                         "id": "123",
                                         "title": "Test Title",
-                                        "code": "12345",
+                                        "code": str(post_id),
                                         "date": "2024-04-01",
                                         "studio": {
                                             "id": "studio_123",
@@ -284,10 +303,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_code when no galleries match."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
@@ -312,7 +334,7 @@ class TestGalleryLookupMethods:
         # Verify request
         req = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["code"]["value"] == "12345"
+        assert req["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
         assert req["variables"]["gallery_filter"]["code"]["modifier"] == "EQUALS"
 
     @pytest.mark.asyncio
@@ -321,10 +343,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_code when gallery matches."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
@@ -341,7 +366,7 @@ class TestGalleryLookupMethods:
                                     {
                                         "id": "456",
                                         "title": "Code Gallery",
-                                        "code": "12345",
+                                        "code": str(post_id),
                                         "date": "2024-04-01",
                                     }
                                 ],
@@ -359,14 +384,14 @@ class TestGalleryLookupMethods:
         # Verify result
         assert result is not None
         assert result.id == "456"
-        assert result.code == "12345"
+        assert result.code == str(post_id)
         # Stash ID should be updated on item
         assert post.stash_id == 456
 
         # Verify request
         req = json.loads(graphql_route.calls[0].request.content)
         assert "findGalleries" in req["query"]
-        assert req["variables"]["gallery_filter"]["code"]["value"] == "12345"
+        assert req["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
 
     @pytest.mark.asyncio
     async def test_get_gallery_by_url_found(
@@ -374,10 +399,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_url when gallery is found with correct code."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )
@@ -397,7 +425,7 @@ class TestGalleryLookupMethods:
                                     {
                                         "id": "789",
                                         "title": "URL Gallery",
-                                        "code": "12345",  # Already matches post.id
+                                        "code": str(post_id),  # Already matches post.id
                                         "urls": ["https://example.com/gallery/123"],
                                     }
                                 ],
@@ -416,7 +444,7 @@ class TestGalleryLookupMethods:
                                     {
                                         "id": "789",
                                         "title": "URL Gallery",
-                                        "code": "12345",  # Already matches post.id
+                                        "code": str(post_id),  # Already matches post.id
                                         "urls": ["https://example.com/gallery/123"],
                                     }
                                 ],
@@ -435,7 +463,7 @@ class TestGalleryLookupMethods:
         # Verify result
         assert result is not None
         assert result.id == "789"
-        assert result.code == "12345"
+        assert result.code == str(post_id)
 
         # Verify 2 calls total (2 for find, no save since code matches)
         assert len(graphql_route.calls) == 2
@@ -451,10 +479,13 @@ class TestGalleryLookupMethods:
         respx_stash_processor: StashProcessing,
     ):
         """Test _get_gallery_by_url updates item stash_id and gallery code."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
             stash_id=None,  # No stash_id initially
@@ -510,7 +541,7 @@ class TestGalleryLookupMethods:
                             "galleryUpdate": {
                                 "id": "999",
                                 "title": "URL Gallery",
-                                "code": "12345",  # Updated to post.id
+                                "code": str(post_id),  # Updated to post.id
                                 "urls": ["https://example.com/gallery/456"],
                             }
                         }
@@ -529,7 +560,7 @@ class TestGalleryLookupMethods:
         # Item stash_id should be updated
         assert post.stash_id == 999
         # Gallery code should be updated
-        assert result.code == "12345"
+        assert result.code == str(post_id)
 
         # Verify 3 calls total (2 for find + 1 for save)
         assert len(graphql_route.calls) == 3
@@ -543,7 +574,7 @@ class TestGalleryLookupMethods:
         req2 = json.loads(graphql_route.calls[2].request.content)
         assert "galleryUpdate" in req2["query"]
         assert req2["variables"]["input"]["id"] == "999"
-        assert req2["variables"]["input"]["code"] == "12345"
+        assert req2["variables"]["input"]["code"] == str(post_id)
 
 
 class TestGalleryCreation:
@@ -555,10 +586,13 @@ class TestGalleryCreation:
         respx_stash_processor: StashProcessing,
     ):
         """Test _create_new_gallery creates gallery with correct attributes."""
+        post_id = snowflake_id()
+        acct_id = snowflake_id()
+
         # Build post (in-memory only)
         post = PostFactory.build(
-            id=12345,
-            accountId=12345,
+            id=post_id,
+            accountId=acct_id,
             content="Test post content",
             createdAt=datetime(2024, 4, 1, 12, 0, 0, tzinfo=UTC),
         )

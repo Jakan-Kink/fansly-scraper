@@ -22,6 +22,7 @@ from tests.fixtures import (
     StudioFactory,
 )
 from tests.fixtures.metadata.metadata_factories import GroupFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestMessageProcessing:
@@ -36,11 +37,16 @@ class TestMessageProcessing:
         """Test process_creator_messages processes messages and makes GraphQL calls."""
         store = get_store()
 
+        acct_id = snowflake_id()
+        group_id = snowflake_id()
+        msg_ids = [snowflake_id() for _ in range(3)]
+        content_ids = [snowflake_id() for _ in range(3)]
+
         # Create real account and group
-        account = AccountFactory.build(id=12345, username="test_user")
+        account = AccountFactory.build(id=acct_id, username="test_user")
         await store.save(account)
 
-        group = GroupFactory.build(id=40001, createdBy=12345)
+        group = GroupFactory.build(id=group_id, createdBy=acct_id)
         await store.save(group)
 
         # Link account to group via the users relationship
@@ -50,17 +56,17 @@ class TestMessageProcessing:
         # Create 3 messages with attachments (required for query to find them)
         for i in range(3):
             message = MessageFactory.build(
-                id=400 + i,
-                groupId=40001,
-                senderId=12345,
+                id=msg_ids[i],
+                groupId=group_id,
+                senderId=acct_id,
                 content=f"Test message {i}",
             )
             await store.save(message)
 
             # Create attachment for each message
             attachment = AttachmentFactory.build(
-                messageId=400 + i,
-                contentId=400 + i,
+                messageId=msg_ids[i],
+                contentId=content_ids[i],
                 contentType=ContentType.ACCOUNT_MEDIA,
                 pos=0,
             )
@@ -71,7 +77,7 @@ class TestMessageProcessing:
             await store.save(message)
 
         # Refresh account from store
-        account = await store.get(Account, 12345)
+        account = await store.get(Account, acct_id)
 
         # Create real Performer and Studio using factories
         performer = PerformerFactory.build(id="performer_123", name="test_user")
@@ -122,11 +128,14 @@ class TestMessageProcessing:
         """Test process_creator_messages with no messages makes no GraphQL calls."""
         store = get_store()
 
+        acct_id = snowflake_id()
+        group_id = snowflake_id()
+
         # Create account with group but no messages
-        account = AccountFactory.build(id=12346, username="test_user_2")
+        account = AccountFactory.build(id=acct_id, username="test_user_2")
         await store.save(account)
 
-        group = GroupFactory.build(id=40002, createdBy=12346)
+        group = GroupFactory.build(id=group_id, createdBy=acct_id)
         await store.save(group)
 
         # Link account to group via the users relationship
@@ -134,7 +143,7 @@ class TestMessageProcessing:
         await store.save(group)
 
         # Refresh account from store
-        account = await store.get(Account, 12346)
+        account = await store.get(Account, acct_id)
 
         performer = PerformerFactory.build(id="performer_124", name="test_user_2")
         studio = StudioFactory.build(id="studio_124", name="Test Studio 2")
@@ -165,11 +174,16 @@ class TestMessageProcessing:
         """Test that database query correctly retrieves messages with attachments."""
         store = get_store()
 
+        acct_id = snowflake_id()
+        group_id = snowflake_id()
+        msg_id = snowflake_id()
+        content_id = snowflake_id()
+
         # Create account, group and message with attachment
-        account = AccountFactory.build(id=12347, username="test_user_3")
+        account = AccountFactory.build(id=acct_id, username="test_user_3")
         await store.save(account)
 
-        group = GroupFactory.build(id=40003, createdBy=12347)
+        group = GroupFactory.build(id=group_id, createdBy=acct_id)
         await store.save(group)
 
         # Link account to group via the users relationship
@@ -178,16 +192,16 @@ class TestMessageProcessing:
 
         # Create 1 message with attachment
         message = MessageFactory.build(
-            id=600,
-            groupId=40003,
-            senderId=12347,
+            id=msg_id,
+            groupId=group_id,
+            senderId=acct_id,
             content="Test message with attachment",
         )
         await store.save(message)
 
         attachment = AttachmentFactory.build(
-            messageId=600,
-            contentId=600,
+            messageId=msg_id,
+            contentId=content_id,
             contentType=ContentType.ACCOUNT_MEDIA,
             pos=0,
         )
@@ -198,7 +212,7 @@ class TestMessageProcessing:
         await store.save(message)
 
         # Refresh account from store
-        account = await store.get(Account, 12347)
+        account = await store.get(Account, acct_id)
 
         performer = PerformerFactory.build(id="performer_125", name="test_user_3")
         studio = StudioFactory.build(id="studio_125", name="Test Studio 3")
@@ -237,11 +251,15 @@ class TestMessageProcessing:
         """Test that messages without attachments are not processed."""
         store = get_store()
 
+        acct_id = snowflake_id()
+        group_id = snowflake_id()
+        msg_id = snowflake_id()
+
         # Create account, group and message WITHOUT attachment
-        account = AccountFactory.build(id=12348, username="test_user_4")
+        account = AccountFactory.build(id=acct_id, username="test_user_4")
         await store.save(account)
 
-        group = GroupFactory.build(id=40004, createdBy=12348)
+        group = GroupFactory.build(id=group_id, createdBy=acct_id)
         await store.save(group)
 
         # Link account to group via the users relationship
@@ -250,16 +268,16 @@ class TestMessageProcessing:
 
         # Create message WITHOUT attachment - should not be found by query
         message = MessageFactory.build(
-            id=700,
-            groupId=40004,
-            senderId=12348,
+            id=msg_id,
+            groupId=group_id,
+            senderId=acct_id,
             content="Test message without attachment",
         )
         await store.save(message)
         # No attachment - message has no attachments
 
         # Refresh account from store
-        account = await store.get(Account, 12348)
+        account = await store.get(Account, acct_id)
 
         performer = PerformerFactory.build(id="performer_126", name="test_user_4")
         studio = StudioFactory.build(id="studio_126", name="Test Studio 4")

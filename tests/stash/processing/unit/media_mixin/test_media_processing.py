@@ -21,6 +21,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_scene_dict,
     create_studio_dict,
 )
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestMediaProcessing:
@@ -33,12 +34,16 @@ class TestMediaProcessing:
         Unit test using respx - tests the full flow of finding and updating Stash metadata.
         """
         # Create test data using factories
-        account = AccountFactory.build(id=123, username="test_user")
-        item = PostFactory.build(id=456, accountId=123)
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        media_id = snowflake_id()
+
+        account = AccountFactory.build(id=acct_id, username="test_user")
+        item = PostFactory.build(id=post_id, accountId=acct_id)
 
         # Create Media with stash_id so _find_stash_files_by_id gets called
         media = MediaFactory.build(
-            id=789,
+            id=media_id,
             mimetype="image/jpeg",
             is_downloaded=True,
             accountId=account.id,
@@ -230,12 +235,16 @@ class TestMediaProcessing:
         Unit test using respx - verifies stash_id lookup path.
         """
         # Create test data using factories
-        account = AccountFactory.build(id=123, username="test_user")
-        item = PostFactory.build(id=456, accountId=123)
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        media_id = snowflake_id()
+
+        account = AccountFactory.build(id=acct_id, username="test_user")
+        item = PostFactory.build(id=post_id, accountId=acct_id)
 
         # Create Media with stash_id
         media = MediaFactory.build(
-            id=789,
+            id=media_id,
             mimetype="video/mp4",
             is_downloaded=True,
             accountId=account.id,
@@ -402,17 +411,23 @@ class TestMediaProcessing:
         Unit test using respx - verifies path-based lookup includes parent + variant IDs.
         """
         # Create test data using factories
-        account = AccountFactory.build(id=123, username="test_user")
-        item = PostFactory.build(id=456, accountId=123)
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+        media_id = snowflake_id()
+        variant_id_1 = snowflake_id()
+        variant_id_2 = snowflake_id()
+
+        account = AccountFactory.build(id=acct_id, username="test_user")
+        item = PostFactory.build(id=post_id, accountId=acct_id)
 
         # Create variant Media objects
         variant1 = MediaFactory.build(
-            id=7891,
+            id=variant_id_1,
             mimetype="image/jpeg",
             accountId=account.id,
         )
         variant2 = MediaFactory.build(
-            id=7892,
+            id=variant_id_2,
             mimetype="video/mp4",
             accountId=account.id,
         )
@@ -420,7 +435,7 @@ class TestMediaProcessing:
 
         # Create parent Media with variants (NO stash_id, so path lookup)
         media = MediaFactory.build(
-            id=789,
+            id=media_id,
             mimetype="video/mp4",
             is_downloaded=True,
             accountId=account.id,

@@ -29,6 +29,7 @@ from tests.fixtures import (
 )
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
@@ -39,28 +40,34 @@ async def test_process_creator_posts_with_batch_processing(
     await respx_stash_processor.context.get_client()
     store = get_store()
 
+    acct_id = snowflake_id()
+    post_id = snowflake_id()
+    media_id = snowflake_id()
+
     # Create account with factory
     account = AccountFactory.build(
-        id=12345, username="test_user", displayName="Test User"
+        id=acct_id, username="test_user", displayName="Test User"
     )
     await store.save(account)
 
     # Create post with attachment (required by INNER JOIN in process_creator_posts)
-    post = PostFactory.build(id=200, accountId=12345, content="Test post")
+    post = PostFactory.build(id=post_id, accountId=acct_id, content="Test post")
     await store.save(post)
 
     media = MediaFactory.build(
-        id=123, accountId=12345, mimetype="image/jpeg", is_downloaded=True
+        id=media_id, accountId=acct_id, mimetype="image/jpeg", is_downloaded=True
     )
     await store.save(media)
 
-    account_media = AccountMediaFactory.build(id=123, accountId=12345, mediaId=123)
+    account_media = AccountMediaFactory.build(
+        id=media_id, accountId=acct_id, mediaId=media_id
+    )
     await store.save(account_media)
 
     attachment = AttachmentFactory.build(
         id=60001,
-        postId=200,  # Link attachment to post
-        contentId=123,  # Points to AccountMedia
+        postId=post_id,  # Link attachment to post
+        contentId=media_id,  # Points to AccountMedia
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
@@ -71,7 +78,7 @@ async def test_process_creator_posts_with_batch_processing(
     await store.save(post)
 
     # Retrieve account from store
-    account = await store.get(Account, 12345)
+    account = await store.get(Account, acct_id)
 
     # Create performer and studio using factories
     performer = PerformerFactory.build(id="500", name="test_user")
@@ -112,8 +119,8 @@ async def test_process_creator_posts_with_batch_processing(
                     create_gallery_dict(
                         id="700",
                         title="test_user - 2025/11/21",
-                        code="200",
-                        urls=["https://fansly.com/post/200"],
+                        code=str(post_id),
+                        urls=[f"https://fansly.com/post/{post_id}"],
                         studio={"id": "999"},
                         performers=[{"id": "500", "name": "test_user"}],
                     ),
@@ -141,7 +148,7 @@ async def test_process_creator_posts_with_batch_processing(
     # Call 0: findGalleries (by code)
     req0 = json.loads(calls[0].request.content)
     assert "findGalleries" in req0["query"]
-    assert req0["variables"]["gallery_filter"]["code"]["value"] == "200"
+    assert req0["variables"]["gallery_filter"]["code"]["value"] == str(post_id)
     assert calls[0].response.json()["data"]["findGalleries"]["count"] == 0
 
     # Call 1: findGalleries (by title)
@@ -155,14 +162,14 @@ async def test_process_creator_posts_with_batch_processing(
     assert "findGalleries" in req2["query"]
     assert (
         req2["variables"]["gallery_filter"]["url"]["value"]
-        == "https://fansly.com/post/200"
+        == f"https://fansly.com/post/{post_id}"
     )
     assert calls[2].response.json()["data"]["findGalleries"]["count"] == 0
 
     # Call 3: galleryCreate (create new gallery)
     req3 = json.loads(calls[3].request.content)
     assert "galleryCreate" in req3["query"]
-    assert req3["variables"]["input"]["code"] == "200"
+    assert req3["variables"]["input"]["code"] == str(post_id)
     assert req3["variables"]["input"]["studio_id"] == "999"
     assert req3["variables"]["input"]["performer_ids"] == ["500"]
     assert calls[3].response.json()["data"]["galleryCreate"]["id"] == "700"
@@ -176,25 +183,34 @@ async def test_collect_media_from_attachments_with_aggregated_post(
     """Test _collect_media_from_attachments with an aggregated post."""
     store = get_store()
 
+    acct_id = snowflake_id()
+    media_id = snowflake_id()
+    agg_post_id = snowflake_id()
+    main_post_id = snowflake_id()
+
     # Create account and media
-    account = AccountFactory.build(id=12345, username="test_user")
+    account = AccountFactory.build(id=acct_id, username="test_user")
     await store.save(account)
 
-    media = MediaFactory.build(id=125, accountId=12345, mimetype="image/jpeg")
+    media = MediaFactory.build(id=media_id, accountId=acct_id, mimetype="image/jpeg")
     await store.save(media)
 
-    account_media = AccountMediaFactory.build(id=125, accountId=12345, mediaId=125)
+    account_media = AccountMediaFactory.build(
+        id=media_id, accountId=acct_id, mediaId=media_id
+    )
     await store.save(account_media)
     # account_media.media auto-resolves via identity map (Media already saved)
 
     # Create aggregated post with nested attachment
-    agg_post = PostFactory.build(id=201, accountId=12345, content="Aggregated post")
+    agg_post = PostFactory.build(
+        id=agg_post_id, accountId=acct_id, content="Aggregated post"
+    )
     await store.save(agg_post)
 
     nested_attachment = AttachmentFactory.build(
         id=60003,
-        postId=201,  # Link nested attachment to aggregated post
-        contentId=125,  # Points to AccountMedia
+        postId=agg_post_id,  # Link nested attachment to aggregated post
+        contentId=media_id,  # Points to AccountMedia
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
@@ -207,13 +223,15 @@ async def test_collect_media_from_attachments_with_aggregated_post(
     # nested_attachment.media auto-resolves via identity map (AccountMedia already saved)
 
     # Create main post with attachment pointing to aggregated post
-    main_post = PostFactory.build(id=202, accountId=12345, content="Main post")
+    main_post = PostFactory.build(
+        id=main_post_id, accountId=acct_id, content="Main post"
+    )
     await store.save(main_post)
 
     main_attachment = AttachmentFactory.build(
         id=60004,
-        postId=202,  # Link attachment to main post
-        contentId=201,  # Points to aggregated post
+        postId=main_post_id,  # Link attachment to main post
+        contentId=agg_post_id,  # Points to aggregated post
         contentType=ContentType.AGGREGATED_POSTS,
         pos=0,
     )
@@ -228,7 +246,7 @@ async def test_collect_media_from_attachments_with_aggregated_post(
 
     # Verify nested media was found
     assert len(result) == 1
-    assert result[0].id == 125
+    assert result[0].id == media_id
 
 
 @pytest.mark.asyncio
@@ -239,26 +257,36 @@ async def test_collect_media_from_attachments_with_bundle(
     """Test _collect_media_from_attachments with a media bundle."""
     store = get_store()
 
+    acct_id = snowflake_id()
+    bundle_id = snowflake_id()
+    media_id_1 = snowflake_id()
+    media_id_2 = snowflake_id()
+    post_id = snowflake_id()
+
     # Create account
-    account = AccountFactory.build(id=12345, username="test_user")
+    account = AccountFactory.build(id=acct_id, username="test_user")
     await store.save(account)
 
     # Create bundle
-    bundle = AccountMediaBundleFactory.build(id=80001, accountId=12345)
+    bundle = AccountMediaBundleFactory.build(id=bundle_id, accountId=acct_id)
     await store.save(bundle)
 
     # Create media for bundle
-    media1 = MediaFactory.build(id=126, accountId=12345, mimetype="image/jpeg")
+    media1 = MediaFactory.build(id=media_id_1, accountId=acct_id, mimetype="image/jpeg")
     await store.save(media1)
 
-    account_media1 = AccountMediaFactory.build(id=126, accountId=12345, mediaId=126)
+    account_media1 = AccountMediaFactory.build(
+        id=media_id_1, accountId=acct_id, mediaId=media_id_1
+    )
     await store.save(account_media1)
     # account_media1.media auto-resolves via identity map (Media already saved)
 
-    media2 = MediaFactory.build(id=128, accountId=12345, mimetype="video/mp4")
+    media2 = MediaFactory.build(id=media_id_2, accountId=acct_id, mimetype="video/mp4")
     await store.save(media2)
 
-    account_media2 = AccountMediaFactory.build(id=128, accountId=12345, mediaId=128)
+    account_media2 = AccountMediaFactory.build(
+        id=media_id_2, accountId=acct_id, mediaId=media_id_2
+    )
     await store.save(account_media2)
     # account_media2.media auto-resolves via identity map (Media already saved)
 
@@ -267,13 +295,13 @@ async def test_collect_media_from_attachments_with_bundle(
     await store.save(bundle)
 
     # Create post attachment pointing to bundle
-    post = PostFactory.build(id=203, accountId=12345, content="Post with bundle")
+    post = PostFactory.build(id=post_id, accountId=acct_id, content="Post with bundle")
     await store.save(post)
 
     attachment = AttachmentFactory.build(
         id=60005,
-        postId=203,  # Link attachment to post
-        contentId=80001,  # Points to bundle
+        postId=post_id,  # Link attachment to post
+        contentId=bundle_id,  # Points to bundle
         contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
         pos=0,
     )
@@ -287,8 +315,8 @@ async def test_collect_media_from_attachments_with_bundle(
     # Verify all media was collected
     assert len(result) >= 2  # At least two bundle media (preview is optional)
     media_ids = {m.id for m in result}
-    assert 126 in media_ids
-    assert 128 in media_ids
+    assert media_id_1 in media_ids
+    assert media_id_2 in media_ids
 
 
 @pytest.mark.asyncio
@@ -298,26 +326,34 @@ async def test_process_items_with_gallery_error_handling(
     """Test error handling in _process_items_with_gallery."""
     store = get_store()
 
+    acct_id = snowflake_id()
+    post_id = snowflake_id()
+    media_id = snowflake_id()
+
     # Create account
     account = AccountFactory.build(
-        id=12345, username="test_user", displayName="Test User"
+        id=acct_id, username="test_user", displayName="Test User"
     )
     await store.save(account)
 
     # Create a working post with attachment
-    post = PostFactory.build(id=204, accountId=12345, content="Working post #test")
+    post = PostFactory.build(
+        id=post_id, accountId=acct_id, content="Working post #test"
+    )
     await store.save(post)
 
-    media = MediaFactory.build(id=129, accountId=12345, mimetype="image/jpeg")
+    media = MediaFactory.build(id=media_id, accountId=acct_id, mimetype="image/jpeg")
     await store.save(media)
 
-    account_media = AccountMediaFactory.build(id=129, accountId=12345, mediaId=129)
+    account_media = AccountMediaFactory.build(
+        id=media_id, accountId=acct_id, mediaId=media_id
+    )
     await store.save(account_media)
 
     attachment = AttachmentFactory.build(
         id=60006,
-        postId=204,  # Link attachment to post
-        contentId=129,  # Points to AccountMedia
+        postId=post_id,  # Link attachment to post
+        contentId=media_id,  # Points to AccountMedia
         contentType=ContentType.ACCOUNT_MEDIA,
         pos=0,
     )
@@ -328,8 +364,8 @@ async def test_process_items_with_gallery_error_handling(
     await store.save(post)
 
     # Retrieve fresh account and post from store
-    account = await store.get(Account, 12345)
-    working_post = await store.get(Post, 204)
+    account = await store.get(Account, acct_id)
+    working_post = await store.get(Post, post_id)
 
     # Create performer and studio
     performer = PerformerFactory.build(id="500", name="test_user")
@@ -350,7 +386,7 @@ async def test_process_items_with_gallery_error_handling(
 
         # Verify the working post was processed
         assert mock_gallery.call_count == 1
-        assert mock_gallery.call_args[1]["item"].id == 204
+        assert mock_gallery.call_args[1]["item"].id == post_id
 
 
 # ============================================================================

@@ -19,6 +19,7 @@ from tests.fixtures.metadata.metadata_factories import (
     PostFactory,
 )
 from tests.fixtures.stash import ImageFactory, SceneFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestAttachmentProcessing:
@@ -33,8 +34,10 @@ class TestAttachmentProcessing:
         User authorized mocking only because of over-testing of deeper methods.
         """
         # Create real Media object using factory
+        media_id = snowflake_id()
+        acct_media_id = snowflake_id()
         media = MediaFactory.build(
-            id=20789,
+            id=media_id,
             mimetype="image/jpeg",
             is_downloaded=True,
             accountId=mock_account.id,
@@ -43,7 +46,7 @@ class TestAttachmentProcessing:
 
         # Create real AccountMedia object using factory
         account_media = AccountMediaFactory.build(
-            id=70456,
+            id=acct_media_id,
             accountId=mock_account.id,
             mediaId=media.id,
         )
@@ -108,15 +111,20 @@ class TestAttachmentProcessing:
         User authorized mocking only because of over-testing of deeper methods.
         """
         # Create real Media objects using factory
+        media_id_1 = snowflake_id()
+        media_id_2 = snowflake_id()
+        acct_media_id_1 = snowflake_id()
+        acct_media_id_2 = snowflake_id()
+        bundle_id = snowflake_id()
         media1 = MediaFactory.build(
-            id=20456,
+            id=media_id_1,
             mimetype="image/jpeg",
             is_downloaded=True,
             accountId=mock_account.id,
             stash_id=456,
         )
         media2 = MediaFactory.build(
-            id=20457,
+            id=media_id_2,
             mimetype="video/mp4",
             is_downloaded=True,
             accountId=mock_account.id,
@@ -125,19 +133,19 @@ class TestAttachmentProcessing:
 
         # Create real AccountMedia objects
         account_media1 = AccountMediaFactory.build(
-            id=70123,
+            id=acct_media_id_1,
             accountId=mock_account.id,
             mediaId=media1.id,
         )
         account_media2 = AccountMediaFactory.build(
-            id=70124,
+            id=acct_media_id_2,
             accountId=mock_account.id,
             mediaId=media2.id,
         )
 
         # Create real AccountMediaBundle object using factory
         bundle = AccountMediaBundleFactory.build(
-            id=80789,
+            id=bundle_id,
             accountId=mock_account.id,
         )
         # Set up the relationship (accountMedia is a list field)
@@ -213,15 +221,18 @@ class TestAttachmentProcessing:
         User authorized mocking only because of over-testing of deeper methods.
         """
         # Create an aggregated post using factory
+        agg_post_id = snowflake_id()
+        agg_media_id = snowflake_id()
+        agg_acct_media_id = snowflake_id()
         agg_post = PostFactory.build(
-            id=30789,
+            id=agg_post_id,
             accountId=mock_account.id,
             content="Aggregated post content",
         )
 
         # Create media for the aggregated post's attachment
         agg_media = MediaFactory.build(
-            id=20999,
+            id=agg_media_id,
             mimetype="image/jpeg",
             is_downloaded=True,
             accountId=mock_account.id,
@@ -229,7 +240,7 @@ class TestAttachmentProcessing:
         )
 
         agg_account_media = AccountMediaFactory.build(
-            id=71000,
+            id=agg_acct_media_id,
             accountId=mock_account.id,
             mediaId=agg_media.id,
         )

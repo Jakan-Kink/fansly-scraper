@@ -7,7 +7,6 @@ Note: These tests are skipped when running in the sandbox environment.
 
 import asyncio
 import os
-import time
 from datetime import UTC, datetime
 
 import pytest
@@ -22,6 +21,7 @@ from stash_graphql_client.types import (
 )
 
 from metadata import Account, Post
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # Skip all tests in this module when running in sandbox
@@ -44,8 +44,7 @@ def get_ids(objects):
 @pytest.fixture
 def mock_account() -> Account:
     """Create a mock account for testing."""
-    # Use monotonic_ns for unique ID across parallel test runs
-    unique_id = time.monotonic_ns() % 1000000000
+    unique_id = snowflake_id()
     account = Account(
         id=unique_id,
         username=f"test_account_{unique_id}",
@@ -69,8 +68,7 @@ def mock_account() -> Account:
 @pytest.fixture
 def mock_post(mock_account: Account) -> Post:
     """Create a mock post for testing."""
-    # Use monotonic_ns for unique ID across parallel test runs
-    unique_id = time.monotonic_ns() % 1000000000
+    unique_id = snowflake_id()
     return Post(
         id=unique_id,
         accountId=mock_account.id,
@@ -232,7 +230,7 @@ async def test_batch_import_workflow(
 
             # Create mock posts with unique IDs
             posts = []
-            base_id = time.monotonic_ns() % 1000000000
+            base_id = snowflake_id()
             for i in range(10):
                 post = Post(
                     id=base_id + i,

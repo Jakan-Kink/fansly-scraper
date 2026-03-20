@@ -529,7 +529,9 @@ def downgrade() -> None:
         autoincrement=True,
         existing_server_default=sa.text("nextval('posts_id_seq'::regclass)"),
     )
-    op.drop_constraint("uix_post_mentions_handle", "post_mentions", type_="unique")
+    op.execute(
+        'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_handle"'
+    )
     op.alter_column(
         "post_mentions",
         "handle",

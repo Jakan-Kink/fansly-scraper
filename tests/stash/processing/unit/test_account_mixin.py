@@ -18,6 +18,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_performer_dict,
 )
 from tests.fixtures.stash.stash_type_factories import PerformerFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 class TestAccountProcessingMixin:
@@ -29,9 +30,14 @@ class TestAccountProcessingMixin:
 
         This test doesn't require GraphQL mocking since it only tests database queries.
         """
+        acct_id = snowflake_id()
+
         # Create test account in entity_store (production code uses get_store())
-        account = AccountFactory.build(id=12345, username="test_user", stash_id=12345)
+        account = AccountFactory.build(id=acct_id, username="test_user", stash_id=12345)
         await entity_store.save(account)
+
+        # Set creator_id to match the account we just created
+        respx_stash_processor.state.creator_id = acct_id
 
         # Call _find_account with creator_id
         await respx_stash_processor.context.get_client()
@@ -39,7 +45,7 @@ class TestAccountProcessingMixin:
 
         # Verify account was found
         assert found_account is not None
-        assert found_account.id == 12345
+        assert found_account.id == acct_id
         assert found_account.username == "test_user"
 
         # Test with creator_name instead of id
@@ -69,14 +75,19 @@ class TestAccountProcessingMixin:
     @pytest.mark.asyncio
     async def test_process_creator(self, respx_stash_processor, entity_store):
         """Test process_creator method."""
+        acct_id = snowflake_id()
+
         # Create test account in entity_store
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=None,
             displayName=None,  # Explicitly set to None to test username fallback
         )
         await entity_store.save(account)
+
+        # Set creator_id to match the account we just created
+        respx_stash_processor.state.creator_id = acct_id
 
         # Setup edge mock for get_or_create_performer flow:
         # 1. findPerformers (fuzzy search) returns empty
@@ -152,9 +163,12 @@ class TestAccountProcessingMixin:
     @pytest.mark.asyncio
     async def test_update_performer_avatar(self, respx_stash_processor):
         """Test _update_performer_avatar method."""
+        acct_id = snowflake_id()
+        avatar_media_id = snowflake_id()
+
         # Create account with no avatar (avatar=None by default)
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=12345,
         )
@@ -174,7 +188,7 @@ class TestAccountProcessingMixin:
 
         # Now set avatar on account (Pydantic relationship — direct attribute)
         avatar = MediaFactory.build(
-            id=1,
+            id=avatar_media_id,
             accountId=account.id,
             local_filename="avatar.jpg",
         )
@@ -253,9 +267,11 @@ class TestAccountProcessingMixin:
     @pytest.mark.asyncio
     async def test_find_existing_performer_by_id(self, respx_stash_processor):
         """Test _find_existing_performer finds performer by stash_id."""
+        acct_id = snowflake_id()
+
         # Create account with stash_id — just an in-memory object, no DB needed
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=999,
         )
@@ -285,9 +301,11 @@ class TestAccountProcessingMixin:
     @pytest.mark.asyncio
     async def test_find_existing_performer_by_name(self, respx_stash_processor):
         """Test _find_existing_performer finds performer by username."""
+        acct_id = snowflake_id()
+
         # Create account without stash_id
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=None,
         )
@@ -319,9 +337,11 @@ class TestAccountProcessingMixin:
     @pytest.mark.asyncio
     async def test_find_existing_performer_not_found(self, respx_stash_processor):
         """Test _find_existing_performer returns None when not found."""
+        acct_id = snowflake_id()
+
         # Create account without stash_id
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=None,
         )
@@ -354,9 +374,11 @@ class TestAccountProcessingMixin:
 
         This test doesn't require GraphQL mocking since it only updates the database.
         """
+        acct_id = snowflake_id()
+
         # Create account in entity_store (production code uses get_store())
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=None,
         )
@@ -381,7 +403,8 @@ class TestAccountProcessingMixin:
         Uses raw filter: aliases={"value": username, "modifier": "INCLUDES"}
         This is the workaround for stash-graphql-client v0.10.5.
         """
-        account = AccountFactory.build(id=12345, username="test_user")
+        acct_id = snowflake_id()
+        account = AccountFactory.build(id=acct_id, username="test_user")
 
         # Create performer data that will be found by alias
         existing_performer_dict = create_performer_dict(
@@ -430,7 +453,8 @@ class TestAccountProcessingMixin:
 
         from stash_graphql_client.types import Performer
 
-        account = AccountFactory.build(id=12345, username="test_user")
+        acct_id = snowflake_id()
+        account = AccountFactory.build(id=acct_id, username="test_user")
 
         # Create performer that will be found by alias
         existing_performer_dict = create_performer_dict(
@@ -505,7 +529,8 @@ class TestAccountProcessingMixin:
     @pytest.mark.asyncio
     async def test_get_or_create_performer_found_by_url(self, respx_stash_processor):
         """Test _get_or_create_performer when performer found by URL (lines 131-132)."""
-        account = AccountFactory.build(id=12345, username="test_user")
+        acct_id = snowflake_id()
+        account = AccountFactory.build(id=acct_id, username="test_user")
 
         # Create performer data that will be found by URL
         existing_performer_dict = create_performer_dict(
@@ -554,10 +579,16 @@ class TestAccountProcessingMixin:
         self, respx_stash_processor
     ):
         """Test _update_performer_avatar when performer has custom image (line 242->exit)."""
+        acct_id = snowflake_id()
+        avatar_media_id = snowflake_id()
+
         # Create account with avatar set directly (Pydantic relationship)
-        account = AccountFactory.build(id=12345, username="test_user")
+        account = AccountFactory.build(id=acct_id, username="test_user")
         avatar = MediaFactory.build(
-            id=999, accountId=12345, mimetype="image/jpeg", local_filename="avatar.jpg"
+            id=avatar_media_id,
+            accountId=acct_id,
+            mimetype="image/jpeg",
+            local_filename="avatar.jpg",
         )
         account.avatar = avatar
 
@@ -580,8 +611,9 @@ class TestAccountProcessingMixin:
         self, respx_stash_processor
     ):
         """Test _find_existing_performer when stash_id lookup returns None (line 302->314)."""
+        acct_id = snowflake_id()
         account = AccountFactory.build(
-            id=12345,
+            id=acct_id,
             username="test_user",
             stash_id=999,  # Has stash_id but lookup fails
         )

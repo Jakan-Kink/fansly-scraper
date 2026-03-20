@@ -39,6 +39,7 @@ from tests.fixtures.metadata.metadata_factories import (
     MediaFactory,
 )
 from tests.fixtures.stash.stash_api_fixtures import _mock_capability_response
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ============================================================================
@@ -129,8 +130,9 @@ def test_state(tmp_path):
     download_path = base_path / "test_user"
     download_path.mkdir(parents=True, exist_ok=True)
 
+    creator_id = snowflake_id()
     return DownloadStateFactory(
-        creator_id=12345,
+        creator_id=creator_id,
         creator_name="test_user",
         base_path=base_path,
         download_path=download_path,
@@ -188,7 +190,7 @@ def mock_permissions():
 
 
 @pytest_asyncio.fixture
-async def real_stash_processor(config, test_database_sync, stash_context):
+async def real_stash_processor(config, test_database_sync, stash_context, test_state):
     """Fixture for StashProcessing with REAL database and REAL Docker Stash.
 
     This is for TRUE integration tests that hit the real Stash instance.
@@ -201,6 +203,7 @@ async def real_stash_processor(config, test_database_sync, stash_context):
         config: Real FanslyConfig with UUID-isolated database
         test_database_sync: Real Database instance
         stash_context: Real StashContext connected to Docker (localhost:9999)
+        test_state: DownloadState fixture (shares creator_id with test assertions)
 
     Yields:
         StashProcessing: Fully functional processor hitting real Docker Stash
@@ -219,10 +222,11 @@ async def real_stash_processor(config, test_database_sync, stash_context):
     else:
         stash_library_path = Path("/")
 
-    # Create a real DownloadState with the Stash server's actual library path
+    # Create a real DownloadState with the Stash server's actual library path,
+    # using the same creator_id as test_state for assertion consistency
     state = DownloadState(
         creator_name="test_user",
-        creator_id=12345,
+        creator_id=test_state.creator_id,
         base_path=stash_library_path,
         download_path=stash_library_path,
     )
@@ -865,7 +869,7 @@ async def message_media_generator(factory_session, real_stash_processor):
 
                         # Build AccountMedia with placeholder accountId (test will set it)
                         account_media = AccountMediaFactory.build(
-                            mediaId=media.id, accountId=0
+                            mediaId=media.id,
                         )
 
                         # Store bundle link metadata (position in bundle)
@@ -913,7 +917,7 @@ async def message_media_generator(factory_session, real_stash_processor):
 
                         # Build AccountMedia with placeholder accountId (test will set it)
                         account_media = AccountMediaFactory.build(
-                            mediaId=media.id, accountId=0
+                            mediaId=media.id,
                         )
                         account_media_items.append(account_media)
 
@@ -967,7 +971,7 @@ async def message_media_generator(factory_session, real_stash_processor):
 
                     # Build AccountMedia with placeholder accountId (test will set it)
                     account_media = AccountMediaFactory.build(
-                        mediaId=media.id, accountId=0
+                        mediaId=media.id,
                     )
                     account_media_items.append(account_media)
 

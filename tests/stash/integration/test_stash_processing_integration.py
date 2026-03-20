@@ -18,6 +18,7 @@ from tests.fixtures import (
     create_studio_dict,
 )
 from tests.fixtures.stash.stash_type_factories import PerformerFactory, StudioFactory
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 @pytest.mark.asyncio
@@ -26,8 +27,9 @@ async def test_full_creator_processing_flow(
 ):
     """Test the full flow of creator processing using real fixtures."""
     # Use real Account from factory
+    acct_id = snowflake_id()
     account = AccountFactory.build(
-        id=12345,
+        id=acct_id,
         username="test_user",
     )
 
@@ -91,8 +93,9 @@ async def test_process_creator_to_background(
 ):
     """Test the flow from process_creator to background processing using respx edge mocking."""
     # Create real Account using factory with database
+    acct_id = snowflake_id()
     account = AccountFactory(
-        id=12345,
+        id=acct_id,
         username="test_user",
         stash_id=None,
     )
@@ -144,8 +147,9 @@ async def test_process_creator_to_background(
 async def test_safe_background_processing_integration(real_stash_processor):
     """Test the safe background processing with error handling."""
     # Create test data using factories
+    acct_id = snowflake_id()
     account = AccountFactory.build(
-        id=12345,
+        id=acct_id,
         username="test_user",
     )
     performer = PerformerFactory(

@@ -40,6 +40,7 @@ from download.core import DownloadState
 
 # Import all factories and fixtures using wildcard
 from tests.fixtures import *  # noqa: F403
+from tests.fixtures.utils.test_isolation import snowflake_id
 
 
 # ============================================================================
@@ -282,7 +283,7 @@ def sample_account():
         dict: Sample account data
     """
     return {
-        "id": "12345",
+        "id": str(snowflake_id()),
         "username": "test_user",
         "displayName": "Test User",
         "about": "Test account for testing",
@@ -291,15 +292,15 @@ def sample_account():
 
 
 @pytest.fixture
-def sample_post():
+def sample_post(sample_account):
     """Create a sample post for testing.
 
     Returns:
         dict: Sample post data
     """
     return {
-        "id": "post_123",
-        "accountId": "12345",
+        "id": str(snowflake_id()),
+        "accountId": sample_account["id"],
         "content": "Test post content #test",
         "likeCount": 5,
         "replyCount": 1,
@@ -308,16 +309,16 @@ def sample_post():
 
 
 @pytest.fixture
-def sample_message():
+def sample_message(sample_account):
     """Create a sample message for testing.
 
     Returns:
         dict: Sample message data
     """
     return {
-        "id": "message_123",
-        "groupId": "group_123",
-        "senderId": "12345",
+        "id": str(snowflake_id()),
+        "groupId": str(snowflake_id()),
+        "senderId": sample_account["id"],
         "content": "Test message content",
     }
 
@@ -516,8 +517,9 @@ def mock_download_state():
     """
     from tests.fixtures import DownloadStateFactory
 
+    creator_id = snowflake_id()
     return DownloadStateFactory(
-        creator_id=12345,
+        creator_id=creator_id,
         creator_name="test_user",
         messages_enabled=True,
         verbose_logs=False,

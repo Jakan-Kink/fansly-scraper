@@ -260,7 +260,7 @@ class TestGuessUserAgent:
         with (
             patch("platform.system", return_value="Windows"),
             patch("helpers.web.re.search", side_effect=Exception("Regex error")),
-            patch("textio.print_error") as mock_print_error,
+            patch("helpers.web.print_error") as mock_print_error,
         ):
             result = guess_user_agent(user_agents, "Chrome", "default_ua_fallback")
             # Should return default when exception occurs
