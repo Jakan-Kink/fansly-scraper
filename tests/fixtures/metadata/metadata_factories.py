@@ -417,7 +417,7 @@ class MessageFactory(BaseFactory):
     senderId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
     recipientId = None
     # Use realistic Fansly message content by default
-    content = LazyFunction(lambda: fake.fansly_message_content())
+    content = LazyFunction(fake.fansly_message_content)
     createdAt = LazyFunction(lambda: datetime.now(UTC))
     deletedAt = None
     deleted = False

@@ -262,7 +262,7 @@ class TestAccountProcessingMixin:
             assert graphql_route.call_count == 2  # findImages + performerUpdate
         finally:
             # Clean up temp file
-            temp_avatar_path.unlink(missing_ok=True)
+            temp_avatar_path.unlink(missing_ok=True)  # noqa: ASYNC240
 
     @pytest.mark.asyncio
     async def test_find_existing_performer_by_id(self, respx_stash_processor):

@@ -150,7 +150,7 @@ def test_utc_time_handling(log_setup):
         # Mock the current UTC time
         now = datetime.now(UTC)
         mock_datetime.now.return_value = now
-        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)  # noqa: DTZ001 # Mock passthrough
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)  # noqa: DTZ001, PLW0108 # Mock passthrough
 
         # Set initial rollover time to 1 minute from now
         handler.rolloverAt = (now + timedelta(minutes=1)).timestamp()

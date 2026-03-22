@@ -40,7 +40,7 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
         print()
 
         while True:
-            requested_post = input(f"\n{17 * ' '}► Post Link or ID: ")
+            requested_post = input(f"\n{17 * ' '}► Post Link or ID: ")  # noqa: ASYNC250 # intentional blocking input
             post_id = get_post_id_from_request(requested_post)
 
             if is_valid_post_id(post_id):

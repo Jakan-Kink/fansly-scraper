@@ -354,7 +354,7 @@ async def _download_m3u8_file(
         return False
 
     finally:
-        if temp_dir.exists():
+        if temp_dir.exists():  # noqa: ASYNC240 # trivial stat in cleanup
             shutil.rmtree(temp_dir)
 
 
