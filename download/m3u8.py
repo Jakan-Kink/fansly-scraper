@@ -216,7 +216,7 @@ def _try_direct_download_pyav(
         for stream in input_container.streams:
             if not stream.codec_context:
                 continue
-            output_stream = output_container.add_stream(template=stream)
+            output_stream = output_container.add_stream_from_template(stream)
             stream_mapping[stream] = output_stream
 
         if not stream_mapping:
@@ -226,6 +226,8 @@ def _try_direct_download_pyav(
         # Remux all packets (codec copy — no re-encoding)
         packet_count = 0
         for packet in input_container.demux():
+            if packet.dts is None:
+                continue
             if packet.stream in stream_mapping:
                 packet.stream = stream_mapping[packet.stream]
                 output_container.mux(packet)
@@ -321,7 +323,12 @@ def _try_direct_download_ffmpeg(
 
         total_duration = 0.0
         try:
-            probe = ffmpeg.probe(variant_url)
+            probe = ffmpeg.probe(
+                variant_url,
+                headers=headers_str,
+                f="hls",
+                protocol_whitelist="file,crypto,data,http,https,tcp,tls",
+            )
             total_duration = float(probe.get("format", {}).get("duration", 0))
             print_debug(f"HLS video duration: {total_duration:.2f}s")
         except ffmpeg.Error as probe_err:
@@ -436,14 +443,18 @@ def _mux_segments_with_pyav(
                 if not output_streams:
                     for stream in input_container.streams:
                         if stream.type == "video" and "video" not in output_streams:
-                            output_streams["video"] = output.add_stream(template=stream)
+                            output_streams["video"] = output.add_stream_from_template(
+                                stream
+                            )
                         elif stream.type == "audio" and "audio" not in output_streams:
-                            output_streams["audio"] = output.add_stream(template=stream)
+                            output_streams["audio"] = output.add_stream_from_template(
+                                stream
+                            )
 
                 # Demux and remux packets, skip corrupt ones
                 skipped_packets = 0
                 for packet in input_container.demux():
-                    if packet.is_corrupt:
+                    if packet.dts is None or packet.is_corrupt:
                         skipped_packets += 1
                         continue
                     try:
