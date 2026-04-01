@@ -1,0 +1,37 @@
+# Automatically close issues that have been dormant with no response
+# after a warning period. Runs daily at 3am UTC.
+
+name: Close Stale Issues
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v10
+        with:
+          # Issues with no activity for 14 days get labeled
+          days-before-stale: 14
+          # Labeled issues with no response for 7 more days get closed
+          days-before-close: 7
+          stale-issue-label: 'stale'
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has not
+            had any activity for 14 days. It will be closed in 7 days if no
+            further activity occurs. If this is still relevant, please leave a
+            comment or remove the stale label.
+          close-issue-message: >
+            This issue was closed automatically after being stale for 21 days
+            with no response. Feel free to reopen if the problem persists.
+          # Don't touch PRs
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          # Exempt issues with these labels from auto-closing
+          exempt-issue-labels: 'bug,enhancement,pinned'
