@@ -1299,20 +1299,14 @@ class PostgresEntityStore:
     ) -> dict[str, Any]:
         """Inject FK values as relationship fields for cache resolution.
 
-        For list relationships (M2M / reverse FK): injects FK value so the
-        identity map can resolve a list of related entities.
-
-        For scalar belongs_to relationships: injects FK value into the
-        relationship field name so _process_nested_cache_lookups can
-        resolve it to a cached object during model_validate.
+        Only injects for list relationships (M2M / reverse FK) where the
+        field expects a list of IDs. Scalar belongs_to relationships are
+        NOT injected here — _process_nested_cache_lookups resolves them
+        from the FK column directly, avoiding raw ints in typed fields.
         """
         for field_name, meta in model_type.__relationships__.items():
-            if meta.fk_column and meta.fk_column in data:
-                if meta.is_list:
-                    data[field_name] = data[meta.fk_column]
-                elif meta.query_strategy == "direct_field":
-                    # belongs_to: inject FK value for cache resolution
-                    data[field_name] = data[meta.fk_column]
+            if meta.is_list and meta.fk_column and meta.fk_column in data:
+                data[field_name] = data[meta.fk_column]
         return data
 
     # ── Cache Management ─────────────────────────────────────────────
