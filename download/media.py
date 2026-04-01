@@ -192,8 +192,10 @@ async def _verify_temp_download(
             media.is_downloaded = True
             await store.save(media)
 
-            check_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(temp_path), str(check_path))
+            await asyncio.to_thread(
+                check_path.parent.mkdir, parents=True, exist_ok=True
+            )
+            await asyncio.to_thread(shutil.move, str(temp_path), str(check_path))
 
             if config.show_downloads and config.show_skipped_downloads:
                 print_info(
@@ -209,8 +211,8 @@ async def _verify_temp_download(
             return True
 
     finally:
-        if temp_path and temp_path.exists():
-            temp_path.unlink()
+        if temp_path and await asyncio.to_thread(temp_path.exists):
+            await asyncio.to_thread(temp_path.unlink)
 
     return False
 
@@ -307,11 +309,9 @@ async def _download_m3u8_file(
     temp_path = temp_dir / f"temp_{check_path.name}"
 
     try:
-        # Run synchronous HLS download in executor to avoid blocking
+        # Run synchronous HLS download in thread to avoid blocking
         # the event loop (progress bars, rate limiter would freeze otherwise)
-        loop = asyncio.get_running_loop()
-        temp_path = await loop.run_in_executor(
-            None,
+        temp_path = await asyncio.to_thread(
             download_m3u8,
             config,
             media.download_url,
@@ -319,7 +319,7 @@ async def _download_m3u8_file(
             media.created_at_timestamp,
         )
 
-        new_hash = get_hash_for_other_content(temp_path)
+        new_hash = await asyncio.to_thread(get_hash_for_other_content, temp_path)
 
         existing_by_hash = await store.find_one(
             Media, content_hash=new_hash, is_downloaded=True
@@ -342,8 +342,8 @@ async def _download_m3u8_file(
             state.add_duplicate()
             return True
 
-        check_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(temp_path), str(check_path))
+        await asyncio.to_thread(check_path.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(shutil.move, str(temp_path), str(check_path))
 
         media.content_hash = new_hash
         media.local_filename = get_filename_only(check_path)
@@ -354,8 +354,8 @@ async def _download_m3u8_file(
         return False
 
     finally:
-        if temp_dir.exists():  # noqa: ASYNC240 # trivial stat in cleanup
-            shutil.rmtree(temp_dir)
+        if await asyncio.to_thread(temp_dir.exists):
+            await asyncio.to_thread(shutil.rmtree, temp_dir)
 
 
 async def download_media(
@@ -434,12 +434,12 @@ async def download_media(
                     print_warning(f"Skipping download: {e}")
                     continue
 
-                if not file_save_dir.exists():
-                    file_save_dir.mkdir(parents=True)
+                if not await asyncio.to_thread(file_save_dir.exists):
+                    await asyncio.to_thread(file_save_dir.mkdir, parents=True)
 
                 check_path = file_save_path
 
-                if check_path.exists():
+                if await asyncio.to_thread(check_path.exists):
                     if await _verify_existing_file(config, state, media, check_path):
                         continue
 
@@ -467,7 +467,7 @@ async def download_media(
                     else:
                         _download_regular_file(config, media, file_save_path)
 
-                        if not file_save_path.exists():
+                        if not await asyncio.to_thread(file_save_path.exists):
                             print_warning(
                                 f"File not found at expected path: {file_save_path}"
                             )

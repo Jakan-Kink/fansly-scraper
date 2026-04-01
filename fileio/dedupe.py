@@ -99,8 +99,7 @@ async def safe_rglob(base_path: Path, pattern: str) -> list[Path]:
     filename = get_filename_only(pattern)
 
     # Use rglob with just the filename part in a thread pool
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, lambda: list(base_path.rglob(filename)))
+    return await asyncio.to_thread(lambda: list(base_path.rglob(filename)))
 
 
 async def file_exists_in_download_path(
@@ -111,13 +110,12 @@ async def file_exists_in_download_path(
     if not base_path or not filename:
         return False
 
-    loop = asyncio.get_running_loop()
     direct_path = base_path / filename
-    if await loop.run_in_executor(None, direct_path.is_file):
+    if await asyncio.to_thread(direct_path.is_file):
         return True
 
     for found_file in await safe_rglob(base_path, filename):
-        if await loop.run_in_executor(None, found_file.is_file):
+        if await asyncio.to_thread(found_file.is_file):
             return True
     return False
 
@@ -135,20 +133,17 @@ async def verify_file_existence(
     Returns:
         Dict mapping filenames to existence booleans
     """
-    loop = asyncio.get_running_loop()
 
     async def check_file(filename: str) -> tuple[str, bool]:
         # First try direct path lookup
         direct_path = base_path / filename
-        if await loop.run_in_executor(None, direct_path.is_file):
+        if await asyncio.to_thread(direct_path.is_file):
             return filename, True
 
         # If not found directly, try rglob
         found = False
-        for found_file in await loop.run_in_executor(
-            None, safe_rglob, base_path, filename
-        ):
-            if await loop.run_in_executor(None, found_file.is_file):
+        for found_file in await safe_rglob(base_path, filename):
+            if await asyncio.to_thread(found_file.is_file):
                 found = True
                 break
         return filename, found
@@ -171,29 +166,26 @@ async def calculate_file_hash(
         Tuple of (file_path, hash or None, debug_info)
     """
     file_path, mimetype = file_info
-    loop = asyncio.get_running_loop()
-    exists = await loop.run_in_executor(None, file_path.exists)
+    exists = await asyncio.to_thread(file_path.exists)
     debug_info = {
         "path": str(file_path),
         "mimetype": mimetype,
         "size": (
-            await loop.run_in_executor(None, lambda: file_path.stat().st_size)
+            await asyncio.to_thread(lambda: file_path.stat().st_size)
             if exists
             else None
         ),
         "exists": exists,
-        "is_file": (
-            await loop.run_in_executor(None, file_path.is_file) if exists else None
-        ),
+        "is_file": (await asyncio.to_thread(file_path.is_file) if exists else None),
         "readable": (
-            await loop.run_in_executor(None, lambda: os.access(file_path, os.R_OK))
+            await asyncio.to_thread(lambda: os.access(file_path, os.R_OK))
             if exists
             else None
         ),
     }
     try:
         if "image" in mimetype:
-            hash_value = await loop.run_in_executor(None, get_hash_for_image, file_path)
+            hash_value = await asyncio.to_thread(get_hash_for_image, file_path)
             debug_info.update(
                 {
                     "hash_type": "image",
@@ -203,9 +195,7 @@ async def calculate_file_hash(
             )
             return file_path, hash_value, debug_info
         if "video" in mimetype or "audio" in mimetype:
-            hash_value = await loop.run_in_executor(
-                None, get_hash_for_other_content, file_path
-            )
+            hash_value = await asyncio.to_thread(get_hash_for_other_content, file_path)
             debug_info.update(
                 {
                     "hash_type": "video/audio",
@@ -360,14 +350,11 @@ async def get_or_create_media(
                     "mimetype": mimetype,
                 },
             )
-            loop = asyncio.get_running_loop()
             if "image" in mimetype:
-                file_hash = await loop.run_in_executor(
-                    None, get_hash_for_image, file_path
-                )
+                file_hash = await asyncio.to_thread(get_hash_for_image, file_path)
             elif "video" in mimetype or "audio" in mimetype:
-                file_hash = await loop.run_in_executor(
-                    None, get_hash_for_other_content, file_path
+                file_hash = await asyncio.to_thread(
+                    get_hash_for_other_content, file_path
                 )
 
         # If we have a hash now, verify it matches
@@ -460,13 +447,10 @@ async def get_or_create_media(
                 "mimetype": mimetype,
             },
         )
-        loop = asyncio.get_running_loop()
         if "image" in mimetype:
-            file_hash = await loop.run_in_executor(None, get_hash_for_image, file_path)
+            file_hash = await asyncio.to_thread(get_hash_for_image, file_path)
         elif "video" in mimetype or "audio" in mimetype:
-            file_hash = await loop.run_in_executor(
-                None, get_hash_for_other_content, file_path
-            )
+            file_hash = await asyncio.to_thread(get_hash_for_other_content, file_path)
 
     # Create new media
     media = Media(
@@ -582,8 +566,8 @@ async def dedupe_init(
     # Create the base user path download_directory/creator_name
     set_create_directory_for_download(config, state)
 
-    if not state.download_path or not await asyncio.get_running_loop().run_in_executor(
-        None, state.download_path.is_dir
+    if not state.download_path or not await asyncio.to_thread(
+        state.download_path.is_dir
     ):
         json_output(
             1,
@@ -624,7 +608,7 @@ async def dedupe_init(
     all_files = [
         f
         for f in await safe_rglob(state.download_path, "*")
-        if await asyncio.get_running_loop().run_in_executor(None, f.is_file)
+        if await asyncio.to_thread(f.is_file)
     ]
     file_batches = {
         "hash2": [],  # (file_path, media_id, mimetype, hash2_value)
@@ -911,13 +895,10 @@ async def _calculate_hash_for_file(
         Hash string or None if hash couldn't be calculated
     """
     try:
-        loop = asyncio.get_running_loop()
         if "image" in mimetype:
-            return await loop.run_in_executor(None, get_hash_for_image, filename)
+            return await asyncio.to_thread(get_hash_for_image, filename)
         if "video" in mimetype or "audio" in mimetype:
-            return await loop.run_in_executor(
-                None, get_hash_for_other_content, filename
-            )
+            return await asyncio.to_thread(get_hash_for_other_content, filename)
     except Exception as e:
         json_output(
             1,
@@ -945,10 +926,9 @@ async def _check_file_exists(
     Returns:
         True if file exists, False otherwise
     """
-    loop = asyncio.get_running_loop()
     found_files = await safe_rglob(base_path, filename)
     for found_file in found_files:
-        if await loop.run_in_executor(None, found_file.is_file):
+        if await asyncio.to_thread(found_file.is_file):
             return True
     return False
 
@@ -1038,9 +1018,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                             existing_by_id.is_downloaded = True
                             await store.save(existing_by_id)
                             # Remove the new file since it's a duplicate
-                            await asyncio.get_running_loop().run_in_executor(
-                                None, filename.unlink
-                            )
+                            await asyncio.to_thread(filename.unlink)
                             return True
 
                 # No duplicate found - update with new file info
@@ -1091,9 +1069,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
 
                     if db_file_exists:
                         # DB's file exists, this is a duplicate with wrong name - remove it
-                        await asyncio.get_running_loop().run_in_executor(
-                            None, filename.unlink
-                        )
+                        await asyncio.to_thread(filename.unlink)
                         return True
                     # DB's file is missing but this is the same content - update DB filename
                     existing_by_id.local_filename = get_filename_only(filename)
@@ -1147,9 +1123,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
 
                         if db_file_exists:
                             # DB's file exists, this is a duplicate - remove it
-                            await asyncio.get_running_loop().run_in_executor(
-                                None, filename.unlink
-                            )
+                            await asyncio.to_thread(filename.unlink)
                             return True
                         # DB's file is missing but content matches - update DB filename
                         existing_by_name.local_filename = get_filename_only(filename)
@@ -1175,9 +1149,7 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     await store.save(media_record)
 
                     # DB's file exists, this is a duplicate - remove it
-                    await asyncio.get_running_loop().run_in_executor(
-                        None, filename.unlink
-                    )
+                    await asyncio.to_thread(filename.unlink)
                     return True
                 # DB's file is missing but this is the same content - keep new file
                 # Update both the old record and current record to point to new file
