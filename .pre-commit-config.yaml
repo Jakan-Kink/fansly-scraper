@@ -20,7 +20,7 @@ repos:
     -   id: mixed-line-ending
     -   id: trailing-whitespace
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.11
+    rev: v0.15.7
     hooks:
     # # Run the linter
     -   id: ruff-check
@@ -28,7 +28,7 @@ repos:
     # Run the formatter
     -   id: ruff-format
 -   repo: https://github.com/PyCQA/bandit
-    rev: '1.9.2'
+    rev: '1.9.4'
     hooks:
     - id: bandit
       args: ["-c", "pyproject.toml", "-r"]

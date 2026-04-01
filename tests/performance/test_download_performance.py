@@ -15,7 +15,7 @@ async def download_media(
     url: str, media_id: str, save_path: Path, config: FanslyConfig
 ) -> bool:
     """Mock function for testing."""
-    save_path.write_bytes(b"mock download content")
+    save_path.write_bytes(b"mock download content")  # noqa: ASYNC240
     return True
 
 

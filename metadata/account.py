@@ -111,14 +111,10 @@ async def process_account_data(
 
     account = Account.model_validate(data)
 
-    # Save avatar/banner Media first (FK constraint for junction tables)
-    if account.avatar:
-        await store.save(account.avatar)
-    if account.banner:
-        await store.save(account.banner)
-
-    # Save Account before its dependents (timelineStats, mediaStoryState)
-    # which have FK references to accounts.id
+    # save() handles the correct order:
+    # 1. INSERT Account row (scalars only)
+    # 2. Save related entities for junctions (avatar/banner Media)
+    # 3. Sync junction tables (account_avatar, account_banner, etc.)
     await store.save(account)
 
     if account.timelineStats:

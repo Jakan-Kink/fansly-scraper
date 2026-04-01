@@ -56,7 +56,7 @@ def test_parse_browser_from_string(input_name, expected):
 def test_get_browser_config_paths_windows(mock_getenv, mock_expanduser, mock_platform):
     """Test browser config paths resolution on Windows."""
     mock_platform.return_value = "Windows"
-    mock_getenv.side_effect = lambda x: {
+    mock_getenv.side_effect = lambda x: {  # noqa: PLW0108
         "APPDATA": "C:\\Users\\test\\AppData\\Roaming",
         "LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local",
     }.get(x)

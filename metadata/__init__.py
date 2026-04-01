@@ -13,7 +13,7 @@ from .account import (
 )
 from .attachment import HasAttachments
 from .database import Database
-from .entity_store import PostgresEntityStore
+from .entity_store import OrderBySpec, PostgresEntityStore, SortDirection
 from .hashtag import extract_hashtags, process_post_hashtags
 from .logging_config import DatabaseLogger
 from .media import (
@@ -83,11 +83,13 @@ __all__ = [
     "MediaLocation",
     "MediaStoryState",
     "Message",
+    "OrderBySpec",
     "PinnedPost",
     "Post",
     "PostMention",
     "PostgresEntityStore",
     "SnowflakeId",
+    "SortDirection",
     "Story",
     "StubTracker",
     "TimelineStats",
