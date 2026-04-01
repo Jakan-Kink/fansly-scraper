@@ -524,6 +524,8 @@ class FanslyObject(BaseModel):
     def _coerce_api_types(cls, data: Any) -> Any:
         """Auto-coerce API data types before Pydantic validation.
 
+        - Strips unpaired Unicode surrogates from strings (asyncpg can't
+          encode them as UTF-8; they come from Fansly API JSON)
         - Int/float timestamps → datetime (all Fansly timestamp fields end in 'At')
         - String IDs → int is handled by Pydantic's lax mode automatically
         - Nested relationship enrichment is handled by _process_nested_cache_lookups
@@ -531,7 +533,18 @@ class FanslyObject(BaseModel):
         if not isinstance(data, dict):
             return data
         for k, v in list(data.items()):
-            if isinstance(v, (int, float)) and k.endswith("At"):
+            if isinstance(v, str) and v:
+                # Strip unpaired surrogates (e.g., \ud835 from truncated
+                # mathematical bold chars in Fansly wall/post names).
+                # surrogatepass encodes surrogates as UTF-8-like bytes,
+                # then 'replace' converts them to U+FFFD on decode.
+                try:
+                    v.encode("utf-8")
+                except UnicodeEncodeError:
+                    data[k] = v.encode("utf-8", errors="surrogatepass").decode(
+                        "utf-8", errors="replace"
+                    )
+            elif isinstance(v, (int, float)) and k.endswith("At"):
                 data[k] = _parse_timestamp(v)
         return data
 

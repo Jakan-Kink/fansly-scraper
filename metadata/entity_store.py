@@ -642,11 +642,26 @@ class PostgresEntityStore:
     async def save(self, obj: FanslyObject) -> None:
         """Write to DB + update cache.
 
-        Recursively saves related entities first so FK constraints
-        on junction tables are satisfied (e.g. variant Media must
-        exist before media_variants rows can reference them).
+        Save order (prevents FK constraint violations):
+        1. Save related entities referenced by junction tables — they
+           may have FK columns pointing back to this entity (e.g.,
+           Media.accountId → accounts.id), so this entity must be
+           saved first if it's new. We handle this by saving the
+           entity's own row before recursing into related entities.
+        2. INSERT/UPDATE the entity itself (scalar columns only,
+           junction sync happens after related entities are saved).
+        3. Sync junction table rows (both sides now exist in DB).
         """
-        # Save related entities that need to exist for FK constraints
+        # Step 1: INSERT/UPDATE entity row (scalars only, no junctions yet)
+        if obj._is_new:
+            await self._insert_row(obj)
+            obj._is_new = False
+        elif obj.is_dirty():
+            await self._update(obj)
+
+        # Step 2: Save related entities for junction tables.
+        # Now that the parent entity exists in DB, related entities
+        # can safely reference it via FK (e.g., Media.accountId).
         for field_name, meta in type(obj).__relationships__.items():
             if not meta.assoc_table:
                 continue
@@ -660,17 +675,14 @@ class PostgresEntityStore:
             elif isinstance(related, FanslyObject) and related._is_new:
                 await self.save(related)
 
-        if obj._is_new:
-            await self._insert(obj)
-            obj._is_new = False
-        elif obj.is_dirty():
-            await self._update(obj)
+        # Step 3: Sync junction table rows (both sides now exist in DB)
+        await self._sync_assoc_tables(obj)
 
         self.cache_instance(obj)
         obj.mark_clean()
 
-    async def _insert(self, obj: FanslyObject) -> None:
-        """INSERT with provided snowflake ID (or RETURNING id for auto-increment)."""
+    async def _insert_row(self, obj: FanslyObject) -> None:
+        """INSERT scalar columns only (no junction sync)."""
         data = obj.to_db_dict()
         table_name = type(obj).__table_name__
         cols = self._table_columns(table_name)
@@ -706,10 +718,8 @@ class PostgresEntityStore:
                 )
                 await conn.execute(sql, *values)
 
-            await self._sync_associations(conn, obj)
-
     async def _update(self, obj: FanslyObject) -> None:
-        """UPDATE only changed fields + sync changed associations."""
+        """UPDATE only changed scalar fields (no junction sync)."""
         changed = obj.get_changed_fields()
         if not changed:
             return
@@ -719,33 +729,55 @@ class PostgresEntityStore:
         db_data.pop(pk_col, None)
         db_data.pop("id", None)
 
-        rel_keys = set(obj.__relationships__.keys())
-        rel_changes = {k for k in changed if k in rel_keys}
-
         # Filter to actual DB columns
         table_name = type(obj).__table_name__
         cols = self._table_columns(table_name)
         scalar_data = {k: v for k, v in db_data.items() if k in cols}
 
+        if not scalar_data:
+            return
+
         pool = await self._get_pool()
         async with pool.acquire() as conn, conn.transaction():
-            if scalar_data:
-                set_parts = []
-                vals: list[Any] = []
-                for i, (col, val) in enumerate(scalar_data.items(), 1):
-                    set_parts.append(f"{self._q(col)} = ${i}")
-                    vals.append(val)
+            set_parts = []
+            vals: list[Any] = []
+            for i, (col, val) in enumerate(scalar_data.items(), 1):
+                set_parts.append(f"{self._q(col)} = ${i}")
+                vals.append(val)
 
-                pk_value = getattr(obj, pk_col)
-                vals.append(pk_value)
-                sql = (
-                    f"UPDATE {table_name} SET {', '.join(set_parts)} "
-                    f"WHERE {self._q(pk_col)} = ${len(vals)}"
-                )
-                await conn.execute(sql, *vals)
+            pk_value = getattr(obj, pk_col)
+            vals.append(pk_value)
+            sql = (
+                f"UPDATE {table_name} SET {', '.join(set_parts)} "
+                f"WHERE {self._q(pk_col)} = ${len(vals)}"
+            )
+            await conn.execute(sql, *vals)
 
-            if rel_changes:
-                await self._sync_associations(conn, obj, only_fields=rel_changes)
+    async def _sync_assoc_tables(self, obj: FanslyObject) -> None:
+        """Sync all junction tables for an entity.
+
+        Called by save() after the entity row and related entities are
+        all in the DB. Determines which relationship fields changed
+        and delegates to _sync_associations for the actual SQL.
+        """
+        rel_keys = set(obj.__relationships__.keys())
+        changed = obj.get_changed_fields()
+        rel_changes = {k for k in changed if k in rel_keys}
+
+        # For new entities (just inserted), sync ALL assoc_table relationships
+        # For existing entities, only sync changed ones
+        if not rel_changes:
+            # Check if any assoc_table relationships have data (new entity path)
+            for field_name, meta in type(obj).__relationships__.items():
+                if meta.assoc_table and getattr(obj, field_name, None) is not None:
+                    rel_changes.add(field_name)
+
+        if not rel_changes:
+            return
+
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            await self._sync_associations(conn, obj, only_fields=rel_changes)
 
     async def _sync_associations(
         self,
