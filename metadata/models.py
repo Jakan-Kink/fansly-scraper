@@ -77,6 +77,9 @@ def get_store() -> Any:
 
 # ── RelationshipMetadata ─────────────────────────────────────────────────
 
+# Sentinel for fields resolved by __init_subclass__ from the dict key name.
+_DEFERRED = object()
+
 
 class RelationshipMetadata:
     """Metadata describing a relationship between entity types.
@@ -147,6 +150,226 @@ class RelationshipMetadata:
             f"query_field={self.query_field!r}, "
             f"strategy={self.query_strategy!r})"
         )
+
+
+# ── ActiveRecord-Style Relationship Helpers ──────────────────────────────
+#
+# Replace verbose RelationshipMetadata(...) with concise helpers:
+#   "preview": belongs_to("Media")
+#   "posts":   habtm("Post", assoc_table="post_hashtags", ...)
+#   "walls":   has_many("Wall", fk_column="accountId")
+#
+# Fields marked _DEFERRED are resolved by FanslyObject.__init_subclass__
+# from the dict key name (e.g., "preview" → target_field="previewId").
+
+
+_IRREGULAR_PLURALS: dict[str, str] = {"stories": "story"}
+
+
+def _singularize(name: str) -> str:
+    """Naive singularization for relationship field names.
+
+    Handles regular English plurals and a small irregular table.
+    Only needs to cover the field names actually used in FDNG models.
+    """
+    if name in _IRREGULAR_PLURALS:
+        return _IRREGULAR_PLURALS[name]
+    if name.endswith("s") and not name.endswith("ss"):
+        return name[:-1]
+    return name
+
+
+def _camel_to_snake(name: str) -> str:
+    """Convert camelCase to snake_case.
+
+    timelineStats → timeline_stats
+    mediaStoryState → media_story_state
+    accountMediaBundles → account_media_bundles
+    """
+    result: list[str] = []
+    for i, ch in enumerate(name):
+        if ch.isupper() and i > 0:
+            result.append("_")
+        result.append(ch.lower())
+    return "".join(result)
+
+
+def belongs_to(
+    inverse_type: str,
+    *,
+    fk_column: str | None = None,
+    target_field: str | None = None,
+    inverse_query_field: str | None = None,
+    notes: str = "",
+) -> RelationshipMetadata:
+    """FK on this model's table → single related object.
+
+    Strategy: direct_field, is_list=False.
+
+    Auto-derives (via __init_subclass__):
+        - query_field: from dict key
+        - target_field: key + "Id" (camelCase)
+        - fk_column: same as target_field (if not provided)
+
+    Examples::
+
+        "preview": belongs_to("Media")
+            → target_field="previewId", fk_column="previewId"
+        "account": belongs_to("Account", fk_column="accountId")
+            → target_field="accountId", fk_column="accountId"
+    """
+    return RelationshipMetadata(
+        target_field=target_field or _DEFERRED,
+        is_list=False,
+        query_field=_DEFERRED,
+        inverse_type=inverse_type,
+        inverse_query_field=inverse_query_field,
+        query_strategy="direct_field",
+        fk_column=fk_column or _DEFERRED,
+        notes=notes,
+    )
+
+
+def has_one_through(
+    inverse_type: str,
+    *,
+    assoc_table: str,
+    target_field: str | None = None,
+    notes: str = "",
+) -> RelationshipMetadata:
+    """Scalar via junction table — 1:1 junction.
+
+    Strategy: assoc_table, is_list=False.
+
+    Auto-derives (via __init_subclass__):
+        - query_field: from dict key
+        - target_field: key + "_media_id" (snake_case)
+
+    Examples::
+
+        "avatar": has_one_through("Media", assoc_table="account_avatar")
+            → target_field="avatar_media_id"
+        "banner": has_one_through("Media", assoc_table="account_banner")
+            → target_field="banner_media_id"
+    """
+    return RelationshipMetadata(
+        target_field=target_field or _DEFERRED,
+        is_list=False,
+        query_field=_DEFERRED,
+        inverse_type=inverse_type,
+        query_strategy="assoc_table",
+        assoc_table=assoc_table,
+        notes=notes,
+    )
+
+
+def habtm(
+    inverse_type: str,
+    *,
+    assoc_table: str,
+    fk_column: str | None = None,
+    ordered: bool = False,
+    inverse_query_field: str | None = None,
+    target_field: str | None = None,
+    notes: str = "",
+) -> RelationshipMetadata:
+    """Many-to-many via junction table.
+
+    Strategy: assoc_table, is_list=True.
+
+    Auto-derives (via __init_subclass__):
+        - query_field: from dict key
+        - target_field: singularize(key) + "_ids"
+
+    Examples::
+
+        "posts": habtm("Post", assoc_table="post_hashtags",
+                        inverse_query_field="hashtags")
+            → target_field="post_ids"
+        "locations": habtm("MediaLocation", assoc_table="media_locations",
+                           fk_column="mediaId")
+            → target_field="location_ids"
+    """
+    return RelationshipMetadata(
+        target_field=target_field or _DEFERRED,
+        is_list=True,
+        query_field=_DEFERRED,
+        inverse_type=inverse_type,
+        inverse_query_field=inverse_query_field,
+        query_strategy="assoc_table",
+        assoc_table=assoc_table,
+        fk_column=fk_column,
+        ordered=ordered,
+        notes=notes,
+    )
+
+
+def has_many(
+    inverse_type: str,
+    *,
+    fk_column: str,
+    inverse_query_field: str | None = None,
+    target_field: str | None = None,
+    notes: str = "",
+) -> RelationshipMetadata:
+    """Reverse FK — other model has FK pointing here (list).
+
+    Strategy: reverse_fk, is_list=True.
+
+    Auto-derives (via __init_subclass__):
+        - query_field: from dict key
+        - target_field: singularize(key) + "_ids"
+
+    Examples::
+
+        "attachments": has_many("Attachment", fk_column="postId")
+            → target_field="attachment_ids"
+        "walls": has_many("Wall", fk_column="accountId")
+            → target_field="wall_ids"
+    """
+    return RelationshipMetadata(
+        target_field=target_field or _DEFERRED,
+        is_list=True,
+        query_field=_DEFERRED,
+        inverse_type=inverse_type,
+        inverse_query_field=inverse_query_field,
+        query_strategy="reverse_fk",
+        fk_column=fk_column,
+        notes=notes,
+    )
+
+
+def has_one(
+    inverse_type: str,
+    *,
+    fk_column: str,
+    target_field: str | None = None,
+    notes: str = "",
+) -> RelationshipMetadata:
+    """Reverse FK — other model has FK pointing here (scalar).
+
+    Strategy: reverse_fk, is_list=False.
+
+    Auto-derives (via __init_subclass__):
+        - query_field: from dict key
+        - target_field: camel_to_snake(key) + "_id"
+
+    Examples::
+
+        "timelineStats": has_one("TimelineStats", fk_column="accountId")
+            → target_field="timeline_stats_id"
+        "mediaStoryState": has_one("MediaStoryState", fk_column="accountId")
+            → target_field="media_story_state_id"
+    """
+    return RelationshipMetadata(
+        target_field=target_field or _DEFERRED,
+        is_list=False,
+        query_field=_DEFERRED,
+        inverse_type=inverse_type,
+        query_strategy="reverse_fk",
+        fk_column=fk_column,
+        notes=notes,
+    )
 
 
 # ── ContentType Enum ─────────────────────────────────────────────────────
@@ -225,6 +448,62 @@ class FanslyObject(BaseModel):
     __table_name__: ClassVar[str] = ""
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {}
     __tracked_fields__: ClassVar[set[str]] = set()
+    __fk_to_rel__: ClassVar[dict[str, tuple[str, RelationshipMetadata]]] = {}
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Resolve _DEFERRED fields in __relationships__ from dict keys.
+
+        When ActiveRecord-style helpers (belongs_to, habtm, has_many, etc.)
+        are used, they set query_field/target_field/fk_column to _DEFERRED.
+        This hook resolves them from the dict key after class creation.
+
+        Also builds __fk_to_rel__: reverse lookup from FK column names to
+        (relationship_field_name, RelationshipMetadata) for FK↔relationship
+        sync in __setattr__.
+        """
+        super().__init_subclass__(**kwargs)
+
+        relationships = cls.__dict__.get("__relationships__")
+        if not relationships:
+            return
+
+        fk_to_rel: dict[str, tuple[str, RelationshipMetadata]] = {}
+
+        for key, meta in relationships.items():
+            if not isinstance(meta, RelationshipMetadata):
+                continue
+
+            # ── Resolve query_field (always the dict key) ────────────
+            if meta.query_field is _DEFERRED:
+                meta.query_field = key
+
+            # ── Resolve target_field (strategy-dependent) ────────────
+            if meta.target_field is _DEFERRED:
+                if meta.query_strategy == "direct_field" and not meta.is_list:
+                    # belongs_to: preview → previewId
+                    meta.target_field = f"{key}Id"
+                elif meta.query_strategy == "assoc_table" and not meta.is_list:
+                    # has_one_through: avatar → avatar_media_id
+                    meta.target_field = f"{key}_media_id"
+                elif meta.is_list:
+                    # habtm / has_many: posts → post_ids
+                    singular = _singularize(key)
+                    meta.target_field = f"{singular}_ids"
+                else:
+                    # has_one (reverse_fk, scalar): timelineStats → timeline_stats_id
+                    meta.target_field = f"{_camel_to_snake(key)}_id"
+
+            # ── Resolve fk_column for belongs_to ─────────────────────
+            if meta.fk_column is _DEFERRED:
+                # belongs_to auto-derives fk_column = target_field
+                meta.fk_column = meta.target_field
+
+            # ── Build FK→relationship reverse map ────────────────────
+            if meta.fk_column and not meta.is_list:
+                fk_to_rel[meta.fk_column] = (key, meta)
+
+        if fk_to_rel:
+            cls.__fk_to_rel__ = fk_to_rel
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -386,6 +665,21 @@ class FanslyObject(BaseModel):
                 alias = field_info.alias if field_info and field_info.alias else None
                 if alias and alias in data:
                     data_key = alias
+                # belongs_to: resolve FK column → relationship field from cache
+                elif (
+                    meta.fk_column
+                    and not meta.is_list
+                    and meta.fk_column in data
+                    and meta.query_strategy == "direct_field"
+                ):
+                    fk_val = data[meta.fk_column]
+                    if isinstance(fk_val, int) and fk_val:
+                        cached = cls._store.get_from_cache_by_type_name(
+                            meta.inverse_type, fk_val
+                        )
+                        if cached:
+                            processed[field_name] = cached
+                    continue
                 else:
                     continue
             value = data[data_key]
@@ -473,10 +767,36 @@ class FanslyObject(BaseModel):
     # ── Bidirectional Relationship Sync ───────────────────────────────
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Auto-sync inverse relationships on assignment."""
+        """Auto-sync FK↔relationship and inverse relationships on assignment.
+
+        Two sync paths:
+        1. Setting a relationship field (e.g., media.account = acct_obj)
+           → syncs FK scalar (media.accountId = acct_obj.id)
+           → syncs inverse relationship on related object
+        2. Setting an FK scalar (e.g., media.accountId = 123)
+           → auto-resolves relationship from cache (media.account = cached Account)
+        """
         super().__setattr__(name, value)
+
+        # Path 1: relationship field → sync FK scalar + inverse
         if name in self.__relationships__:
+            meta = self.__relationships__[name]
+            if meta.fk_column and not meta.is_list:
+                # Sync FK: media.account = acct → media.accountId = acct.id
+                fk_val = value.id if isinstance(value, FanslyObject) else None
+                object.__setattr__(self, meta.fk_column, fk_val)
             self._sync_inverse_relationship(name, value)
+
+        # Path 2: FK scalar → auto-resolve relationship from cache
+        elif name in self.__fk_to_rel__:
+            rel_name, meta = self.__fk_to_rel__[name]
+            if value is not None and self._store:
+                cached = self._store.get_from_cache_by_type_name(
+                    meta.inverse_type, value
+                )
+                object.__setattr__(self, rel_name, cached)
+            else:
+                object.__setattr__(self, rel_name, None)
 
     def _sync_inverse_relationship(self, field_name: str, new_value: Any) -> None:
         meta = self.__relationships__.get(field_name)
@@ -493,10 +813,19 @@ class FanslyObject(BaseModel):
     def _add_to_inverse(self, related_obj: FanslyObject, inverse_field: str) -> None:
         current = getattr(related_obj, inverse_field, None)
         if current is None:
-            return
+            # Lazily initialize list fields so sync works regardless of load order
+            inverse_meta = type(related_obj).__relationships__.get(inverse_field)
+            if inverse_meta and inverse_meta.is_list:
+                current = []
+                object.__setattr__(related_obj, inverse_field, current)
+            else:
+                return
         if isinstance(current, list):
             if self not in current:
                 current.append(self)
+                # Update snapshot so inverse-sync additions aren't falsely dirty
+                if inverse_field in related_obj._snapshot:
+                    related_obj._snapshot[inverse_field] = current.copy()
         else:
             object.__setattr__(related_obj, inverse_field, self)
 
@@ -554,7 +883,7 @@ class FanslyObject(BaseModel):
         objects) and cleared by store DB-loading paths (preload/get/find).
         """
         self._snapshot = {
-            field: self._snapshot_value(getattr(self, field))
+            field: self._snapshot_value(getattr(self, field, None))
             for field in self.__tracked_fields__
         }
 
@@ -564,7 +893,7 @@ class FanslyObject(BaseModel):
 
     def is_dirty(self) -> bool:
         for field in self.__tracked_fields__:
-            if getattr(self, field) != self._snapshot.get(field):
+            if getattr(self, field, None) != self._snapshot.get(field):
                 return True
         return False
 
@@ -577,7 +906,7 @@ class FanslyObject(BaseModel):
 
     def mark_clean(self) -> None:
         self._snapshot = {
-            field: self._snapshot_value(getattr(self, field))
+            field: self._snapshot_value(getattr(self, field, None))
             for field in self.__tracked_fields__
         }
 
@@ -761,13 +1090,8 @@ class Hashtag(FanslyObject):
     __table_name__: ClassVar[str] = "hashtags"
     __tracked_fields__: ClassVar[set[str]] = {"value", "stash_id", "posts"}
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "posts": RelationshipMetadata(
-            target_field="post_ids",
-            is_list=True,
-            inverse_type="Post",
-            inverse_query_field="hashtags",
-            query_strategy="assoc_table",
-            assoc_table="post_hashtags",
+        "posts": habtm(
+            "Post", assoc_table="post_hashtags", inverse_query_field="hashtags"
         ),
     }
 
@@ -794,6 +1118,10 @@ class Story(FanslyObject):
         "content",
         "createdAt",
         "updatedAt",
+        "author",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "author": belongs_to("Account", fk_column="authorId"),
     }
 
     authorId: SnowflakeId
@@ -802,6 +1130,9 @@ class Story(FanslyObject):
     content: str
     createdAt: datetime
     updatedAt: datetime | None = None
+
+    # Relationships
+    author: Account | None = None  # type: ignore[name-defined]
 
 
 class TimelineStats(FanslyObject):
@@ -888,24 +1219,15 @@ class Media(FanslyObject):
         "is_downloaded",
         "stash_id",
         # Relationships tracked for dirty detection → _sync_associations
+        "account",
         "variants",
         "locations",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "variants": RelationshipMetadata(
-            target_field="variant_ids",
-            is_list=True,
-            inverse_type="Media",
-            query_strategy="assoc_table",
-            assoc_table="media_variants",
-        ),
-        "locations": RelationshipMetadata(
-            target_field="location_ids",
-            is_list=True,
-            inverse_type="MediaLocation",
-            query_strategy="assoc_table",
-            assoc_table="media_locations",
-            fk_column="mediaId",
+        "account": belongs_to("Account", fk_column="accountId"),
+        "variants": habtm("Media", assoc_table="media_variants"),
+        "locations": habtm(
+            "MediaLocation", assoc_table="media_locations", fk_column="mediaId"
         ),
     }
 
@@ -962,6 +1284,7 @@ class Media(FanslyObject):
     default_normal_id: SnowflakeId | None = None
 
     # Relationships (managed by _sync_associations on save)
+    account: Account | None = None  # type: ignore[name-defined]
     variants: list[Media] = []
     locations: list[MediaLocation] = []
 
@@ -1023,6 +1346,15 @@ class AccountMedia(FanslyObject):
         "deleted",
         "access",
         "stash_id",
+        # Relationship fields
+        "account",
+        "media",
+        "preview",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "account": belongs_to("Account", fk_column="accountId"),
+        "media": belongs_to("Media", fk_column="mediaId"),
+        "preview": belongs_to("Media", fk_column="previewId"),
     }
 
     accountId: SnowflakeId
@@ -1034,21 +1366,10 @@ class AccountMedia(FanslyObject):
     access: bool = False
     stash_id: int | None = None
 
-    # ── Content resolution (replaces SA lazy relationships) ───────
-
-    @property
-    def media(self) -> Media | None:
-        """Resolve Media via identity map."""
-        if not self._store:
-            return None
-        return self._store.get_from_cache(Media, self.mediaId)
-
-    @property
-    def preview(self) -> Media | None:
-        """Resolve preview Media via identity map."""
-        if self.previewId is None or not self._store:
-            return None
-        return self._store.get_from_cache(Media, self.previewId)
+    # Relationships (auto-resolved from FK scalars via __setattr__ / cache)
+    account: Account | None = None  # type: ignore[name-defined]
+    media: Media | None = None
+    preview: Media | None = None
 
 
 class AccountMediaBundle(FanslyObject):
@@ -1065,23 +1386,18 @@ class AccountMediaBundle(FanslyObject):
         "purchased",
         "whitelisted",
         "stash_id",
+        "account",
         "preview",
         "accountMedia",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "preview": RelationshipMetadata(
-            target_field="previewId",
-            is_list=False,
-            inverse_type="Media",
-            query_strategy="direct_field",
-        ),
-        "accountMedia": RelationshipMetadata(
-            target_field="account_media_ids",
-            is_list=True,
-            inverse_type="AccountMedia",
-            query_strategy="assoc_table",
+        "account": belongs_to("Account", fk_column="accountId"),
+        "preview": belongs_to("Media", fk_column="previewId"),
+        "accountMedia": habtm(
+            "AccountMedia",
             assoc_table="account_media_bundle_media",
             ordered=True,
+            target_field="account_media_ids",
         ),
     }
 
@@ -1111,10 +1427,9 @@ class AccountMediaBundle(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
+    account: Account | None = None  # type: ignore[name-defined]
     preview: Media | None = None
     accountMedia: list[AccountMedia] = Field(default=[], alias="accountMediaIds")
-
-    _WRITE_EXCLUDED: ClassVar[set[str]] = {"preview"}
 
 
 class Wall(FanslyObject):
@@ -1128,17 +1443,12 @@ class Wall(FanslyObject):
         "description",
         "createdAt",
         "stash_id",
+        "account",
         "posts",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "posts": RelationshipMetadata(
-            target_field="post_ids",
-            is_list=True,
-            inverse_type="Post",
-            inverse_query_field="walls",
-            query_strategy="assoc_table",
-            assoc_table="wall_posts",
-        ),
+        "account": belongs_to("Account", fk_column="accountId"),
+        "posts": habtm("Post", assoc_table="wall_posts", inverse_query_field="walls"),
     }
 
     accountId: SnowflakeId
@@ -1149,6 +1459,7 @@ class Wall(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
+    account: Account | None = None  # type: ignore[name-defined]
     posts: list[Post] = []  # type: ignore[name-defined]
 
 
@@ -1162,6 +1473,12 @@ class Attachment(FanslyObject):
         "contentId",
         "pos",
         "contentType",
+        "post",
+        "message",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "post": belongs_to("Post", fk_column="postId"),
+        "message": belongs_to("Message", fk_column="messageId"),
     }
 
     @model_validator(mode="before")
@@ -1182,6 +1499,10 @@ class Attachment(FanslyObject):
     contentId: SnowflakeId
     pos: int
     contentType: ContentType
+
+    # Relationships
+    post: Post | None = None  # type: ignore[name-defined]
+    message: Message | None = None  # type: ignore[name-defined]
 
     @property
     def is_account_media(self) -> bool:
@@ -1235,12 +1556,22 @@ class PostMention(FanslyObject):
         "postId",
         "accountId",
         "handle",
+        "post",
+        "account",
+    }
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "post": belongs_to("Post", fk_column="postId"),
+        "account": belongs_to("Account", fk_column="accountId"),
     }
 
     id: int | None = None  # auto-increment, not a Snowflake
     postId: SnowflakeId
     accountId: SnowflakeId | None = None
     handle: str
+
+    # Relationships
+    post: Post | None = None  # type: ignore[name-defined]
+    account: Account | None = None  # type: ignore[name-defined]
 
     def __repr__(self) -> str:
         return f"<PostMention {self.id}: @{self.handle} on post {self.postId}>"
@@ -1260,42 +1591,24 @@ class Post(FanslyObject):
         "expiresAt",
         "stash_id",
         # Relationships
+        "account",
+        "replyTo",
+        "replyToRoot",
         "attachments",
         "hashtags",
         "walls",
         "mentions",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "attachments": RelationshipMetadata(
-            target_field="attachment_ids",
-            is_list=True,
-            inverse_type="Attachment",
-            query_strategy="reverse_fk",
-            fk_column="postId",
+        "account": belongs_to("Account", fk_column="accountId"),
+        "replyTo": belongs_to("Post", fk_column="inReplyTo"),
+        "replyToRoot": belongs_to("Post", fk_column="inReplyToRoot"),
+        "attachments": has_many("Attachment", fk_column="postId"),
+        "hashtags": habtm(
+            "Hashtag", assoc_table="post_hashtags", inverse_query_field="posts"
         ),
-        "hashtags": RelationshipMetadata(
-            target_field="hashtag_ids",
-            is_list=True,
-            inverse_type="Hashtag",
-            inverse_query_field="posts",
-            query_strategy="assoc_table",
-            assoc_table="post_hashtags",
-        ),
-        "walls": RelationshipMetadata(
-            target_field="wall_ids",
-            is_list=True,
-            inverse_type="Wall",
-            inverse_query_field="posts",
-            query_strategy="assoc_table",
-            assoc_table="wall_posts",
-        ),
-        "mentions": RelationshipMetadata(
-            target_field="mention_ids",
-            is_list=True,
-            inverse_type="PostMention",
-            query_strategy="reverse_fk",
-            fk_column="postId",
-        ),
+        "walls": habtm("Wall", assoc_table="wall_posts", inverse_query_field="posts"),
+        "mentions": has_many("PostMention", fk_column="postId"),
     }
 
     @model_validator(mode="before")
@@ -1334,6 +1647,9 @@ class Post(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
+    account: Account | None = None  # type: ignore[name-defined]
+    replyTo: Post | None = None
+    replyToRoot: Post | None = None
     attachments: list[Attachment] = []
     hashtags: list[Hashtag] = []
     walls: list[Wall] = []
@@ -1356,16 +1672,16 @@ class Message(FanslyObject):
         "deletedAt",
         "deleted",
         "stash_id",
+        "group",
+        "sender",
+        "recipient",
         "attachments",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "attachments": RelationshipMetadata(
-            target_field="attachment_ids",
-            is_list=True,
-            inverse_type="Attachment",
-            query_strategy="reverse_fk",
-            fk_column="messageId",
-        ),
+        "group": belongs_to("Group", fk_column="groupId"),
+        "sender": belongs_to("Account", fk_column="senderId"),
+        "recipient": belongs_to("Account", fk_column="recipientId"),
+        "attachments": has_many("Attachment", fk_column="messageId"),
     }
 
     @model_validator(mode="before")
@@ -1396,6 +1712,9 @@ class Message(FanslyObject):
     stash_id: int | None = None
 
     # Relationships
+    group: Group | None = None  # type: ignore[name-defined]
+    sender: Account | None = None  # type: ignore[name-defined]
+    recipient: Account | None = None  # type: ignore[name-defined]
     attachments: list[Attachment] = []
 
     def __repr__(self) -> str:
@@ -1433,41 +1752,44 @@ class Group(FanslyObject):
     __tracked_fields__: ClassVar[set[str]] = {
         "createdBy",
         "lastMessageId",
+        "creator",
+        "lastMessage",
         "users",
         "messages",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "users": RelationshipMetadata(
-            target_field="user_ids",
-            is_list=True,
-            inverse_type="Account",
-            query_strategy="assoc_table",
-            assoc_table="group_users",
-        ),
-        "messages": RelationshipMetadata(
-            target_field="message_ids",
-            is_list=True,
-            inverse_type="Message",
-            query_strategy="reverse_fk",
-            fk_column="groupId",
-        ),
+        "creator": belongs_to("Account", fk_column="createdBy"),
+        "lastMessage": belongs_to("Message", fk_column="lastMessageId"),
+        "users": habtm("Account", assoc_table="group_users"),
+        "messages": has_many("Message", fk_column="groupId"),
     }
 
     @model_validator(mode="before")
     @classmethod
     def _resolve_last_message(cls, data: Any) -> Any:
-        """Extract lastMessageId from nested lastMessage dict."""
+        """Extract lastMessageId from nested lastMessage dict.
+
+        When the API sends lastMessage as a nested dict (e.g., {"id": 123}),
+        extract the ID into lastMessageId. Don't pop lastMessage — it's now
+        a Pydantic field (Message | None) resolved via belongs_to.
+        """
         if not isinstance(data, dict):
             return data
-        lm = data.pop("lastMessage", None)
+        lm = data.get("lastMessage")
         if isinstance(lm, dict) and "id" in lm:
             data.setdefault("lastMessageId", lm["id"])
+            # Remove the nested dict so Pydantic doesn't try to validate
+            # a raw dict as a Message object — the belongs_to cache
+            # resolution will handle it via lastMessageId.
+            del data["lastMessage"]
         return data
 
     createdBy: SnowflakeId
     lastMessageId: SnowflakeId | None = None
 
     # Relationships
+    creator: Account | None = None  # type: ignore[name-defined]
+    lastMessage: Message | None = None
     users: list[Account] = []  # type: ignore[name-defined]
     messages: list[Message] = []
 
@@ -1500,72 +1822,36 @@ class Account(FanslyObject):
         "mediaStoryState",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "avatar": RelationshipMetadata(
-            target_field="avatar_media_id",
-            is_list=False,
-            inverse_type="Media",
-            query_strategy="assoc_table",
+        "avatar": has_one_through(
+            "Media",
             assoc_table="account_avatar",
             notes="1:1 junction — replace on save.",
         ),
-        "banner": RelationshipMetadata(
-            target_field="banner_media_id",
-            is_list=False,
-            inverse_type="Media",
-            query_strategy="assoc_table",
+        "banner": has_one_through(
+            "Media",
             assoc_table="account_banner",
             notes="1:1 junction — replace on save.",
         ),
-        "pinnedPosts": RelationshipMetadata(
-            target_field="pinned_post_ids",
-            is_list=True,
-            inverse_type="PinnedPost",
-            query_strategy="assoc_table",
+        "pinnedPosts": habtm(
+            "PinnedPost",
             assoc_table="pinned_posts",
+            target_field="pinned_post_ids",
             notes="Record junction — pos/createdAt from API data.",
         ),
-        "walls": RelationshipMetadata(
-            target_field="wall_ids",
-            is_list=True,
-            inverse_type="Wall",
-            query_strategy="reverse_fk",
+        "walls": has_many("Wall", fk_column="accountId"),
+        "accountMedia": has_many(
+            "AccountMedia",
             fk_column="accountId",
-        ),
-        "accountMedia": RelationshipMetadata(
             target_field="account_media_ids",
-            is_list=True,
-            inverse_type="AccountMedia",
-            query_strategy="reverse_fk",
-            fk_column="accountId",
         ),
-        "accountMediaBundles": RelationshipMetadata(
+        "accountMediaBundles": has_many(
+            "AccountMediaBundle",
+            fk_column="accountId",
             target_field="bundle_ids",
-            is_list=True,
-            inverse_type="AccountMediaBundle",
-            query_strategy="reverse_fk",
-            fk_column="accountId",
         ),
-        "stories": RelationshipMetadata(
-            target_field="story_ids",
-            is_list=True,
-            inverse_type="Story",
-            query_strategy="reverse_fk",
-            fk_column="authorId",
-        ),
-        "timelineStats": RelationshipMetadata(
-            target_field="timeline_stats_id",
-            is_list=False,
-            inverse_type="TimelineStats",
-            query_strategy="reverse_fk",
-            fk_column="accountId",
-        ),
-        "mediaStoryState": RelationshipMetadata(
-            target_field="media_story_state_id",
-            is_list=False,
-            inverse_type="MediaStoryState",
-            query_strategy="reverse_fk",
-            fk_column="accountId",
-        ),
+        "stories": has_many("Story", fk_column="authorId"),
+        "timelineStats": has_one("TimelineStats", fk_column="accountId"),
+        "mediaStoryState": has_one("MediaStoryState", fk_column="accountId"),
     }
     # Inverse-only fields — no DB column, no __relationships__ entry
     _WRITE_EXCLUDED: ClassVar[set[str]] = {

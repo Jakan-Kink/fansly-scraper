@@ -21,6 +21,7 @@ import json
 import threading
 from collections import defaultdict
 from collections.abc import AsyncIterator, Callable
+from enum import StrEnum
 from typing import Any, TypeVar
 
 import asyncpg
@@ -119,6 +120,39 @@ _SQL_OPS: dict[str, str] = {
     "null": "IS NULL",
     "between": "BETWEEN",
 }
+
+
+class SortDirection(StrEnum):
+    """Sort direction for find() queries."""
+
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+# Normalized form for order_by: list of (column_name, direction) tuples
+OrderBySpec = list[tuple[str, SortDirection]]
+
+
+def _normalize_order_by(
+    order_by: str | tuple[str, SortDirection] | OrderBySpec | None,
+) -> OrderBySpec:
+    """Normalize order_by parameter to a list of (column, direction) tuples.
+
+    Accepts:
+        "createdAt"                          → [("createdAt", ASC)]
+        ("createdAt", SortDirection.DESC)    → [("createdAt", DESC)]
+        [("createdAt", DESC), ("id", ASC)]   → as-is
+        None                                 → []
+    """
+    if order_by is None:
+        return []
+    if isinstance(order_by, str):
+        return [(order_by, SortDirection.ASC)]
+    if isinstance(order_by, tuple) and len(order_by) == 2:
+        return [order_by]
+    if isinstance(order_by, list):
+        return order_by
+    raise ValueError(f"Invalid order_by: {order_by!r}")
 
 
 def _parse_lookup(key: str) -> tuple[str, str]:
@@ -379,9 +413,25 @@ class PostgresEntityStore:
         obj._is_new = False  # loaded from DB, not new
         return obj  # type: ignore[return-value]
 
-    async def find(self, model_type: type[T], **filters: Any) -> list[T]:
-        """Search with Django-style filters. Cache-first if fully loaded."""
+    async def find(
+        self,
+        model_type: type[T],
+        *,
+        order_by: str | tuple[str, SortDirection] | OrderBySpec | None = None,
+        **filters: Any,
+    ) -> list[T]:
+        """Search with Django-style filters. Cache-first if fully loaded.
+
+        Args:
+            order_by: Sort results. Accepts:
+                - str: column name (ASC default)
+                - tuple: (column, SortDirection)
+                - list of tuples: multi-column sort
+        """
         parsed = [(*_parse_lookup(k), v) for k, v in filters.items()]
+        sort_spec = _normalize_order_by(order_by)
+        if sort_spec:
+            self._validate_order_by(model_type, sort_spec)
 
         if model_type in self._fully_loaded:
             results = [
@@ -389,10 +439,16 @@ class PostgresEntityStore:
                 for (ct, _), obj in self._cache.items()
                 if ct is model_type and _matches_filters(obj, parsed)
             ]
+            if sort_spec:
+                results = self._sort_results(results, sort_spec)
             self._stats["find_cache_hits"] += len(results)
             return results
 
-        rows = await self._query_with_filters(model_type, parsed)
+        rows = await self._query_with_filters(
+            model_type,
+            parsed,
+            order_by=sort_spec,
+        )
         self._stats["find_pg_hits"] += len(rows)
         results: list[T] = []
         for row in rows:
@@ -403,18 +459,48 @@ class PostgresEntityStore:
             results.append(obj)  # type: ignore[arg-type]
         return results
 
-    async def find_one(self, model_type: type[T], **filters: Any) -> T | None:
-        """Find first match. Cache-first if fully loaded."""
+    async def find_one(
+        self,
+        model_type: type[T],
+        *,
+        order_by: str | tuple[str, SortDirection] | OrderBySpec | None = None,
+        **filters: Any,
+    ) -> T | None:
+        """Find first match. Cache-first if fully loaded.
+
+        With order_by, returns the first result after sorting
+        (e.g., find_one(Media, order_by="createdAt") → oldest).
+        """
         parsed = [(*_parse_lookup(k), v) for k, v in filters.items()]
+        sort_spec = _normalize_order_by(order_by)
+        if sort_spec:
+            self._validate_order_by(model_type, sort_spec)
 
         if model_type in self._fully_loaded:
+            if sort_spec:
+                # Need to collect all matches, sort, then take first
+                matches = [
+                    obj  # type: ignore[misc]
+                    for (ct, _), obj in self._cache.items()
+                    if ct is model_type and _matches_filters(obj, parsed)
+                ]
+                if not matches:
+                    return None
+                sorted_matches = self._sort_results(matches, sort_spec)
+                self._stats["find_one_cache_hits"] += 1
+                return sorted_matches[0]
             for (ct, _), obj in self._cache.items():
                 if ct is model_type and _matches_filters(obj, parsed):
                     self._stats["find_one_cache_hits"] += 1
                     return obj  # type: ignore[return-value]
             return None
 
-        row = await self._query_with_filters(model_type, parsed, limit=1)
+        row = await self._query_with_filters(
+            model_type,
+            parsed,
+            limit=1,
+            order_by=sort_spec,
+        )
         if not row:
             self._stats["find_one_pg_misses"] += 1
             return None
@@ -448,27 +534,39 @@ class PostgresEntityStore:
         model_type: type[T],
         *,
         batch_size: int = 50,
+        order_by: str | tuple[str, SortDirection] | OrderBySpec | None = None,
         **filters: Any,
     ) -> AsyncIterator[list[T]]:
-        """Async generator yielding batches of matching objects."""
+        """Async generator yielding batches of matching objects.
+
+        When using order_by with the SQL path, results are deterministically
+        ordered — required for correct OFFSET pagination.
+        """
         parsed = [(*_parse_lookup(k), v) for k, v in filters.items()]
+        sort_spec = _normalize_order_by(order_by)
+        if sort_spec:
+            self._validate_order_by(model_type, sort_spec)
 
         if model_type in self._fully_loaded:
-            buffer: list[T] = []
-            for (ct, _), obj in self._cache.items():
-                if ct is model_type and _matches_filters(obj, parsed):
-                    buffer.append(obj)  # type: ignore[arg-type]
-                    if len(buffer) >= batch_size:
-                        yield buffer
-                        buffer = []
-            if buffer:
-                yield buffer
+            all_matches = [
+                obj  # type: ignore[misc]
+                for (ct, _), obj in self._cache.items()
+                if ct is model_type and _matches_filters(obj, parsed)
+            ]
+            if sort_spec:
+                all_matches = self._sort_results(all_matches, sort_spec)
+            for i in range(0, len(all_matches), batch_size):
+                yield all_matches[i : i + batch_size]
             return
 
         offset = 0
         while True:
             rows = await self._query_with_filters(
-                model_type, parsed, limit=batch_size, offset=offset
+                model_type,
+                parsed,
+                limit=batch_size,
+                offset=offset,
+                order_by=sort_spec,
             )
             if not rows:
                 break
@@ -1085,6 +1183,19 @@ class PostgresEntityStore:
         pool = await self._get_pool()
         return await pool.fetchrow(sql, entity_id)
 
+    def _validate_order_by(
+        self, model_type: type[FanslyObject], sort_spec: OrderBySpec
+    ) -> None:
+        """Validate order_by columns against model's table columns."""
+        valid_cols = self._table_columns(model_type.__table_name__) | {"id"}
+        for col, _direction in sort_spec:
+            if col not in valid_cols:
+                raise ValueError(
+                    f"Invalid order_by column {col!r} for "
+                    f"{model_type.__table_name__}. "
+                    f"Valid columns: {sorted(valid_cols)}"
+                )
+
     def _build_where_clauses(
         self,
         table_name: str,
@@ -1131,6 +1242,7 @@ class PostgresEntityStore:
         parsed_filters: list[tuple[str, str, Any]],
         limit: int | None = None,
         offset: int | None = None,
+        order_by: OrderBySpec | None = None,
     ) -> list[asyncpg.Record]:
         """Translate parsed filters to SQL WHERE and execute."""
         table_name = model_type.__table_name__
@@ -1139,6 +1251,13 @@ class PostgresEntityStore:
         conditions, params, _idx = self._build_where_clauses(table_name, parsed_filters)
         if conditions:
             sql += " WHERE " + " AND ".join(conditions)
+
+        if order_by:
+            # Column validation already done by caller (_validate_order_by)
+            clauses = [
+                f"{self._q(col)} {direction.value}" for col, direction in order_by
+            ]
+            sql += " ORDER BY " + ", ".join(clauses)
 
         if limit is not None:
             sql += f" LIMIT {limit}"
@@ -1149,18 +1268,51 @@ class PostgresEntityStore:
         return await pool.fetch(sql, *params)
 
     @staticmethod
+    def _sort_results(results: list[T], sort_spec: OrderBySpec) -> list[T]:
+        """Sort results in Python (cache path). Applies multi-column sort.
+
+        Mirrors SQL ORDER BY behavior: first column is primary sort,
+        subsequent columns break ties. None values sort last (matching
+        PostgreSQL NULLS LAST default for ASC).
+        """
+        if not sort_spec or not results:
+            return results
+
+        # Python's sort is stable, so apply in reverse order for multi-column
+        for col, direction in reversed(sort_spec):
+            reverse = direction is SortDirection.DESC
+            results = sorted(
+                results,
+                key=lambda obj, c=col: (
+                    # None-safe: sort None values last (ASC) or first (DESC)
+                    (0, getattr(obj, c, None))
+                    if getattr(obj, c, None) is not None
+                    else (1, None)
+                ),
+                reverse=reverse,
+            )
+        return results
+
+    @staticmethod
     def _prepare_row_data(
         model_type: type[FanslyObject], data: dict[str, Any]
     ) -> dict[str, Any]:
         """Inject FK values as relationship fields for cache resolution.
 
-        Only injects for list relationships (M2M / reverse FK) where the
-        field expects a list of IDs. Scalar relationships (is_list=False)
-        are skipped — they expect a model instance, not a raw FK integer.
+        For list relationships (M2M / reverse FK): injects FK value so the
+        identity map can resolve a list of related entities.
+
+        For scalar belongs_to relationships: injects FK value into the
+        relationship field name so _process_nested_cache_lookups can
+        resolve it to a cached object during model_validate.
         """
         for field_name, meta in model_type.__relationships__.items():
-            if meta.is_list and meta.fk_column and meta.fk_column in data:
-                data[field_name] = data[meta.fk_column]
+            if meta.fk_column and meta.fk_column in data:
+                if meta.is_list:
+                    data[field_name] = data[meta.fk_column]
+                elif meta.query_strategy == "direct_field":
+                    # belongs_to: inject FK value for cache resolution
+                    data[field_name] = data[meta.fk_column]
         return data
 
     # ── Cache Management ─────────────────────────────────────────────
