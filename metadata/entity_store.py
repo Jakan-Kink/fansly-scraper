@@ -79,6 +79,12 @@ _TYPE_REGISTRY: dict[str, type] = {
     ]
 }
 
+_TABLE_TO_MODEL: dict[str, type[FanslyObject]] = {
+    cls.__table_name__: cls
+    for cls in _TYPE_REGISTRY.values()
+    if hasattr(cls, "__table_name__") and issubclass(cls, FanslyObject)
+}
+
 # ── Django-style filter infrastructure ───────────────────────────────────
 
 # Cache-side comparators (Python operations on cached objects)
@@ -883,22 +889,106 @@ class PostgresEntityStore:
                         list(to_remove),
                     )
             else:
-                # Record relationship (e.g., media_locations): replace all
+                # Record relationship (e.g., media_locations): replace all.
+                # Pre-create stubs for any FK targets that don't exist yet,
+                # then wrap the DELETE+INSERT in a savepoint as a safety net.
                 table_cols = set(col_names)
-                await conn.execute(
-                    f"DELETE FROM {meta.assoc_table} WHERE {q_owner} = $1",
-                    obj.id,
-                )
+                all_rows = []
                 for r in related:
                     row = {k: v for k, v in r.model_dump().items() if k in table_cols}
                     row[owner_fk] = obj.id
-                    cols = ", ".join(self._q(k) for k in row)
-                    vals = ", ".join(f"${i}" for i in range(1, len(row) + 1))
-                    await conn.execute(
-                        f"INSERT INTO {meta.assoc_table} ({cols}) "
-                        f"VALUES ({vals}) ON CONFLICT DO NOTHING",
-                        *row.values(),
+                    all_rows.append(row)
+
+                # Create stubs for missing FK targets (#51)
+                await self._ensure_junction_fk_targets(
+                    meta.assoc_table, all_rows, owner_fk
+                )
+
+                try:
+                    async with conn.transaction():
+                        await conn.execute(
+                            f"DELETE FROM {meta.assoc_table} WHERE {q_owner} = $1",
+                            obj.id,
+                        )
+                        for row in all_rows:
+                            cols = ", ".join(self._q(k) for k in row)
+                            vals = ", ".join(f"${i}" for i in range(1, len(row) + 1))
+                            await conn.execute(
+                                f"INSERT INTO {meta.assoc_table} ({cols}) "
+                                f"VALUES ({vals}) ON CONFLICT DO NOTHING",
+                                *row.values(),
+                            )
+                except asyncpg.ForeignKeyViolationError as exc:
+                    db_logger.warning(
+                        "Skipped %s junction sync for %r: %s",
+                        meta.assoc_table,
+                        obj,
+                        exc,
                     )
+
+    # ── FK stub creation ──────────────────────────────────────────────
+
+    async def _ensure_junction_fk_targets(
+        self,
+        assoc_table: str,
+        rows: list[dict[str, Any]],
+        owner_fk: str,
+    ) -> None:
+        """Create stub entities for any FK targets missing from the DB.
+
+        Inspects the junction table's FK columns (excluding the owner FK)
+        and, for each referenced entity that doesn't exist, calls
+        ``TargetModel.create_stub(entity_id, **row_context)``.
+
+        If the target model hasn't implemented ``create_stub``, the
+        ``StubNotImplementedError`` propagates to the caller, which can
+        either provide additional context or let it reach the console.
+        """
+        table_def = core_metadata.tables.get(assoc_table)
+        if table_def is None:
+            return
+
+        # Collect (column_name, target_table_name) for non-owner FK columns
+        fk_targets: list[tuple[str, str]] = [
+            (col.name, fk.column.table.name)
+            for col in table_def.columns
+            if col.name != owner_fk
+            for fk in col.foreign_keys
+        ]
+
+        if not fk_targets:
+            return
+
+        for col_name, target_table in fk_targets:
+            model_cls = _TABLE_TO_MODEL.get(target_table)
+            if model_cls is None:
+                continue
+
+            # Deduplicate: map target_id → first row that references it
+            seen: dict[int, dict[str, Any]] = {}
+            for row in rows:
+                tid = row.get(col_name)
+                if tid is not None and tid not in seen:
+                    seen[tid] = row
+
+            for target_id, row_context in seen.items():
+                if self.get_from_cache(model_cls, target_id) is not None:
+                    continue
+                if await self._fetch_one_by_id(model_cls, target_id) is not None:
+                    continue
+
+                # Missing — create stub (raises StubNotImplementedError
+                # if the model doesn't support it)
+                stub = model_cls.create_stub(target_id, **row_context)
+                await self._insert_row(stub)
+                stub._is_new = False
+                self.cache_instance(stub)
+
+                from .stub_tracker import register_stub
+
+                await register_stub(
+                    target_table, target_id, reason=f"junction_fk:{assoc_table}"
+                )
 
     # ── Ordered junction helpers ─────────────────────────────────────
 
