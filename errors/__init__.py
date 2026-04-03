@@ -157,6 +157,33 @@ class InvalidTraceLogError(RuntimeError):
         super().__init__(self.message)
 
 
+class StubNotImplementedError(NotImplementedError):
+    """Raised when a model doesn't support stub creation for FK satisfaction.
+
+    Callers can catch this to provide additional context from the API
+    response, or let it propagate for a clear console message about
+    which model needs a ``create_stub`` implementation.
+    """
+
+    def __init__(
+        self,
+        model_cls: type,
+        entity_id: int,
+        junction_table: str | None = None,
+        context: dict | None = None,
+    ) -> None:
+        self.model_cls = model_cls
+        self.entity_id = entity_id
+        self.junction_table = junction_table
+        self.context = context or {}
+        name = model_cls.__name__ if hasattr(model_cls, "__name__") else str(model_cls)
+        msg = f"No stub creator for {name} (id={entity_id})"
+        if junction_table:
+            msg += f", referenced by {junction_table} junction"
+        msg += f". Implement {name}.create_stub(cls, entity_id, **context)."
+        super().__init__(msg)
+
+
 class StashError(RuntimeError):
     """Base exception for Stash-related errors.
 
@@ -251,4 +278,5 @@ __all__ = [
     "StashError",
     "StashGraphQLError",
     "StashServerError",
+    "StubNotImplementedError",
 ]

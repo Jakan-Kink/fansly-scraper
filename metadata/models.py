@@ -974,6 +974,31 @@ class FanslyObject(BaseModel):
         await self._store.save(self)
         self.mark_clean()
 
+    # ── Stub Creation ───────────────────────────────────────────────
+
+    @classmethod
+    def create_stub(cls, entity_id: int, **context: Any) -> Self:
+        """Create a minimal stub instance for FK constraint satisfaction.
+
+        Override in models that may be referenced by junction tables
+        before full data is available.  The entity store calls this
+        automatically when a record-based junction INSERT would
+        violate an FK constraint because the target entity is missing.
+
+        The stub is registered in ``stub_tracker`` for later enrichment
+        when the real API data arrives.
+
+        Args:
+            entity_id: Primary key for the stub.
+            **context: Row data from the junction record (varies by table).
+
+        Raises:
+            StubNotImplementedError: Default — subclass must override.
+        """
+        from errors import StubNotImplementedError
+
+        raise StubNotImplementedError(cls, entity_id, context=context)
+
     # ── Field Update Helper ──────────────────────────────────────────
 
     @staticmethod
@@ -1667,6 +1692,19 @@ class Post(FanslyObject):
     hashtags: list[Hashtag] = []
     walls: list[Wall] = []
     mentions: list[PostMention] = Field(default=[], alias="accountMentions")
+
+    @classmethod
+    def create_stub(cls, entity_id: int, **context: Any) -> Post:
+        """Create a minimal Post stub for FK satisfaction.
+
+        Requires ``accountId`` in context (provided by PinnedPost records).
+        """
+        account_id = context.get("accountId")
+        if not account_id:
+            from errors import StubNotImplementedError
+
+            raise StubNotImplementedError(cls, entity_id, context=context)
+        return cls(id=entity_id, accountId=account_id)
 
     def __repr__(self) -> str:
         return f"<Post {self.id}>"

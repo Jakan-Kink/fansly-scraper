@@ -101,6 +101,7 @@ async def process_account_data(
 
     Walls still need async processing (stale-wall deletion, wall_posts junction).
     """
+    from .stub_tracker import remove_stub
     from .wall import process_account_walls
 
     store = get_store()
@@ -114,7 +115,8 @@ async def process_account_data(
     # save() handles the correct order:
     # 1. INSERT Account row (scalars only)
     # 2. Save related entities for junctions (avatar/banner Media)
-    # 3. Sync junction tables (account_avatar, account_banner, etc.)
+    # 3. Sync junction tables — _ensure_junction_fk_targets creates
+    #    stubs for any missing FK targets (e.g., Posts for pinned_posts)
     await store.save(account)
 
     if account.timelineStats:
@@ -131,6 +133,4 @@ async def process_account_data(
         )
 
     # Remove stub tracking
-    from .stub_tracker import remove_stub
-
     await remove_stub("accounts", account.id)
