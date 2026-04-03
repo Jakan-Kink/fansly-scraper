@@ -2,11 +2,14 @@
 
 from datetime import UTC, datetime
 
+import httpx
 import pytest
+import respx
 
 from api.fansly import FanslyApi
 from metadata import (
     Account,
+    AccountMedia,
     AccountMediaBundle,
     Media,
     TimelineStats,
@@ -116,19 +119,135 @@ async def test_process_account_media_bundles(entity_store, mock_config, timeline
 
     account_id = account_data["id"]
 
-    # Pre-create required Media records that bundles reference
+    # Pre-create Media + AccountMedia records for all bundle items so that
+    # _process_single_bundle can resolve them from cache (no API backfill needed).
     for bundle in bundles_data:
-        for content in bundle.get("bundleContent", []):
-            media_id = content["accountMediaId"]
-            existing = await entity_store.get(Media, media_id)
+        for am_id in bundle.get("accountMediaIds", []):
+            media_id = snowflake_id()
+            existing = await entity_store.get(AccountMedia, am_id)
             if not existing:
-                await entity_store.save(Media(id=media_id, accountId=account_id))
+                existing_media = await entity_store.get(Media, media_id)
+                if not existing_media:
+                    await entity_store.save(Media(id=media_id, accountId=account_id))
+                await entity_store.save(
+                    AccountMedia(
+                        id=am_id,
+                        accountId=account_id,
+                        mediaId=media_id,
+                        createdAt=datetime.now(UTC),
+                    )
+                )
 
     # Process the bundles via production code
     await process_media_bundles(mock_config, account_id, bundles_data)
 
-    # Verify bundles were created
+    # Verify bundles were created with all media items
     for bundle_data in bundles_data:
         bundle_id = bundle_data["id"]
         bundle = await entity_store.get(AccountMediaBundle, bundle_id)
         assert bundle is not None
+        expected_count = len(bundle_data.get("accountMediaIds", []))
+        assert len(bundle.accountMedia) == expected_count
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_bundle_truncation_backfill(entity_store, config, fansly_api):
+    """Test that bundles with >5 items backfill truncated accountMedia via API.
+
+    The Fansly API truncates accountMedia objects at 5 items per bundle in
+    timeline responses. _process_single_bundle detects missing IDs and
+    fetches them via get_account_media() before saving the junction table.
+
+    Reproduces the pattern from issue #63.
+    """
+    store = entity_store
+
+    account_id = snowflake_id()
+    bundle_id = snowflake_id()
+
+    # 7 accountMedia items — first 5 "present" in response, last 2 "truncated"
+    am_ids = [snowflake_id() for _ in range(7)]
+    media_ids = [snowflake_id() for _ in range(7)]
+
+    # Set up the API on config
+    config._api = fansly_api
+
+    # Create prerequisite account
+    account = Account(id=account_id, username="truncation_test")
+    await store.save(account)
+
+    # Create all 7 Media records (FK target for AccountMedia.mediaId)
+    for mid in media_ids:
+        await store.save(Media(id=mid, accountId=account_id))
+
+    # Pre-cache only the first 5 AccountMedia (simulates what process_media_info
+    # would have done from the response's truncated accountMedia array)
+    for i in range(5):
+        am = AccountMedia(
+            id=am_ids[i],
+            accountId=account_id,
+            mediaId=media_ids[i],
+            createdAt=datetime.now(UTC),
+        )
+        await store.save(am)
+
+    # Mock the API call for the 2 missing accountMedia items
+    # get_with_ngsw does OPTIONS preflight + GET
+    respx.options(url__regex=r".*account/media.*").mock(
+        return_value=httpx.Response(200),
+    )
+    respx.get(url__regex=r".*account/media.*").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "success": True,
+                "response": [
+                    {
+                        "id": str(am_ids[5]),
+                        "accountId": str(account_id),
+                        "mediaId": str(media_ids[5]),
+                        "createdAt": int(datetime.now(UTC).timestamp()),
+                        "media": {
+                            "id": str(media_ids[5]),
+                            "accountId": str(account_id),
+                            "mimetype": "image/jpeg",
+                        },
+                    },
+                    {
+                        "id": str(am_ids[6]),
+                        "accountId": str(account_id),
+                        "mediaId": str(media_ids[6]),
+                        "createdAt": int(datetime.now(UTC).timestamp()),
+                        "media": {
+                            "id": str(media_ids[6]),
+                            "accountId": str(account_id),
+                            "mimetype": "image/jpeg",
+                        },
+                    },
+                ],
+            },
+        ),
+    )
+
+    # Bundle dict as it comes from the API — all 7 IDs listed,
+    # but only the first 5 are in the identity map cache
+    bundle_data = [
+        {
+            "id": bundle_id,
+            "accountId": account_id,
+            "createdAt": int(datetime.now(UTC).timestamp()),
+            "accountMediaIds": am_ids,  # all 7
+        }
+    ]
+
+    await process_media_bundles(config, account_id, bundle_data)
+
+    # Verify: bundle exists and junction table has all 7 positions
+    bundle = await store.get(AccountMediaBundle, bundle_id)
+    assert bundle is not None
+    assert len(bundle.accountMedia) == 7
+
+    # Verify ordering is preserved (junction table pos column)
+    junction_ids = [am.id for am in bundle.accountMedia]
+    assert junction_ids == am_ids
