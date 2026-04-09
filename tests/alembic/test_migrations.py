@@ -198,6 +198,119 @@ def _seed_malformed_no_posts_to_copy(engine) -> None:
             conn.execute(text("SET session_replication_role = origin"))
 
 
+def _seed_e4a1_preexisting_objects(engine) -> None:
+    """Pre-create the id column, constraints, and indexes that e4a1 would create.
+
+    This exercises the idempotency guards (skip branches) in e4a1:
+    - Line 35→53: id column already exists → skip entire block
+    - Line 57-60: unique constraints already exist → skip creation
+    - Line 72-78: indexes already exist → skip creation
+    """
+    with engine.begin() as conn:
+        # Drop old PK and add id column (simulating prior partial run of e4a1)
+        conn.execute(
+            text(
+                "ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS post_mentions_pkey"
+            )
+        )
+        conn.execute(text("ALTER TABLE post_mentions ADD COLUMN id SERIAL PRIMARY KEY"))
+        # Re-create constraints (may have been lost by PK drop)
+        conn.execute(
+            text(
+                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_account"'
+            )
+        )
+        conn.execute(
+            text(
+                'ALTER TABLE post_mentions ADD CONSTRAINT "uix_post_mentions_account" '
+                'UNIQUE ("postId", "accountId")'
+            )
+        )
+        conn.execute(
+            text(
+                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_handle"'
+            )
+        )
+        conn.execute(
+            text(
+                'ALTER TABLE post_mentions ADD CONSTRAINT "uix_post_mentions_handle" '
+                'UNIQUE ("postId", "handle")'
+            )
+        )
+        # Create indexes
+        conn.execute(
+            text(
+                'CREATE INDEX IF NOT EXISTS "ix_post_mentions_accountId" '
+                'ON post_mentions ("accountId")'
+            )
+        )
+        conn.execute(
+            text(
+                'CREATE INDEX IF NOT EXISTS "ix_post_mentions_account" '
+                'ON post_mentions ("postId", "accountId") '
+                'WHERE "accountId" IS NOT NULL'
+            )
+        )
+        conn.execute(
+            text(
+                'CREATE INDEX IF NOT EXISTS "ix_post_mentions_handle" '
+                'ON post_mentions ("postId", "handle") '
+                'WHERE "handle" IS NOT NULL'
+            )
+        )
+
+
+def _seed_e4a1_no_pkey(engine) -> None:
+    """Remove the PK from post_mentions without adding the id column.
+
+    Forces e4a1 into the block where id doesn't exist AND the old pkey
+    is also missing (line 42→50 skip branch).
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS post_mentions_pkey"
+            )
+        )
+
+
+def _seed_e4a1_missing_objects(engine) -> None:
+    """Remove the constraints and indexes that earlier migrations created.
+
+    This forces e4a1 to create them (exercising lines 60 and 75-78),
+    which are normally skipped because 7f057c9b00e0 already created them.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_account"'
+            )
+        )
+        conn.execute(
+            text(
+                'ALTER TABLE post_mentions DROP CONSTRAINT IF EXISTS "uix_post_mentions_handle"'
+            )
+        )
+        conn.execute(text('DROP INDEX IF EXISTS "ix_post_mentions_accountId"'))
+        conn.execute(text('DROP INDEX IF EXISTS "ix_post_mentions_account"'))
+        conn.execute(text('DROP INDEX IF EXISTS "ix_post_mentions_handle"'))
+
+
+def _seed_f1a2_naive_timestamps(engine) -> None:
+    """Revert a timestamp column to naive (without time zone).
+
+    This exercises the ALTER COLUMN loop body (line 45) in f1a2,
+    which is otherwise skipped when all columns are already timestamptz.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                'ALTER TABLE accounts ALTER COLUMN "createdAt" '
+                "TYPE TIMESTAMP WITHOUT TIME ZONE"
+            )
+        )
+
+
 MIGRATION_SPECS: list[dict[str, str | int | Callable]] = [
     # Anchors from base (PostgreSQL crossover, seeded cases, full-chain head)
     {
@@ -249,6 +362,34 @@ MIGRATION_SPECS: list[dict[str, str | int | Callable]] = [
     {"index": -2, "target_rev": "d061d57b6139"},
     {"index": -2, "target_rev": "f8df81787709"},
     {"index": -2, "target_rev": "merge_recent_migrations"},
+    # e4a1: normal upgrade (creates objects) + windowed downgrade
+    {"index": -2, "target_rev": "e4a1f7e15836"},
+    # e4a1: idempotent re-run (objects pre-exist → skip branches 35→53)
+    {
+        "index": -2,
+        "target_rev": "e4a1f7e15836",
+        "seed": _seed_e4a1_preexisting_objects,
+    },
+    # e4a1: constraints/indexes missing (forces creation → lines 60, 75-78)
+    {
+        "index": -2,
+        "target_rev": "e4a1f7e15836",
+        "seed": _seed_e4a1_missing_objects,
+    },
+    # e4a1: pkey already dropped (no id, no pkey → line 42→50 skip)
+    {
+        "index": -2,
+        "target_rev": "e4a1f7e15836",
+        "seed": _seed_e4a1_no_pkey,
+    },
+    # f1a2: normal upgrade (no naive columns to fix)
+    {"index": -2, "target_rev": "f1a2b3c4d5e6"},
+    # f1a2: with naive timestamp columns to convert (line 45)
+    {
+        "index": -2,
+        "target_rev": "f1a2b3c4d5e6",
+        "seed": _seed_f1a2_naive_timestamps,
+    },
 ]
 
 

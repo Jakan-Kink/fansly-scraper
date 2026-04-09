@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import Session, sessionmaker
 
-from config import FanslyConfig
+from config import FanslyConfig, db_logger
 from metadata import (
     Account,
     AccountMedia,
@@ -303,7 +303,7 @@ class TestDatabase(Database):
         total = time.time() - conn.info["query_start_time"].pop()
         # Log if query takes more than 100ms
         if total > 0.1:
-            print(f"Long running query ({total:.2f}s): {statement}")
+            db_logger.warning(f"Long running query ({total:.2f}s): {statement}")
 
     def _make_session(self) -> Session:
         """Create a new session with proper typing."""
@@ -622,7 +622,7 @@ def test_database_sync(
             if hasattr(db, "_sync_engine"):
                 db.close()
         except Exception as cleanup_error:
-            print(f"Warning: Error during database cleanup: {cleanup_error}")
+            db_logger.warning(f"Error during database cleanup: {cleanup_error}")
 
 
 @pytest_asyncio.fixture
@@ -648,7 +648,7 @@ async def test_database(
 
         yield db
     except Exception as e:
-        print(f"Warning: Error during database setup: {e}")
+        db_logger.warning(f"Error during database setup: {e}")
         raise
     finally:
         # Cleanup: Only close sync engine if it exists
@@ -657,7 +657,7 @@ async def test_database(
             if hasattr(db, "_sync_engine") and db._sync_engine is not None:
                 db._sync_engine.dispose()
         except Exception as cleanup_error:
-            print(f"Warning: Error during database cleanup: {cleanup_error}")
+            db_logger.warning(f"Error during database cleanup: {cleanup_error}")
 
 
 # cleanup_database removed: UUID-based database isolation makes cleanup redundant.

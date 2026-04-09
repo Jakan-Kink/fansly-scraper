@@ -214,6 +214,8 @@ async def download_timeline(
                 35,
             )
             input_enter_continue(config.interactive)
+            if not config.interactive:
+                break
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
@@ -227,3 +229,5 @@ async def download_timeline(
                 36,
             )
             input_enter_continue(config.interactive)
+            if not config.interactive:
+                break

@@ -1079,3 +1079,7 @@ sqlalchemy.url = {db_url}
             assert version == "2dc7238fee2b"
 
         engine.dispose()
+
+
+# Note: TestE4a1PostMentionsEdgeCases and TestF1a2TimestamptzEdgeCases were
+# moved to MIGRATION_SPECS in test_migrations.py with proper seed functions.

@@ -24,7 +24,6 @@ from sqlalchemy import create_engine, event
 from config import db_logger
 
 from .entity_store import PostgresEntityStore
-from .logging_config import DatabaseLogger
 
 
 if TYPE_CHECKING:
@@ -33,13 +32,6 @@ if TYPE_CHECKING:
 # Set up database logging
 logs_dir = Path("logs")
 logs_dir.mkdir(exist_ok=True)
-
-
-def get_db_logger() -> DatabaseLogger:
-    """Get the global database logger, initializing it if needed."""
-    if not hasattr(get_db_logger, "instance"):
-        get_db_logger.instance = DatabaseLogger()
-    return get_db_logger.instance
 
 
 class Database:
@@ -134,6 +126,7 @@ class Database:
             min_size=2,
             max_size=config.pg_pool_size,
             command_timeout=30,
+            init=PostgresEntityStore._init_pg_connection,
         )
 
         self._entity_store = PostgresEntityStore(self._asyncpg_pool)

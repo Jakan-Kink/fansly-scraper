@@ -48,6 +48,24 @@ from tests.fixtures.utils.test_isolation import snowflake_id
 # ============================================================================
 
 
+def pytest_unconfigure(config):
+    """Flush stdout/stderr before xdist worker shutdown.
+
+    Python 3.13 on macOS has a race in _Py_Finalize: if a daemon thread
+    holds the stdout buffer lock when the main thread calls flush_std_files(),
+    the interpreter hits _enter_buffered_busy → SIGABRT.
+
+    Flushing here — after all plugins have cleaned up but before the
+    interpreter shuts down — gives pending writes a window to complete.
+    """
+    import sys
+
+    with suppress(Exception):
+        sys.stdout.flush()
+    with suppress(Exception):
+        sys.stderr.flush()
+
+
 def pytest_collection_modifyitems(config, items):
     """Hook to validate fixture usage and add markers.
 
@@ -146,17 +164,22 @@ def clean_model_data(data_dict):
 
 @pytest_asyncio.fixture(autouse=True)
 async def cleanup_tasks():
-    """Cleanup any remaining async tasks after each test.
+    """Cleanup leaked async tasks after each test.
 
-    This prevents task leakage between tests and ensures clean test isolation.
+    Only cancels tasks that were created during the test — not internal
+    framework tasks (asyncpg pool management, etc.) that may still be
+    needed during fixture teardown.
     """
+    pre_existing = asyncio.all_tasks()
     yield
-    # Clean up any remaining tasks at the end of each test
     for task in asyncio.all_tasks():
-        if not task.done() and task != asyncio.current_task():
+        if (
+            task not in pre_existing
+            and not task.done()
+            and task != asyncio.current_task()
+        ):
             task.cancel()
             with suppress(asyncio.CancelledError, RuntimeError):
-                # RuntimeError: cannot reuse already awaited coroutine
                 await task
 
 

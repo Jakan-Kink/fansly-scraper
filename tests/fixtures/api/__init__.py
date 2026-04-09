@@ -7,6 +7,7 @@ from .api_fixtures import (
     fansly_api_with_respx,
     mock_fansly_account_response,
     mock_fansly_timeline_response,
+    respx_fansly_api,
 )
 
 
@@ -17,4 +18,5 @@ __all__ = [
     "fansly_api_with_respx",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
+    "respx_fansly_api",
 ]

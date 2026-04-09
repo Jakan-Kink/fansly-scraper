@@ -26,6 +26,7 @@ from .api import (
     fansly_api_with_respx,
     mock_fansly_account_response,
     mock_fansly_timeline_response,
+    respx_fansly_api,
 )
 from .core import (
     FanslyConfigFactory,
@@ -219,6 +220,7 @@ mod_api_fixtures = [
     "fansly_api_with_respx",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
+    "respx_fansly_api",
 ]
 
 mod_metadata_factories = [

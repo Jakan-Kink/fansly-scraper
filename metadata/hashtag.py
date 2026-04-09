@@ -25,7 +25,7 @@ def extract_hashtags(content: str) -> list[str]:
     hashtags = []
     for raw_tag in re.findall(pattern, content):
         tag = raw_tag.strip()
-        if not tag:
+        if not tag:  # pragma: no cover — r"#+([\w]+)" guarantees non-empty capture
             continue
         hashtags.append(tag.lower())
 

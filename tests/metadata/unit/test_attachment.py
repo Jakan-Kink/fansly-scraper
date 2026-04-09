@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from metadata import Account, Attachment, ContentType, Message, Post
+from metadata.models import AccountMedia, AccountMediaBundle
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -202,3 +203,73 @@ async def test_invalid_content_type_raises(entity_store):
             contentType=99999,
             pos=0,
         )
+
+
+class TestAttachmentResolution:
+    @pytest.mark.asyncio
+    async def test_attachment_properties(self, entity_store, test_account, test_media):
+        """Attachment.media/bundle/aggregated_post resolution from cache."""
+        am = AccountMedia(
+            id=snowflake_id(),
+            accountId=test_account.id,
+            mediaId=test_media.id,
+            createdAt=datetime.now(UTC),
+            deleted=False,
+            access=True,
+        )
+        await entity_store.save(am)
+
+        bundle = AccountMediaBundle(
+            id=snowflake_id(),
+            accountId=test_account.id,
+            createdAt=datetime.now(UTC),
+            deleted=False,
+        )
+        await entity_store.save(bundle)
+
+        post = Post(id=snowflake_id(), accountId=test_account.id, fypFlag=0)
+        await entity_store.save(post)
+
+        # ACCOUNT_MEDIA type → .media resolves
+        att1 = Attachment(
+            id=snowflake_id(),
+            postId=snowflake_id(),
+            contentId=am.id,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            pos=0,
+        )
+        assert att1.media is not None
+        assert att1.media.id == am.id
+        assert att1.bundle is None
+
+        # BUNDLE type → .bundle resolves
+        att2 = Attachment(
+            id=snowflake_id(),
+            postId=snowflake_id(),
+            contentId=bundle.id,
+            contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
+            pos=0,
+        )
+        assert att2.bundle is not None
+        assert att2.bundle.id == bundle.id
+
+        # AGGREGATED_POSTS → .aggregated_post resolves
+        att3 = Attachment(
+            id=snowflake_id(),
+            postId=snowflake_id(),
+            contentId=post.id,
+            contentType=ContentType.AGGREGATED_POSTS,
+            pos=0,
+        )
+        assert att3.aggregated_post is not None
+
+        # is_story check
+        att4 = Attachment(
+            id=snowflake_id(),
+            postId=snowflake_id(),
+            contentId=snowflake_id(),
+            contentType=ContentType.STORY,
+            pos=0,
+        )
+        assert att4.is_story is True
+        assert att4.is_aggregated_post is False

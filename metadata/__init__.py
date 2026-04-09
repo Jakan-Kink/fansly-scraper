@@ -15,7 +15,7 @@ from .attachment import HasAttachments
 from .database import Database
 from .entity_store import OrderBySpec, PostgresEntityStore, SortDirection
 from .hashtag import extract_hashtags, process_post_hashtags
-from .logging_config import DatabaseLogger
+from .logging_config import DatabaseLogger, get_db_logger
 from .media import (
     process_media_download,
     process_media_info,
@@ -98,6 +98,7 @@ __all__ = [
     "count_stubs",
     "extract_hashtags",
     "get_all_stubs_by_table",
+    "get_db_logger",
     "get_stubs",
     "is_stub",
     "log_missing_relationship",

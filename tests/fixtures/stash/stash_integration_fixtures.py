@@ -847,8 +847,8 @@ async def message_media_generator(factory_session, real_stash_processor):
                         fansly_media_id = extract_media_id(image_path)
                         used_fallback = fansly_media_id is None
                         if used_fallback:
-                            # Fallback to using Stash ID if filename doesn't contain _id_ pattern
-                            fansly_media_id = int(stash_image_id)
+                            # Fallback: generate a valid Snowflake ID (Stash IDs are too small)
+                            fansly_media_id = snowflake_id()
 
                         # Build Media object (not committed - test will set accountId and commit)
                         # 33% chance to include stash_id (tests both code paths)
@@ -895,8 +895,8 @@ async def message_media_generator(factory_session, real_stash_processor):
                         fansly_media_id = extract_media_id(image_path)
                         used_fallback = fansly_media_id is None
                         if used_fallback:
-                            # Fallback to using Stash ID if filename doesn't contain _id_ pattern
-                            fansly_media_id = int(stash_image_id)
+                            # Fallback: generate a valid Snowflake ID (Stash IDs are too small)
+                            fansly_media_id = snowflake_id()
 
                         # Build Media object (not committed)
                         # 33% chance to include stash_id (tests both code paths)
@@ -948,8 +948,8 @@ async def message_media_generator(factory_session, real_stash_processor):
                     )
                     used_fallback = fansly_media_id is None
                     if used_fallback:
-                        # Fallback to using Stash ID if filename doesn't contain _id_ pattern
-                        fansly_media_id = int(scene_id)
+                        # Fallback: generate a valid Snowflake ID (Stash IDs are too small)
+                        fansly_media_id = snowflake_id()
 
                     # Build Media object (not committed)
                     # 33% chance to include stash_id (tests both code paths)

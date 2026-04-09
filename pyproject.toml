@@ -348,11 +348,12 @@ omit = [
     "*/.git/*",
     "*/.github/*",
     "*/htmlcov/*",
-    "stash/example.py"  # Example code, not production code
+    "stash/example.py",  # Example code, not production code
+    "db_init_scratch.py",  # One-off scratch script, not production code
 ]
 command_line = "-m pytest discover -s tests/"
 parallel = true
-concurrency = ["multiprocessing"]
+concurrency = ["multiprocessing", "thread"]
 disable_warnings = [
     "no-data-collected",
     "module-not-imported",

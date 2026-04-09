@@ -97,6 +97,7 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
                         f"{messages_response.status_code}\n{messages_response.text}",
                         30,
                     )
+                    break
 
         elif group_id is None:
             print_warning(

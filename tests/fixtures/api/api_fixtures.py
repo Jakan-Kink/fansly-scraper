@@ -29,11 +29,13 @@ Usage:
         assert result["id"] == "123"
 """
 
+from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
+import respx
 
 
 @pytest.fixture
@@ -240,6 +242,37 @@ def mock_fansly_timeline_response():
     }
 
 
+@pytest.fixture
+def respx_fansly_api(
+    mock_config,
+    fansly_api,
+) -> Generator[None, None, None]:
+    """Activate respx mocking with CORS preflight handling for Fansly API tests.
+
+    Wires fansly_api into mock_config, then activates respx.mock with a
+    blanket OPTIONS route (FanslyApi.cors_options_request sends an OPTIONS
+    preflight before every GET).
+
+    Tests add their own respx.get/post routes for specific endpoints.
+
+    NOTE: Uses ``respx.mock(using="httpcore")`` to intercept at the lowest
+    transport level, which works with httpx_retries wrapped transports.
+
+    Example::
+
+        @pytest.mark.asyncio
+        async def test_collections(respx_fansly_api, mock_config):
+            respx.get("https://apiv3.fansly.com/api/v1/account/media/orders/").mock(
+                side_effect=[httpx.Response(200, json={"success": True, "response": {...}})]
+            )
+            await download_collections(mock_config, state)
+    """
+    mock_config._api = fansly_api
+    with respx.mock:
+        respx.route(method="OPTIONS").mock(return_value=httpx.Response(200))
+        yield
+
+
 __all__ = [
     "create_mock_json_response",
     "fansly_api",
@@ -247,4 +280,5 @@ __all__ = [
     "fansly_api_with_respx",
     "mock_fansly_account_response",
     "mock_fansly_timeline_response",
+    "respx_fansly_api",
 ]

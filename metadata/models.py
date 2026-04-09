@@ -856,6 +856,8 @@ class FanslyObject(BaseModel):
         if current is None and meta.is_list:
             current = []
             setattr(self, field_name, current)
+            # Re-read: Pydantic's validate_assignment copies the list
+            current = getattr(self, field_name)
 
         if meta.is_list:
             if related_obj not in current:

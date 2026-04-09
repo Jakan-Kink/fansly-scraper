@@ -314,13 +314,16 @@ class PostgresEntityStore:
 
     @staticmethod
     async def _init_pg_connection(conn: asyncpg.Connection) -> None:
-        """Register JSONB codec so asyncpg can encode dict→JSONB on writes."""
+        """Register JSONB codec and query logging on new pool connections."""
         await conn.set_type_codec(
             "jsonb",
             encoder=json.dumps,
             decoder=json.loads,
             schema="pg_catalog",
         )
+        from .logging_config import get_db_logger
+
+        get_db_logger().setup_connection_logging(conn)
 
     async def close_thread_resources(self) -> None:
         """Close all per-thread asyncpg pools."""
@@ -918,7 +921,12 @@ class PostgresEntityStore:
                                 f"VALUES ({vals}) ON CONFLICT DO NOTHING",
                                 *row.values(),
                             )
-                except asyncpg.ForeignKeyViolationError as exc:
+                except asyncpg.ForeignKeyViolationError as exc:  # pragma: no cover
+                    # Safety net: if _ensure_junction_fk_targets couldn't
+                    # resolve all FK targets (e.g., multi-FK junction with
+                    # a target model that doesn't implement create_stub),
+                    # the INSERT fails here. Log and continue rather than
+                    # crashing the entire save. (#51)
                     db_logger.warning(
                         "Skipped %s junction sync for %r: %s",
                         meta.assoc_table,
@@ -961,7 +969,7 @@ class PostgresEntityStore:
 
         for col_name, target_table in fk_targets:
             model_cls = _TABLE_TO_MODEL.get(target_table)
-            if model_cls is None:
+            if model_cls is None:  # pragma: no cover
                 continue
 
             # Deduplicate: map target_id → first row that references it
@@ -1270,7 +1278,7 @@ class PostgresEntityStore:
             if not meta.assoc_table:
                 continue
             assoc_def = core_metadata.tables.get(meta.assoc_table)
-            if assoc_def is None:
+            if assoc_def is None:  # pragma: no cover
                 continue
             col_names = [c.name for c in assoc_def.columns]
             if meta.fk_column and meta.fk_column in col_names:

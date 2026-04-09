@@ -37,8 +37,8 @@ async def process_account_walls(
         await store.save(wall)
 
     # Delete walls no longer in the data
-    if walls_data:
-        current_wall_ids = {wd["id"] for wd in walls_data}
+    current_wall_ids = {wd["id"] for wd in walls_data if "id" in wd}
+    if current_wall_ids:
         existing_walls = await store.find(Wall, accountId=account.id)
         for wall in existing_walls:
             if wall.id not in current_wall_ids:

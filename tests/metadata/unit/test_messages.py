@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 
 import pytest
 
+from download.core import DownloadState
 from metadata import ContentType, Group, Message, process_messages_metadata
+from metadata.messages import _process_single_group, _process_single_message
 from metadata.models import Account, Attachment
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -193,3 +195,130 @@ async def test_process_messages_metadata(entity_store, config):
     assert saved.content == "Test message"
     assert len(saved.attachments) == 1
     assert saved.attachments[0].contentId == content_id
+
+
+class TestGroupUserResolution:
+    """Cover metadata/messages.py 127→121, 129→133."""
+
+    @pytest.mark.asyncio
+    async def test_uncached_user_skipped(self, entity_store):
+        """Line 127→121: userId valid but not in cache → skipped."""
+        creator = Account(id=snowflake_id(), username="grp_nocache")
+        await entity_store.save(creator)
+
+        uncached_id = snowflake_id()
+        result = await _process_single_group(
+            {
+                "id": snowflake_id(),
+                "createdBy": creator.id,
+                "users": [{"userId": uncached_id}],
+            },
+            "test",
+        )
+        assert result is not None
+        assert all(u.id != uncached_id for u in result.users)
+
+    @pytest.mark.asyncio
+    async def test_empty_users_skips_save(self, entity_store):
+        """Line 129→133: user_objs empty → skip group.users save."""
+        creator = Account(id=snowflake_id(), username="grp_empty")
+        await entity_store.save(creator)
+
+        result = await _process_single_group(
+            {
+                "id": snowflake_id(),
+                "createdBy": creator.id,
+                "users": [],
+            },
+            "test",
+        )
+        assert result is not None
+
+
+class TestFullMessagePipeline:
+    @pytest.mark.asyncio
+    async def test_messages_as_list_and_missing_fields(self, entity_store, mock_config):
+        """Messages: list input (isinstance branch), valid message, missing fields."""
+        acct_id = snowflake_id()
+        await entity_store.save(Account(id=acct_id, username=f"msg_{acct_id}"))
+
+        msg_id = snowflake_id()
+        messages = [
+            {
+                "id": msg_id,
+                "senderId": acct_id,
+                "content": "Hello #msg",
+                "createdAt": 1700000000,
+                "deleted": False,
+                "attachments": [
+                    {
+                        "id": snowflake_id(),
+                        "contentId": snowflake_id(),
+                        "contentType": 1,
+                        "pos": 0,
+                    }
+                ],
+            },
+        ]
+        state = DownloadState()
+        state.creator_id = acct_id
+        await process_messages_metadata(
+            mock_config, state, messages
+        )  # list → isinstance branch
+
+        msg = await entity_store.get(Message, msg_id)
+        assert msg is not None
+        assert len(msg.attachments) == 1
+
+        # Missing fields
+        assert await _process_single_message({"content": "no id"}) is None
+
+    @pytest.mark.asyncio
+    async def test_group_processing(self, entity_store):
+        """Exercise all group processing paths: missing fields, existing creator
+        (hits relationship_logger exists=True branch), lastMessage dict resolution,
+        user resolution with dict/int/empty formats, lastMessageId for existing message."""
+        # Missing id / createdBy → None
+        assert (
+            await _process_single_group({"createdBy": snowflake_id()}, "test") is None
+        )
+        assert await _process_single_group({"id": snowflake_id()}, "test") is None
+
+        # Full group with existing creator (→ relationship_logger exists=True)
+        creator = snowflake_id()
+        user2 = snowflake_id()
+        await entity_store.save(Account(id=creator, username=f"grp_{creator}"))
+        await entity_store.save(Account(id=user2, username=f"grp_user_{user2}"))
+
+        msg_id = snowflake_id()
+        await entity_store.save(
+            Message(
+                id=msg_id,
+                senderId=creator,
+                content="last msg",
+                createdAt=datetime.now(UTC),
+                deleted=False,
+            )
+        )
+
+        gid = snowflake_id()
+        result = await _process_single_group(
+            {
+                "id": gid,
+                "createdBy": creator,
+                "createdAt": 1700000000,
+                "lastMessage": {"id": msg_id},
+                "lastMessageId": msg_id,
+                "users": [
+                    {"userId": creator},  # dict format
+                    {"userId": str(user2)},  # string userId → int coercion
+                    {"userId": None},  # empty userId → skip
+                    user2,  # bare int format
+                ],
+            },
+            "test",
+        )
+        assert result is not None
+        assert result.lastMessageId == msg_id
+        # Users resolved from cache
+        assert len(result.users) >= 1

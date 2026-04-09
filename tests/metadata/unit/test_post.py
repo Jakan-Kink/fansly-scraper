@@ -1,13 +1,147 @@
 """Unit tests for post metadata functionality."""
 
+import copy
+import json
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
 
-from metadata import Account, Attachment, ContentType, Post, process_pinned_posts
+from download.core import DownloadState
+from metadata import Account, Attachment, ContentType, Post
+from metadata.account import process_account_data
 from metadata.models import PostMention
+from metadata.post import (
+    _process_timeline_post,
+    process_pinned_posts,
+    process_timeline_posts,
+)
 from tests.fixtures.utils.test_isolation import snowflake_id
+
+
+# ── Test data builders ────────────────────────────────────────────────────
+
+
+def _media_dict(account_id, *, mimetype="image/jpeg", with_variants=True):
+    media_id = snowflake_id()
+    d = {
+        "id": media_id,
+        "type": 1 if "image" in mimetype else 2,
+        "status": 1,
+        "accountId": account_id,
+        "mimetype": mimetype,
+        "flags": 426,
+        "location": f"/{account_id}/{media_id}.jpeg",
+        "width": 1920,
+        "height": 1080,
+        "updatedAt": 1730187497,
+        "createdAt": 1730187495,
+        "locations": [
+            {
+                "locationId": 1,
+                "location": f"https://cdn3.fansly.com/{account_id}/{media_id}.jpeg?token=x",
+            }
+        ],
+    }
+    if with_variants:
+        vid = snowflake_id()
+        d["variants"] = [
+            {
+                "id": vid,
+                "type": d["type"],
+                "status": 1,
+                "mimetype": mimetype,
+                "flags": 0,
+                "width": 720,
+                "height": 480,
+                "updatedAt": 1730187496,
+                "locations": [
+                    {
+                        "locationId": 1,
+                        "location": f"https://cdn3.fansly.com/{account_id}/{vid}.jpeg?token=y",
+                    }
+                ],
+            }
+        ]
+    if mimetype.startswith("video/"):
+        d["metadata"] = json.dumps(
+            {"original": {"width": 1920, "height": 1080}, "duration": 120.5}
+        )
+    return d
+
+
+def _account_dict():
+    aid = snowflake_id()
+    return {
+        "id": aid,
+        "username": f"user_{aid}",
+        "displayName": "Test Display",
+        "about": "Bio with #hashtag and emoji \u2764\ufe0f",
+        "location": "Test City",
+        "flags": 18,
+        "version": 19,
+        "createdAt": 1673792358000,
+        "following": True,
+        "profileAccess": True,
+        "avatar": _media_dict(aid),
+        "banner": _media_dict(aid, mimetype="image/png"),
+        "timelineStats": {
+            "accountId": aid,
+            "imageCount": 100,
+            "videoCount": 50,
+            "bundleCount": 10,
+            "bundleImageCount": 20,
+            "bundleVideoCount": 5,
+            "fetchedAt": 1700000000,
+        },
+        "mediaStoryState": {"accountId": aid, "status": 0},
+        "walls": [
+            {
+                "id": snowflake_id(),
+                "accountId": aid,
+                "name": "Wall",
+                "pos": 0,
+                "createdAt": 1700000000,
+            }
+        ],
+    }
+
+
+def _account_media_dict(account_id, *, mimetype="video/mp4"):
+    media = _media_dict(account_id, mimetype=mimetype)
+    return {
+        "id": snowflake_id(),
+        "accountId": account_id,
+        "mediaId": media["id"],
+        "media": media,
+        "createdAt": 1700000000,
+        "deleted": False,
+        "access": True,
+    }
+
+
+def _post_dict(account_id):
+    pid = snowflake_id()
+    return {
+        "id": pid,
+        "accountId": account_id,
+        "content": "Post with #tag1 and #tag2",
+        "createdAt": 1700000000,
+        "fypFlags": 0,
+        "attachments": [
+            {"contentId": snowflake_id(), "contentType": 1, "pos": 0},
+            {"contentId": snowflake_id(), "contentType": 7, "pos": 1},  # TIP — filtered
+        ],
+        "accountMentions": [
+            {
+                "id": snowflake_id(),
+                "postId": pid,
+                "accountId": account_id,
+                "handle": "mentioned",
+                "pos": 0,
+            },
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -279,6 +413,97 @@ async def test_post_expiration(entity_store, expires_at):
         assert saved.expiresAt is not None
     else:
         assert saved.expiresAt is None
+
+
+class TestFullPostPipeline:
+    @pytest.mark.asyncio
+    async def test_timeline_with_posts_media_accounts(self, entity_store, mock_config):
+        """Full timeline processing — accounts, posts, aggregatedPosts, accountMedia."""
+        # Pre-create the account so accountMedia FK is satisfied
+        acct_data = _account_dict()
+        acct_id = acct_data["id"]
+        await process_account_data(mock_config, data=copy.deepcopy(acct_data))
+
+        timeline = {
+            "accounts": [acct_data],
+            "posts": [_post_dict(acct_id)],
+            "aggregatedPosts": [_post_dict(acct_id)],
+            "accountMedia": [_account_media_dict(acct_id)],
+            "accountMediaBundles": [],
+        }
+
+        state = DownloadState()
+        state.creator_id = acct_id
+        await process_timeline_posts(mock_config, state, timeline)
+
+        # Account persisted
+        assert await entity_store.get(Account, acct_id) is not None
+
+        # Posts persisted, TIP attachments filtered
+        for pd in timeline["posts"] + timeline["aggregatedPosts"]:
+            post = await entity_store.get(Post, pd["id"])
+            assert post is not None
+            for att in post.attachments:
+                assert att.contentType.value != 7
+
+    @pytest.mark.asyncio
+    async def test_timeline_no_creator_id(self, entity_store, mock_config):
+        """process_timeline_posts with no state.creator_id → branch 73→78 (skips account get)."""
+        acct_id = snowflake_id()
+        # Pre-create the account so FK constraints are satisfied when posts are saved
+        await entity_store.save(Account(id=acct_id, username=f"no_creator_{acct_id}"))
+        timeline = {
+            "accounts": [],
+            "posts": [_post_dict(acct_id)],
+            "aggregatedPosts": [],
+            "accountMedia": [],
+            "accountMediaBundles": [],
+        }
+        state = DownloadState()
+        state.creator_id = None  # Triggers branch 73→78
+        await process_timeline_posts(mock_config, state, timeline)
+
+    @pytest.mark.asyncio
+    async def test_timeline_creator_not_in_db(self, entity_store, mock_config):
+        """process_timeline_posts where creator_id is set but account missing from DB.
+        Falls back to processing the 'account' key in data (line 76)."""
+        acct_id = snowflake_id()
+        timeline = {
+            "accounts": [],
+            "posts": [],
+            "aggregatedPosts": [],
+            "accountMedia": [],
+            "accountMediaBundles": [],
+            "account": {"id": acct_id, "username": f"from_data_{acct_id}"},
+        }
+        state = DownloadState()
+        state.creator_id = acct_id  # Account doesn't exist yet → line 75-76
+        await process_timeline_posts(mock_config, state, timeline)
+        acct = await entity_store.get(Account, acct_id)
+        assert acct is not None
+
+    @pytest.mark.asyncio
+    async def test_single_post_missing_account_id(self, entity_store):
+        await _process_timeline_post({"id": snowflake_id(), "content": "no acct"})
+
+    @pytest.mark.asyncio
+    async def test_pinned_posts_with_existing_and_missing(
+        self, entity_store, mock_config, test_account, test_post
+    ):
+        """Pinned posts: empty list (early return), missing post (skip), existing post (junction sync)."""
+        await process_pinned_posts(mock_config, test_account, [])
+        # Missing post reference → skip with log
+        await process_pinned_posts(
+            mock_config,
+            test_account,
+            [{"postId": snowflake_id(), "pos": 0, "createdAt": 1700000000000}],
+        )
+        # Existing post → junction sync
+        await process_pinned_posts(
+            mock_config,
+            test_account,
+            [{"postId": test_post.id, "pos": 0, "createdAt": 1700000000000}],
+        )
 
 
 @pytest.mark.asyncio

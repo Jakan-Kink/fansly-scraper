@@ -188,3 +188,37 @@ async def test_log_missing_relationship_id_types(entity_store, missing_id):
 
     assert exists is False
     assert str(missing_id) in missing_relationships["accounts"]["test_table"]
+
+
+@pytest.mark.asyncio
+async def test_log_existing_entity_skips_logging(entity_store, test_account):
+    """relationship_logger.py 49→53: entity IS in DB → exists=True → no missing log."""
+    clear_missing_relationships()
+
+    exists = await log_missing_relationship(
+        table_name="media",
+        field_name="accountId",
+        missing_id=test_account.id,
+        referenced_table="accounts",
+    )
+
+    assert exists is True
+    assert str(test_account.id) not in missing_relationships.get("accounts", {}).get(
+        "media", set()
+    )
+
+
+@pytest.mark.asyncio
+async def test_unknown_table_skips_db_lookup(entity_store):
+    """relationship_logger.py 49→53: referenced_table not in _TABLE_MODEL_MAP
+    → model_type is None → skip DB lookup → exists stays False."""
+    clear_missing_relationships()
+
+    exists = await log_missing_relationship(
+        table_name="some_table",
+        field_name="someId",
+        missing_id=snowflake_id(),
+        referenced_table="unknown_table_not_in_map",
+    )
+
+    assert exists is False

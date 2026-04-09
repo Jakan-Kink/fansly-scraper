@@ -499,3 +499,68 @@ class TestRewrittenRelationshipsMatch:
                 f"{cls.__name__}.{field_name}.{attr}: "
                 f"expected {exp_val!r}, got {actual!r}"
             )
+
+
+class TestRelationshipMetadataDerivation:
+    """Covers 129-134 (query_field auto-derive) and 474, 477→481 (__init_subclass__)."""
+
+    def test_query_field_auto_derive_all_branches(self):
+        """RelationshipMetadata with query_field=None derives from target_field.
+
+        Three branches (129-134):
+          - target_field ends with '_ids' → strip + pluralize
+          - target_field ends with '_id' → strip suffix
+          - anything else → use as-is
+        """
+        # _ids suffix: "gallery_ids" → "gallerys" (naive plural, line 130)
+        rm_ids = RelationshipMetadata(
+            target_field="gallery_ids", is_list=True, query_field=None
+        )
+        assert rm_ids.query_field == "gallerys"
+
+        # _id suffix: "studio_id" → "studio" (line 132)
+        rm_id = RelationshipMetadata(
+            target_field="studio_id", is_list=False, query_field=None
+        )
+        assert rm_id.query_field == "studio"
+
+        # No suffix: "preview" → "preview" (line 134)
+        rm_plain = RelationshipMetadata(
+            target_field="preview", is_list=False, query_field=None
+        )
+        assert rm_plain.query_field == "preview"
+
+        # Explicit query_field — doesn't hit 128-134 at all
+        rm_explicit = RelationshipMetadata(
+            target_field="x_id", is_list=False, query_field="custom"
+        )
+        assert rm_explicit.query_field == "custom"
+
+    def test_init_subclass_non_rm_entry_and_preresolved(self):
+        """__init_subclass__ skips non-RelationshipMetadata (474) and
+        non-_DEFERRED query_field (477→481).
+
+        We define a temporary subclass with:
+          - A non-RM entry (string) → hits line 474 (continue)
+          - A RM with query_field already resolved → hits 477→481 (skip)
+        """
+
+        class _TestSubclass(FanslyObject):
+            __table_name__: str = ""
+            __tracked_fields__ = set()
+            __relationships__ = {
+                "not_a_rm": "just a string",  # line 474: not isinstance → continue
+                "preresolved": RelationshipMetadata(
+                    target_field="some_id",
+                    is_list=False,
+                    query_field="already_set",  # NOT _DEFERRED → 477→481
+                ),
+            }
+            id: int | None = None
+
+        # Verify the non-RM entry was skipped
+        assert _TestSubclass.__relationships__["not_a_rm"] == "just a string"
+        # Verify the pre-resolved query_field was NOT overwritten
+        assert (
+            _TestSubclass.__relationships__["preresolved"].query_field == "already_set"
+        )

@@ -189,3 +189,38 @@ async def test_process_wall_posts(entity_store, config):
     )
     post_ids_saved = [row["postId"] for row in rows]
     assert post_ids_saved == sorted([post_id1, post_id2])
+
+
+@pytest.mark.asyncio
+async def test_wall_post_already_in_wall(entity_store, mock_config, test_account):
+    """metadata/wall.py 70→68: post already in wall.posts → skip append, no duplicate."""
+    wall = Wall(id=snowflake_id(), accountId=test_account.id, name="dup_test", pos=0)
+    await entity_store.save(wall)
+
+    post = Post(id=snowflake_id(), accountId=test_account.id, fypFlag=0)
+    await entity_store.save(post)
+
+    state = DownloadState()
+    state.creator_id = test_account.id
+
+    posts_data = {
+        "posts": [
+            {
+                "id": post.id,
+                "accountId": test_account.id,
+                "fypFlags": 0,
+                "createdAt": 1700000000,
+            }
+        ],
+        "accounts": [],
+        "accountMedia": [],
+        "accountMediaBundles": [],
+    }
+
+    # First call adds the post
+    await process_wall_posts(mock_config, state, str(wall.id), posts_data)
+    assert post in wall.posts
+
+    # Second call — post already in wall.posts → 70→68 skip
+    await process_wall_posts(mock_config, state, str(wall.id), posts_data)
+    assert wall.posts.count(post) == 1
