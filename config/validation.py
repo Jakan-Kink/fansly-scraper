@@ -10,7 +10,6 @@ from config.logging import textio_logger
 from config.modes import DownloadMode
 from errors import ConfigError
 from helpers.browser import open_get_started_url
-from helpers.checkkey import guess_check_key
 from helpers.web import guess_user_agent
 from pathio.pathio import ask_correct_dir
 from textio.textio import input_enter_continue
@@ -360,6 +359,8 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
     print()
 
     if config.user_agent:
+        from helpers.checkkey import guess_check_key
+
         guessed_key = guess_check_key(
             config.user_agent,
         )

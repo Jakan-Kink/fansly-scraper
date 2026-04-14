@@ -672,6 +672,8 @@ async def test_batch_timeout_with_completed_task(respx_stash_processor):
         if call_count[0] == 1:
             # Let it run briefly so first item can complete
             await asyncio.sleep(0.05)
+            # Close the unawaited coroutine to prevent RuntimeWarning
+            coro.close()
             raise TimeoutError("Simulated timeout")
         return await original_wait_for(coro, timeout=timeout)
 

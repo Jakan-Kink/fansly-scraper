@@ -18,7 +18,9 @@ from pathlib import Path
 try:
     from tkinter import Tk, filedialog
 
-    TKINTER_AVAILABLE = True
+    TKINTER_AVAILABLE = (
+        True  # pragma: no cover — module-level import runs before coverage starts
+    )
 except ImportError:
     TKINTER_AVAILABLE = False
     Tk = None  # type: ignore[assignment,misc]

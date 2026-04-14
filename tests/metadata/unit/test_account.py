@@ -17,7 +17,7 @@ from metadata import (
     process_account_data,
     process_media_bundles,
 )
-from metadata.account import process_media_bundles_data
+from metadata.account import _backfill_missing_account_media, process_media_bundles_data
 from metadata.wall import process_account_walls
 from tests.fixtures.utils.test_isolation import snowflake_id
 
@@ -549,3 +549,34 @@ class TestFullAccountPipeline:
         await process_media_bundles_data(mock_config, data)
         bundle = await entity_store.get(AccountMediaBundle, bundle_id)
         assert bundle is not None
+
+    @pytest.mark.asyncio
+    async def test_backfill_still_missing(
+        self, entity_store, mock_config, test_account
+    ):
+        """account.py line 146: backfill API returns data but ID still not in cache."""
+        bundle = AccountMediaBundle(
+            id=snowflake_id(),
+            accountId=test_account.id,
+            createdAt=datetime.now(UTC),
+            deleted=False,
+        )
+        await entity_store.save(bundle)
+
+        ghost_id = snowflake_id()
+        # Mock the API to return empty (the ghost ID won't appear in cache)
+        api_mock = type(
+            "API",
+            (),
+            {
+                "get_account_media": lambda _self, _ids: None,
+                "get_json_response_contents": lambda _self, _resp: [],
+            },
+        )()
+        mock_config.get_api = lambda: api_mock
+
+        await _backfill_missing_account_media(
+            mock_config, entity_store, bundle, [ghost_id]
+        )
+        # ghost_id was never resolved → else branch at line 146 fired
+        assert entity_store.get_from_cache(AccountMedia, ghost_id) is None

@@ -2,6 +2,7 @@
 
 import sys
 import tempfile
+import time
 from pathlib import Path
 from unittest import mock
 
@@ -467,6 +468,89 @@ class TestPathIO:
             # Cleanup
             if hasattr(sys, "_MEIPASS"):
                 delattr(sys, "_MEIPASS")
+
+    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
+    def test_ask_correct_dir_text_fallback_valid(self, tmp_path):
+        """Lines 57-71: tkinter unavailable, stdin is tty, valid input."""
+        mock_stdin = mock.MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            mock.patch("pathio.pathio.sys.stdin", mock_stdin),
+            mock.patch("builtins.input", return_value=str(tmp_path)),
+        ):
+            result = ask_correct_dir()
+        assert result == tmp_path
+
+    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
+    def test_ask_correct_dir_text_fallback_invalid_then_valid(self, tmp_path):
+        """Lines 62-76: first input is invalid dir, second is valid."""
+        valid_dir = tmp_path / "valid"
+        valid_dir.mkdir()
+        mock_stdin = mock.MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            mock.patch("pathio.pathio.sys.stdin", mock_stdin),
+            mock.patch("builtins.input", side_effect=["/nonexistent", str(valid_dir)]),
+        ):
+            result = ask_correct_dir()
+        assert result == valid_dir
+
+    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
+    def test_ask_correct_dir_text_fallback_keyboard_interrupt(self):
+        """Lines 77-79: KeyboardInterrupt during text input."""
+        mock_stdin = mock.MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            mock.patch("pathio.pathio.sys.stdin", mock_stdin),
+            mock.patch("builtins.input", side_effect=KeyboardInterrupt),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            ask_correct_dir()
+
+    @mock.patch("pathio.pathio.TKINTER_AVAILABLE", False)
+    def test_ask_correct_dir_non_interactive_raises(self):
+        """Lines 82-85: not interactive, no tkinter → RuntimeError."""
+        with (
+            mock.patch("pathio.pathio.sys.stdin", None),
+            pytest.raises(RuntimeError, match="unable to prompt"),
+        ):
+            ask_correct_dir()
+
+    def test_get_creator_base_path_no_download_dir(self):
+        """Line 157: download_directory is None → RuntimeError."""
+        config = MockPathConfig(download_directory=None)
+        with pytest.raises(RuntimeError, match="not set"):
+            get_creator_base_path(config, "creator")
+
+    def test_delete_pyinstaller_old_mei_files(self, temp_dir):
+        """Lines 253-260: old _MEI folders with files are deleted."""
+        mei_dir = temp_dir / "_MEI_old"
+        mei_dir.mkdir()
+        (mei_dir / "lib.dll").write_text("data")
+        sub = mei_dir / "subdir"
+        sub.mkdir()
+        (sub / "inner.txt").write_text("data")
+
+        current_mei = temp_dir / "_MEI_current"
+        current_mei.mkdir()
+        sys._MEIPASS = str(current_mei)
+
+        # Mock time.time to return a value far in the future so
+        # (current_time - folder.stat().st_ctime) > 3600 is True
+        future_time = time.time() + 999_999
+
+        try:
+            with mock.patch("pathio.pathio.time.time", return_value=future_time):
+                delete_temporary_pyinstaller_files()
+            assert not mei_dir.exists()
+        finally:
+            if hasattr(sys, "_MEIPASS"):
+                delattr(sys, "_MEIPASS")
+
+    def test_delete_pyinstaller_exception_in_getattr(self):
+        """Lines 240-241: exception during base_path resolution → return."""
+        with mock.patch("pathio.pathio.getattr", side_effect=Exception("boom")):
+            delete_temporary_pyinstaller_files()
 
     @mock.patch("os.path.dirname")
     def test_delete_temporary_pyinstaller_files_exception(self, mock_dirname):

@@ -11,22 +11,24 @@ Note: All logger configuration is now centralized in config/logging.py.
 This module only provides the output functions.
 """
 
+import json
 import platform
 import shutil
 import subprocess
 import sys
 from time import sleep
+from typing import Any
 
 from config.logging import json_logger, textio_logger
 
 
-def json_output(level: int, log_type: str, message: str) -> None:
+def json_output(level: int, log_type: str, message: str | dict[str, Any]) -> None:
     """Output JSON-formatted log messages.
 
     Args:
         level: Log level number (1=INFO, 2=DEBUG)
         log_type: Type/category of log message
-        message: The message to log
+        message: The message to log (str or dict — dicts are serialized to JSON)
     """
     # Map old levels to loguru levels
     level_map = {
@@ -36,6 +38,10 @@ def json_output(level: int, log_type: str, message: str) -> None:
 
     # Default to INFO if level not in map
     loguru_level = level_map.get(level, "INFO")
+
+    # Serialize dicts to JSON so callers don't need to wrap with json.dumps()
+    if isinstance(message, dict):
+        message = json.dumps(message)
 
     # Format the message with log_type on first line and message on next
     formatted_message = f"[{log_type}]\n{message}"

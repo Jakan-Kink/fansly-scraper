@@ -1120,10 +1120,21 @@ def test_2dc7_downgrade_indexes_missing(uuid_test_db_factory):
         mock.get_indexes.side_effect = fake_get_indexes
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.downgrade(alembic_cfg, down_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:
@@ -1186,10 +1197,21 @@ def test_2dc7_downgrade_fks_exist(uuid_test_db_factory):
         mock.get_foreign_keys.side_effect = fake_get_fks
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.downgrade(alembic_cfg, down_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:
@@ -1246,10 +1268,21 @@ def test_2dc7_downgrade_stub_tracker_indexes_missing(uuid_test_db_factory):
         mock.get_indexes.side_effect = fake_get_indexes
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.downgrade(alembic_cfg, down_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:
@@ -1410,10 +1443,21 @@ def test_6dcb_index_already_exists(uuid_test_db_factory):
         mock.get_indexes.side_effect = fake_get_indexes
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.upgrade(alembic_cfg, target_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:
@@ -1706,10 +1750,21 @@ def test_4416_downgrade_constraint_missing(uuid_test_db_factory):
         mock.get_unique_constraints.side_effect = fake_get_unique
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.downgrade(alembic_cfg, down_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:
@@ -1760,10 +1815,21 @@ def test_4416_downgrade_index_missing(uuid_test_db_factory):
         mock.get_indexes.side_effect = fake_get_indexes
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.downgrade(alembic_cfg, down_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:
@@ -1922,10 +1988,21 @@ def test_7f05_downgrade_constraints_missing(uuid_test_db_factory):
         mock.get_unique_constraints.side_effect = fake_get_unique
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.downgrade(alembic_cfg, down_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:
@@ -2148,10 +2225,21 @@ def test_187642_fk_missing_on_downgrade(uuid_test_db_factory):
         mock.get_foreign_keys.side_effect = fake_get_fks
         return mock
 
+    inspectors = []
+
+    def tracking_side_effect(bind):
+        result = side_effect(bind)
+        inspectors.append(result)
+        return result
+
     try:
-        with patch.object(rev.module, "inspect", side_effect=side_effect):
+        with patch.object(rev.module, "inspect", side_effect=tracking_side_effect):
             command.downgrade(alembic_cfg, down_rev)
     finally:
+        for insp in inspectors:
+            with contextlib.suppress(Exception):
+                if hasattr(insp, "bind") and hasattr(insp.bind, "dispose"):
+                    insp.bind.dispose()
         db.close()
         loop = None
         try:

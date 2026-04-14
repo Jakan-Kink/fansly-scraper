@@ -273,8 +273,39 @@ def respx_fansly_api(
         yield
 
 
+def dump_fansly_calls(calls, label: str = "Fansly API calls") -> None:
+    """Print request/response details for each Fansly API call.
+
+    Works with respx route.calls or respx.calls. Use in try/finally blocks
+    when debugging test failures to see exactly what HTTP calls were made:
+
+        route = respx.get(...).mock(side_effect=[...])
+        try:
+            await function_under_test()
+        finally:
+            dump_fansly_calls(route.calls)
+
+    Args:
+        calls: respx route.calls or respx.calls list
+        label: Header label for the output
+    """
+    print(f"\n{'=' * 70}")
+    print(f"  {label} ({len(calls)} total)")
+    print(f"{'=' * 70}")
+    for i, call in enumerate(calls):
+        req = call.request
+        resp = call.response
+        status = resp.status_code if resp else "NO RESPONSE"
+        print(f"\n  [{i}] {req.method} {req.url}")
+        if req.content:
+            print(f"      body: {req.content[:200]}")
+        print(f"      → {status}")
+    print(f"\n{'=' * 70}\n")
+
+
 __all__ = [
     "create_mock_json_response",
+    "dump_fansly_calls",
     "fansly_api",
     "fansly_api_factory",
     "fansly_api_with_respx",

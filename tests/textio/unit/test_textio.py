@@ -36,6 +36,7 @@ class TestPrintFunctions:
         json_output(1, "TEST", "info level message")
         json_output(2, "TEST", "debug level message")
         json_output(99, "TEST", "unknown level defaults to INFO")
+        json_output(1, "TEST", {"key": "value", "nested": True})
 
 
 class TestInputFunctions:

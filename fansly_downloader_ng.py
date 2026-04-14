@@ -77,7 +77,6 @@ from textio import (
     print_warning,
     set_window_title,
 )
-from updater import self_update
 from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 
@@ -306,8 +305,6 @@ async def main(config: FanslyConfig) -> int:
     update_logging_config(
         config, config.debug
     )  # Update logging with final config state
-
-    self_update(config)
 
     validate_adjust_config(config, download_mode_set)
 

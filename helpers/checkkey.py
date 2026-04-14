@@ -88,7 +88,7 @@ _setup_nvm_environment()
 # Import JSPyBridge (required)
 try:
     from javascript import connection, eval_js, globalThis, require
-except ImportError as e:
+except ImportError as e:  # pragma: no cover — JSPyBridge is a required dependency
     textio_logger.error(
         f"JSPyBridge not available: {e}. Install with: poetry install && npm install -g acorn acorn-walk"
     )

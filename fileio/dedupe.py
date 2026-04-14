@@ -154,10 +154,13 @@ async def verify_file_existence(
 
 
 # Function to calculate file hash in a separate process
-async def calculate_file_hash(
+def calculate_file_hash(
     file_info: tuple[Path, str],
 ) -> tuple[Path, str | None, dict[str, Any]]:
     """Calculate hash for a file in a separate process.
+
+    This is a synchronous function because it runs in multiprocessing.Pool
+    workers which have no event loop. All I/O is direct (no asyncio).
 
     Args:
         file_info: Tuple of (file_path, mimetype)
@@ -166,26 +169,18 @@ async def calculate_file_hash(
         Tuple of (file_path, hash or None, debug_info)
     """
     file_path, mimetype = file_info
-    exists = await asyncio.to_thread(file_path.exists)
+    exists = file_path.exists()
     debug_info = {
         "path": str(file_path),
         "mimetype": mimetype,
-        "size": (
-            await asyncio.to_thread(lambda: file_path.stat().st_size)
-            if exists
-            else None
-        ),
+        "size": file_path.stat().st_size if exists else None,
         "exists": exists,
-        "is_file": (await asyncio.to_thread(file_path.is_file) if exists else None),
-        "readable": (
-            await asyncio.to_thread(lambda: os.access(file_path, os.R_OK))
-            if exists
-            else None
-        ),
+        "is_file": file_path.is_file() if exists else None,
+        "readable": os.access(file_path, os.R_OK) if exists else None,
     }
     try:
         if "image" in mimetype:
-            hash_value = await asyncio.to_thread(get_hash_for_image, file_path)
+            hash_value = get_hash_for_image(file_path)
             debug_info.update(
                 {
                     "hash_type": "image",
@@ -195,7 +190,7 @@ async def calculate_file_hash(
             )
             return file_path, hash_value, debug_info
         if "video" in mimetype or "audio" in mimetype:
-            hash_value = await asyncio.to_thread(get_hash_for_other_content, file_path)
+            hash_value = get_hash_for_other_content(file_path)
             debug_info.update(
                 {
                     "hash_type": "video/audio",
@@ -225,7 +220,7 @@ async def calculate_file_hash(
 
 async def get_or_create_media(
     file_path: Path,
-    media_id: str | None,
+    media_id: int | None,
     mimetype: str,
     state: DownloadState,
     file_hash: str | None = None,
@@ -301,7 +296,13 @@ async def get_or_create_media(
             media_by_id.is_downloaded = True
             media_by_id.mimetype = mimetype
             if not media_by_id.accountId:
-                media_by_id.accountId = await get_account_id(state)
+                resolved_id = await get_account_id(state)
+                if resolved_id is None:
+                    raise ValueError(
+                        f"Cannot resolve account for media {media_by_id.id}: "
+                        f"no account ID in state (creator_id={state.creator_id})"
+                    )
+                media_by_id.accountId = resolved_id
             await store.save(media_by_id)
             hash_verified = bool(media_by_id.content_hash)
             return media_by_id, hash_verified
@@ -350,6 +351,7 @@ async def get_or_create_media(
                     "mimetype": mimetype,
                 },
             )
+
             if "image" in mimetype:
                 file_hash = await asyncio.to_thread(get_hash_for_image, file_path)
             elif "video" in mimetype or "audio" in mimetype:
@@ -453,13 +455,20 @@ async def get_or_create_media(
             file_hash = await asyncio.to_thread(get_hash_for_other_content, file_path)
 
     # Create new media
+    account_id = await get_account_id(state)
+    if account_id is None:
+        raise ValueError(
+            "Cannot create Media record: no account ID available in state "
+            f"(creator_id={state.creator_id}, creator_name={state.creator_name})"
+        )
+
     media = Media(
         id=media_id,
         content_hash=file_hash,
         local_filename=filename,
         is_downloaded=True,
         mimetype=mimetype,
-        accountId=(await get_account_id(state)),
+        accountId=account_id,
     )
     await store.save(media)
     hash_verified = bool(file_hash)
@@ -1029,11 +1038,10 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 await store.save(existing_by_id)
                 return False
 
-            # Handle path normalization
-            if (
-                existing_by_id.local_filename == filename
-                or get_filename_only(existing_by_id.local_filename) == filename
-            ):
+            # Handle path normalization (compare strings, not str vs Path)
+            if existing_by_id.local_filename == str(filename) or get_filename_only(
+                existing_by_id.local_filename
+            ) == get_filename_only(filename):
                 existing_by_id.local_filename = get_filename_only(filename)
                 existing_by_id.is_downloaded = True
                 await store.save(existing_by_id)
@@ -1047,7 +1055,9 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                 if file_hash and file_hash == existing_by_id.content_hash:
                     # Same content but wrong filename - check if DB's file exists
                     db_filename = existing_by_id.local_filename
-                    if db_filename == str(filename):
+                    if db_filename == str(
+                        filename
+                    ):  # pragma: no cover — unreachable after str/Path fix at line 1029
                         existing_by_id.local_filename = get_filename_only(filename)
                         existing_by_id.is_downloaded = True
                         await store.save(existing_by_id)
@@ -1077,106 +1087,104 @@ async def dedupe_media_file(  # noqa: PLR0911 - Complex deduplication logic with
                     await store.save(existing_by_id)
                     return True
 
-        # Try by normalized filename
-        normalized_path = await normalize_filename(filename.name, config=config)
+    # Try by normalized filename (runs for ALL files, not just those with media_id)
+    normalized_path = await normalize_filename(filename.name, config=config)
 
-        # If original and normalized paths are different, check both
-        paths_to_check = [normalized_path]
-        if normalized_path != filename.name:
-            paths_to_check.append(filename.name)
+    # If original and normalized paths are different, check both
+    paths_to_check = [normalized_path]
+    if normalized_path != filename.name:
+        paths_to_check.append(filename.name)
 
-        # Also check for other files with same media ID but different timestamp format
-        id_part_match = re.search(r"_((?:preview_)?id_\d+)\.[^.]+$", filename.name)
-        if id_part_match:
-            id_part = id_part_match.group(1)
-            # Search for any files with this ID part
-            existing_by_id_pattern = await store.find(
-                Media,
-                local_filename__contains=f"{id_part}.",
-                is_downloaded=True,
-            )
-            for existing in existing_by_id_pattern:
-                if existing.local_filename not in paths_to_check:
-                    paths_to_check.append(existing.local_filename)
+    # Also check for other files with same media ID but different timestamp format
+    id_part_match = re.search(r"_((?:preview_)?id_\d+)\.[^.]+$", filename.name)
+    if id_part_match:
+        id_part = id_part_match.group(1)
+        # Search for any files with this ID part
+        existing_by_id_pattern = await store.find(
+            Media,
+            local_filename__contains=f"{id_part}.",
+            is_downloaded=True,
+        )
+        for existing in existing_by_id_pattern:
+            if existing.local_filename not in paths_to_check:
+                paths_to_check.append(existing.local_filename)
 
-        for path_to_check in paths_to_check:
-            existing_by_name = await store.find_one(
-                Media,
-                local_filename__iexact=path_to_check,
-                is_downloaded=True,
-            )
-            if existing_by_name:
-                # First check if filenames match
-                if existing_by_name.local_filename == get_filename_only(filename):
-                    # Same filename - perfect match
-                    return True
-
-                # Different filename - check if it's actually the same file
-                if existing_by_name.content_hash:  # Only if we have a hash to compare
-                    file_hash = await _calculate_hash_for_file(filename, mimetype)
-
-                    if file_hash and file_hash == existing_by_name.content_hash:
-                        # Same content but wrong filename - check if DB's file exists
-                        db_file_exists = await _check_file_exists(
-                            state.download_path, existing_by_name.local_filename
-                        )
-
-                        if db_file_exists:
-                            # DB's file exists, this is a duplicate - remove it
-                            await asyncio.to_thread(filename.unlink)
-                            return True
-                        # DB's file is missing but content matches - update DB filename
-                        existing_by_name.local_filename = get_filename_only(filename)
-                        await store.save(existing_by_name)
-                        return True
-
-        # If not in DB or no hash match, calculate hash and update DB
-        file_hash = await _calculate_hash_for_file(filename, mimetype)
-        if file_hash:
-            # Check if hash exists in database
-            media = await store.find_one(Media, content_hash=file_hash)
-            if media:
-                # Found by hash - check if DB's file exists
-                db_file_exists = await _check_file_exists(
-                    state.download_path, media.local_filename
-                )
-
-                if db_file_exists:
-                    # Update current record to reference the existing duplicate file
-                    media_record.content_hash = file_hash
-                    media_record.local_filename = media.local_filename
-                    media_record.is_downloaded = True
-                    await store.save(media_record)
-
-                    # DB's file exists, this is a duplicate - remove it
-                    await asyncio.to_thread(filename.unlink)
-                    return True
-                # DB's file is missing but this is the same content - keep new file
-                # Update both the old record and current record to point to new file
-                media.local_filename = get_filename_only(filename)
-                media.is_downloaded = True
-                await store.save(media)
-
-                media_record.content_hash = file_hash
-                media_record.local_filename = get_filename_only(filename)
-                media_record.is_downloaded = True
-                await store.save(media_record)
+    for path_to_check in paths_to_check:
+        existing_by_name = await store.find_one(
+            Media,
+            local_filename__iexact=path_to_check,
+            is_downloaded=True,
+        )
+        if existing_by_name:
+            # First check if filenames match
+            if existing_by_name.local_filename == get_filename_only(filename):
+                # Same filename - perfect match
                 return True
 
-            # No match found, update our media record
-            # Verify file exists before marking as downloaded
-            if await _check_file_exists(
-                state.download_path, get_filename_only(filename)
-            ):
+            # Different filename - check if it's actually the same file
+            if existing_by_name.content_hash:  # Only if we have a hash to compare
+                file_hash = await _calculate_hash_for_file(filename, mimetype)
+
+                if file_hash and file_hash == existing_by_name.content_hash:
+                    # Same content but wrong filename - check if DB's file exists
+                    db_file_exists = await _check_file_exists(
+                        state.download_path, existing_by_name.local_filename
+                    )
+
+                    if db_file_exists:
+                        # DB's file exists, this is a duplicate - remove it
+                        await asyncio.to_thread(filename.unlink)
+                        return True
+                    # DB's file is missing but content matches - update DB filename
+                    existing_by_name.local_filename = get_filename_only(filename)
+                    await store.save(existing_by_name)
+                    return True
+
+    # If not in DB or no hash match, calculate hash and update DB
+    file_hash = await _calculate_hash_for_file(filename, mimetype)
+    if file_hash:
+        # Check if hash exists in database
+        media = await store.find_one(Media, content_hash=file_hash)
+        if media:
+            # Found by hash - check if DB's file exists
+            db_file_exists = await _check_file_exists(
+                state.download_path, media.local_filename
+            )
+
+            if db_file_exists:
+                # Update current record to reference the existing duplicate file
                 media_record.content_hash = file_hash
-                media_record.local_filename = get_filename_only(filename)
+                media_record.local_filename = media.local_filename
                 media_record.is_downloaded = True
                 await store.save(media_record)
-            else:
-                # File disappeared between download and verification
-                media_record.is_downloaded = False
-                media_record.content_hash = None
-                media_record.local_filename = None
-                await store.save(media_record)
+
+                # DB's file exists, this is a duplicate - remove it
+                await asyncio.to_thread(filename.unlink)
+                return True
+            # DB's file is missing but this is the same content - keep new file
+            # Update both the old record and current record to point to new file
+            media.local_filename = get_filename_only(filename)
+            media.is_downloaded = True
+            await store.save(media)
+
+            media_record.content_hash = file_hash
+            media_record.local_filename = get_filename_only(filename)
+            media_record.is_downloaded = True
+            await store.save(media_record)
+            return True
+
+        # No match found, update our media record
+        # Verify file exists before marking as downloaded
+        if await _check_file_exists(state.download_path, get_filename_only(filename)):
+            media_record.content_hash = file_hash
+            media_record.local_filename = get_filename_only(filename)
+            media_record.is_downloaded = True
+            await store.save(media_record)
+        else:
+            # File disappeared between download and verification
+            media_record.is_downloaded = False
+            media_record.content_hash = None
+            media_record.local_filename = None
+            await store.save(media_record)
 
     return False

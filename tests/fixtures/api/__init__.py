@@ -2,6 +2,7 @@
 
 from .api_fixtures import (
     create_mock_json_response,
+    dump_fansly_calls,
     fansly_api,
     fansly_api_factory,
     fansly_api_with_respx,
@@ -13,6 +14,7 @@ from .api_fixtures import (
 
 __all__ = [
     "create_mock_json_response",
+    "dump_fansly_calls",
     "fansly_api",
     "fansly_api_factory",
     "fansly_api_with_respx",

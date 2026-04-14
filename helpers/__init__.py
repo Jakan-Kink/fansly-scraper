@@ -1,7 +1,6 @@
 """Utility functions and classes for the fansly-scraper project."""
 
 from .browser import open_get_started_url, open_url
-from .checkkey import guess_check_key
 from .common import (
     batch_list,
     get_post_id_from_request,
@@ -17,6 +16,16 @@ from .web import (
     guess_user_agent,
     split_url,
 )
+
+
+def __getattr__(name: str) -> object:
+    """Lazy import for checkkey to avoid loading JSPyBridge (Node.js daemon
+    threads) in every process that imports from helpers."""
+    if name == "guess_check_key":
+        from .checkkey import guess_check_key
+
+        return guess_check_key
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
@@ -35,5 +44,4 @@ __all__ = [
     "open_location",
     "open_url",
     "split_url",
-    "with_database_session",
 ]

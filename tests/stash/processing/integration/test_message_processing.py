@@ -9,7 +9,7 @@ import time
 from unittest.mock import patch
 
 import pytest
-from stash_graphql_client.types import Performer, Studio
+from stash_graphql_client.types import Gallery, Performer, Studio
 
 from metadata import (
     ContentType,
@@ -206,6 +206,21 @@ async def test_process_message_with_media(
         # Clear store cache so processing makes fresh GraphQL calls
         real_stash_processor.context.store.invalidate_all()
 
+        # Spy on store.save to track actual creates (not find-or-return)
+        created_studios = []
+        created_galleries = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            elif is_new_gallery:
+                created_galleries.append(obj.id)
+            return result
+
         with (
             patch.object(
                 real_stash_processor,
@@ -222,6 +237,9 @@ async def test_process_message_with_media(
                 "_process_batch_internal",
                 side_effect=spy_process_batch,
             ),
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
             capture_graphql_calls(real_stash_processor.context.client) as calls,
         ):
             await real_stash_processor._process_items_with_gallery(
@@ -234,6 +252,12 @@ async def test_process_message_with_media(
                     f"https://fansly.com/messages/{m.groupId}/{m.id}"
                 ),
             )
+
+        # Manual cleanup from spies
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
+        for gid in created_galleries:
+            cleanup["galleries"].append(gid)
 
         # Assert - Verify GraphQL calls
         images_with_stash_id = sum(
@@ -434,7 +458,27 @@ async def test_process_message_with_bundle(
         )
         studio = await _get_network_studio(real_stash_processor.context.client)
 
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        # Spy on store.save to track actual creates (not find-or-return)
+        created_studios = []
+        created_galleries = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            elif is_new_gallery:
+                created_galleries.append(obj.id)
+            return result
+
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
@@ -445,6 +489,12 @@ async def test_process_message_with_bundle(
                     f"https://fansly.com/messages/{m.groupId}/{m.id}"
                 ),
             )
+
+        # Manual cleanup from spies
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
+        for gid in created_galleries:
+            cleanup["galleries"].append(gid)
 
         assert len(calls) >= 4, (
             f"Expected at least 4 GraphQL calls (base gallery operations), got {len(calls)}"
@@ -552,7 +602,27 @@ async def test_process_message_with_variants(
         )
         studio = await _get_network_studio(real_stash_processor.context.client)
 
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        # Spy on store.save to track actual creates (not find-or-return)
+        created_studios = []
+        created_galleries = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            elif is_new_gallery:
+                created_galleries.append(obj.id)
+            return result
+
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
@@ -563,6 +633,12 @@ async def test_process_message_with_variants(
                     f"https://fansly.com/messages/{m.groupId}/{m.id}"
                 ),
             )
+
+        # Manual cleanup from spies
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
+        for gid in created_galleries:
+            cleanup["galleries"].append(gid)
 
         assert len(calls) >= 5, f"Expected at least 5 GraphQL calls, got {len(calls)}"
 
@@ -692,7 +768,27 @@ async def test_process_message_batch(
         )
         studio = await _get_network_studio(real_stash_processor.context.client)
 
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        # Spy on store.save to track actual creates (not find-or-return)
+        created_studios = []
+        created_galleries = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            elif is_new_gallery:
+                created_galleries.append(obj.id)
+            return result
+
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
@@ -703,6 +799,12 @@ async def test_process_message_batch(
                     f"https://fansly.com/messages/{m.groupId}/{m.id}"
                 ),
             )
+
+        # Manual cleanup from spies
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
+        for gid in created_galleries:
+            cleanup["galleries"].append(gid)
 
         assert len(calls) >= 12, (
             f"Expected at least 12 GraphQL calls (base gallery operations), got {len(calls)}"

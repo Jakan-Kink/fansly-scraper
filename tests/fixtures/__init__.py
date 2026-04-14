@@ -21,6 +21,7 @@ from typing import Any
 # Import from nested modules
 from .api import (
     create_mock_json_response,
+    dump_fansly_calls,
     fansly_api,
     fansly_api_factory,
     fansly_api_with_respx,
@@ -215,6 +216,7 @@ mod_download_fixtures = [
 
 mod_api_fixtures = [
     "create_mock_json_response",
+    "dump_fansly_calls",
     "fansly_api",
     "fansly_api_factory",
     "fansly_api_with_respx",

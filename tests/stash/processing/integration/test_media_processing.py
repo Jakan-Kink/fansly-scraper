@@ -10,13 +10,13 @@ import random
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from stash_graphql_client.types import Performer, Studio
 
 from fileio.fnmanip import extract_media_id
-from metadata import (
-    ContentType,
-)
+from metadata import ContentType
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
     AccountMediaBundleFactory,
@@ -144,10 +144,28 @@ class TestMediaProcessingIntegration:
             # GraphQL calls instead of serving from cache-first path
             real_stash_processor.context.store.invalidate_all()
 
-            # Capture GraphQL calls for validation
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_performers = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_performer = isinstance(obj, Performer) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_performer:
+                    created_performers.append(obj.id)
+                return result
+
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
-                    # Make real GraphQL calls to Stash
                     result = await real_stash_processor.process_creator_attachment(
                         attachment=attachment,
                         item=post,
@@ -156,40 +174,33 @@ class TestMediaProcessingIntegration:
                 finally:
                     dump_graphql_calls(calls, "test_process_media_integration")
 
-        # Verify expected GraphQL calls
-        # The image lookup may use cache-first path (store.filter_and_populate)
-        # which doesn't generate a findImages GraphQL call. Expected calls:
-        # - findImages (only if cache miss on path search)
-        # - findPerformers - search by name/alias
-        # - findStudios - find network and creator studios
-        # - studioCreate - create creator studio if not found (first run only)
-        # - imageUpdate/UpdateImage - save metadata
-        assert len(calls) >= 1, f"Expected at least 1 GraphQL call, got {len(calls)}"
+            # Manual cleanup — INSIDE async with stash_cleanup_tracker block
+            for sid in created_studios:
+                cleanup["studios"].append(sid)
+            for pid in created_performers:
+                cleanup["performers"].append(pid)
 
-        # imageUpdate should be present when image was found and processed
-        update_calls = [
-            c
-            for c in calls
-            if "imageUpdate" in c.get("query", "")
-            or "UpdateImage" in c.get("query", "")
-        ]
-        assert len(update_calls) >= 1, (
-            f"Expected imageUpdate call, got: "
-            f"{[c.get('query', '')[:40] for c in calls]}"
-        )
+            # Verify expected GraphQL calls
+            assert len(calls) >= 1, (
+                f"Expected at least 1 GraphQL call, got {len(calls)}"
+            )
 
-        # Track created studios for cleanup
-        for call in calls:
-            if "studioCreate" in call.get("query", ""):
-                created_studio_id = call["result"]["studioCreate"]["id"]
-                cleanup["studios"].append(created_studio_id)
+            update_calls = [
+                c
+                for c in calls
+                if "imageUpdate" in c.get("query", "")
+                or "UpdateImage" in c.get("query", "")
+            ]
+            assert len(update_calls) >= 1, (
+                f"Expected imageUpdate call, got: "
+                f"{[c.get('query', '')[:40] for c in calls]}"
+            )
 
-        # Verify results structure
-        assert isinstance(result, dict)
-        assert "images" in result
-        assert "scenes" in result
-        # Should have processed at least one image
-        assert len(result["images"]) >= 1
+            # Verify results structure
+            assert isinstance(result, dict)
+            assert "images" in result
+            assert "scenes" in result
+            assert len(result["images"]) >= 1
 
     @pytest.mark.asyncio
     async def test_process_bundle_media_integration(
@@ -405,8 +416,27 @@ class TestMediaProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
-            # Capture GraphQL calls for validation
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_performers = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_performer = isinstance(obj, Performer) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_performer:
+                    created_performers.append(obj.id)
+                return result
+
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
                     result = await real_stash_processor.process_creator_attachment(
                         attachment=attachment,
@@ -416,24 +446,24 @@ class TestMediaProcessingIntegration:
                 finally:
                     dump_graphql_calls(calls, "test_process_bundle_media_integration")
 
+            # Manual cleanup from spies — INSIDE async with stash_cleanup_tracker
+            for sid in created_studios:
+                cleanup["studios"].append(sid)
+            for pid in created_performers:
+                cleanup["performers"].append(pid)
+
             # Verify GraphQL calls based on randomized bundle composition
-            # Cache-first pattern: findImages/findScenes may be served from
-            # store cache (no GraphQL call). Performers and studios may also
-            # be cached from prior tests. The update calls are always made.
             num_bundle_images = sum(
                 1 for m in bundle_media_list if m["type"] == "image"
             )
             num_bundle_scenes = sum(
                 1 for m in bundle_media_list if m["type"] == "scene"
             )
-            total_media = num_bundle_images + num_bundle_scenes
 
-            # At minimum, each found media item triggers an update call
             assert len(calls) >= 1, (
                 f"Expected at least 1 GraphQL call, got {len(calls)}"
             )
 
-            # Count update calls
             image_update_calls = [
                 c
                 for c in calls
@@ -446,11 +476,7 @@ class TestMediaProcessingIntegration:
                 if "sceneUpdate" in c.get("query", "")
                 or "UpdateScene" in c.get("query", "")
             ]
-            studio_create_calls = [
-                c for c in calls if "studioCreate" in c.get("query", "")
-            ]
 
-            # Each media item should have an update call
             if num_bundle_images > 0:
                 assert len(image_update_calls) >= num_bundle_images, (
                     f"Should update {num_bundle_images} images, got {len(image_update_calls)}"
@@ -459,13 +485,6 @@ class TestMediaProcessingIntegration:
                 assert len(scene_update_calls) >= num_bundle_scenes, (
                     f"Should update {num_bundle_scenes} scenes, got {len(scene_update_calls)}"
                 )
-
-            # Track created studios for cleanup
-            if len(studio_create_calls) > 0:
-                for studio_call in studio_create_calls:
-                    created_studio_id = studio_call["result"]["studioCreate"]["id"]
-                    if created_studio_id not in cleanup["studios"]:
-                        cleanup["studios"].append(created_studio_id)
 
             # Verify results structure
             assert isinstance(result, dict)
@@ -497,7 +516,7 @@ class TestMediaProcessingIntegration:
         - Processes single attachment through full pipeline
         """
         async with stash_cleanup_tracker(
-            real_stash_processor.context.client
+            real_stash_processor.context.client, auto_capture=False
         ) as cleanup:
             # Find a random image from Stash (randomize to avoid always testing the same image)
             random_page = random.randint(  # noqa: S311
@@ -585,8 +604,27 @@ class TestMediaProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
-            # Capture GraphQL calls for validation
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_performers = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_performer = isinstance(obj, Performer) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_performer:
+                    created_performers.append(obj.id)
+                return result
+
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
                     result = await real_stash_processor.process_creator_attachment(
                         attachment=attachment,
@@ -598,18 +636,17 @@ class TestMediaProcessingIntegration:
                         calls, "test_process_creator_attachment_integration"
                     )
 
+            # Manual cleanup from spies
+            for sid in created_studios:
+                cleanup["studios"].append(sid)
+            for pid in created_performers:
+                cleanup["performers"].append(pid)
+
             # Cache-first: findImages may be served from store cache
             assert len(calls) >= 1, (
                 f"Expected at least 1 GraphQL call, got {len(calls)}"
             )
 
-            # Track created studios for cleanup
-            for call in calls:
-                if "studioCreate" in call.get("query", ""):
-                    created_studio_id = call["result"]["studioCreate"]["id"]
-                    cleanup["studios"].append(created_studio_id)
-
-            # Verify an update call was made
             update_calls = [
                 c
                 for c in calls
@@ -618,7 +655,6 @@ class TestMediaProcessingIntegration:
             ]
             assert len(update_calls) >= 1, "Expected imageUpdate call"
 
-            # Verify results structure
             assert isinstance(result, dict)
             assert "images" in result
             assert "scenes" in result
@@ -639,7 +675,7 @@ class TestMediaProcessingIntegration:
         - Processes bundle attachment through full pipeline
         """
         async with stash_cleanup_tracker(
-            real_stash_processor.context.client
+            real_stash_processor.context.client, auto_capture=False
         ) as cleanup:
             # Find a random image from Stash
             random_page = random.randint(  # noqa: S311
@@ -733,8 +769,27 @@ class TestMediaProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
-            # Capture GraphQL calls for validation
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_performers = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_performer = isinstance(obj, Performer) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_performer:
+                    created_performers.append(obj.id)
+                return result
+
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
                     result = await real_stash_processor.process_creator_attachment(
                         attachment=attachment,
@@ -746,18 +801,15 @@ class TestMediaProcessingIntegration:
                         calls, "test_process_creator_attachment_with_bundle"
                     )
 
-            # Cache-first: findImages may be served from store cache
+            for sid in created_studios:
+                cleanup["studios"].append(sid)
+            for pid in created_performers:
+                cleanup["performers"].append(pid)
+
             assert len(calls) >= 1, (
                 f"Expected at least 1 GraphQL call, got {len(calls)}"
             )
 
-            # Track created studios for cleanup
-            for call in calls:
-                if "studioCreate" in call.get("query", ""):
-                    created_studio_id = call["result"]["studioCreate"]["id"]
-                    cleanup["studios"].append(created_studio_id)
-
-            # Verify an update call was made
             update_calls = [
                 c
                 for c in calls
@@ -766,7 +818,6 @@ class TestMediaProcessingIntegration:
             ]
             assert len(update_calls) >= 1, "Expected imageUpdate call"
 
-            # Verify bundle was processed and results collected
             assert isinstance(result, dict)
             assert "images" in result
             assert "scenes" in result
@@ -787,7 +838,7 @@ class TestMediaProcessingIntegration:
         - Processes aggregated post recursively through full pipeline
         """
         async with stash_cleanup_tracker(
-            real_stash_processor.context.client
+            real_stash_processor.context.client, auto_capture=False
         ) as cleanup:
             # Find a random image from Stash for the aggregated post
             random_page = random.randint(  # noqa: S311
@@ -885,8 +936,27 @@ class TestMediaProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
-            # Capture GraphQL calls for validation
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_performers = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_performer = isinstance(obj, Performer) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_performer:
+                    created_performers.append(obj.id)
+                return result
+
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
                     result = await real_stash_processor.process_creator_attachment(
                         attachment=parent_attachment,
@@ -899,18 +969,15 @@ class TestMediaProcessingIntegration:
                         "test_process_creator_attachment_with_aggregated_post",
                     )
 
-            # Cache-first: findImages may be served from store cache
+            for sid in created_studios:
+                cleanup["studios"].append(sid)
+            for pid in created_performers:
+                cleanup["performers"].append(pid)
+
             assert len(calls) >= 1, (
                 f"Expected at least 1 GraphQL call, got {len(calls)}"
             )
 
-            # Track created studios for cleanup
-            for call in calls:
-                if "studioCreate" in call.get("query", ""):
-                    created_studio_id = call["result"]["studioCreate"]["id"]
-                    cleanup["studios"].append(created_studio_id)
-
-            # Verify an update call was made
             update_calls = [
                 c
                 for c in calls
@@ -919,7 +986,6 @@ class TestMediaProcessingIntegration:
             ]
             assert len(update_calls) >= 1, "Expected imageUpdate call"
 
-            # Verify results include aggregated content
             assert isinstance(result, dict)
             assert "images" in result
             assert "scenes" in result

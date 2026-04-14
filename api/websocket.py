@@ -48,6 +48,13 @@ class FanslyWebSocket:
     PING_INTERVAL_MIN = 20.0  # Minimum ping interval (seconds)
     PING_INTERVAL_MAX = 25.0  # Maximum ping interval (seconds)
 
+    # Protocol message types (from main.js EventService.handleText)
+    MSG_ERROR = 0  # ErrorEvent — server error with code (401, 429, etc.)
+    MSG_SESSION = 1  # SessionVerifyRequest (client) / SessionVerifiedEvent (server)
+    MSG_PING = 2  # PingResponseEvent — response to "p" ping
+    MSG_SERVICE_EVENT = 10000  # ServiceEvent — real-time notifications
+    MSG_BATCH = 10001  # Batch — array of messages, recursively unpacked
+
     def __init__(
         self,
         token: str,
@@ -85,7 +92,10 @@ class FanslyWebSocket:
         self._event_handlers: dict[int, Callable[[dict[str, Any]], Any]] = {}
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 5
-        self._reconnect_delay = 1.0
+        self._reconnect_delay = 1.5  # JS: reconnect_timeout_ = 1500
+        self._max_reconnect_delay = 15.0  # JS: caps at 15000ms
+        self._last_ping_response = 0.0  # JS: lastPingResponse_
+        self._last_connection_reset = 0.0  # JS: lastConnectionReset_
 
     def _create_ssl_context(self) -> ssl.SSLContext:
         """Create SSL context for WebSocket connection.
@@ -151,11 +161,14 @@ class FanslyWebSocket:
     async def _handle_message(self, message: str | bytes) -> None:
         """Handle incoming WebSocket message.
 
+        Dispatch order matches main.js EventService.handleText:
+        0 → ErrorEvent, 1 → SessionVerifiedEvent, 2 → PingResponseEvent,
+        10000 → ServiceEvent, 10001 → Batch (recursive unpack).
+
         Args:
             message: Raw message string or bytes from WebSocket
         """
         try:
-            # Handle both string and bytes
             if isinstance(message, bytes):
                 message = message.decode("utf-8")
 
@@ -170,16 +183,49 @@ class FanslyWebSocket:
                     message_data,
                 )
 
-            # Handle authentication response (type 1)
-            if message_type == 1:
+            # JS: 0 === r → handleErrorEvent(decodeMessage("ErrorEvent", t.d))
+            if message_type == self.MSG_ERROR:
+                error_data = (
+                    json.loads(message_data)
+                    if isinstance(message_data, str)
+                    else message_data
+                )
+                await self._handle_error_event(error_data)
+
+            # JS: 1 === r → handleSessionVerifiedEvent
+            elif message_type == self.MSG_SESSION:
                 await self._handle_auth_response(message_data)
-            # Handle ping response (type 2) - contains lastPing timestamp
-            elif message_type == 2:
+
+            # JS: 2 === r → handlePingResponseEvent
+            elif message_type == self.MSG_PING:
+                self._last_ping_response = asyncio.get_event_loop().time()
                 if self.enable_logging:
                     logger.debug("Received ping response: {}", message_data)
-            # Handle error events (check for error code in message data)
-            elif isinstance(message_data, dict) and "code" in message_data:
-                await self._handle_error_event(message_data)
+
+            # JS: 1e4 === r → handleServiceEvent(decodeMessage("ServiceEvent", t.d))
+            elif message_type == self.MSG_SERVICE_EVENT:
+                event_data = (
+                    json.loads(message_data)
+                    if isinstance(message_data, str)
+                    else message_data
+                )
+                if self.MSG_SERVICE_EVENT in self._event_handlers:
+                    handler = self._event_handlers[self.MSG_SERVICE_EVENT]
+                    if asyncio.iscoroutinefunction(handler):
+                        await handler(event_data)
+                    else:
+                        handler(event_data)
+
+            # JS: 10001 === r → iterate t.d array, recursively handleText each
+            elif message_type == self.MSG_BATCH:
+                batch = message_data or []
+                for sub_message in batch:
+                    await self._handle_message(
+                        json.dumps(sub_message)
+                        if isinstance(sub_message, dict)
+                        else sub_message
+                    )
+
             # Handle other registered message types
             elif message_type in self._event_handlers:
                 handler = self._event_handlers[message_type]
@@ -187,6 +233,7 @@ class FanslyWebSocket:
                     await handler(message_data)
                 else:
                     handler(message_data)
+
             # Silently discard unknown message types (anti-detection)
             elif self.enable_logging:
                 logger.debug(
@@ -324,6 +371,9 @@ class FanslyWebSocket:
             )
 
             self.connected = True
+            self._last_ping_response = (
+                asyncio.get_event_loop().time()
+            )  # JS: lastPingResponse_ = Date.now()
             logger.info("WebSocket connection established")
 
             # Send authentication message
@@ -375,19 +425,21 @@ class FanslyWebSocket:
     def _start_ping_loop(self) -> None:
         """Start the ping loop task.
 
-        Sends 'p' (ping) with randomized interval between 20-25 seconds,
-        matching browser behavior. Expects type 2 response with lastPing.
+        Matches JS behavior: sends 'p' every 20-25s (randomized).
+        If no ping response within 1.2x the interval, resets the connection
+        (JS: lastPingResponse_ > pingTimeout_ → resetWebsocket).
         """
         if self._ping_task is not None:
             logger.warning("Ping loop already running")
             return
 
+        self._last_ping_response = asyncio.get_event_loop().time()
+
         async def ping_worker() -> None:
-            """Worker to send periodic pings with randomized intervals."""
+            """Worker to send periodic pings with timeout detection."""
             try:
                 while self.connected and not self._stop_event.is_set():
                     try:
-                        # Randomize ping interval between 20-25 seconds (matching browser)
                         ping_interval = timing_jitter(
                             self.PING_INTERVAL_MIN, self.PING_INTERVAL_MAX
                         )
@@ -396,7 +448,24 @@ class FanslyWebSocket:
                         if not self.connected or not self.websocket:
                             break
 
-                        # Send ping (just the letter 'p')
+                        now = asyncio.get_event_loop().time()
+                        ping_timeout = (
+                            1.2 * ping_interval
+                        )  # JS: pingTimeout_ = 1.2 * pingInterval_
+
+                        # JS: if now - lastPingResponse_ > pingTimeout_ → reset
+                        if (
+                            now - self._last_ping_response > ping_timeout
+                            and now - self._last_connection_reset > 15.0
+                        ):
+                            logger.warning(
+                                "Ping timeout ({:.1f}s since last response), resetting connection",
+                                now - self._last_ping_response,
+                            )
+                            self._last_connection_reset = now
+                            self.connected = False
+                            break
+
                         await self.websocket.send("p")
 
                         if self.enable_logging:
@@ -471,7 +540,11 @@ class FanslyWebSocket:
                         break
 
                     if self._reconnect_attempts > 0:
-                        delay = self._reconnect_delay * (2**self._reconnect_attempts)
+                        # JS: reconnect_timeout_ *= 2, capped at 15s
+                        delay = min(
+                            self._reconnect_delay * (2**self._reconnect_attempts),
+                            self._max_reconnect_delay,
+                        )
                         logger.info("Reconnecting in {:.1f} seconds...", delay)
                         await asyncio.sleep(delay)
 

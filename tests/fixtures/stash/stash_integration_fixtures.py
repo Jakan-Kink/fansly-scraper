@@ -926,7 +926,7 @@ async def message_media_generator(factory_session, real_stash_processor):
                 scene_result = await client.find_scenes(
                     filter_={"per_page": 1, "page": page_num}
                 )
-                if scene_result.count > 0:
+                if scene_result.count > 0 and scene_result.scenes:
                     real_scene = scene_result.scenes[0]
                     # Handle both dict (GraphQL) and object responses (Pydantic transition)
                     scene_id = _get_id(real_scene)

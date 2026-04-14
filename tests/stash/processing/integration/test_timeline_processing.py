@@ -6,9 +6,10 @@ FactoryBoy factories instead of mocks.
 """
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
-from stash_graphql_client.types import Performer
+from stash_graphql_client.types import Performer, Studio
 
 from metadata import (
     ContentType,
@@ -85,8 +86,24 @@ async def test_process_timeline_post(
         )
         cleanup["performers"].append(performer.id)
 
+        # Spy on store.save to track actual studio creates (not find-or-return)
+        created_studios = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            return result
+
         # Capture GraphQL calls made to real Stash API
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
@@ -95,6 +112,10 @@ async def test_process_timeline_post(
                 items=[post],
                 url_pattern_func=lambda p: f"https://fansly.com/post/{p.id}",
             )
+
+        # Manual studio cleanup from spy
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed
         # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
@@ -220,8 +241,24 @@ async def test_process_timeline_bundle(
         )
         cleanup["performers"].append(performer.id)
 
+        # Spy on store.save to track actual studio creates (not find-or-return)
+        created_studios = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            return result
+
         # Capture GraphQL calls made to real Stash API
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
@@ -230,6 +267,10 @@ async def test_process_timeline_bundle(
                 items=[post],
                 url_pattern_func=lambda p: f"https://fansly.com/post/{p.id}",
             )
+
+        # Manual studio cleanup from spy
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed
         # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8
@@ -351,8 +392,24 @@ async def test_process_timeline_hashtags(
         )
         cleanup["performers"].append(performer.id)
 
+        # Spy on store.save to track actual studio creates (not find-or-return)
+        created_studios = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            return result
+
         # Capture GraphQL calls made to real Stash API
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             try:
                 await real_stash_processor._process_items_with_gallery(
                     account=account,
@@ -367,6 +424,10 @@ async def test_process_timeline_hashtags(
                 for call_id, call_dict in enumerate(calls):
                     print(f"\nCall {call_id}: {call_dict}")
                 print(f"\n=== Total calls: {len(calls)} ===\n")
+
+        # Manual studio cleanup from spy
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed (type-based, not position-based)
         # Cache-first: gallery/tag lookups may be served from sync cache
@@ -460,8 +521,24 @@ async def test_process_timeline_account_mentions(
         )
         cleanup["performers"].append(performer.id)
 
+        # Spy on store.save to track actual studio creates (not find-or-return)
+        created_studios = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            return result
+
         # Capture GraphQL calls made to real Stash API
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
@@ -470,6 +547,10 @@ async def test_process_timeline_account_mentions(
                 items=[post],
                 url_pattern_func=lambda p: f"https://fansly.com/post/{p.id}",
             )
+
+        # Manual studio cleanup from spy
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed (type-based, not position-based)
         # Cache-first: performer/studio/gallery lookups may be served from sync cache
@@ -541,8 +622,24 @@ async def test_process_expired_timeline_post(
         )
         cleanup["performers"].append(performer.id)
 
+        # Spy on store.save to track actual studio creates (not find-or-return)
+        created_studios = []
+        original_save = real_stash_processor.context.store.save
+
+        async def spy_save(obj, *args, **kwargs):
+            is_new_studio = isinstance(obj, Studio) and obj.is_new()
+            result = await original_save(obj, *args, **kwargs)
+            if is_new_studio:
+                created_studios.append(obj.id)
+            return result
+
         # Capture GraphQL calls made to real Stash API
-        with capture_graphql_calls(real_stash_processor.context.client) as calls:
+        with (
+            patch.object(
+                real_stash_processor.context.store, "save", side_effect=spy_save
+            ),
+            capture_graphql_calls(real_stash_processor.context.client) as calls,
+        ):
             await real_stash_processor._process_items_with_gallery(
                 account=account,
                 performer=performer,
@@ -551,6 +648,10 @@ async def test_process_expired_timeline_post(
                 items=[post],
                 url_pattern_func=lambda p: f"https://fansly.com/post/{p.id}",
             )
+
+        # Manual studio cleanup from spy
+        for sid in created_studios:
+            cleanup["studios"].append(sid)
 
         # Assert - Verify GraphQL operations performed
         # 3 gallery lookups + 1 galleryCreate + 3 studio calls (hoisted) + 1 media lookup = 8

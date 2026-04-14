@@ -201,7 +201,7 @@ def test_validate_adjust_check_key_guessed(mock_config):
     mock_config.check_key_pattern = "pattern"
 
     with (
-        patch("config.validation.guess_check_key", return_value="guessed_key"),
+        patch("helpers.checkkey.guess_check_key", return_value="guessed_key"),
         patch("config.validation.save_config_or_raise"),
         patch("config.validation.textio_logger"),
     ):
@@ -222,7 +222,7 @@ def test_validate_adjust_check_key_interactive_change(mock_config, monkeypatch):
 
     # Mock dependent functions to speed up test
     with (
-        patch("config.validation.guess_check_key", return_value=None),
+        patch("helpers.checkkey.guess_check_key", return_value=None),
         patch("config.validation.save_config_or_raise"),
         patch("config.validation.textio_logger"),
     ):

@@ -10,7 +10,7 @@ from functools import wraps
 from unittest.mock import patch
 
 import pytest
-from stash_graphql_client.types import Performer
+from stash_graphql_client.types import Gallery, Performer, Studio
 
 from metadata import ContentType
 from tests.fixtures.metadata.metadata_factories import (
@@ -158,8 +158,25 @@ class TestContentProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
-            # Capture GraphQL calls made to real Stash API
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_galleries = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_gallery:
+                    created_galleries.append(obj.id)
+                return result
+
             with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
                 capture_graphql_calls(real_stash_processor.context.client) as calls,
                 patch.object(
                     real_stash_processor,
@@ -178,6 +195,12 @@ class TestContentProcessingIntegration:
                     )
                 finally:
                     dump_graphql_calls(calls, "test_process_creator_posts_integration")
+
+                # Manual cleanup from spies
+                for sid in created_studios:
+                    cleanup["studios"].append(sid)
+                for gid in created_galleries:
+                    cleanup["galleries"].append(gid)
 
                 gallery_creates = [c for c in calls if "galleryCreate" in c["query"]]
                 # Media deduplication: Shared media from Docker Stash causes variable gallery counts
@@ -412,7 +435,27 @@ class TestContentProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_galleries = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_gallery:
+                    created_galleries.append(obj.id)
+                return result
+
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
                     await real_stash_processor.process_creator_messages(
                         account=account,
@@ -423,6 +466,12 @@ class TestContentProcessingIntegration:
                     dump_graphql_calls(
                         calls, "test_process_creator_messages_integration"
                     )
+
+                # Manual cleanup from spies
+                for sid in created_studios:
+                    cleanup["studios"].append(sid)
+                for gid in created_galleries:
+                    cleanup["galleries"].append(gid)
 
                 # Permanent GraphQL Call Assertions
 
@@ -683,8 +732,27 @@ class TestContentProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
-            # Capture GraphQL calls made to real Stash API
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_galleries = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_gallery:
+                    created_galleries.append(obj.id)
+                return result
+
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
                     await real_stash_processor._process_items_with_gallery(
                         account=account,
@@ -696,6 +764,12 @@ class TestContentProcessingIntegration:
                     )
                 finally:
                     dump_graphql_calls(calls, "test_process_items_with_gallery")
+
+                # Manual cleanup from spies
+                for sid in created_studios:
+                    cleanup["studios"].append(sid)
+                for gid in created_galleries:
+                    cleanup["galleries"].append(gid)
 
                 # Permanent GraphQL Call Assertions
 
@@ -993,8 +1067,28 @@ class TestContentProcessingIntegration:
             # Clear store cache so processing makes fresh GraphQL calls
             real_stash_processor.context.store.invalidate_all()
 
+            # Spy on store.save to track actual creates (not find-or-return)
+            created_studios = []
+            created_galleries = []
+            original_save = real_stash_processor.context.store.save
+
+            async def spy_save(obj, *args, **kwargs):
+                is_new_studio = isinstance(obj, Studio) and obj.is_new()
+                is_new_gallery = isinstance(obj, Gallery) and obj.is_new()
+                result = await original_save(obj, *args, **kwargs)
+                if is_new_studio:
+                    created_studios.append(obj.id)
+                elif is_new_gallery:
+                    created_galleries.append(obj.id)
+                return result
+
             # Capture GraphQL calls - should only see calls from second post (first fails early)
-            with capture_graphql_calls(real_stash_processor.context.client) as calls:
+            with (
+                patch.object(
+                    real_stash_processor.context.store, "save", side_effect=spy_save
+                ),
+                capture_graphql_calls(real_stash_processor.context.client) as calls,
+            ):
                 try:
                     await real_stash_processor._process_items_with_gallery(
                         account=account,
@@ -1008,6 +1102,12 @@ class TestContentProcessingIntegration:
                     dump_graphql_calls(
                         calls, "test_process_items_with_gallery_error_handling"
                     )
+
+            # Manual cleanup from spies
+            for sid in created_studios:
+                cleanup["studios"].append(sid)
+            for gid in created_galleries:
+                cleanup["galleries"].append(gid)
 
             # Permanent GraphQL Call Assertions for Error Handling
 
