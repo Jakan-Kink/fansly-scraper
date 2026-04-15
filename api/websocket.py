@@ -56,9 +56,15 @@ class FanslyWebSocket:
     MSG_BATCH = 10001  # Batch — array of messages, recursively unpacked
 
     # Known service IDs within ServiceEvent (from observed traffic)
+    SVC_POST = 1  # Post interactions (likes, etc.)
     SVC_MEDIA = 2  # Media/content interactions (likes, etc.)
+    SVC_FOLLOWS = 3  # Follow/unfollow events
     SVC_MESSAGING = 4  # Message delivery and acknowledgments
     SVC_MSG_INTERACT = 5  # Message interactions (new messages, likes)
+    SVC_WALLET = 6  # Wallet balance updates and transactions
+    SVC_SUBSCRIPTIONS = 15  # Subscription lifecycle (created → confirmed)
+    SVC_PAYMENTS = 16  # External payment processing (card charges, 3DS)
+    SVC_POLLS = 42  # Poll viewport subscriptions (auto sub/unsub on scroll)
 
     def __init__(
         self,
@@ -433,20 +439,59 @@ class FanslyWebSocket:
         if service_id == self.SVC_MESSAGING:
             return
 
-        # --- Known service categorization ---
-
-        if service_id == self.SVC_MEDIA:
-            self._monitor_media_event(event_type, event)
+        # Poll viewport subs are noise — only log at debug
+        if service_id == self.SVC_POLLS:
+            if self.enable_logging:
+                ps = event.get("pollSubscription", {})
+                action = "Sub" if event_type == 20 else "Unsub"
+                logger.debug(
+                    "[WS Monitor] Poll {} | poll={} | id={}",
+                    action,
+                    ps.get("pollId"),
+                    ps.get("id"),
+                )
             return
 
-        if service_id == self.SVC_MSG_INTERACT:
-            self._monitor_message_event(event_type, event)
+        # Dispatch to known service handlers
+        handlers = {
+            self.SVC_POST: lambda: self._monitor_post_event(event_type, event),
+            self.SVC_MEDIA: lambda: self._monitor_media_event(event_type, event),
+            self.SVC_FOLLOWS: lambda: self._monitor_follow_event(event),
+            self.SVC_MSG_INTERACT: lambda: self._monitor_message_event(
+                event_type, event
+            ),
+            self.SVC_WALLET: lambda: self._monitor_wallet_event(event),
+            self.SVC_SUBSCRIPTIONS: lambda: self._monitor_subscription_event(event),
+            self.SVC_PAYMENTS: lambda: self._monitor_payment_event(event),
+        }
+
+        handler = handlers.get(service_id)
+        if handler:
+            handler()
+        else:
+            # Unknown service — full dump for discovery
+            logger.info(
+                "[WS Monitor] serviceId={} type={}\n{}",
+                service_id,
+                event_type,
+                json.dumps(event, indent=2),
+            )
+
+    def _monitor_post_event(self, event_type: int, event: dict) -> None:
+        """Categorize post service events (serviceId=1)."""
+        if "like" in event:
+            like = event["like"]
+            logger.info(
+                "[WS Monitor] Post Like | post={} account={} | id={}",
+                like.get("postId"),
+                like.get("accountId"),
+                like.get("id"),
+            )
             return
 
-        # --- Unknown service — full dump for discovery ---
+        # Unknown post event — dump for discovery
         logger.info(
-            "[WS Monitor] serviceId={} type={}\n{}",
-            service_id,
+            "[WS Monitor] Post svc=1 type={}\n{}",
             event_type,
             json.dumps(event, indent=2),
         )
@@ -505,6 +550,92 @@ class FanslyWebSocket:
         logger.info(
             "[WS Monitor] Message svc=5 type={}\n{}",
             event_type,
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_follow_event(self, event: dict) -> None:
+        """Categorize follow events (serviceId=3)."""
+        if "follow" in event:
+            follow = event["follow"]
+            logger.info(
+                "[WS Monitor] Follow | account={} follower={} | id={}",
+                follow.get("accountId"),
+                follow.get("followerId"),
+                follow.get("id"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Follow svc=3\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_wallet_event(self, event: dict) -> None:
+        """Categorize wallet events (serviceId=6)."""
+        if "wallet" in event:
+            w = event["wallet"]
+            logger.info(
+                "[WS Monitor] Wallet | balance={} version={} | id={}",
+                w.get("balance"),
+                w.get("walletVersion"),
+                w.get("id"),
+            )
+            return
+
+        if "transaction" in event:
+            tx = event["transaction"]
+            logger.info(
+                "[WS Monitor] Wallet Tx | type={} amount={} status={} | id={} corr={}",
+                tx.get("type"),
+                tx.get("amount"),
+                tx.get("status"),
+                tx.get("id"),
+                tx.get("correlationId"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Wallet svc=6\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_subscription_event(self, event: dict) -> None:
+        """Categorize subscription events (serviceId=15)."""
+        if "subscription" in event:
+            sub = event["subscription"]
+            tier = sub.get("subscriptionTierName", "")
+            label = f' "{tier}"' if tier else ""
+            logger.info(
+                "[WS Monitor] Subscription | account={} status={}{} price={} | id={}",
+                sub.get("accountId"),
+                sub.get("status"),
+                label,
+                sub.get("price"),
+                sub.get("id"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Subscription svc=15\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_payment_event(self, event: dict) -> None:
+        """Categorize payment events (serviceId=16)."""
+        if "transaction" in event:
+            tx = event["transaction"]
+            logger.info(
+                "[WS Monitor] Payment | type={} amount={} status={} 3ds={} | id={}",
+                tx.get("type"),
+                tx.get("amount"),
+                tx.get("status"),
+                tx.get("threeDSecure"),
+                tx.get("id"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Payment svc=16\n{}",
             json.dumps(event, indent=2),
         )
 
