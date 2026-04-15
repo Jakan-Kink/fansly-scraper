@@ -55,6 +55,11 @@ class FanslyWebSocket:
     MSG_SERVICE_EVENT = 10000  # ServiceEvent — real-time notifications
     MSG_BATCH = 10001  # Batch — array of messages, recursively unpacked
 
+    # Known service IDs within ServiceEvent (from observed traffic)
+    SVC_MEDIA = 2  # Media/content interactions (likes, etc.)
+    SVC_MESSAGING = 4  # Message delivery and acknowledgments
+    SVC_MSG_INTERACT = 5  # Message interactions (new messages, likes)
+
     def __init__(
         self,
         token: str,
@@ -63,6 +68,8 @@ class FanslyWebSocket:
         enable_logging: bool = False,
         on_unauthorized: Callable[[], Any] | None = None,
         on_rate_limited: Callable[[], Any] | None = None,
+        monitor_events: bool = False,
+        base_url: str | None = None,
     ) -> None:
         """Initialize Fansly WebSocket client.
 
@@ -73,6 +80,8 @@ class FanslyWebSocket:
             enable_logging: Enable detailed debug logging (default: False)
             on_unauthorized: Callback function to call on 401 error (logout)
             on_rate_limited: Callback function to call on 429 error (rate limit)
+            monitor_events: Log all received events for protocol discovery (default: False)
+            base_url: WebSocket server URL (default: wss://wsv3.fansly.com)
         """
         self.token = token
         self.user_agent = user_agent
@@ -80,7 +89,8 @@ class FanslyWebSocket:
         self.enable_logging = enable_logging
         self.on_unauthorized = on_unauthorized
         self.on_rate_limited = on_rate_limited
-        self.base_url = self.WEBSOCKET_URL
+        self.monitor_events = monitor_events
+        self.base_url = base_url or self.WEBSOCKET_URL
         self.connected = False
         self.session_id: str | None = None
         self.websocket_session_id: str | None = None
@@ -182,6 +192,10 @@ class FanslyWebSocket:
                     message_type,
                     message_data,
                 )
+
+            # Event monitor — categorized logging for protocol discovery
+            if self.monitor_events:
+                self._monitor_event(message_type, message_data)
 
             # JS: 0 === r → handleErrorEvent(decodeMessage("ErrorEvent", t.d))
             if message_type == self.MSG_ERROR:
@@ -325,6 +339,176 @@ class FanslyWebSocket:
 
         except json.JSONDecodeError as e:
             logger.error("Failed to decode auth response: {}", e)
+
+    # region Event Monitor
+
+    def _monitor_event(self, message_type: int, message_data: Any) -> None:
+        """Log received WebSocket events for protocol discovery.
+
+        Categorizes known event types with structured output.
+        Dumps unknown types as decoded JSON for analysis.
+        Skips ping (type 2) and messaging ACK (serviceId 4) events.
+        """
+        if message_type == self.MSG_PING:
+            return
+
+        if message_type == self.MSG_ERROR:
+            error = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+            logger.info("[WS Monitor] Error | code={}", error.get("code"))
+            return
+
+        if message_type == self.MSG_SESSION:
+            session = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+            sess = session.get("session", {})
+            logger.info(
+                "[WS Monitor] Session | id={} wsId={} status={}",
+                sess.get("id"),
+                sess.get("websocketSessionId"),
+                sess.get("status"),
+            )
+            return
+
+        if message_type == self.MSG_SERVICE_EVENT:
+            self._monitor_service_event(message_data)
+            return
+
+        if message_type == self.MSG_BATCH:
+            batch = message_data if isinstance(message_data, list) else []
+            logger.debug("[WS Monitor] Batch of {} events", len(batch))
+            return
+
+        # Unknown top-level message type — full dump
+        logger.info(
+            "[WS Monitor] Unknown t={}\n{}",
+            message_type,
+            json.dumps(message_data, indent=2) if message_data else "(empty)",
+        )
+
+    def _monitor_service_event(self, message_data: Any) -> None:
+        """Decode and categorize a ServiceEvent (type 10000).
+
+        Fully decodes the triple-JSON nesting
+        (envelope -> serviceId/event -> payload).
+        Known services get structured single-line output.
+        Unknown services dump the decoded payload as indented JSON.
+        """
+        try:
+            envelope = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+        except json.JSONDecodeError:
+            logger.warning("[WS Monitor] ServiceEvent decode error: {}", message_data)
+            return
+
+        service_id = envelope.get("serviceId")
+        raw_event = envelope.get("event")
+
+        try:
+            event = (
+                json.loads(raw_event)
+                if isinstance(raw_event, str)
+                else (raw_event or {})
+            )
+        except json.JSONDecodeError:
+            logger.warning(
+                "[WS Monitor] ServiceEvent inner decode error | svc={}: {}",
+                service_id,
+                raw_event,
+            )
+            return
+
+        event_type = event.get("type")
+
+        # Skip messaging ACK/read-receipt events (serviceId=4)
+        if service_id == self.SVC_MESSAGING:
+            return
+
+        # --- Known service categorization ---
+
+        if service_id == self.SVC_MEDIA:
+            self._monitor_media_event(event_type, event)
+            return
+
+        if service_id == self.SVC_MSG_INTERACT:
+            self._monitor_message_event(event_type, event)
+            return
+
+        # --- Unknown service — full dump for discovery ---
+        logger.info(
+            "[WS Monitor] serviceId={} type={}\n{}",
+            service_id,
+            event_type,
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_media_event(self, event_type: int, event: dict) -> None:
+        """Categorize media service events (serviceId=2)."""
+        if "like" in event:
+            like = event["like"]
+            logger.info(
+                "[WS Monitor] Media Like | media={} bundle={} access={} | id={} at={}",
+                like.get("accountMediaId"),
+                like.get("accountMediaBundleId"),
+                like.get("accountMediaAccess"),
+                like.get("id"),
+                like.get("createdAt"),
+            )
+            return
+
+        # Unknown media event — dump for discovery
+        logger.info(
+            "[WS Monitor] Media svc=2 type={}\n{}",
+            event_type,
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_message_event(self, event_type: int, event: dict) -> None:
+        """Categorize message interaction events (serviceId=5)."""
+        if "message" in event:
+            msg = event["message"]
+            content = msg.get("content", "")
+            preview = (content[:60] + "...") if len(content) > 60 else content
+            attachments = msg.get("attachments", [])
+            logger.info(
+                "[WS Monitor] New Message | from={} group={} attachments={} | id={}"
+                ' content="{}"',
+                msg.get("senderId"),
+                msg.get("groupId"),
+                len(attachments),
+                msg.get("id"),
+                preview,
+            )
+            return
+
+        if "like" in event:
+            like = event["like"]
+            logger.info(
+                "[WS Monitor] Message Like | msg={} group={} like_type={} | id={}",
+                like.get("messageId"),
+                like.get("groupId"),
+                like.get("type"),
+                like.get("id"),
+            )
+            return
+
+        # Unknown message event — dump for discovery
+        logger.info(
+            "[WS Monitor] Message svc=5 type={}\n{}",
+            event_type,
+            json.dumps(event, indent=2),
+        )
+
+    # endregion
 
     async def connect(self) -> None:
         """Connect to Fansly WebSocket server.
