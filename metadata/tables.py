@@ -174,14 +174,21 @@ attachments = Table(
     ),
 )
 
-stories = Table(
-    "stories",
+media_stories = Table(
+    "media_stories",
     metadata,
     Column("id", BigInteger, primary_key=True),
-    Column("authorId", BigInteger, ForeignKey("accounts.id"), nullable=False),
-    Column("title", String, nullable=True),
-    Column("description", String, nullable=True),
-    Column("content", String, nullable=False),
+    Column(
+        "accountId", BigInteger, ForeignKey("accounts.id"), nullable=False, index=True
+    ),
+    Column("contentType", Integer, nullable=True),
+    Column(
+        "contentId",
+        BigInteger,
+        ForeignKey("account_media.id"),
+        nullable=True,
+        index=True,
+    ),
     Column("createdAt", DateTime(timezone=True), nullable=False),
     Column("updatedAt", DateTime(timezone=True), nullable=True),
 )
@@ -219,6 +226,16 @@ media_story_states = Table(
     Column("createdAt", DateTime(timezone=True), nullable=True),
     Column("updatedAt", DateTime(timezone=True), nullable=True),
     Column("hasActiveStories", Boolean, nullable=True),
+)
+
+monitor_state = Table(
+    "monitor_state",
+    metadata,
+    Column("creatorId", BigInteger, ForeignKey("accounts.id"), primary_key=True),
+    Column("lastHasActiveStories", Boolean, nullable=True),
+    Column("lastCheckedAt", DateTime(timezone=True), nullable=True),
+    Column("lastRunAt", DateTime(timezone=True), nullable=True),
+    Column("updatedAt", DateTime(timezone=True), nullable=False),
 )
 
 account_media = Table(

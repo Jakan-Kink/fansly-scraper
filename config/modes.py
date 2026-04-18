@@ -12,6 +12,7 @@ class DownloadMode(StrEnum):
     MESSAGES = auto()
     NORMAL = auto()
     SINGLE = auto()
+    STORIES = auto()
     TIMELINE = auto()
     WALL = auto()
     STASH_ONLY = auto()

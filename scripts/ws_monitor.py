@@ -37,6 +37,7 @@ MSG_SESSION = 1  # SessionVerifyRequest / SessionVerifiedEvent
 MSG_PING = 2  # PingResponseEvent — response to "p"
 MSG_SERVICE_EVENT = 10000  # ServiceEvent — real-time notifications
 MSG_BATCH = 10001  # Batch — array of messages, recursively unpacked
+MSG_CHAT_ROOM = 46001  # Chat room join (chatws only)
 
 # Known service IDs within ServiceEvent (from observed traffic)
 SVC_POST = 1  # Post interactions (likes, etc.)
@@ -45,12 +46,35 @@ SVC_FOLLOWS = 3  # Follow/unfollow events
 SVC_MESSAGING = 4  # Message delivery and acknowledgments
 SVC_MSG_INTERACT = 5  # Message interactions (new messages, likes)
 SVC_WALLET = 6  # Wallet balance updates and transactions
+SVC_NOTIFICATIONS = 9  # Notification events (created, read)
 SVC_SUBSCRIPTIONS = 15  # Subscription lifecycle (created → confirmed)
 SVC_PAYMENTS = 16  # External payment processing (card charges, 3DS)
 SVC_POLLS = 42  # Poll viewport subscriptions (auto sub/unsub on scroll)
+SVC_CHAT = 46  # Livestream chat room messages
 
 WS_VERSION = 3
 DEFAULT_URL = "wss://wsv3.fansly.com"
+
+# Notification type codes (serviceId * 1000 + N)
+NOTIFICATION_TYPES = {
+    1002: "Post Like",
+    1003: "Post Reply",
+    1004: "Post Reply",
+    1005: "Post Quote",
+    2002: "Media Like",
+    2007: "Media Purchase",
+    2008: "Bundle Purchase",
+    3002: "New Follower",
+    3003: "Unfollowed",
+    5003: "Message Reaction",
+    7001: "Tip",
+    15006: "New Subscriber",
+    15007: "Sub Expired",
+    15011: "Promotion",
+    15016: "New Subscriber",
+    32007: "Locked Text Purchase",
+    45012: "Stream Ticket Purchase",
+}
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -207,6 +231,15 @@ def _handle_message(raw: str | bytes, *, verbosity: int = 0) -> None:
             )
         return
 
+    if message_type == MSG_CHAT_ROOM:
+        room = (
+            json.loads(message_data)
+            if isinstance(message_data, str)
+            else (message_data or {})
+        )
+        logger.info("[Monitor] Chat Room Join | room={}", room.get("chatRoomId"))
+        return
+
     # Unknown top-level message type — full dump
     logger.info(
         "[Monitor] Unknown t={}\n{}",
@@ -283,9 +316,29 @@ def _handle_service_event(message_data: str, *, verbosity: int = 0) -> None:
                 like.get("createdAt"),
             )
             return
+        if "order" in event:
+            order = event["order"]
+            logger.info(
+                "[Monitor] Media Purchase | media={} from={} | order={}",
+                order.get("accountMediaId"),
+                order.get("correlationAccountId"),
+                order.get("orderId"),
+            )
+            return
 
     # Message interactions (serviceId=5)
     if service_id == SVC_MSG_INTERACT:
+        # Typing indicators — extremely noisy (~every 3s), hide at default
+        if "typingAnnounceEvent" in event:
+            if verbosity >= 2:
+                ta = event["typingAnnounceEvent"]
+                logger.debug(
+                    "[Monitor] Typing | account={} group={}",
+                    ta.get("accountId"),
+                    ta.get("groupId"),
+                )
+            return
+
         if "message" in event:
             msg = event["message"]
             content = msg.get("content", "")
@@ -348,6 +401,32 @@ def _handle_service_event(message_data: str, *, verbosity: int = 0) -> None:
             )
             return
 
+    # Notification events (serviceId=9) — hide at default verbosity
+    if service_id == SVC_NOTIFICATIONS:
+        if verbosity >= 2:
+            if "notification" in event:
+                notif = event["notification"]
+                ntype = notif.get("type")
+                nlabel = NOTIFICATION_TYPES.get(ntype, f"unknown({ntype})")
+                logger.debug(
+                    "[Monitor] Notification | {} corr={} | id={}",
+                    nlabel,
+                    notif.get("correlationId"),
+                    notif.get("id"),
+                )
+            elif "data" in event:
+                logger.debug(
+                    "[Monitor] Notification Read | beforeAnd={}",
+                    event["data"].get("beforeAnd"),
+                )
+            else:
+                logger.debug(
+                    "[Monitor] Notification svc=9 type={}\n{}",
+                    event_type,
+                    json.dumps(event, indent=2),
+                )
+        return
+
     # Subscription events (serviceId=15)
     if service_id == SVC_SUBSCRIPTIONS:
         if "subscription" in event:
@@ -375,6 +454,27 @@ def _handle_service_event(message_data: str, *, verbosity: int = 0) -> None:
                 tx.get("status"),
                 tx.get("threeDSecure"),
                 tx.get("id"),
+            )
+            return
+
+    # Chat room messages (serviceId=46, chatws only)
+    if service_id == SVC_CHAT:
+        if "chatRoomMessage" in event:
+            msg = event["chatRoomMessage"]
+            meta = msg.get("metadata", "{}")
+            if isinstance(meta, str):
+                meta = json.loads(meta) if meta else {}
+            creator = meta.get("senderIsCreator", False)
+            tag = " [creator]" if creator else ""
+            content = msg.get("content", "")
+            preview = (content[:60] + "...") if len(content) > 60 else content
+            logger.info(
+                '[Monitor] Chat{} | @{} ({}): "{}" | room={}',
+                tag,
+                msg.get("username"),
+                msg.get("displayname"),
+                preview,
+                msg.get("chatRoomId"),
             )
             return
 

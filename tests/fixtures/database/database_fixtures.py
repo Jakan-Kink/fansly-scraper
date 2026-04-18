@@ -15,13 +15,7 @@ import json
 import os
 import time
 import uuid
-from collections.abc import (
-    AsyncGenerator,
-    Callable,
-    Coroutine,
-    Generator,
-    Sequence,
-)
+from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Sequence
 from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
 from functools import wraps
@@ -62,10 +56,10 @@ from tests.fixtures.metadata.metadata_factories import (
     HashtagFactory,
     MediaFactory,
     MediaLocationFactory,
+    MediaStoryFactory,
     MediaStoryStateFactory,
     MessageFactory,
     PostFactory,
-    StoryFactory,
     StubTrackerFactory,
     TimelineStatsFactory,
     WallFactory,
@@ -901,7 +895,7 @@ def factory_session(test_database_sync: Database):
         AccountMediaFactory,
         AccountMediaBundleFactory,
         HashtagFactory,
-        StoryFactory,
+        MediaStoryFactory,
         WallFactory,
         MediaStoryStateFactory,
         TimelineStatsFactory,
@@ -972,7 +966,7 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
         AccountMediaFactory,
         AccountMediaBundleFactory,
         HashtagFactory,
-        StoryFactory,
+        MediaStoryFactory,
         WallFactory,
         MediaStoryStateFactory,
         TimelineStatsFactory,

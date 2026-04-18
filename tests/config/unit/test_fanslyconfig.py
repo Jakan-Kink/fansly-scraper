@@ -8,7 +8,6 @@ database fixtures from conftest.py that would require PostgreSQL.
 """
 
 import asyncio
-from configparser import ConfigParser
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -23,46 +22,25 @@ from config.modes import DownloadMode
 # ============================================================================
 # Fixtures
 # ============================================================================
-#
-# NOTE: These fixtures override fixtures from tests/fixtures/database_fixtures.py
-# to prevent PostgreSQL connection attempts in these unit tests.
 
 
 @pytest.fixture
 def config_path(tmp_path):
-    """Create a temporary config file path."""
-    return tmp_path / "config.ini"
+    """Create a temporary config file path (yaml format)."""
+    return tmp_path / "config.yaml"
 
 
 @pytest.fixture
-def mock_parser():
-    """Create a mock ConfigParser with required sections."""
-    parser = ConfigParser(interpolation=None)
-
-    # Add default sections
-    for section in ["TargetedCreator", "MyAccount", "Options", "Cache", "Logic"]:
-        parser.add_section(section)
-
-    return parser
-
-
-@pytest.fixture
-def config(config_path, mock_parser):
-    """Create a FanslyConfig instance for unit testing (no database).
-
-    This fixture overrides the 'config' fixture from database_fixtures.py
-    to prevent PostgreSQL connection attempts in these unit tests.
-    """
-    config = FanslyConfig(program_version="1.0.0")
-    config.config_path = config_path
-    config._parser = mock_parser
+def config(config_path):
+    """Create a FanslyConfig instance for unit testing (no database)."""
+    cfg = FanslyConfig(program_version="1.0.0")
+    cfg.config_path = config_path
     # Token must be >= 50 chars to pass token_is_valid() check
-    config.token = "test_token_long_enough_to_pass_validation_checks_here"
-    config.user_agent = "test_user_agent_long_enough_for_validation"
-    config.check_key = "test_check_key"
-    config.user_names = {"user1", "user2"}
-
-    return config
+    cfg.token = "test_token_long_enough_to_pass_validation_checks_here"
+    cfg.user_agent = "test_user_agent_long_enough_for_validation"
+    cfg.check_key = "test_check_key"
+    cfg.user_names = {"user1", "user2"}
+    return cfg
 
 
 class TestFanslyConfig:
@@ -83,7 +61,9 @@ class TestFanslyConfig:
         assert config.trace is False
         assert config.download_mode == DownloadMode.NORMAL
         assert config.metadata_handling == MetadataHandling.ADVANCED
-        assert isinstance(config._parser, ConfigParser)
+        # _schema replaces _parser — no _parser attribute
+        assert not hasattr(config, "_parser")
+        assert config._schema is None
         assert config._api is None
 
     def test_user_names_str_with_names(self, config):
@@ -112,95 +92,37 @@ class TestFanslyConfig:
         config.metadata_handling = MetadataHandling.SIMPLE
         assert config.metadata_handling_str() == "Simple"
 
-    def test_sync_settings(self, config):
-        """Test _sync_settings method updates parser values."""
-        # Set some config values
-        config.user_names = {"test1", "test2"}
-        config.token = "test_token_updated"
-        config.user_agent = "test_user_agent_updated"
+    def test_save_config_writes_yaml(self, config, config_path, tmp_path):
+        """Test _save_config writes a YAML file via schema.dump_yaml."""
+        config.user_names = {"testuser"}
         config.download_directory = Path("/test/path")
 
-        # Call sync settings
-        config._sync_settings()
+        result = config._save_config()
 
-        # Check that parser values were updated
-        parser = config._parser
-        assert parser.get("TargetedCreator", "username") in [
-            "test1, test2",
-            "test2, test1",
-        ]
-        assert parser.get("MyAccount", "authorization_token") == "test_token_updated"
-        assert parser.get("MyAccount", "user_agent") == "test_user_agent_updated"
-        assert parser.get("Options", "download_directory") == "/test/path"
+        assert result is True
+        assert config_path.exists()
+        content = config_path.read_text(encoding="utf-8")
+        # YAML format — check key values present
+        assert "testuser" in content
+        assert "/test/path" in content
 
-    def test_sync_settings_none_values(self, config):
-        """Test _sync_settings method handles None values."""
-        # Set some config values to None
-        config.token = None
-        config.user_agent = None
-        config.download_directory = None
+    def test_save_config_no_path(self, config):
+        """Test _save_config with no path returns False."""
+        config.config_path = None
+        result = config._save_config()
+        assert result is False
 
-        # Call sync settings
-        config._sync_settings()
-
-        # Check that parser values were updated appropriately
-        parser = config._parser
-        assert parser.get("MyAccount", "authorization_token") == ""
-        assert parser.get("MyAccount", "user_agent") == ""
-        assert parser.get("Options", "download_directory") == "Local_directory"
-
-    def test_load_raw_config_with_path(self, config, config_path):
-        """Test _load_raw_config with valid path."""
-        # Create a test config file
+    def test_load_raw_config_returns_empty_list(self, config, config_path):
+        """Test _load_raw_config is a legacy stub that returns []."""
         config_path.write_text("[TestSection]\ntest_key=test_value\n")
-
-        with patch.object(
-            config._parser, "read", return_value=["test_path"]
-        ) as mock_read:
-            result = config._load_raw_config()
-            mock_read.assert_called_once_with(config_path)
-            assert result == ["test_path"]
+        result = config._load_raw_config()
+        assert result == []
 
     def test_load_raw_config_no_path(self, config):
         """Test _load_raw_config with no path."""
         config.config_path = None
         result = config._load_raw_config()
         assert result == []
-
-    def test_save_config_with_path(self, config):
-        """Test _save_config with valid path."""
-        # Create a proper mock parser with a mock write method
-        mock_parser = MagicMock()
-        mock_parser.write = MagicMock()
-
-        # Save the original parser
-        original_parser = config._parser
-
-        # Replace with our mock
-        config._parser = mock_parser
-
-        with (
-            patch("pathlib.Path.open") as mock_open,
-            patch.object(config, "_sync_settings") as mock_sync,
-        ):
-            mock_file = MagicMock()
-            mock_open.return_value.__enter__.return_value = mock_file
-
-            result = config._save_config()
-
-            mock_sync.assert_called_once()
-            mock_open.assert_called_once()
-            mock_parser.write.assert_called_once_with(mock_file)
-            assert result is True
-
-        # Restore the original parser
-        config._parser = original_parser
-
-    def test_save_config_no_path(self, config):
-        """Test _save_config with no path."""
-        config.config_path = None
-        result = config._save_config()
-        assert result is False
 
     def test_token_is_valid(self, config):
         """Test token_is_valid method."""
@@ -314,7 +236,7 @@ class TestFanslyConfig:
         mock_api = MagicMock(spec=FanslyApi)
         mock_api.session_id = "null"
         mock_api.setup_session = AsyncMock(return_value=True)
-        # Add missing attributes that are accessed in _sync_settings
+        # Add missing attributes that are accessed in _save_config
         mock_api.device_id = "test-device-id"
         mock_api.device_id_timestamp = 12345678
 
@@ -370,10 +292,10 @@ class TestFanslyConfig:
             mock_stash_context = MagicMock()
             mock_stash_context_class.return_value = mock_stash_context
 
-            # Mock the conn property to avoid issues with _sync_settings
+            # Mock the conn property to avoid issues with _save_config
             mock_stash_context.conn = config.stash_context_conn.copy()
 
-            # Patch _save_config to avoid ConfigParser issues
+            # Patch _save_config to avoid file I/O issues in unit test
             with patch.object(config, "_save_config", return_value=True):
                 result = config.get_stash_context()
 

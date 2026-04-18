@@ -1,6 +1,7 @@
 """Argument Parsing and Configuration Mapping"""
 
 import argparse
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 
@@ -8,10 +9,35 @@ from config.logging import set_debug_enabled, textio_logger
 from errors import ConfigError
 from helpers.common import get_post_id_from_request, is_valid_post_id
 
-from .config import parse_items_from_line, sanitize_creator_names, save_config_or_raise
+from .config import parse_items_from_line, sanitize_creator_names
 from .fanslyconfig import FanslyConfig
 from .metadatahandling import MetadataHandling
 from .modes import DownloadMode
+
+
+def _parse_iso_datetime(value: str) -> datetime:
+    """Parse an ISO 8601 timestamp string into a timezone-aware datetime.
+
+    Accepts formats like ``2026-01-01T00:00:00Z`` or ``2026-01-01T00:00:00+00:00``.
+    Naive timestamps (no timezone) are rejected to avoid ambiguous comparisons.
+
+    :param str value: The ISO 8601 timestamp string to parse.
+    :return: A timezone-aware :class:`datetime` object.
+    :raises argparse.ArgumentTypeError: If the string cannot be parsed or is naive.
+    """
+    try:
+        # Python 3.11+ fromisoformat handles Z suffix natively
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"Invalid ISO 8601 timestamp: {value!r}. "
+            "Expected format: 2026-01-01T00:00:00Z or 2026-01-01T00:00:00+00:00"
+        )
+    if dt.tzinfo is None:
+        raise argparse.ArgumentTypeError(
+            f"Timestamp {value!r} has no timezone. Use UTC suffix Z or +00:00."
+        )
+    return dt
 
 
 def parse_args() -> argparse.Namespace:
@@ -466,6 +492,55 @@ def parse_args() -> argparse.Namespace:
         help="API key for StashContext.",
     )
 
+    # region Monitoring arguments
+
+    monitoring_group = parser.add_argument_group(
+        "Monitoring",
+        "Options for the monitoring daemon and per-run baseline overrides.",
+    )
+    monitoring_exclusive = monitoring_group.add_mutually_exclusive_group()
+
+    monitoring_exclusive.add_argument(
+        "--monitor-since",
+        required=False,
+        default=None,
+        type=_parse_iso_datetime,
+        dest="monitor_since",
+        metavar="ISO_TIMESTAMP",
+        help="Override each creator's stored lastCheckedAt with this UTC timestamp "
+        "for the current run only. Useful to re-check all creators from a given "
+        "point in time without modifying stored state. "
+        "Example: --monitor-since 2026-01-01T00:00:00Z",
+    )
+    monitoring_exclusive.add_argument(
+        "--full-pass",
+        required=False,
+        default=False,
+        action="store_true",
+        dest="full_pass",
+        help="Force a full re-check of every creator by setting the session baseline "
+        "to 2000-01-01T00:00:00Z. Equivalent to --monitor-since 2000-01-01T00:00:00Z. "
+        "Useful when you want to re-download or re-verify all content.",
+    )
+
+    monitoring_group.add_argument(
+        "-d",
+        "--daemon",
+        "--monitor",
+        required=False,
+        default=False,
+        action="store_true",
+        dest="daemon_mode",
+        help=(
+            "After the batch download completes, enter the post-batch monitoring "
+            "daemon (WebSocket listener + timeline/story polling loop) and continue "
+            "archiving new content until interrupted. Equivalent to setting "
+            "monitoring.daemon_mode = true in config.yaml."
+        ),
+    )
+
+    # endregion Monitoring
+
     # region Developer/troubleshooting arguments
 
     parser.add_argument(
@@ -762,6 +837,37 @@ def _handle_unsigned_ints(args: argparse.Namespace, config: FanslyConfig) -> boo
     return config_overridden
 
 
+def _handle_monitoring_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
+    """Handle monitoring session baseline and daemon-mode flags.
+
+    ``--monitor-since`` sets the session baseline to the given datetime.
+    ``--full-pass`` sets the session baseline to 2000-01-01T00:00:00 UTC, which
+    effectively forces a fresh pass for every creator regardless of stored state.
+    ``--daemon`` / ``-d`` / ``--monitor`` sets daemon_mode to True.
+    CLI takes precedence over any value already loaded from config.yaml.
+    """
+    overridden = False
+    baseline: datetime | None = None
+
+    if getattr(args, "full_pass", False):
+        baseline = datetime(2000, 1, 1, tzinfo=UTC)
+    elif getattr(args, "monitor_since", None) is not None:
+        baseline = args.monitor_since
+
+    if baseline is not None:
+        config.monitoring_session_baseline = baseline
+        # Also write into the schema so _save_config() persists the session override
+        if config._schema is not None:
+            config._schema.monitoring.session_baseline = baseline
+        overridden = True
+
+    if getattr(args, "daemon_mode", False):
+        config.daemon_mode = True
+        overridden = True
+
+    return overridden
+
+
 def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     """Maps command-line arguments to the configuration object of
     the current session.
@@ -779,44 +885,20 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
             "Internal error mapping arguments - configuration path not set. Load the config first."
         )
 
-    config_overridden = False
     download_mode_set = False
 
     # Handle each group of settings
     _handle_debug_settings(args, config)
+    _handle_user_settings(args, config)
 
-    if _handle_user_settings(args, config):
-        config_overridden = True
-
-    mode_override, mode_set = _handle_download_mode(args, config)
-    if mode_override:
-        config_overridden = True
+    _, mode_set = _handle_download_mode(args, config)
     if mode_set:
         download_mode_set = True
 
-    if _handle_metadata_settings(args, config):
-        config_overridden = True
-
-    if _handle_not_none_settings(args, config):
-        config_overridden = True
-
-    if _handle_boolean_settings(args, config):
-        config_overridden = True
-
-    if _handle_unsigned_ints(args, config):
-        config_overridden = True
-
-    if config_overridden:
-        textio_logger.opt(depth=1).log(
-            "WARNING",
-            "You have specified some command-line arguments that override config.ini settings.\n"
-            f"{20 * ' '}A separate, temporary config file will be generated for this session\n"
-            f"{20 * ' '}to prevent accidental changes to your original configuration.\n",
-        )
-        # Save original config path before switching to temporary config_args.ini
-        # This ensures tokens obtained from login are saved to the original config
-        config.original_config_path = config.config_path
-        config.config_path = config.config_path.parent / "config_args.ini"
-        save_config_or_raise(config)
+    _handle_metadata_settings(args, config)
+    _handle_not_none_settings(args, config)
+    _handle_boolean_settings(args, config)
+    _handle_unsigned_ints(args, config)
+    _handle_monitoring_settings(args, config)
 
     return download_mode_set

@@ -13,6 +13,7 @@ API_ERROR: int = -4
 CONFIG_ERROR: int = -5
 DOWNLOAD_ERROR: int = -6
 SOME_USERS_FAILED: int = -7
+DAEMON_UNRECOVERABLE: int = -8
 UPDATE_FAILED: int = -10
 UPDATE_MANUALLY: int = -11
 UPDATE_SUCCESS: int = 1
@@ -41,6 +42,19 @@ class ConfigError(RuntimeError):
     """This error is raised when configuration data is invalid.
 
     Invalid data may have been provided by config.ini or command-line.
+    """
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args)
+
+
+class DaemonUnrecoverableError(RuntimeError):
+    """Raised by the daemon when an error condition cannot be recovered from.
+
+    Typical causes:
+    - No successful operation in config.unrecoverable_error_timeout_seconds
+    - Repeated authentication failure (HTTP 401)
+    - HTTP 418 from the server (intentional shutdown signal)
     """
 
     def __init__(self, *args: Any) -> None:
@@ -253,6 +267,7 @@ class StashCleanupWarning(UserWarning):
 __all__ = [
     "API_ERROR",
     "CONFIG_ERROR",
+    "DAEMON_UNRECOVERABLE",
     "DOWNLOAD_ERROR",
     "EXIT_ABORT",
     "EXIT_ERROR",
@@ -266,6 +281,7 @@ __all__ = [
     "ApiAuthenticationError",
     "ApiError",
     "ConfigError",
+    "DaemonUnrecoverableError",
     "DownloadError",
     "DuplicateCountError",
     "DuplicatePageError",

@@ -53,6 +53,7 @@ jsbeautifier = ">=1.15.4"
 javascript = ">=1!1.2.6"
 stash-graphql-client = ">=0.11.0"
 av = "^17.0.0"
+ruamel-yaml = "^0.19.1"
 
 
 [tool.poetry.group.browser-auth]
@@ -306,7 +307,6 @@ addopts = [
     "--cov-config=pyproject.toml",
 ]
 timeout = 60
-timeout_method = "thread"
 timeout_func_only = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -353,7 +353,7 @@ omit = [
 ]
 command_line = "-m pytest discover -s tests/"
 parallel = true
-concurrency = ["multiprocessing", "thread"]
+concurrency = ["multiprocessing"]
 disable_warnings = [
     "no-data-collected",
     "module-not-imported",

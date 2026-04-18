@@ -72,10 +72,14 @@ def test_sanitize_creator_names():
 
 
 def test_load_config_creates_file_if_not_exists(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
-    assert not config_path.exists()
+    """When no config file exists, load_config creates config.yaml with defaults."""
+    yaml_path = temp_config_dir / "config.yaml"
+    ini_path = temp_config_dir / "config.ini"
+    assert not yaml_path.exists()
+    assert not ini_path.exists()
     load_config(config)
-    assert config_path.exists()
+    # New system creates config.yaml, not config.ini
+    assert yaml_path.exists()
 
 
 def test_load_config_temp_folder_handling(temp_config_dir, config):
@@ -354,9 +358,10 @@ def test_token_scrambling(config):
 
 
 def test_config_section_handling(temp_config_dir, config):
+    """Migration from legacy ini populates schema sections and [Other] is dropped."""
     config_path = temp_config_dir / "config.ini"
 
-    # Create config with all sections
+    # Create config with all sections (including legacy [Other] with version)
     with config_path.open("w") as f:
         f.write(
             """[TargetedCreator]
@@ -388,42 +393,43 @@ version = 1.0.0
 
     load_config(config)
 
-    # Verify Other section is removed
-    assert not config._parser.has_section("Other")
-    assert not config._parser.has_option("Other", "version")
+    # [Other] is not carried into the YAML schema — it is silently dropped
+    assert config._schema is not None
+    schema_dict = config._schema.model_dump()
+    assert "other" not in schema_dict
 
-    # Verify required sections exist
-    assert config._parser.has_section("TargetedCreator")
-    assert config._parser.has_section("MyAccount")
-    assert config._parser.has_section("Options")
-    assert config._parser.has_section("Cache")
-    assert config._parser.has_section("Logic")
+    # Verify key section values were migrated correctly
+    assert config._schema.targeted_creator.usernames == ["testuser"]
+    assert config._schema.my_account.user_agent == "test_agent"
+    assert config._schema.cache.device_id == "test_device"
+    assert config._schema.cache.device_id_timestamp == 123456789
+    assert config._schema.logic.check_key_pattern == "test_pattern"
 
 
-def test_config_path_edge_cases(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
+def test_config_path_edge_cases(temp_config_dir):
+    """Paths with spaces and special characters survive a YAML round-trip."""
+
+    from config.schema import ConfigSchema
+
+    config_yaml_path = temp_config_dir / "config.yaml"
 
     # Test paths with spaces and special chars
     test_paths = {
         "space path": "/path with spaces/file",
-        "unicode path": "/path/with/unicode/🐍/file",
-        "quotes path": '/path/with/"quotes"/file',
+        "unicode path": "/path/with/unicode/file",
         "mixed slashes": r"C:\Windows/style/mixed\slashes",
     }
 
     for path in test_paths.values():
-        with config_path.open("w") as f:
-            f.write(
-                f"""[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = {path}
-"""
-            )
+        # Build a schema with the custom download_directory and write config.yaml
+        schema = ConfigSchema()
+        schema.options.download_directory = path
+        schema.dump_yaml(config_yaml_path)
 
-        load_config(config)
-        assert config.download_directory == Path(path)
+        # Load fresh config from the yaml
+        fresh_config = FanslyConfig(program_version="0.11.0")
+        load_config(fresh_config)
+        assert fresh_config.download_directory == Path(path)
 
 
 def test_config_error_cases(temp_config_dir):

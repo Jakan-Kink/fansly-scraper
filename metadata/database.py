@@ -129,7 +129,21 @@ class Database:
             init=PostgresEntityStore._init_pg_connection,
         )
 
-        self._entity_store = PostgresEntityStore(self._asyncpg_pool)
+        # Pass db_config so PostgresEntityStore can create per-thread pools
+        # for cross-loop access (e.g., worker threads with their own asyncio
+        # event loop). Without this, `_get_pool()`'s fallback path raises
+        # "cannot create a thread-local pool" whenever the calling loop
+        # differs from the one the shared pool was constructed on.
+        self._entity_store = PostgresEntityStore(
+            self._asyncpg_pool,
+            db_config={
+                "host": config.pg_host,
+                "port": int(config.pg_port),
+                "database": config.pg_database,
+                "user": config.pg_user,
+                "password": password,
+            },
+        )
         self._entity_store.register_models()
 
         # Preload all entities into identity map so model_validate merges
@@ -142,11 +156,11 @@ class Database:
             Group,
             Hashtag,
             Media,
+            MediaStory,
             MediaStoryState,
             Message,
             Post,
             PostMention,
-            Story,
             TimelineStats,
             Wall,
         )
@@ -155,7 +169,7 @@ class Database:
             [
                 # Leaf entities first (no FK dependencies)
                 Hashtag,
-                Story,
+                MediaStory,
                 TimelineStats,
                 MediaStoryState,
                 # Media tree (Media before AccountMedia/Bundle)

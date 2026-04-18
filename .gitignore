@@ -166,8 +166,9 @@ cython_debug/
 node_modules/
 
 # User-specific
-config_args.ini
 config.ini
+config.yaml
+config.ini.bak.*
 *.log*
 *.sqlite3*
 /json

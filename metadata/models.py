@@ -11,6 +11,7 @@ Pure Pydantic BaseModel subclasses — no SQLAlchemy ORM.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum
@@ -1147,32 +1148,33 @@ class Hashtag(FanslyObject):
 # ── FK-Dependent Entities ────────────────────────────────────────────────
 
 
-class Story(FanslyObject):
-    """A story post authored by an account."""
+class MediaStory(FanslyObject):
+    """An ephemeral media story linking an account to an AccountMedia item.
 
-    __table_name__: ClassVar[str] = "stories"
+    Stories are thin wrappers: contentId points to an AccountMedia entry
+    whose media contains the actual video/image content and CDN URLs.
+    """
+
+    __table_name__: ClassVar[str] = "media_stories"
     __tracked_fields__: ClassVar[set[str]] = {
-        "authorId",
-        "title",
-        "description",
-        "content",
+        "accountId",
+        "contentType",
+        "contentId",
         "createdAt",
         "updatedAt",
-        "author",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "author": belongs_to("Account", fk_column="authorId"),
+        "account": belongs_to("Account", fk_column="accountId"),
     }
 
-    authorId: SnowflakeId
-    title: str | None = None
-    description: str | None = None
-    content: str
+    accountId: SnowflakeId
+    contentType: int | None = None
+    contentId: SnowflakeId | None = None
     createdAt: datetime
     updatedAt: datetime | None = None
 
     # Relationships
-    author: Account | None = None  # type: ignore[name-defined]
+    account: Account | None = None  # type: ignore[name-defined]
 
 
 class TimelineStats(FanslyObject):
@@ -1237,6 +1239,59 @@ class MediaStoryState(FanslyObject):
         return data
 
 
+class MonitorState(FanslyObject):
+    """Per-creator daemon state persisted between monitoring runs.
+
+    Stores state that has no existing home in the identity map or other tables.
+    The PK is ``creatorId`` (mirrored to ``id`` for identity-map compatibility).
+
+    Fields:
+        creatorId: FK to accounts.id — the creator being monitored.
+        lastHasActiveStories: Previous value of Account.hasActiveStories used
+            to detect story-active flips between polling cycles.
+        lastCheckedAt: Wall-clock time of the last daemon run for this creator.
+            Used by should_process_creator to compare against post createdAt.
+        lastRunAt: When the daemon last processed this creator.
+        updatedAt: Row modification time (set on every save).
+    """
+
+    __table_name__: ClassVar[str] = "monitor_state"
+    __pk_column__: ClassVar[str] = "creatorId"
+    __tracked_fields__: ClassVar[set[str]] = {
+        "lastHasActiveStories",
+        "lastCheckedAt",
+        "lastRunAt",
+        "updatedAt",
+    }
+    _WRITE_EXCLUDED: ClassVar[set[str]] = {"id"}
+
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "account": belongs_to("Account", fk_column="creatorId"),
+    }
+
+    creatorId: SnowflakeId
+    lastHasActiveStories: bool | None = None
+    lastCheckedAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
+    # lastRunAt and updatedAt also coerce int/float unix timestamps —
+    # the daemon writes values straight from WS frame timestamps which
+    # arrive as integer milliseconds.
+    lastRunAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
+    updatedAt: Annotated[datetime, BeforeValidator(_parse_timestamp)] = Field(
+        default_factory=lambda: datetime.now(UTC)
+    )
+
+    # Relationship — auto-resolved from FK scalar via __setattr__ / cache
+    account: Account | None = None  # type: ignore[name-defined]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _set_id_from_pk(cls, data: Any) -> Any:
+        """Copy creatorId → id so the identity map can key by id."""
+        if isinstance(data, dict) and "creatorId" in data:
+            data["id"] = data["creatorId"]
+        return data
+
+
 class Media(FanslyObject):
     """A media item (image, video) with its metadata and variants."""
 
@@ -1295,8 +1350,6 @@ class Media(FanslyObject):
         if not data.get("mimetype", "").startswith("video/"):
             return data
         try:
-            import json
-
             parsed = json.loads(raw_meta)
             if "original" in parsed:
                 data.setdefault("width", parsed["original"].get("width"))
@@ -1902,7 +1955,7 @@ class Account(FanslyObject):
             fk_column="accountId",
             target_field="bundle_ids",
         ),
-        "stories": has_many("Story", fk_column="authorId"),
+        "stories": has_many("MediaStory", fk_column="accountId"),
         "timelineStats": has_one("TimelineStats", fk_column="accountId"),
         "mediaStoryState": has_one("MediaStoryState", fk_column="accountId"),
     }
@@ -1932,7 +1985,7 @@ class Account(FanslyObject):
     walls: list[Wall] = []
     accountMedia: list[AccountMedia] = []
     accountMediaBundles: list[AccountMediaBundle] = []
-    stories: list[Story] = []
+    stories: list[MediaStory] = []
 
     # Inverse-only relationships (populated by bidirectional sync)
     timelineStats: TimelineStats | None = None
@@ -1962,7 +2015,7 @@ _TYPE_REGISTRY: dict[str, type[FanslyObject]] = {
         Message,
         Post,
         PostMention,
-        Story,
+        MediaStory,
         TimelineStats,
         Wall,
     ]
@@ -1991,7 +2044,7 @@ Post.model_rebuild()
 Message.model_rebuild()
 Group.model_rebuild()
 Account.model_rebuild()
-Story.model_rebuild()
+MediaStory.model_rebuild()
 TimelineStats.model_rebuild()
 MediaStoryState.model_rebuild()
 AccountMedia.model_rebuild()

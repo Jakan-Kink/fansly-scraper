@@ -461,9 +461,9 @@ class TestRewrittenRelationshipsMatch:
             "target_field": "story_ids",
             "is_list": True,
             "query_field": "stories",
-            "inverse_type": "Story",
+            "inverse_type": "MediaStory",
             "query_strategy": "reverse_fk",
-            "fk_column": "authorId",
+            "fk_column": "accountId",
         },
         (Account, "timelineStats"): {
             "target_field": "timeline_stats_id",

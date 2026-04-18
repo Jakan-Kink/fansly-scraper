@@ -31,12 +31,14 @@ from config.args import (  # Keep in args to avoid circular imports
     map_args_to_config,
     parse_args,
 )
+from daemon.runner import run_daemon
 from download.core import (
     DownloadState,
     GlobalState,
     download_collections,
     download_messages,
     download_single_post,
+    download_stories,
     download_timeline,
     download_wall,
     get_creator_account_info,
@@ -297,10 +299,6 @@ async def main(config: FanslyConfig) -> int:
     load_config(config)
 
     args = parse_args()
-    # Note that due to config._sync_settings(), command-line arguments
-    # may overwrite config.ini settings later on during validation
-    # when the config may be saved again.
-    # Thus a separate config_args.ini will be used for the session.
     download_mode_set = map_args_to_config(args, config)
     update_logging_config(
         config, config.debug
@@ -488,6 +486,14 @@ async def main(config: FanslyConfig) -> int:
                                 ]
                             ):
                                 await download_timeline(config, state)
+
+                            if any(
+                                [
+                                    config.download_mode == DownloadMode.STORIES,
+                                    config.download_mode == DownloadMode.NORMAL,
+                                ]
+                            ):
+                                await download_stories(config, state)
 
                             if (
                                 any(
@@ -718,6 +724,9 @@ async def main(config: FanslyConfig) -> int:
 
     monitor_semaphores(threshold=20)  # Warn if too many semaphores
     cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
+
+    if config.daemon_mode:
+        exit_code = await run_daemon(config)
 
     return exit_code
 

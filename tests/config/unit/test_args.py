@@ -1,17 +1,23 @@
 """Unit tests for argument parsing and configuration mapping."""
 
 import argparse
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from config.args import (
     _handle_boolean_settings,
+    _handle_debug_settings,
     _handle_download_mode,
     _handle_metadata_settings,
+    _handle_monitoring_settings,
     _handle_path_settings,
     _handle_unsigned_ints,
     _handle_user_settings,
+    _parse_iso_datetime,
     check_attributes,
     map_args_to_config,
     parse_args,
@@ -38,7 +44,8 @@ def args():
     """Create a basic argparse.Namespace instance for testing.
 
     Includes all required attributes for map_args_to_config including
-    PostgreSQL-related settings added in recent migrations.
+    PostgreSQL-related settings added in recent migrations and
+    monitoring session baseline flags.
     """
     return argparse.Namespace(
         debug=False,
@@ -83,6 +90,11 @@ def args():
         pg_database=None,
         pg_user=None,
         pg_password=None,
+        # Monitoring session baseline flags
+        monitor_since=None,
+        full_pass=False,
+        # Post-batch daemon mode flag
+        daemon_mode=False,
     )
 
 
@@ -207,9 +219,6 @@ def test_temp_folder_windows_path(config_with_path, args, tmp_path):
 
 def test_parse_args_returns_namespace():
     """Lines 17-487: parse_args returns a Namespace with expected attributes."""
-    import sys
-    from unittest.mock import patch
-
     with patch.object(sys, "argv", ["prog"]):
         result = parse_args()
 
@@ -234,8 +243,6 @@ def test_check_attributes_success_and_failure(config_with_path, args):
 
 def test_handle_debug_settings(config_with_path, args):
     """Lines 529-536: debug=True → sets config.debug + logs args."""
-    from config.args import _handle_debug_settings
-
     args.debug = True
     _handle_debug_settings(args, config_with_path)
     assert config_with_path.debug is True
@@ -362,3 +369,191 @@ def test_map_args_no_config_path(mock_config, args):
     mock_config.config_path = None
     with pytest.raises(RuntimeError, match="configuration path not set"):
         map_args_to_config(args, mock_config)
+
+
+# ---------------------------------------------------------------------------
+# Monitoring: _parse_iso_datetime
+# ---------------------------------------------------------------------------
+
+
+def test_parse_iso_datetime_utc_z_suffix() -> None:
+    """Z-suffix ISO timestamp is parsed to UTC-aware datetime."""
+    dt = _parse_iso_datetime("2026-01-01T00:00:00Z")
+    assert dt == datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    assert dt.tzinfo is not None
+
+
+def test_parse_iso_datetime_utc_offset() -> None:
+    """+00:00 offset ISO timestamp is parsed to UTC-aware datetime."""
+    dt = _parse_iso_datetime("2026-01-01T00:00:00+00:00")
+    assert dt == datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    assert dt.tzinfo is not None
+
+
+def test_parse_iso_datetime_invalid_string_raises() -> None:
+    """Unparseable string raises argparse.ArgumentTypeError (→ SystemExit)."""
+    with pytest.raises(argparse.ArgumentTypeError, match="Invalid ISO 8601"):
+        _parse_iso_datetime("not-a-date")
+
+
+def test_parse_iso_datetime_naive_raises() -> None:
+    """A naive timestamp (no timezone) raises argparse.ArgumentTypeError."""
+    with pytest.raises(argparse.ArgumentTypeError, match="no timezone"):
+        _parse_iso_datetime("2026-01-01T00:00:00")
+
+
+# ---------------------------------------------------------------------------
+# Monitoring: CLI argument parsing via parse_args
+# ---------------------------------------------------------------------------
+
+
+def test_parse_args_monitor_since_flag() -> None:
+    """--monitor-since parses to datetime on the Namespace."""
+    with patch.object(sys, "argv", ["prog", "--monitor-since", "2026-01-01T00:00:00Z"]):
+        ns = parse_args()
+    assert ns.monitor_since == datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    assert ns.full_pass is False
+
+
+def test_parse_args_full_pass_flag() -> None:
+    """--full-pass sets full_pass=True and monitor_since=None."""
+    with patch.object(sys, "argv", ["prog", "--full-pass"]):
+        ns = parse_args()
+    assert ns.full_pass is True
+    assert ns.monitor_since is None
+
+
+def test_parse_args_monitor_since_and_full_pass_mutually_exclusive() -> None:
+    """--monitor-since and --full-pass together → SystemExit (argparse mutex)."""
+    with (
+        patch.object(
+            sys,
+            "argv",
+            ["prog", "--monitor-since", "2026-01-01T00:00:00Z", "--full-pass"],
+        ),
+        pytest.raises(SystemExit),
+    ):
+        parse_args()
+
+
+def test_parse_args_monitor_since_invalid_iso() -> None:
+    """--monitor-since with invalid ISO string → SystemExit (argparse type error)."""
+    with (
+        patch.object(sys, "argv", ["prog", "--monitor-since", "not-a-date"]),
+        pytest.raises(SystemExit),
+    ):
+        parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Monitoring: _handle_monitoring_settings
+# ---------------------------------------------------------------------------
+
+
+def test_handle_monitoring_settings_monitor_since(config_with_path, args) -> None:
+    """--monitor-since sets config.monitoring_session_baseline to the given datetime."""
+    baseline = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    args.monitor_since = baseline
+    result = _handle_monitoring_settings(args, config_with_path)
+    assert result is True
+    assert config_with_path.monitoring_session_baseline == baseline
+
+
+def test_handle_monitoring_settings_full_pass(config_with_path, args) -> None:
+    """--full-pass sets config.monitoring_session_baseline to 2000-01-01 UTC."""
+    args.full_pass = True
+    result = _handle_monitoring_settings(args, config_with_path)
+    assert result is True
+    assert config_with_path.monitoring_session_baseline == datetime(
+        2000, 1, 1, tzinfo=UTC
+    )
+
+
+def test_handle_monitoring_settings_neither_flag(config_with_path, args) -> None:
+    """No monitoring flags → returns False, baseline unchanged."""
+    config_with_path.monitoring_session_baseline = None
+    result = _handle_monitoring_settings(args, config_with_path)
+    assert result is False
+    assert config_with_path.monitoring_session_baseline is None
+
+
+# ---------------------------------------------------------------------------
+# Daemon mode: -d / --daemon / --monitor flag
+# ---------------------------------------------------------------------------
+
+
+def test_parse_args_daemon_short_flag() -> None:
+    """-d sets daemon_mode=True on the parsed Namespace."""
+    with patch.object(sys, "argv", ["prog", "-d"]):
+        ns = parse_args()
+    assert ns.daemon_mode is True
+
+
+def test_parse_args_daemon_long_flag() -> None:
+    """--daemon sets daemon_mode=True on the parsed Namespace."""
+    with patch.object(sys, "argv", ["prog", "--daemon"]):
+        ns = parse_args()
+    assert ns.daemon_mode is True
+
+
+def test_parse_args_monitor_alias() -> None:
+    """--monitor alias also sets daemon_mode=True."""
+    with patch.object(sys, "argv", ["prog", "--monitor"]):
+        ns = parse_args()
+    assert ns.daemon_mode is True
+
+
+def test_parse_args_daemon_default_false() -> None:
+    """Without -d, daemon_mode defaults to False."""
+    with patch.object(sys, "argv", ["prog"]):
+        ns = parse_args()
+    assert ns.daemon_mode is False
+
+
+def test_parse_args_daemon_coexists_with_dir_flag(tmp_path) -> None:
+    """-d and -dir both parse without conflict."""
+    dl_dir = str(tmp_path / "downloads")
+    with patch.object(sys, "argv", ["prog", "-d", "-dir", dl_dir]):
+        ns = parse_args()
+    assert ns.daemon_mode is True
+    assert ns.download_directory == dl_dir
+
+
+def test_parse_args_daemon_coexists_with_normal_mode() -> None:
+    """-d and --normal both parse without conflict."""
+    with patch.object(sys, "argv", ["prog", "-d", "--normal"]):
+        ns = parse_args()
+    assert ns.daemon_mode is True
+    assert ns.download_mode_normal is True
+
+
+def test_handle_monitoring_settings_daemon_mode(config_with_path, args) -> None:
+    """daemon_mode=True on args sets config.daemon_mode and returns True."""
+    args.daemon_mode = True
+    result = _handle_monitoring_settings(args, config_with_path)
+    assert result is True
+    assert config_with_path.daemon_mode is True
+
+
+def test_handle_monitoring_settings_daemon_mode_false(config_with_path, args) -> None:
+    """daemon_mode=False on args leaves config.daemon_mode False and returns False
+    when no other monitoring flags are set."""
+    config_with_path.daemon_mode = False
+    args.daemon_mode = False
+    result = _handle_monitoring_settings(args, config_with_path)
+    assert result is False
+    assert config_with_path.daemon_mode is False
+
+
+def test_handle_monitoring_settings_daemon_and_full_pass(
+    config_with_path, args
+) -> None:
+    """daemon_mode and full_pass together both take effect; overridden=True."""
+    args.daemon_mode = True
+    args.full_pass = True
+    result = _handle_monitoring_settings(args, config_with_path)
+    assert result is True
+    assert config_with_path.daemon_mode is True
+    assert config_with_path.monitoring_session_baseline == datetime(
+        2000, 1, 1, tzinfo=UTC
+    )

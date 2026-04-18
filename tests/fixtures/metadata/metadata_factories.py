@@ -35,10 +35,11 @@ from metadata import (
     Hashtag,
     Media,
     MediaLocation,
+    MediaStory,
     MediaStoryState,
     Message,
+    MonitorState,
     Post,
-    Story,
     StubTracker,
     TimelineStats,
     Wall,
@@ -88,7 +89,9 @@ ACCOUNT_MEDIA_BUNDLE_ID_BASE = (
     800_000_000_000_000_000 + _ID_OFFSET
 )  # AccountMediaBundle
 HASHTAG_ID_BASE = 900_000_000_000_000_000 + _ID_OFFSET  # Hashtags
-STORY_ID_BASE = 1_000_000_000_000_000_000 + _ID_OFFSET  # Stories (within 60-bit max)
+MEDIA_STORY_ID_BASE = (
+    1_000_000_000_000_000_000 + _ID_OFFSET
+)  # MediaStories (60-bit max)
 WALL_ID_BASE = 110_000_000_000_000_000 + _ID_OFFSET  # Walls
 
 
@@ -527,29 +530,27 @@ class HashtagFactory(BaseFactory):
     stash_id = None
 
 
-class StoryFactory(BaseFactory):
-    """Factory for Story model.
+class MediaStoryFactory(BaseFactory):
+    """Factory for MediaStory model.
 
-    Creates Story instances with content and authorship.
+    Creates MediaStory instances linking accounts to AccountMedia items.
 
     Example:
-        story = StoryFactory(
-            authorId=account.id,
-            title="My Story",
-            content="Story content here"
+        story = MediaStoryFactory(
+            accountId=account.id,
+            contentId=account_media.id,
         )
     """
 
     class Meta:
-        model = Story
+        model = MediaStory
 
-    id = Sequence(lambda n: STORY_ID_BASE + n)
-    authorId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
-    title = Sequence(lambda n: f"Story Title {n}")
-    description = Sequence(lambda n: f"Story description {n}")
-    content = Sequence(lambda n: f"Story content {n}")
+    id = Sequence(lambda n: MEDIA_STORY_ID_BASE + n)
+    accountId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
+    contentType = 1
+    contentId = Sequence(lambda n: ACCOUNT_MEDIA_ID_BASE + n)
     createdAt = LazyFunction(lambda: datetime.now(UTC))
-    updatedAt = LazyFunction(lambda: datetime.now(UTC))
+    updatedAt = None
 
 
 class WallFactory(BaseFactory):
@@ -602,6 +603,31 @@ class MediaStoryStateFactory(BaseFactory):
     createdAt = LazyFunction(lambda: datetime.now(UTC))
     updatedAt = LazyFunction(lambda: datetime.now(UTC))
     hasActiveStories = False
+
+
+class MonitorStateFactory(BaseFactory):
+    """Factory for MonitorState model.
+
+    Creates MonitorState instances tracking per-creator daemon state.
+
+    Note: creatorId is the primary key for this model (mirrors to id via
+    _set_id_from_pk validator). All optional fields default to None.
+
+    Example:
+        state = MonitorStateFactory(
+            creatorId=account.id,
+            lastHasActiveStories=False,
+        )
+    """
+
+    class Meta:
+        model = MonitorState
+
+    creatorId = Sequence(lambda n: ACCOUNT_ID_BASE + n)
+    lastHasActiveStories = None
+    lastCheckedAt = None
+    lastRunAt = None
+    updatedAt = LazyFunction(lambda: datetime.now(UTC))
 
 
 class TimelineStatsFactory(BaseFactory):
@@ -751,10 +777,11 @@ __all__ = [
     "HashtagFactory",
     "MediaFactory",
     "MediaLocationFactory",
+    "MediaStoryFactory",
     "MediaStoryStateFactory",
     "MessageFactory",
+    "MonitorStateFactory",
     "PostFactory",
-    "StoryFactory",
     "StubTrackerFactory",
     "TimelineStatsFactory",
     "WallFactory",

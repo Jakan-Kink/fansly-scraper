@@ -210,28 +210,6 @@ def mock_config():
     config.get_api.return_value = mock_api
     config.get_background_tasks.return_value = []
 
-    # Mock parser
-    mock_parser = MagicMock()
-
-    def mock_get(section, option, fallback=None):
-        value = {
-            ("Downloader", "download_mode"): "NORMAL",
-            ("Downloader", "metadata_handling"): "simple",
-            ("API", "token"): "test_token",
-            ("API", "check_key"): "test_key",
-            ("API", "device_id"): "test_device_id",
-            ("API", "session_id"): "test_session_id",
-            ("Downloader", "timeline_retries"): "3",
-            ("Downloader", "messages_retries"): "3",
-            ("Downloader", "wall_retries"): "3",
-            ("Downloader", "collection_retries"): "3",
-            ("Downloader", "single_retries"): "3",
-        }.get((section, option))
-        return value if value is not None else fallback
-
-    mock_parser.get.side_effect = mock_get
-    config._parser = mock_parser
-
     return config
 
 

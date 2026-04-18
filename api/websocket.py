@@ -16,7 +16,7 @@ import ssl
 from collections.abc import Callable
 from contextlib import suppress
 from types import TracebackType
-from typing import Any
+from typing import Any, ClassVar
 
 from websockets import client as ws_client
 from websockets.exceptions import WebSocketException
@@ -54,6 +54,7 @@ class FanslyWebSocket:
     MSG_PING = 2  # PingResponseEvent — response to "p" ping
     MSG_SERVICE_EVENT = 10000  # ServiceEvent — real-time notifications
     MSG_BATCH = 10001  # Batch — array of messages, recursively unpacked
+    MSG_CHAT_ROOM = 46001  # Chat room join (chatws only)
 
     # Known service IDs within ServiceEvent (from observed traffic)
     SVC_POST = 1  # Post interactions (likes, etc.)
@@ -62,9 +63,34 @@ class FanslyWebSocket:
     SVC_MESSAGING = 4  # Message delivery and acknowledgments
     SVC_MSG_INTERACT = 5  # Message interactions (new messages, likes)
     SVC_WALLET = 6  # Wallet balance updates and transactions
+    SVC_NOTIFICATIONS = 9  # Notification events (created, read)
     SVC_SUBSCRIPTIONS = 15  # Subscription lifecycle (created → confirmed)
     SVC_PAYMENTS = 16  # External payment processing (card charges, 3DS)
     SVC_POLLS = 42  # Poll viewport subscriptions (auto sub/unsub on scroll)
+    SVC_CHAT = 46  # Livestream chat room messages
+
+    # Notification type codes (serviceId * 1000 + N).
+    # ClassVar so ruff RUF012 doesn't flag the mutable-default warning —
+    # this is shared class-level lookup data, not per-instance state.
+    NOTIFICATION_TYPES: ClassVar[dict[int, str]] = {
+        1002: "Post Like",
+        1003: "Post Reply",
+        1004: "Post Reply",
+        1005: "Post Quote",
+        2002: "Media Like",
+        2007: "Media Purchase",
+        2008: "Bundle Purchase",
+        3002: "New Follower",
+        3003: "Unfollowed",
+        5003: "Message Reaction",
+        7001: "Tip",
+        15006: "New Subscriber",
+        15007: "Sub Expired",
+        15011: "Promotion",
+        15016: "New Subscriber",
+        32007: "Locked Text Purchase",
+        45012: "Stream Ticket Purchase",
+    }
 
     def __init__(
         self,
@@ -391,6 +417,15 @@ class FanslyWebSocket:
             logger.debug("[WS Monitor] Batch of {} events", len(batch))
             return
 
+        if message_type == self.MSG_CHAT_ROOM:
+            room = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+            logger.info("[WS Monitor] Chat Room Join | room={}", room.get("chatRoomId"))
+            return
+
         # Unknown top-level message type — full dump
         logger.info(
             "[WS Monitor] Unknown t={}\n{}",
@@ -439,6 +474,26 @@ class FanslyWebSocket:
         if service_id == self.SVC_MESSAGING:
             return
 
+        # Notifications — noise, only log at debug
+        if service_id == self.SVC_NOTIFICATIONS:
+            if self.enable_logging:
+                if "notification" in event:
+                    notif = event["notification"]
+                    ntype = notif.get("type")
+                    nlabel = self.NOTIFICATION_TYPES.get(ntype, f"unknown({ntype})")
+                    logger.debug(
+                        "[WS Monitor] Notification | {} corr={} | id={}",
+                        nlabel,
+                        notif.get("correlationId"),
+                        notif.get("id"),
+                    )
+                elif "data" in event:
+                    logger.debug(
+                        "[WS Monitor] Notification Read | beforeAnd={}",
+                        event["data"].get("beforeAnd"),
+                    )
+            return
+
         # Poll viewport subs are noise — only log at debug
         if service_id == self.SVC_POLLS:
             if self.enable_logging:
@@ -463,6 +518,7 @@ class FanslyWebSocket:
             self.SVC_WALLET: lambda: self._monitor_wallet_event(event),
             self.SVC_SUBSCRIPTIONS: lambda: self._monitor_subscription_event(event),
             self.SVC_PAYMENTS: lambda: self._monitor_payment_event(event),
+            self.SVC_CHAT: lambda: self._monitor_chat_event(event),
         }
 
         handler = handlers.get(service_id)
@@ -510,6 +566,16 @@ class FanslyWebSocket:
             )
             return
 
+        if "order" in event:
+            order = event["order"]
+            logger.info(
+                "[WS Monitor] Media Purchase | media={} from={} | order={}",
+                order.get("accountMediaId"),
+                order.get("correlationAccountId"),
+                order.get("orderId"),
+            )
+            return
+
         # Unknown media event — dump for discovery
         logger.info(
             "[WS Monitor] Media svc=2 type={}\n{}",
@@ -519,6 +585,17 @@ class FanslyWebSocket:
 
     def _monitor_message_event(self, event_type: int, event: dict) -> None:
         """Categorize message interaction events (serviceId=5)."""
+        # Typing indicators — extremely noisy, hide unless enable_logging
+        if "typingAnnounceEvent" in event:
+            if self.enable_logging:
+                ta = event["typingAnnounceEvent"]
+                logger.debug(
+                    "[WS Monitor] Typing | account={} group={}",
+                    ta.get("accountId"),
+                    ta.get("groupId"),
+                )
+            return
+
         if "message" in event:
             msg = event["message"]
             content = msg.get("content", "")
@@ -636,6 +713,32 @@ class FanslyWebSocket:
 
         logger.info(
             "[WS Monitor] Payment svc=16\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_chat_event(self, event: dict) -> None:
+        """Categorize chat room events (serviceId=46, chatws only)."""
+        if "chatRoomMessage" in event:
+            msg = event["chatRoomMessage"]
+            meta = msg.get("metadata", "{}")
+            if isinstance(meta, str):
+                meta = json.loads(meta) if meta else {}
+            creator = meta.get("senderIsCreator", False)
+            tag = " [creator]" if creator else ""
+            content = msg.get("content", "")
+            preview = (content[:60] + "...") if len(content) > 60 else content
+            logger.info(
+                '[WS Monitor] Chat{} | @{} ({}): "{}" | room={}',
+                tag,
+                msg.get("username"),
+                msg.get("displayname"),
+                preview,
+                msg.get("chatRoomId"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Chat svc=46\n{}",
             json.dumps(event, indent=2),
         )
 

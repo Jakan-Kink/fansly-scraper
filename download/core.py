@@ -11,6 +11,7 @@ from .downloadstate import DownloadState
 from .globalstate import GlobalState
 from .messages import download_messages
 from .single import download_single_post
+from .stories import download_stories
 from .timeline import download_timeline
 from .wall import download_wall
 
@@ -21,6 +22,7 @@ __all__ = [
     "download_collections",
     "download_messages",
     "download_single_post",
+    "download_stories",
     "download_timeline",
     "download_wall",
     "get_creator_account_info",

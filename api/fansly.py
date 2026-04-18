@@ -446,6 +446,64 @@ class FanslyApi:
             params=custom_params,
         )
 
+    def get_home_timeline(self) -> httpx.Response:
+        """Fetch home timeline for all followed creators.
+
+        Returns:
+            Response containing home timeline posts for all followed creators.
+            Used by the daemon monitor to detect which followed creators posted
+            new content with a single fleet-wide call.
+        """
+        return self.get_with_ngsw(
+            url="https://apiv3.fansly.com/api/v1/timeline/home",
+            params={"before": "0", "after": "0", "mode": "0"},
+        )
+
+    def get_media_stories(self, account_id: int | str) -> httpx.Response:
+        """Fetch active media stories for a creator account.
+
+        Args:
+            account_id: The account ID of the creator
+
+        Returns:
+            Response containing mediaStories list and aggregationData.accountMedia
+        """
+        return self.get_with_ngsw(
+            url="https://apiv3.fansly.com/api/v1/mediastoriesnew",
+            params={"accountId": str(account_id)},
+        )
+
+    def get_story_states_following(self) -> httpx.Response:
+        """Fetch story states for all followed creators.
+
+        Returns:
+            Response containing story state entries for followed creators,
+            each with accountId and hasActiveStories. Used by the daemon
+            monitor to detect when hasActiveStories flips true.
+        """
+        return self.get_with_ngsw(
+            url="https://apiv3.fansly.com/api/v1/mediastories/following",
+            params={"limit": "100", "offset": "0"},
+        )
+
+    def mark_story_viewed(self, story_id: int | str) -> httpx.Response:
+        """Mark a story as viewed (POST /api/v1/mediastory/view).
+
+        Args:
+            story_id: The story ID to mark as viewed
+
+        Returns:
+            Response with storyId and accountId confirmation
+        """
+        url = "https://apiv3.fansly.com/api/v1/mediastory/view"
+        headers = self.get_http_headers(url=url, add_fansly_headers=True)
+        return self.http_session.post(
+            url,
+            json={"storyId": str(story_id)},
+            headers=headers,
+            params=self.get_ngsw_params(),
+        )
+
     def get_group(self) -> httpx.Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/messaging/groups",

@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 import asyncio
-from configparser import ConfigParser
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import SecretStr
 from stash_graphql_client import StashClient, StashContext
 
 from api import FanslyApi
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
+from config.schema import (
+    CacheSection,
+    ConfigSchema,
+    LoggingSection,
+    MyAccountSection,
+    OptionsSection,
+    PostgresSection,
+    StashContextSection,
+    TargetedCreatorSection,
+)
 
 
 if TYPE_CHECKING:
@@ -47,8 +58,6 @@ class FanslyConfig:
 
     # Configuration file
     config_path: Path | None = None
-    # Original config file path (before CLI args create config_args.ini)
-    original_config_path: Path | None = None
 
     # Misc
     token_from_browser_name: str | None = None
@@ -60,9 +69,7 @@ class FanslyConfig:
     updated_to: str | None = None
 
     # Objects
-    _parser: ConfigParser = field(
-        default_factory=lambda: ConfigParser(interpolation=None)
-    )
+    _schema: ConfigSchema | None = field(default=None)
     _background_tasks: list[asyncio.Task] = field(default_factory=list)
 
     # endregion File-Independent
@@ -133,6 +140,12 @@ class FanslyConfig:
     pg_user: str = "fansly_user"
     pg_password: str | None = None  # Prefer using FANSLY_PG_PASSWORD env var
 
+    # PostgreSQL SSL/TLS settings
+    pg_sslmode: str = "prefer"
+    pg_sslcert: Path | None = None
+    pg_sslkey: Path | None = None
+    pg_sslrootcert: Path | None = None
+
     # PostgreSQL connection pool settings
     pg_pool_size: int = 5
     pg_max_overflow: int = 10
@@ -145,8 +158,22 @@ class FanslyConfig:
     cached_device_id: str | None = None
     cached_device_id_timestamp: int | None = None
 
+    # Monitoring
+    # Per-run baseline datetime: when set, the daemon uses this instead of each
+    # creator's stored MonitorState.lastCheckedAt.  Set via --monitor-since or
+    # --full-pass CLI flags; loaded from schema.monitoring.session_baseline.
+    monitoring_session_baseline: datetime | None = None
+    # When True, enter the post-batch monitoring daemon after the normal
+    # batch download completes.  Set via --daemon / -d CLI flag.
+    daemon_mode: bool = False
+    # Seconds of total failure before the daemon exits with DAEMON_UNRECOVERABLE.
+    # Loaded from schema.monitoring.unrecoverable_error_timeout_seconds.
+    unrecoverable_error_timeout_seconds: int = 3600
+
     # StashContext
-    stash_context_conn: dict[str, str] | None = None
+    # Widened to dict[str, Any] so port:int coexists with the string-valued keys.
+    # StashContext accepts a port:int, so we don't need to stringify it.
+    stash_context_conn: dict[str, Any] | None = None
 
     # Logging
     log_levels: dict[str, str] = field(
@@ -211,9 +238,6 @@ class FanslyConfig:
                         self._api.login(self.username, self.password)  # type: ignore
                         # Update config with the new token
                         self.token = self._api.token
-                        # Save token to original config file (not config_args.ini)
-                        self._save_token_to_original_config()
-                        # Also save to working config for current session
                         self._save_config()
                     except Exception as e:
                         raise RuntimeError(f"Login failed: {e}")
@@ -261,220 +285,24 @@ class FanslyConfig:
         """Gets the string representation of `metadata_handling`."""
         return str(self.metadata_handling).capitalize()
 
-    def _sync_settings(self) -> None:
-        """Syncs the settings of the config object
-        to the config parser/config file.
+    def _load_raw_config(self) -> list[str]:
+        """Legacy stub — config loading is now handled by ``load_or_migrate``."""
+        return []
 
-        This helper is required before saving.
-        """
-        # Ensure all required sections exist
-        for section in ["TargetedCreator", "MyAccount", "Options", "Cache", "Logic"]:
-            if not self._parser.has_section(section):
-                self._parser.add_section(section)
+    def _save_config(self) -> bool:
+        """Save current config attributes to disk via the schema's ``dump_yaml``."""
+        if self.config_path is None:
+            return False
 
-        self._parser.set("TargetedCreator", "username", self.user_names_str())
-        # Only save use_following if it already exists in the config file
-        if self._parser.has_option("TargetedCreator", "use_following"):
-            self._parser.set(
-                "TargetedCreator", "use_following", str(self.use_following)
-            )
-
-        self._parser.set(
-            "MyAccount",
-            "authorization_token",
-            str(self.token) if self.token is not None else "",
-        )
-        self._parser.set(
-            "MyAccount",
-            "user_agent",
-            str(self.user_agent) if self.user_agent is not None else "",
-        )
-        self._parser.set(
-            "MyAccount",
-            "check_key",
-            str(self.check_key) if self.check_key is not None else "",
-        )
-
-        # Save login credentials (optional - only if they exist)
-        if self.username:
-            self._parser.set("MyAccount", "username", self.username)
-        if self.password:
-            self._parser.set("MyAccount", "password", self.password)
-
-        # self._parser.set('MyAccount', 'session_id', self.session_id)
-
-        if self.download_directory is None:
-            self._parser.set("Options", "download_directory", "Local_directory")
-        else:
-            self._parser.set(
-                "Options", "download_directory", str(self.download_directory)
-            )
-
-        self._parser.set("Options", "download_mode", self.download_mode_str())
-        self._parser.set("Options", "metadata_handling", self.metadata_handling_str())
-
-        # Booleans
-        self._parser.set("Options", "show_downloads", str(self.show_downloads))
-        self._parser.set(
-            "Options", "show_skipped_downloads", str(self.show_skipped_downloads)
-        )
-        self._parser.set(
-            "Options", "download_media_previews", str(self.download_media_previews)
-        )
-        self._parser.set(
-            "Options", "open_folder_when_finished", str(self.open_folder_when_finished)
-        )
-        self._parser.set("Options", "separate_messages", str(self.separate_messages))
-        self._parser.set("Options", "separate_previews", str(self.separate_previews))
-        self._parser.set("Options", "separate_timeline", str(self.separate_timeline))
-        self._parser.set("Options", "separate_metadata", str(self.separate_metadata))
-        # Clean up deprecated metadata_db_file if it exists in the config file
-        if self._parser.has_option("Options", "metadata_db_file"):
-            self._parser.remove_option("Options", "metadata_db_file")
-        self._parser.set(
-            "Options", "use_duplicate_threshold", str(self.use_duplicate_threshold)
-        )
-        self._parser.set(
-            "Options",
-            "use_pagination_duplication",
-            str(self.use_pagination_duplication),
-        )
-        self._parser.set("Options", "use_folder_suffix", str(self.use_folder_suffix))
-        self._parser.set("Options", "interactive", str(self.interactive))
-        self._parser.set("Options", "prompt_on_exit", str(self.prompt_on_exit))
-
-        # Only save debug/trace if they already exist in the config file
-        if self._parser.has_option("Options", "debug"):
-            self._parser.set("Options", "debug", str(self.debug))
-        if self._parser.has_option("Options", "trace"):
-            self._parser.set("Options", "trace", str(self.trace))
-
-        # Unsigned ints
-        self._parser.set("Options", "timeline_retries", str(self.timeline_retries))
-        self._parser.set(
-            "Options", "timeline_delay_seconds", str(self.timeline_delay_seconds)
-        )
-        self._parser.set("Options", "api_max_retries", str(self.api_max_retries))
-
-        # Database sync settings - only save if explicitly set (SQLite only)
-        if self.db_sync_commits is not None:
-            self._parser.set("Options", "db_sync_commits", str(self.db_sync_commits))
-        if self.db_sync_seconds is not None:
-            self._parser.set("Options", "db_sync_seconds", str(self.db_sync_seconds))
-        if self.db_sync_min_size is not None:
-            self._parser.set("Options", "db_sync_min_size", str(self.db_sync_min_size))
-
-        # PostgreSQL settings
-        self._parser.set("Options", "pg_host", self.pg_host)
-        self._parser.set("Options", "pg_port", str(self.pg_port))
-        self._parser.set("Options", "pg_database", self.pg_database)
-        self._parser.set("Options", "pg_user", self.pg_user)
-        # Don't save password to config file - use environment variable
-        self._parser.set("Options", "pg_pool_size", str(self.pg_pool_size))
-        self._parser.set("Options", "pg_max_overflow", str(self.pg_max_overflow))
-        self._parser.set("Options", "pg_pool_timeout", str(self.pg_pool_timeout))
-
-        # Temp folder
-        if self.temp_folder is not None:
-            self._parser.set("Options", "temp_folder", str(self.temp_folder))
-
-        # StashContext
-        if self._stash is not None:
-            conn = self._stash.conn
-            if not self._parser.has_section("StashContext"):
-                self._parser.add_section("StashContext")
-            self._parser.set("StashContext", "scheme", conn["Scheme"])
-            self._parser.set("StashContext", "host", conn["Host"])
-            self._parser.set("StashContext", "port", str(conn["Port"]))
-            self._parser.set("StashContext", "apikey", conn.get("ApiKey", ""))
-        # Cache
+        # Update cache from current API state if available
         if self._api is not None:
-            self._parser.set("Cache", "device_id", str(self._api.device_id))
-            self._parser.set(
-                "Cache", "device_id_timestamp", str(self._api.device_id_timestamp)
-            )
             self.cached_device_id = self._api.device_id
             self.cached_device_id_timestamp = self._api.device_id_timestamp
 
-        # Logging
-        if not self._parser.has_section("Logging"):
-            self._parser.add_section("Logging")
-        for logger, level in self.log_levels.items():
-            self._parser.set("Logging", logger, level)
-
-    def _load_raw_config(self) -> list[str]:
-        if self.config_path is None:
-            return []
-
-        return self._parser.read(self.config_path)
-
-    def _save_config(self) -> bool:
-        if self.config_path is None:
-            return False
-
-        self._sync_settings()
-
-        with self.config_path.open("w", encoding="utf-8") as f:
-            self._parser.write(f)
-            return True
-
-    def _save_token_to_original_config(self) -> bool:
-        """Save the authorization token to the original config file.
-
-        This is used when CLI args create a temporary config_args.ini,
-        but we want to persist the token to the original config.ini for future sessions.
-
-        Returns:
-            True if token was saved successfully, False otherwise
-        """
-        target_path = self.original_config_path or self.config_path
-        if target_path is None or self.token is None:
-            return False
-
-        # Load the original config file
-        original_parser = ConfigParser(interpolation=None)
-        original_parser.read(target_path)
-
-        # Ensure MyAccount section exists
-        if not original_parser.has_section("MyAccount"):
-            original_parser.add_section("MyAccount")
-
-        # Update only the token
-        original_parser.set("MyAccount", "authorization_token", self.token)
-
-        # Save back to original config
-        with target_path.open("w", encoding="utf-8") as f:
-            original_parser.write(f)
-            return True
-
-    def _save_checkkey_to_original_config(self) -> bool:
-        """Save the check key to the original config file.
-
-        This is used when a new checkKey is extracted from Fansly's main.js,
-        persisting it to the original config.ini for future sessions.
-
-        Returns:
-            True if checkKey was saved successfully, False otherwise
-        """
-        target_path = self.original_config_path or self.config_path
-        if target_path is None or self.check_key is None:
-            return False
-
-        # Load the original config file
-        original_parser = ConfigParser(interpolation=None)
-        original_parser.read(target_path)
-
-        # Ensure MyAccount section exists
-        if not original_parser.has_section("MyAccount"):
-            original_parser.add_section("MyAccount")
-
-        # Update only the check_key
-        original_parser.set("MyAccount", "check_key", self.check_key)
-
-        # Save back to original config
-        with target_path.open("w", encoding="utf-8") as f:
-            original_parser.write(f)
-            return True
+        updated_schema = _rebuild_schema_from_config(self)
+        self._schema = updated_schema
+        updated_schema.dump_yaml(self.config_path)
+        return True
 
     def token_is_valid(self) -> bool:
         if self.token is None:
@@ -577,3 +405,114 @@ class FanslyConfig:
             if not task.done():
                 task.cancel()
         self._background_tasks.clear()
+
+
+def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
+    """Rebuild a ``ConfigSchema`` from the current ``FanslyConfig`` attribute values.
+
+    Called by ``_save_config()`` before writing to disk. This is the inverse of
+    ``_populate_config_from_schema``: runtime mutable attributes → typed schema.
+    """
+    usernames: list[str] = (
+        sorted(config.user_names) if config.user_names else ["ReplaceMe"]
+    )
+
+    stash_section: StashContextSection | None = None
+    if config.stash_context_conn is not None:
+        conn = config.stash_context_conn
+        stash_section = StashContextSection(
+            scheme=conn.get("scheme", "http"),
+            host=conn.get("host", "localhost"),
+            port=int(conn.get("port", 9999)),
+            apikey=conn.get("apikey", ""),
+        )
+
+    # Re-use the existing schema if available so we don't lose monitoring/logic
+    base = config._schema if config._schema is not None else ConfigSchema()
+
+    # Rebuild each section from config attributes
+    base.targeted_creator = TargetedCreatorSection(
+        usernames=usernames,
+        use_following=config.use_following,
+        use_following_with_pagination=base.targeted_creator.use_following_with_pagination,
+    )
+    base.my_account = MyAccountSection(
+        authorization_token=SecretStr(config.token or ""),
+        user_agent=config.user_agent or "ReplaceMe",
+        check_key=config.check_key or "qybZy9-fyszis-bybxyf",
+        username=config.username,
+        password=SecretStr(config.password) if config.password else None,
+    )
+    base.options = OptionsSection(
+        download_directory=str(config.download_directory or "Local_directory"),
+        download_mode=config.download_mode,
+        metadata_handling=config.metadata_handling,
+        show_downloads=config.show_downloads,
+        show_skipped_downloads=config.show_skipped_downloads,
+        download_media_previews=config.download_media_previews,
+        open_folder_when_finished=config.open_folder_when_finished,
+        separate_messages=config.separate_messages,
+        separate_previews=config.separate_previews,
+        separate_timeline=config.separate_timeline,
+        separate_metadata=config.separate_metadata,
+        use_duplicate_threshold=config.use_duplicate_threshold,
+        use_pagination_duplication=config.use_pagination_duplication,
+        use_folder_suffix=config.use_folder_suffix,
+        interactive=config.interactive,
+        prompt_on_exit=config.prompt_on_exit,
+        debug=config.debug,
+        trace=config.trace,
+        timeline_retries=config.timeline_retries,
+        timeline_delay_seconds=config.timeline_delay_seconds,
+        api_max_retries=config.api_max_retries,
+        rate_limiting_enabled=config.rate_limiting_enabled,
+        rate_limiting_adaptive=config.rate_limiting_adaptive,
+        rate_limiting_requests_per_minute=config.rate_limiting_requests_per_minute,
+        rate_limiting_burst_size=config.rate_limiting_burst_size,
+        rate_limiting_retry_after_seconds=config.rate_limiting_retry_after_seconds,
+        rate_limiting_backoff_factor=config.rate_limiting_backoff_factor,
+        rate_limiting_max_backoff_seconds=config.rate_limiting_max_backoff_seconds,
+        db_sync_commits=config.db_sync_commits,
+        db_sync_seconds=config.db_sync_seconds,
+        db_sync_min_size=config.db_sync_min_size,
+        temp_folder=str(config.temp_folder) if config.temp_folder is not None else None,
+    )
+
+    pg_password_secret: SecretStr | None = None
+    if config.pg_password:
+        pg_password_secret = SecretStr(config.pg_password)
+    base.postgres = PostgresSection(
+        pg_host=config.pg_host,
+        pg_port=config.pg_port,
+        pg_database=config.pg_database,
+        pg_user=config.pg_user,
+        pg_password=pg_password_secret,
+        pg_sslmode=config.pg_sslmode,
+        pg_sslcert=str(config.pg_sslcert) if config.pg_sslcert is not None else None,
+        pg_sslkey=str(config.pg_sslkey) if config.pg_sslkey is not None else None,
+        pg_sslrootcert=(
+            str(config.pg_sslrootcert) if config.pg_sslrootcert is not None else None
+        ),
+        pg_pool_size=config.pg_pool_size,
+        pg_max_overflow=config.pg_max_overflow,
+        pg_pool_timeout=config.pg_pool_timeout,
+    )
+
+    # Cache: read from config attributes (already updated before this call)
+    base.cache = CacheSection(
+        device_id=config.cached_device_id,
+        device_id_timestamp=config.cached_device_id_timestamp,
+    )
+
+    log = config.log_levels
+    base.logging = LoggingSection(
+        sqlalchemy=log.get("sqlalchemy", "INFO"),
+        stash_console=log.get("stash_console", "INFO"),
+        stash_file=log.get("stash_file", "INFO"),
+        textio=log.get("textio", "INFO"),
+        json=log.get("json", "INFO"),
+    )
+
+    base.stash_context = stash_section
+
+    return base

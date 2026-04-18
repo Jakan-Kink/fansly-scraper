@@ -1,3 +1,12 @@
+"""Integration tests for config loading and save round-trips.
+
+These tests exercise load_config() with real temp files.  The new config
+system uses config.yaml as the authoritative format; config.ini files are
+migrated on first run.  Tests that previously looped by rewriting config.ini
+now use config.yaml directly (written via ConfigSchema) so they work
+correctly across iterations.
+"""
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -5,6 +14,7 @@ import pytest
 from config.config import load_config
 from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
+from config.schema import ConfigSchema
 from errors import ConfigError
 
 
@@ -41,44 +51,35 @@ download_directory = Local_directory
 
 @pytest.mark.asyncio
 async def test_config_with_download_modes(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
+    """Each DownloadMode round-trips through config.yaml correctly."""
+    yaml_path = temp_config_dir / "config.yaml"
 
-    # Test each download mode
     for mode in DownloadMode:
-        with config_path.open("w") as f:
-            f.write(
-                f"""[Options]
-download_mode = {mode.name.capitalize()}
-metadata_handling = Advanced
-interactive = True
-download_directory = Local_directory
-"""
-            )
+        # Write config.yaml directly (no ini migration loop issue)
+        schema = ConfigSchema()
+        schema.options.download_mode = mode
+        schema.dump_yaml(yaml_path)
 
-        load_config(config)
-        assert config.download_mode == mode
-        assert config.download_mode_str() == mode.name.capitalize()
+        fresh_config = config.__class__(program_version=config.program_version)
+        load_config(fresh_config)
+        assert fresh_config.download_mode == mode
+        assert fresh_config.download_mode_str() == mode.name.capitalize()
 
 
 @pytest.mark.asyncio
 async def test_config_with_metadata_handling(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
+    """Each MetadataHandling mode round-trips through config.yaml correctly."""
+    yaml_path = temp_config_dir / "config.yaml"
 
-    # Test each metadata handling mode
     for mode in MetadataHandling:
-        with config_path.open("w") as f:
-            f.write(
-                f"""[Options]
-download_mode = Normal
-metadata_handling = {mode.name.capitalize()}
-interactive = True
-download_directory = Local_directory
-"""
-            )
+        schema = ConfigSchema()
+        schema.options.metadata_handling = mode
+        schema.dump_yaml(yaml_path)
 
-        load_config(config)
-        assert config.metadata_handling == mode
-        assert config.metadata_handling_str() == mode.name.capitalize()
+        fresh_config = config.__class__(program_version=config.program_version)
+        load_config(fresh_config)
+        assert fresh_config.metadata_handling == mode
+        assert fresh_config.metadata_handling_str() == mode.name.capitalize()
 
 
 @pytest.mark.asyncio
@@ -220,37 +221,32 @@ temp_folder = {temp_dir}
 
 @pytest.mark.asyncio
 async def test_config_with_check_key_validation(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
-
-    # Test old check keys that should be replaced
-    old_keys = ["negwij-zyZnek-wavje1", "negwij-zyZnak-wavje1", "qybZy9-fyszis-bybxyf"]
+    """Old/outdated check keys are replaced with the current default on load."""
+    yaml_path = temp_config_dir / "config.yaml"
     default_key = "oybZy8-fySzis-bubayf"  # Current default as of 2025-10-25
 
+    old_keys = [
+        "negwij-zyZnek-wavje1",
+        "negwij-zyZnak-wavje1",
+        "qybZy9-fyszis-bybxyf",
+    ]
+
     for old_key in old_keys:
-        with config_path.open("w") as f:
-            f.write(
-                f"""[MyAccount]
-Authorization_Token = test_token
-User_Agent = test_agent
-Check_Key = {old_key}
+        schema = ConfigSchema()
+        schema.my_account.check_key = old_key
+        schema.dump_yaml(yaml_path)
 
-[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = Local_directory
-"""
-            )
-
-        load_config(config)
-        assert config.check_key == default_key
+        fresh_config = config.__class__(program_version=config.program_version)
+        load_config(fresh_config)
+        assert fresh_config.check_key == default_key
 
 
 @pytest.mark.asyncio
 async def test_config_with_device_id_caching(temp_config_dir, config):
+    """Device ID from [Cache] section is loaded and persisted to config.yaml."""
     config_path = temp_config_dir / "config.ini"
 
-    # Create config with cached device ID
+    # Create config with cached device ID (ini format for migration test)
     with config_path.open("w") as f:
         f.write(
             """[MyAccount]
@@ -282,18 +278,21 @@ device_id_timestamp = 123456789
     api = config.get_api()
     assert api is mock_api
 
-    # Test that device ID is saved back to config
-    with config_path.open() as f:
-        content = f.read()
-        assert "device_id = test_device_id" in content
-        assert "device_id_timestamp = 123456789" in content
+    # After migration, the live config file is config.yaml
+    yaml_path = temp_config_dir / "config.yaml"
+    assert yaml_path.exists()
+    content = yaml_path.read_text(encoding="utf-8")
+    # YAML format: device_id: test_device_id
+    assert "test_device_id" in content
+    assert "123456789" in content
 
 
 @pytest.mark.asyncio
 async def test_config_with_renamed_options(temp_config_dir, config):
+    """Legacy ini option names (utilise_ prefix, use_suffix) are migrated correctly."""
     config_path = temp_config_dir / "config.ini"
 
-    # Test old option names that should be renamed
+    # Test old option names that should be renamed during migration
     with config_path.open("w") as f:
         f.write(
             """[Options]
@@ -312,13 +311,15 @@ use_suffix = False
     assert config.use_duplicate_threshold is True
     assert config.use_folder_suffix is False
 
-    # Verify old options were removed from config
-    assert not config._parser.has_option("Options", "utilise_duplicate_threshold")
-    assert not config._parser.has_option("Options", "use_suffix")
+    # In the new YAML schema, the renamed values are stored under the new names
+    assert config._schema is not None
+    assert config._schema.options.use_duplicate_threshold is True
+    assert config._schema.options.use_folder_suffix is False
 
 
 @pytest.mark.asyncio
 async def test_config_with_deprecated_options(temp_config_dir, config):
+    """Deprecated ini keys (include_meta_database) and [Other] section are dropped."""
     config_path = temp_config_dir / "config.ini"
 
     # Test deprecated options that should be removed
@@ -338,14 +339,18 @@ version = 1.0.0
 
     load_config(config)
 
-    # Verify deprecated options were removed
-    assert not config._parser.has_option("Options", "include_meta_database")
-    assert not config._parser.has_section("Other")
-    assert not config._parser.has_option("Other", "version")
+    # Verify deprecated options don't appear in the schema
+    assert config._schema is not None
+    schema_dict = config._schema.model_dump()
+    # [Other] section is silently dropped (not in ConfigSchema)
+    assert "other" not in schema_dict
+    # include_meta_database is not a schema field
+    assert "include_meta_database" not in schema_dict.get("options", {})
 
 
 @pytest.mark.asyncio
 async def test_config_with_path_validation(temp_config_dir, config):
+    """Path options survive round-trip through config.yaml."""
     config_path = temp_config_dir / "config.ini"
 
     # Create some test directories and files
@@ -358,7 +363,7 @@ async def test_config_with_path_validation(temp_config_dir, config):
     temp_dir = temp_config_dir / "temp"
     temp_dir.mkdir()
 
-    # Test with existing directories
+    # Test with existing directories (ini → yaml migration)
     with config_path.open("w") as f:
         f.write(
             f"""[Options]
@@ -374,19 +379,15 @@ temp_folder = {temp_dir}
     assert config.download_directory == download_dir
     assert config.temp_folder == temp_dir
 
-    # Test with non-existent directories (should be created when needed)
+    # Test with non-existent directories via yaml (no second migration)
+    yaml_path = temp_config_dir / "config.yaml"
     nonexistent_dir = temp_config_dir / "nonexistent"
-    with config_path.open("w") as f:
-        f.write(
-            f"""[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = {nonexistent_dir}
-temp_folder = {nonexistent_dir}/temp
-"""
-        )
+    schema = ConfigSchema.load_yaml(yaml_path)
+    schema.options.download_directory = str(nonexistent_dir)
+    schema.options.temp_folder = str(nonexistent_dir / "temp")
+    schema.dump_yaml(yaml_path)
 
-    load_config(config)
-    assert config.download_directory == nonexistent_dir
-    assert config.temp_folder == nonexistent_dir / "temp"
+    fresh_config = config.__class__(program_version=config.program_version)
+    load_config(fresh_config)
+    assert fresh_config.download_directory == nonexistent_dir
+    assert fresh_config.temp_folder == nonexistent_dir / "temp"
