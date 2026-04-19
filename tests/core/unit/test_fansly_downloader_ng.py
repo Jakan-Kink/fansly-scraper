@@ -171,7 +171,6 @@ def mock_config():
     config.config_path = Path("config.ini")
     config.user_names = {"test_user"}
     config.download_mode = DownloadMode.NORMAL
-    config.separate_metadata = False
     config.interactive = False  # Disable interactive mode for tests
     # Set direct values for retries and other config
     config.timeline_retries = 3

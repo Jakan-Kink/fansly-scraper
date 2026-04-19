@@ -209,13 +209,44 @@ async def get_creator_account_info(
         else account_data["id"]
     )
 
-    # Capture DB's fetchedAt BEFORE process_account_data merges API data
-    # into the identity map (preloaded TimelineStats has DB state)
+    # Capture DB snapshots BEFORE process_account_data merges API data
+    # into the identity map. Two independent signals are captured:
+    #
+    #   db_fetched_at — used by the existing fetched_timeline_duplication
+    #     path. Kept for backwards compatibility; noted unreliable because
+    #     TimelineStats.fetchedAt is server cache-regeneration metadata
+    #     (see project_monitoring_optimizations memory) — we keep the
+    #     signal wired but rely on the stronger check below.
+    #
+    #   db_stats_snapshot / db_wall_signature — capture the preloaded
+    #     content state (counts + wall structure). Compared below against
+    #     the merged API values to set creator_content_unchanged. These
+    #     fields DO change with real creator activity (posts added/removed,
+    #     walls added/deleted/renamed/reordered), so the combination is
+    #     reliable where fetchedAt alone is not.
     db_fetched_at = None
     if config.use_duplicate_threshold:
         preloaded_stats = store.get_from_cache(TimelineStats, account_id)
         if preloaded_stats:
             db_fetched_at = preloaded_stats.fetchedAt
+
+    db_stats_snapshot: tuple | None = None
+    preloaded_stats = store.get_from_cache(TimelineStats, account_id)
+    if preloaded_stats:
+        db_stats_snapshot = (
+            preloaded_stats.imageCount,
+            preloaded_stats.videoCount,
+            preloaded_stats.bundleCount,
+            preloaded_stats.bundleImageCount,
+            preloaded_stats.bundleVideoCount,
+        )
+
+    db_wall_signature: frozenset | None = None
+    preloaded_account = store.get_from_cache(Account, account_id)
+    if preloaded_account is not None and preloaded_account.walls:
+        db_wall_signature = frozenset(
+            (w.id, w.pos, w.name, w.description) for w in preloaded_account.walls
+        )
 
     # Persist via Pydantic pipeline — model_validate handles nested
     # timelineStats, mediaStoryState, walls, avatar, banner.
@@ -231,14 +262,45 @@ async def get_creator_account_info(
 
     _update_state_from_account(config, state, account)
 
-    # Timeline duplication: compare DB's fetchedAt (captured before merge)
-    # with the API's fetchedAt (now on the merged TimelineStats object)
+    # Legacy fetchedAt path (kept for backwards compat with downstream
+    # flags that look at this field). Unreliable alone — see notes above.
     if (
         db_fetched_at
         and account.timelineStats
         and account.timelineStats.fetchedAt == db_fetched_at
     ):
         state.fetched_timeline_duplication = True
+
+    # Reliable content-unchanged detection: counts match AND wall
+    # structure matches. Both conditions required — counts can match
+    # while walls change (post moved between walls), and walls can
+    # match while counts change (post added to existing wall). Only
+    # when BOTH are identical is it safe to skip the timeline+wall scan.
+    api_stats_snapshot: tuple | None = None
+    if account.timelineStats:
+        api_stats_snapshot = (
+            account.timelineStats.imageCount,
+            account.timelineStats.videoCount,
+            account.timelineStats.bundleCount,
+            account.timelineStats.bundleImageCount,
+            account.timelineStats.bundleVideoCount,
+        )
+
+    api_wall_signature: frozenset | None = None
+    if account.walls:
+        api_wall_signature = frozenset(
+            (w.id, w.pos, w.name, w.description) for w in account.walls
+        )
+
+    counts_match = (
+        db_stats_snapshot is not None and db_stats_snapshot == api_stats_snapshot
+    )
+    walls_match = (
+        db_wall_signature is not None and db_wall_signature == api_wall_signature
+    )
+
+    if counts_match and walls_match:
+        state.creator_content_unchanged = True
 
 
 async def _make_rate_limited_request(
@@ -411,10 +473,9 @@ async def get_following_accounts(
 
         for i, account_data in enumerate(following_accounts, 1):
             try:
-                if not config.separate_metadata:
-                    await process_account_data(
-                        config=config, state=state, data=account_data
-                    )
+                await process_account_data(
+                    config=config, state=state, data=account_data
+                )
 
                 # Use the Account object from identity map
                 account = Account.model_validate(account_data)

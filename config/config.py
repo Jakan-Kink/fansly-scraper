@@ -182,7 +182,6 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.separate_messages = opts.separate_messages
     config.separate_previews = opts.separate_previews
     config.separate_timeline = opts.separate_timeline
-    config.separate_metadata = opts.separate_metadata
     config.show_downloads = opts.show_downloads
     config.show_skipped_downloads = opts.show_skipped_downloads
     config.use_duplicate_threshold = opts.use_duplicate_threshold
@@ -250,6 +249,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
         "stash_console": log.stash_console,
         "stash_file": log.stash_file,
         "textio": log.textio,
+        "websocket": log.websocket,
         # `log.json` would return the BaseModel.json() bound method —
         # the Python attribute is json_level, YAML key is still "json".
         "json": log.json_level,

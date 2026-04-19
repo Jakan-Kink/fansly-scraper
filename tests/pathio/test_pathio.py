@@ -31,14 +31,12 @@ class MockPathConfig:
         separate_timeline=True,
         separate_previews=True,
         use_folder_suffix=True,
-        separate_metadata=False,
     ):
         self.download_directory = download_directory
         self.separate_messages = separate_messages
         self.separate_timeline = separate_timeline
         self.separate_previews = separate_previews
         self.use_folder_suffix = use_folder_suffix
-        self.separate_metadata = separate_metadata
 
 
 @pytest.fixture

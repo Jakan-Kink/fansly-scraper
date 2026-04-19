@@ -317,17 +317,14 @@ async def main(config: FanslyConfig) -> int:
     monitor_semaphores(threshold=20)  # Check what semaphores exist before DB init
 
     # Initialize database first since we need it for deduplication
-    if config.separate_metadata:
-        print_info("Using separate metadata databases per creator")
-    else:
-        print_info(
-            f"Using global PostgreSQL database: {config.pg_database} "
-            f"at {config.pg_host}:{config.pg_port}"
-        )
-        config._database = Database(config, creator_name=None)
-        await config._database.create_entity_store()
-        # Register cleanup function to ensure database is closed on exit
-        atexit.register(cleanup_database_sync, config)
+    print_info(
+        f"Using global PostgreSQL database: {config.pg_database} "
+        f"at {config.pg_host}:{config.pg_port}"
+    )
+    config._database = Database(config)
+    await config._database.create_entity_store()
+    # Register cleanup function to ensure database is closed on exit
+    atexit.register(cleanup_database_sync, config)
     print()
 
     # Set up and print API information
@@ -346,10 +343,9 @@ async def main(config: FanslyConfig) -> int:
     if client_user_name is None or client_user_name == "":
         raise ConfigError("Could not retrieve client account user name from API")
 
-    # Load client account into global database if not using separate metadata
-    if not config.separate_metadata:
-        state = DownloadState()
-        await load_client_account_into_db(config, state, client_user_name)
+    # Load client account into the global database
+    state = DownloadState()
+    await load_client_account_into_db(config, state, client_user_name)
 
     global_download_state = GlobalState()
 
@@ -361,11 +357,8 @@ async def main(config: FanslyConfig) -> int:
             try:
                 # Get client account info first
                 state = DownloadState()
-
-                # Skip account data processing if using separate metadata
-                if not config.separate_metadata:
-                    await get_creator_account_info(config, state)
-                    print_info("Creator account info retrieved...")
+                await get_creator_account_info(config, state)
+                print_info("Creator account info retrieved...")
                 await asyncio.sleep(timing_jitter(0.4, 0.75))
 
                 print_info("Getting following list... (from main)")
@@ -413,27 +406,6 @@ async def main(config: FanslyConfig) -> int:
         with Timer(creator_name):
             try:
                 state = DownloadState(creator_name=creator_name)
-
-                # Initialize database-related variables
-                creator_database = None
-                orig_database = None
-
-                # Handle per-creator database if enabled
-                # Note: With PostgreSQL, this still uses the same database connection
-                # but allows for per-creator schema isolation if needed in future
-                if config.separate_metadata:
-                    print_info(
-                        f"Using per-creator metadata for: {creator_name} "
-                        f"(PostgreSQL: {config.pg_database} at {config.pg_host}:{config.pg_port})"
-                    )
-                    # Store original database instance
-                    orig_database = config._database
-                    # Set up creator database context
-                    creator_database = Database(config, creator_name=creator_name)
-                    await creator_database.create_entity_store()
-                    config._database = creator_database
-                    # Load client account into separate database
-                    await load_client_account_into_db(config, state, client_user_name)
 
                 try:
                     creator_start_monotonic = monotonic()
@@ -567,11 +539,6 @@ async def main(config: FanslyConfig) -> int:
                     print_info(
                         f"Completed processing @{state.creator_name} in {creator_elapsed:.1f}s"
                     )
-
-                    # Restore the original database instance - don't cleanup the database
-                    # since stash might still be using the shared memory
-                    if config.separate_metadata and orig_database is not None:
-                        config._database = orig_database
 
             # Still continue if one creator failed
             except ApiAccountInfoError as e:

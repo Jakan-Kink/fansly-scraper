@@ -61,7 +61,7 @@ def test_round_trip_load_from_yaml(
     schema.my_account.user_agent = "Mozilla/5.0 test agent string for validation here"
     schema.options.download_mode = DownloadMode.TIMELINE
     schema.options.timeline_retries = 5
-    schema.options.separate_metadata = True
+    schema.options.separate_previews = True
     schema.postgres.pg_host = "pg.test.example.com"
     schema.postgres.pg_port = 5433
     schema.cache.device_id = "abc-device-id"
@@ -76,7 +76,7 @@ def test_round_trip_load_from_yaml(
     )
     assert fresh_config.download_mode == DownloadMode.TIMELINE
     assert fresh_config.timeline_retries == 5
-    assert fresh_config.separate_metadata is True
+    assert fresh_config.separate_previews is True
     assert fresh_config.pg_host == "pg.test.example.com"
     assert fresh_config.pg_port == 5433
     assert fresh_config.cached_device_id == "abc-device-id"
@@ -105,7 +105,7 @@ def test_round_trip_save_and_reload(
     fresh_config.pg_host = "save-test-host"
     fresh_config.pg_port = 5555
     fresh_config.timeline_retries = 7
-    fresh_config.separate_metadata = True
+    fresh_config.separate_previews = True
     fresh_config.log_levels["json"] = "WARNING"
     fresh_config._save_config()
 
@@ -117,7 +117,7 @@ def test_round_trip_save_and_reload(
     assert second_config.pg_host == "save-test-host"
     assert second_config.pg_port == 5555
     assert second_config.timeline_retries == 7
-    assert second_config.separate_metadata is True
+    assert second_config.separate_previews is True
     assert second_config.log_levels["json"] == "WARNING"
 
 

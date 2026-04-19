@@ -21,7 +21,7 @@ from typing import Any, ClassVar
 from websockets import client as ws_client
 from websockets.exceptions import WebSocketException
 
-from config.logging import textio_logger as logger
+from config.logging import websocket_logger as logger
 from helpers.timer import timing_jitter
 
 
@@ -218,12 +218,11 @@ class FanslyWebSocket:
             message_type = data.get("t")
             message_data = data.get("d")
 
-            if self.enable_logging:
-                logger.debug(
-                    "Received WebSocket message - type: {}, data: {}",
-                    message_type,
-                    message_data,
-                )
+            logger.trace(
+                "Received WebSocket message - type: {}, data: {}",
+                message_type,
+                message_data,
+            )
 
             # Event monitor — categorized logging for protocol discovery
             if self.monitor_events:
@@ -245,8 +244,7 @@ class FanslyWebSocket:
             # JS: 2 === r → handlePingResponseEvent
             elif message_type == self.MSG_PING:
                 self._last_ping_response = asyncio.get_event_loop().time()
-                if self.enable_logging:
-                    logger.debug("Received ping response: {}", message_data)
+                logger.trace("Received ping response: {}", message_data)
 
             # JS: 1e4 === r → handleServiceEvent(decodeMessage("ServiceEvent", t.d))
             elif message_type == self.MSG_SERVICE_EVENT:
@@ -280,8 +278,11 @@ class FanslyWebSocket:
                 else:
                     handler(message_data)
 
-            # Silently discard unknown message types (anti-detection)
-            elif self.enable_logging:
+            # Unknown message types silently discarded (anti-detection).
+            # Logged at DEBUG so enabling the websocket level surfaces them
+            # during protocol reverse-engineering without triggering any
+            # user-visible behavior change in production.
+            else:
                 logger.debug(
                     "Received unhandled message type {} (discarded)",
                     message_type,
@@ -476,35 +477,33 @@ class FanslyWebSocket:
 
         # Notifications — noise, only log at debug
         if service_id == self.SVC_NOTIFICATIONS:
-            if self.enable_logging:
-                if "notification" in event:
-                    notif = event["notification"]
-                    ntype = notif.get("type")
-                    nlabel = self.NOTIFICATION_TYPES.get(ntype, f"unknown({ntype})")
-                    logger.debug(
-                        "[WS Monitor] Notification | {} corr={} | id={}",
-                        nlabel,
-                        notif.get("correlationId"),
-                        notif.get("id"),
-                    )
-                elif "data" in event:
-                    logger.debug(
-                        "[WS Monitor] Notification Read | beforeAnd={}",
-                        event["data"].get("beforeAnd"),
-                    )
+            if "notification" in event:
+                notif = event["notification"]
+                ntype = notif.get("type")
+                nlabel = self.NOTIFICATION_TYPES.get(ntype, f"unknown({ntype})")
+                logger.debug(
+                    "[WS Monitor] Notification | {} corr={} | id={}",
+                    nlabel,
+                    notif.get("correlationId"),
+                    notif.get("id"),
+                )
+            elif "data" in event:
+                logger.debug(
+                    "[WS Monitor] Notification Read | beforeAnd={}",
+                    event["data"].get("beforeAnd"),
+                )
             return
 
         # Poll viewport subs are noise — only log at debug
         if service_id == self.SVC_POLLS:
-            if self.enable_logging:
-                ps = event.get("pollSubscription", {})
-                action = "Sub" if event_type == 20 else "Unsub"
-                logger.debug(
-                    "[WS Monitor] Poll {} | poll={} | id={}",
-                    action,
-                    ps.get("pollId"),
-                    ps.get("id"),
-                )
+            ps = event.get("pollSubscription", {})
+            action = "Sub" if event_type == 20 else "Unsub"
+            logger.debug(
+                "[WS Monitor] Poll {} | poll={} | id={}",
+                action,
+                ps.get("pollId"),
+                ps.get("id"),
+            )
             return
 
         # Dispatch to known service handlers
@@ -585,15 +584,15 @@ class FanslyWebSocket:
 
     def _monitor_message_event(self, event_type: int, event: dict) -> None:
         """Categorize message interaction events (serviceId=5)."""
-        # Typing indicators — extremely noisy, hide unless enable_logging
+        # Typing indicators — extremely noisy, DEBUG-only so they only
+        # surface when the websocket logger is explicitly set to DEBUG.
         if "typingAnnounceEvent" in event:
-            if self.enable_logging:
-                ta = event["typingAnnounceEvent"]
-                logger.debug(
-                    "[WS Monitor] Typing | account={} group={}",
-                    ta.get("accountId"),
-                    ta.get("groupId"),
-                )
+            ta = event["typingAnnounceEvent"]
+            logger.debug(
+                "[WS Monitor] Typing | account={} group={}",
+                ta.get("accountId"),
+                ta.get("groupId"),
+            )
             return
 
         if "message" in event:
@@ -886,8 +885,7 @@ class FanslyWebSocket:
 
                         await self.websocket.send("p")
 
-                        if self.enable_logging:
-                            logger.debug("Sent ping (next in {:.1f}s)", ping_interval)
+                        logger.trace("Sent ping (next in {:.1f}s)", ping_interval)
 
                     except WebSocketException as e:
                         logger.error("Error sending ping: {}", e)
@@ -901,8 +899,7 @@ class FanslyWebSocket:
                 logger.debug("Ping loop cancelled")
 
         self._ping_task = asyncio.create_task(ping_worker())
-        if self.enable_logging:
-            logger.debug("Ping loop started")
+        logger.debug("Ping loop started")
 
     def _stop_ping_loop(self) -> None:
         """Stop the ping loop task."""
@@ -912,8 +909,7 @@ class FanslyWebSocket:
         self._ping_task.cancel()
         self._ping_task = None
 
-        if self.enable_logging:
-            logger.debug("Ping loop stopped")
+        logger.debug("Ping loop stopped")
 
     async def _listen_loop(self) -> None:
         """Listen for incoming WebSocket messages.
@@ -931,8 +927,7 @@ class FanslyWebSocket:
                     await self._handle_message(message)
                 except TimeoutError:
                     # Timeout is normal - just continue listening
-                    if self.enable_logging:
-                        logger.debug("WebSocket listen timeout - continuing")
+                    logger.debug("WebSocket listen timeout - continuing")
                     continue
                 except WebSocketException as e:
                     logger.error("WebSocket error in listen loop: {}", e)
@@ -1056,8 +1051,7 @@ class FanslyWebSocket:
 
         await self.websocket.send(json.dumps(message))
 
-        if self.enable_logging:
-            logger.debug("Sent WebSocket message - type: {}", message_type)
+        logger.debug("Sent WebSocket message - type: {}", message_type)
 
     async def __aenter__(self) -> FanslyWebSocket:
         """Async context manager entry."""

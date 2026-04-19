@@ -41,6 +41,7 @@ from loguru import logger
 
 from api.websocket import FanslyWebSocket
 from config.fanslyconfig import FanslyConfig
+from config.logging import websocket_logger as ws_logger
 from daemon.dashboard import (
     TASK_FOLLOWING,
     TASK_SIMULATOR,
@@ -841,10 +842,10 @@ async def _simulator_tick_loop(
                 await ws.stop()
                 await ws.start_background()
                 dashboard.set_ws_state(True)
-                logger.info("daemon.runner: WebSocket reconnected after unhide")
+                ws_logger.info("daemon.runner: WebSocket reconnected after unhide")
             except Exception as exc:
                 dashboard.set_ws_state(False)
-                logger.warning(
+                ws_logger.warning(
                     "daemon.runner: WebSocket reconnect failed after unhide - {}",
                     exc,
                 )
@@ -897,7 +898,7 @@ def _make_ws_handler(
                 else (raw_event or {})
             )
         except (json.JSONDecodeError, TypeError) as exc:
-            logger.warning(
+            ws_logger.warning(
                 "daemon.runner: WS envelope decode error svc={} - {}", service_id, exc
             )
             return
@@ -906,14 +907,32 @@ def _make_ws_handler(
         if event_type is None:
             return
 
+        ws_logger.debug(
+            "daemon.runner: WS service event svc={} type={}",
+            service_id,
+            event_type,
+        )
+
         # Let interrupt events wake the simulator even during hidden
         simulator.on_ws_event_during_hidden(service_id, event_type)
 
         item = dispatch_ws_event(service_id, event_type, inner)
-        if item is not None:
-            await queue.put(item)
-            if budget is not None:
-                budget.on_success()
+        if item is None:
+            ws_logger.debug(
+                "daemon.runner: WS event not mapped to work item (svc={} type={})",
+                service_id,
+                event_type,
+            )
+            return
+        ws_logger.info(
+            "daemon.runner: WS event → {} (svc={} type={})",
+            type(item).__name__,
+            service_id,
+            event_type,
+        )
+        await queue.put(item)
+        if budget is not None:
+            budget.on_success()
 
     return _on_service_event
 
@@ -1030,10 +1049,10 @@ async def _run_daemon_body(
     try:
         await ws.start_background()
         dashboard.set_ws_state(True)
-        logger.info("daemon.runner: WebSocket started")
+        ws_logger.info("daemon.runner: WebSocket started")
     except Exception as exc:
         dashboard.set_ws_state(False)
-        logger.warning(
+        ws_logger.warning(
             "daemon.runner: WebSocket failed to start (continuing without WS) - {}",
             exc,
         )
@@ -1146,7 +1165,7 @@ async def _run_daemon_body(
         try:
             await ws.stop()
         except Exception as exc:
-            logger.warning("daemon.runner: error stopping WebSocket - {}", exc)
+            ws_logger.warning("daemon.runner: error stopping WebSocket - {}", exc)
 
         logger.info(
             "daemon.runner: shutdown complete at {}",

@@ -98,7 +98,6 @@ class FanslyConfig:
     separate_messages: bool = True
     separate_previews: bool = False
     separate_timeline: bool = True
-    separate_metadata: bool = False
     show_downloads: bool = True
     show_skipped_downloads: bool = True
     use_duplicate_threshold: bool = False
@@ -186,6 +185,7 @@ class FanslyConfig:
             "stash_console": "INFO",
             "stash_file": "INFO",
             "textio": "INFO",
+            "websocket": "INFO",
             "json": "INFO",
         }
     )
@@ -458,7 +458,6 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
         separate_messages=config.separate_messages,
         separate_previews=config.separate_previews,
         separate_timeline=config.separate_timeline,
-        separate_metadata=config.separate_metadata,
         use_duplicate_threshold=config.use_duplicate_threshold,
         use_pagination_duplication=config.use_pagination_duplication,
         use_folder_suffix=config.use_folder_suffix,
@@ -514,6 +513,7 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
         stash_console=log.get("stash_console", "INFO"),
         stash_file=log.get("stash_file", "INFO"),
         textio=log.get("textio", "INFO"),
+        websocket=log.get("websocket", "INFO"),
         json=log.get("json", "INFO"),
     )
 

@@ -67,7 +67,6 @@ _KNOWN_INI_KEYS: dict[str, set[str]] = {
         "separate_messages",
         "separate_previews",
         "separate_timeline",
-        "separate_metadata",
         # both legacy and current spellings
         "utilise_duplicate_threshold",
         "use_duplicate_threshold",
@@ -468,9 +467,6 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
     # ------------------------------------------------------------------
     # [Options] — extended: rate limiting, db sync, debug, retries
     # ------------------------------------------------------------------
-    separate_metadata = _get_bool(
-        parser, opts_section, "separate_metadata", fallback=False
-    )
     use_pagination_duplication = _get_bool(
         parser, opts_section, "use_pagination_duplication", fallback=False
     )
@@ -609,7 +605,6 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
             "separate_messages": separate_messages,
             "separate_previews": separate_previews,
             "separate_timeline": separate_timeline,
-            "separate_metadata": separate_metadata,
             "use_duplicate_threshold": use_duplicate_threshold,
             "use_pagination_duplication": use_pagination_duplication,
             "use_folder_suffix": use_folder_suffix,

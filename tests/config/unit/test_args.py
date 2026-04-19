@@ -67,7 +67,6 @@ def args():
         temp_folder=None,
         separate_previews=False,
         use_duplicate_threshold=False,
-        separate_metadata=False,
         non_interactive=False,
         no_prompt_on_exit=False,
         no_folder_suffix=False,

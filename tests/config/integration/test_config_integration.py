@@ -138,7 +138,6 @@ open_folder_when_finished = False
 separate_messages = True
 separate_previews = False
 separate_timeline = True
-separate_metadata = False
 show_downloads = True
 show_skipped_downloads = False
 use_duplicate_threshold = True
@@ -154,7 +153,6 @@ prompt_on_exit = False
     assert config.separate_messages is True
     assert config.separate_previews is False
     assert config.separate_timeline is True
-    assert config.separate_metadata is False
     assert config.show_downloads is True
     assert config.show_skipped_downloads is False
     assert config.use_duplicate_threshold is True

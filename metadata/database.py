@@ -46,11 +46,9 @@ class Database:
         self,
         config: FanslyConfig,
         *,
-        creator_name: str | None = None,
         skip_migrations: bool = False,
     ) -> None:
         self.config = config
-        self.creator_name = creator_name
 
         # EntityStore (created via create_entity_store())
         self._entity_store: PostgresEntityStore | None = None

@@ -103,6 +103,16 @@ async def download_timeline(
     # this has to be up here so it doesn't get looped
     timeline_cursor = 0
     attempts = 0
+
+    # Reliable short-circuit: creator's TimelineStats counts + wall
+    # structure are both identical to DB → no new content, no need to
+    # scan. Set by download.account.get_creator_account_info.
+    if state.creator_content_unchanged:
+        print_info(
+            "Skipping Timeline download — creator counts and wall structure unchanged."
+        )
+        return
+
     if (
         config.use_duplicate_threshold or config.use_pagination_duplication
     ) and state.fetched_timeline_duplication:

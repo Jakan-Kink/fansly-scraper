@@ -280,15 +280,6 @@ def parse_args() -> argparse.Namespace:
         help="Do not separate timeline content into it's own folder.",
     )
     parser.add_argument(
-        "-smd",
-        "--separate-metadata",
-        required=False,
-        default=False,
-        action="store_true",
-        dest="separate_metadata",
-        help="Do not separate metadata into it's own folder.",
-    )
-    parser.add_argument(
         "-sp",
         "--separate-previews",
         required=False,
@@ -773,7 +764,6 @@ def _handle_boolean_settings(args: argparse.Namespace, config: FanslyConfig) -> 
         "separate_previews",
         "use_duplicate_threshold",
         "use_pagination_duplication",
-        "separate_metadata",
         "reverse_order",
     ]
 

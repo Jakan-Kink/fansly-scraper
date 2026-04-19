@@ -211,7 +211,6 @@ def complete_args():
         no_open_folder=False,
         no_separate_messages=False,
         no_separate_timeline=False,
-        separate_metadata=False,
         separate_previews=False,
         use_duplicate_threshold=False,
         use_pagination_duplication=False,

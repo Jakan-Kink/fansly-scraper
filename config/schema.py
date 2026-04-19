@@ -105,7 +105,6 @@ class OptionsSection(BaseModel):
     separate_messages: bool = True
     separate_previews: bool = False
     separate_timeline: bool = True
-    separate_metadata: bool = False
     use_duplicate_threshold: bool = False
     use_pagination_duplication: bool = False
     use_folder_suffix: bool = True
@@ -203,6 +202,7 @@ class LoggingSection(BaseModel):
     stash_console: str = "INFO"
     stash_file: str = "INFO"
     textio: str = "INFO"
+    websocket: str = "INFO"
     json_level: str = Field("INFO", alias="json", serialization_alias="json")
 
 

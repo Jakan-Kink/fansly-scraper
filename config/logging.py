@@ -59,6 +59,7 @@ DEFAULT_LOG_FILE = "fansly_downloader_ng.log"
 DEFAULT_JSON_LOG_FILE = "fansly_downloader_ng_json.log"
 DEFAULT_STASH_LOG_FILE = "stash.log"
 DEFAULT_DB_LOG_FILE = "sqlalchemy.log"
+DEFAULT_WEBSOCKET_LOG_FILE = "websocket.log"
 
 
 class InterceptHandler(logging.Handler):
@@ -206,6 +207,7 @@ textio_logger = logger.bind(logger="textio")
 json_logger = logger.bind(logger="json")
 stash_logger = logger.bind(logger="stash")
 db_logger = logger.bind(logger="db")
+websocket_logger = logger.bind(logger="websocket")
 
 
 def _auto_bind_logger(record: Any) -> Any:
@@ -514,6 +516,30 @@ def setup_handlers() -> None:
     )
     _handler_ids[handler_id] = (trace_handler, None)
 
+    # 8. WebSocket File Handler — dedicated sink for api/websocket.py and
+    # daemon WS event dispatch. Keeps frame-level traffic out of the main
+    # log so operators can inspect WS activity without wading through
+    # download/metadata noise.
+    websocket_file = log_dir / DEFAULT_WEBSOCKET_LOG_FILE
+    websocket_handler = SizeTimeRotatingHandler(
+        filename=str(websocket_file),
+        maxBytes=100 * 1024 * 1024,
+        backupCount=10,
+        when="h",
+        interval=1,
+        utc=True,
+        compression="gz",
+        keep_uncompressed=2,
+    )
+    handler_id = logger.add(
+        websocket_handler.write,
+        format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {name}:{function}:{line} - {message}",
+        level=get_log_level("websocket", "INFO"),
+        filter=lambda record: record.get("extra", {}).get("logger") == "websocket",
+        **enqueue_args,
+    )
+    _handler_ids[handler_id] = (websocket_handler, None)
+
 
 def init_logging_config(config: Any) -> None:
     """Initialize logging configuration."""
@@ -572,6 +598,12 @@ def get_log_level(logger_name: str, default: str = "INFO") -> int:
     if logger_name == "sqlalchemy" and _config and _config.trace:
         return _LEVEL_VALUES["TRACE"]
     # For sqlalchemy when trace is disabled, fall through to normal handling
+
+    # Special handling for websocket logger - allow TRACE level when trace is enabled.
+    # When config.trace is True, per-frame receive + ping/pong logs surface.
+    # When False, falls through to the user's log_levels["websocket"] setting.
+    if logger_name == "websocket" and _config and _config.trace:
+        return _LEVEL_VALUES["TRACE"]
 
     # Force DEBUG level if debug mode is enabled (for non-trace loggers)
     if _debug_enabled:
