@@ -23,15 +23,22 @@ if TYPE_CHECKING:
     import asyncpg
 
 
-def get_caller_info() -> str:
-    """Get relevant caller information from the stack.
+_EXCLUDED_PATH_PARTS = frozenset(
+    {
+        ".venv",
+        "venv",
+        "venv_test",
+        "virtualenv",
+        "site-packages",
+        ".tox",
+        "__pypackages__",
+        "node_modules",
+        ".eggs",
+    }
+)
 
-    Skips internal asyncpg/asyncio calls and common wrapper functions.
-    Returns a string with the most relevant caller info.
-    """
-    repo_root = Path.cwd()
-    st = inspect.stack()
-    skip_funcs = {
+_SKIP_FUNCS = frozenset(
+    {
         "async_wrapper",
         "sync_wrapper",
         "_run_sync",
@@ -50,44 +57,41 @@ def get_caller_info() -> str:
         "fetchval",
         "executemany",
     }
-    for frame in st[1:]:
-        filename = frame.filename
-        lower_fname = filename.lower()
-        if (
-            "site-packages" in lower_fname
-            or "virtualenv" in lower_fname
-            or "venv" in lower_fname
-        ):
+)
+
+
+def get_caller_info() -> str:
+    """Return the first stack frame that is application code.
+
+    Application code = inside the repo root AND not inside a vendored
+    directory (``.venv``, ``venv_test``, ``site-packages`` etc.). stdlib
+    lives outside the repo so ``relative_to`` raises ValueError for
+    those frames; vendored code lives inside the repo so we additionally
+    exclude frames whose relative path includes a known virtual-env or
+    package-dir segment. Without both checks, asyncio's event-loop
+    dispatcher (events.py:94) gets attributed to every async query.
+    """
+    repo_root = Path.cwd().resolve()
+    for frame in inspect.stack()[1:]:
+        if frame.function in _SKIP_FUNCS:
             continue
-        if frame.function in skip_funcs:
-            continue
-        filepath = Path(filename)
         try:
-            relative_path = str(filepath.relative_to(repo_root))
+            relative_path = Path(frame.filename).resolve().relative_to(repo_root)
         except ValueError:
-            relative_path = filepath.name
+            continue  # stdlib, system packages, anywhere outside the repo
+        if _EXCLUDED_PATH_PARTS.intersection(relative_path.parts):
+            continue  # vendored code inside the repo (.venv, site-packages)
         return f"{relative_path}:{frame.lineno} in {frame.function}"
-    # Fallback: deepest frames in the stack
-    deepest = st[-5:]
-    frames_info = []
-    for frame in deepest:
-        filepath = Path(frame.filename)
-        try:
-            relative_path = str(filepath.relative_to(repo_root))
-        except Exception:
-            relative_path = filepath.name
-        frames_info.append(f"{relative_path}:{frame.lineno} in {frame.function}")
-    return "\n".join(frames_info)
+    return "<unknown caller>"
 
 
 class DatabaseLogger:
-    """asyncpg query and log monitoring.
+    """asyncpg query monitoring.
 
     Features:
     1. Query counting and timing via add_query_logger
     2. Slow query detection (>100ms)
     3. Error tracking (queries that raised exceptions)
-    4. Postgres server log capture via add_log_listener
     """
 
     def __init__(self) -> None:
@@ -99,13 +103,22 @@ class DatabaseLogger:
         }
 
     def setup_connection_logging(self, conn: asyncpg.Connection) -> None:
-        """Register query and log listeners on an asyncpg connection.
+        """Register a query logger on an asyncpg connection.
 
         Called from ``PostgresEntityStore._init_pg_connection`` for every
         new connection created by the pool.
+
+        Note: we intentionally do NOT register a Postgres log listener
+        via ``add_log_listener``. asyncpg's ``_on_release`` emits an
+        ``InterfaceWarning`` every first release of a pooled connection
+        that has an active log listener (connection.py:1779), because
+        log listeners are expected to be per-acquire state. We have no
+        stored procedures that emit ``RAISE NOTICE``, so the DEBUG-level
+        Postgres server message capture was low-value relative to the
+        warning noise. ``add_query_logger`` is the supported persistent
+        hook and does not trigger the warning.
         """
         conn.add_query_logger(self.query_logger_callback)
-        conn.add_log_listener(self.log_listener_callback)
 
     def query_logger_callback(self, record: Any) -> None:
         """asyncpg query logger callback.
@@ -133,18 +146,6 @@ class DatabaseLogger:
                 f"Slow query ({record.elapsed:.2f}s): "
                 f"{record.query[:100]}... caller={caller}"
             )
-
-    @staticmethod
-    def log_listener_callback(
-        conn: asyncpg.Connection,  # noqa: ARG004
-        message: Any,
-    ) -> None:
-        """asyncpg log listener for Postgres server messages.
-
-        Receives async ``NoticeResponse`` messages (WARNING, NOTICE,
-        DEBUG, INFO, LOG).
-        """
-        db_logger.debug(f"Postgres: [{message.severity}] {message.message}")
 
     def get_stats(self) -> dict[str, Any]:
         """Return a copy of current statistics."""

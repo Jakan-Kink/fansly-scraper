@@ -202,8 +202,8 @@ class TestRunDaemonE2E:
                 await asyncio.sleep(0.1)
             return None
 
-        # ── Shutdown coordination ─────────────────────────────────────────────
-        captured_sigint: list[Callable] = []
+        # ── Shutdown coordination via injected stop_event ─────────────────────
+        stop_event = asyncio.Event()
 
         home_timeline_route = None
         creator_timeline_route = None
@@ -212,7 +212,11 @@ class TestRunDaemonE2E:
         async def _run_and_stop() -> None:
             """Run run_daemon and stop it after MonitorState row appears in DB."""
             task = asyncio.create_task(
-                run_daemon(config_wired, ws_factory=_fake_ws_factory(fake_ws))
+                run_daemon(
+                    config_wired,
+                    ws_factory=_fake_ws_factory(fake_ws),
+                    stop_event=stop_event,
+                )
             )
 
             # Poll until MonitorState row appears (real DB write by mark_creator_processed)
@@ -232,11 +236,8 @@ class TestRunDaemonE2E:
                 )
                 return
 
-            # Signal shutdown via the captured SIGINT handler
-            if captured_sigint:
-                captured_sigint[0]()
-            else:
-                task.cancel()
+            # Signal shutdown directly — no asyncio patching required
+            stop_event.set()
 
             try:
                 await asyncio.wait_for(task, timeout=5.0)
@@ -260,7 +261,6 @@ class TestRunDaemonE2E:
                     new_callable=PropertyMock,
                     return_value=0.05,
                 ),
-                patch("daemon.runner.asyncio.get_running_loop") as mock_loop,
                 patch(
                     "daemon.runner.download_timeline",
                     new=_spy_download_timeline,
@@ -282,12 +282,6 @@ class TestRunDaemonE2E:
                     new=AsyncMock(),
                 ),
             ):
-
-                def _add_signal_handler(sig: Any, handler: Callable) -> None:
-                    captured_sigint.append(handler)
-
-                mock_loop.return_value.add_signal_handler = _add_signal_handler
-
                 # ── RESPX routes (inside mock context) ───────────────────────
                 respx.options(url__startswith="https://apiv3.fansly.com").mock(
                     side_effect=[httpx.Response(200)]

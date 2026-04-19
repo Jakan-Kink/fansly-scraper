@@ -38,34 +38,36 @@ class TestCleanShutdown:
     async def test_sigint_stops_daemon_and_closes_ws(
         self, config_wired, entity_store, fake_ws
     ):
-        """SIGINT causes run_daemon to stop all tasks and stop the WS."""
-        captured_handler = None
+        """SIGINT causes run_daemon to stop all tasks and stop the WS.
 
-        with patch("daemon.runner.asyncio.get_running_loop") as mock_loop:
+        Uses the stop_event injection instead of patching asyncio's
+        global get_running_loop — the patch approach leaked the mock
+        loop across modules (any caller of asyncio.get_running_loop got
+        the MagicMock) and broke code that legitimately needs real
+        loop.time() / loop.call_soon().
+        """
+        stop_event = asyncio.Event()
 
-            def _add_signal_handler(sig, handler):
-                nonlocal captured_handler
-                captured_handler = handler
-
-            mock_loop.return_value.add_signal_handler = _add_signal_handler
-
-            daemon_task = asyncio.create_task(
-                run_daemon(config_wired, ws_factory=_fake_ws_factory(fake_ws))
+        daemon_task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=_fake_ws_factory(fake_ws),
+                stop_event=stop_event,
             )
+        )
 
-            # Allow daemon to start
-            await asyncio.sleep(0.05)
+        # Allow daemon to start
+        await asyncio.sleep(0.05)
 
-            # Simulate SIGINT
-            if captured_handler is not None:
-                captured_handler()
+        # Simulate SIGINT — same effect as the real _sigint_handler
+        stop_event.set()
 
-            try:
-                result = await asyncio.wait_for(daemon_task, timeout=5.0)
-            except TimeoutError:
-                daemon_task.cancel()
-                await asyncio.gather(daemon_task, return_exceptions=True)
-                result = None
+        try:
+            result = await asyncio.wait_for(daemon_task, timeout=5.0)
+        except TimeoutError:
+            daemon_task.cancel()
+            await asyncio.gather(daemon_task, return_exceptions=True)
+            result = None
 
         assert fake_ws.started, "WebSocket should have been started"
         assert fake_ws.stopped, "WebSocket should have been stopped on shutdown"
@@ -77,30 +79,25 @@ class TestCleanShutdown:
         self, config_wired, entity_store, fake_ws
     ):
         """run_daemon returns EXIT_SUCCESS (0) on clean SIGINT shutdown."""
-        captured_handler = None
+        stop_event = asyncio.Event()
 
-        with patch("daemon.runner.asyncio.get_running_loop") as mock_loop:
-
-            def _add_signal_handler(sig, handler):
-                nonlocal captured_handler
-                captured_handler = handler
-
-            mock_loop.return_value.add_signal_handler = _add_signal_handler
-
-            daemon_task = asyncio.create_task(
-                run_daemon(config_wired, ws_factory=_fake_ws_factory(fake_ws))
+        daemon_task = asyncio.create_task(
+            run_daemon(
+                config_wired,
+                ws_factory=_fake_ws_factory(fake_ws),
+                stop_event=stop_event,
             )
+        )
 
-            await asyncio.sleep(0.05)
-            if captured_handler:
-                captured_handler()
+        await asyncio.sleep(0.05)
+        stop_event.set()
 
-            try:
-                exit_code = await asyncio.wait_for(daemon_task, timeout=5.0)
-            except TimeoutError:
-                daemon_task.cancel()
-                await asyncio.gather(daemon_task, return_exceptions=True)
-                exit_code = None
+        try:
+            exit_code = await asyncio.wait_for(daemon_task, timeout=5.0)
+        except TimeoutError:
+            daemon_task.cancel()
+            await asyncio.gather(daemon_task, return_exceptions=True)
+            exit_code = None
 
         assert exit_code == EXIT_SUCCESS, (
             f"Expected EXIT_SUCCESS ({EXIT_SUCCESS}), got {exit_code!r}"
@@ -127,7 +124,7 @@ class TestWorkerDrainsOnShutdown:
         shutdown and verify all items were processed.
         """
         processed_ids: list[int] = []
-        captured_handler = None
+        stop_event = asyncio.Event()
 
         creator_ids = [saved_account.id, snowflake_id(), snowflake_id()]
 
@@ -136,30 +133,23 @@ class TestWorkerDrainsOnShutdown:
                 processed_ids.append(item.creator_id)
 
         with (
-            patch("daemon.runner.asyncio.get_running_loop") as mock_loop,
             patch("daemon.runner._handle_work_item", side_effect=_spy_handle_work_item),
             patch("daemon.runner.mark_creator_processed", new=AsyncMock()),
             patch("daemon.runner._refresh_following", new=AsyncMock()),
         ):
-
-            def _add_signal_handler(sig, handler):
-                nonlocal captured_handler
-                captured_handler = handler
-
-            mock_loop.return_value.add_signal_handler = _add_signal_handler
-
             daemon_task = asyncio.create_task(
-                run_daemon(config_wired, ws_factory=_fake_ws_factory(fake_ws))
+                run_daemon(
+                    config_wired,
+                    ws_factory=_fake_ws_factory(fake_ws),
+                    stop_event=stop_event,
+                )
             )
 
             # Wait for daemon to start
             await asyncio.sleep(0.05)
 
-            # Reach into the running daemon's queue via the runner module
-            # We can't directly access the private queue, so we inject items
-            # by getting a reference before shutdown. Instead, test via the
-            # public interface: the WS handler puts items in the queue.
-            # We fire 3 WS events (subscription confirmed for 3 creators).
+            # Fire 3 WS events (subscription confirmed for 3 creators) —
+            # each enqueues a work item on the daemon's internal queue.
             for cid in creator_ids:
                 await fake_ws.fire(
                     service_id=15,
@@ -170,9 +160,8 @@ class TestWorkerDrainsOnShutdown:
             # Short delay to let items land in the queue
             await asyncio.sleep(0.05)
 
-            # Trigger SIGINT
-            if captured_handler:
-                captured_handler()
+            # Trigger shutdown directly via the injected stop_event
+            stop_event.set()
 
             try:
                 await asyncio.wait_for(daemon_task, timeout=10.0)
@@ -211,14 +200,9 @@ class TestUnrecoverableExitCode:
         async def _raise_unrecoverable(*args, **kwargs):
             raise DaemonUnrecoverableError("Simulated fatal auth failure")
 
-        with (
-            patch("daemon.runner.asyncio.get_running_loop") as mock_loop,
-            patch(
-                "daemon.runner._timeline_poll_loop", side_effect=_raise_unrecoverable
-            ),
+        with patch(
+            "daemon.runner._timeline_poll_loop", side_effect=_raise_unrecoverable
         ):
-            mock_loop.return_value.add_signal_handler = lambda _sig, _handler: None
-
             daemon_task = asyncio.create_task(
                 run_daemon(config_wired, ws_factory=_fake_ws_factory(fake_ws))
             )

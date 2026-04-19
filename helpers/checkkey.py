@@ -609,6 +609,31 @@ def _extract_checkkey_ast_fallback(js_content: str) -> str | None:
         return None
 
 
+def _shutdown_js_bridge() -> None:
+    """Terminate the JSPyBridge node subprocess.
+
+    JSPyBridge spawns a Node.js subprocess (``bridge.js``) on first
+    import for AST parsing and expression evaluation. It registers an
+    atexit handler that calls ``connection.stop()``, but atexit only
+    fires on a *clean* Python interpreter exit — if the parent is killed
+    with SIGHUP/SIGKILL the node child is orphaned to init.
+
+    checkKey extraction happens exactly once at startup. After
+    ``guess_check_key`` returns, nothing else in the codebase uses the
+    bridge, so we tear it down eagerly to match the natural end of its
+    useful lifetime. This also prevents the 'bridge.js' process from
+    lingering for the entire daemon run (hours), where a separate
+    ``kill`` would otherwise be needed at shutdown.
+
+    Suppressing the broad Exception is defensive: if the bridge was
+    never started (e.g. tests that monkey-patched imports) or was
+    already stopped, ``proc.terminate()`` inside ``connection.stop``
+    raises; we don't want that to mask the checkKey result.
+    """
+    with suppress(Exception):
+        connection.stop()
+
+
 def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
     """Tries to extract the check key from Fansly's main.js using AST parsing.
 
@@ -618,7 +643,9 @@ def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
     3. Uses AST parsing to extract checkKey (NO REGEX for finding!)
     4. Falls back to hardcoded default if extraction fails
 
-    Uses JSPyBridge for efficient JavaScript execution.
+    Uses JSPyBridge for efficient JavaScript execution. The bridge's
+    node subprocess is terminated via ``_shutdown_js_bridge`` in the
+    finally block so it doesn't linger for the remainder of the run.
 
     :param user_agent: Browser user agent to use for requests
     :type user_agent: str
@@ -711,3 +738,9 @@ def guess_check_key(user_agent: str) -> str | None:  # noqa: PLR0911
     except Exception as e:
         textio_logger.error(f"Unexpected error during checkKey extraction: {e}", 4)
         return default_check_key
+
+    finally:
+        # Tear down the node bridge subprocess now that checkKey extraction
+        # is complete. No other caller uses the bridge, so leaving it alive
+        # just wastes RAM and leaves a process to orphan on abrupt shutdown.
+        _shutdown_js_bridge()

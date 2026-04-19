@@ -86,31 +86,24 @@ class TestDaemonTaskScheduling:
                 task_names.append(name)
             return original_create_task(coro, name=name)
 
-        with (
-            patch(
-                "daemon.runner.asyncio.create_task",
-                side_effect=_patched_create_task,
-            ),
-            patch("daemon.runner.asyncio.get_running_loop") as mock_loop,
+        stop_event = asyncio.Event()
+
+        with patch(
+            "daemon.runner.asyncio.create_task",
+            side_effect=_patched_create_task,
         ):
-            # Capture the signal handler, then trigger it immediately
-            captured_handler = None
-
-            def _add_signal_handler(sig, handler):
-                nonlocal captured_handler
-                captured_handler = handler
-
-            mock_loop.return_value.add_signal_handler = _add_signal_handler
-
-            # Run daemon but stop it after a short delay
+            # Run daemon but stop it after a short delay via injected stop_event
             async def _run_and_stop():
                 task = asyncio.create_task(
-                    run_daemon(config_wired, ws_factory=_fake_ws_factory(fake_ws))
+                    run_daemon(
+                        config_wired,
+                        ws_factory=_fake_ws_factory(fake_ws),
+                        stop_event=stop_event,
+                    )
                 )
                 # Give it a tick to set up, then trigger shutdown
                 await asyncio.sleep(0.05)
-                if captured_handler is not None:
-                    captured_handler()
+                stop_event.set()
                 try:
                     await asyncio.wait_for(task, timeout=5.0)
                 except (TimeoutError, asyncio.CancelledError):

@@ -275,6 +275,7 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.unrecoverable_error_timeout_seconds = (
         schema.monitoring.unrecoverable_error_timeout_seconds
     )
+    config.monitoring_dashboard_enabled = schema.monitoring.dashboard_enabled
 
     # --- StashContext (optional) ---
     if schema.stash_context is not None:

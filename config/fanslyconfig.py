@@ -169,6 +169,10 @@ class FanslyConfig:
     # Seconds of total failure before the daemon exits with DAEMON_UNRECOVERABLE.
     # Loaded from schema.monitoring.unrecoverable_error_timeout_seconds.
     unrecoverable_error_timeout_seconds: int = 3600
+    # Live Rich dashboard while the daemon runs. Default on; disable when
+    # piping through log-capture tools that mangle ANSI escape sequences.
+    # Loaded from schema.monitoring.dashboard_enabled.
+    monitoring_dashboard_enabled: bool = True
 
     # StashContext
     # Widened to dict[str, Any] so port:int coexists with the string-valued keys.

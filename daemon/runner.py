@@ -41,6 +41,15 @@ from loguru import logger
 
 from api.websocket import FanslyWebSocket
 from config.fanslyconfig import FanslyConfig
+from daemon.dashboard import (
+    TASK_FOLLOWING,
+    TASK_SIMULATOR,
+    TASK_STORY,
+    TASK_TIMELINE,
+    DaemonDashboard,
+    NullDashboard,
+    make_dashboard,
+)
 from daemon.filters import should_process_creator
 from daemon.handlers import (
     CheckCreatorAccess,
@@ -475,6 +484,7 @@ async def _timeline_poll_loop(
     stop_event: asyncio.Event,
     budget: ErrorBudget,
     refresh_event: asyncio.Event,
+    dashboard: DaemonDashboard | NullDashboard,
 ) -> None:
     """Continuously poll the home timeline and enqueue DownloadTimelineOnly items.
 
@@ -498,12 +508,20 @@ async def _timeline_poll_loop(
         interval = simulator.timeline_interval
         if interval <= 0.0:
             # Hidden state - wait briefly then re-check
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop_event.wait(), timeout=10.0)
+            await dashboard.wait_with_countdown(
+                TASK_TIMELINE,
+                "Timeline poll (paused — hidden)",
+                10.0,
+                stop_event,
+            )
             continue
 
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+        await dashboard.wait_with_countdown(
+            TASK_TIMELINE,
+            "Timeline poll",
+            interval,
+            stop_event,
+        )
 
         if stop_event.is_set():
             break
@@ -545,6 +563,7 @@ async def _story_poll_loop(
     stop_event: asyncio.Event,
     budget: ErrorBudget,
     refresh_event: asyncio.Event,
+    dashboard: DaemonDashboard | NullDashboard,
 ) -> None:
     """Continuously poll story states and enqueue DownloadStoriesOnly items.
 
@@ -564,12 +583,20 @@ async def _story_poll_loop(
     while not stop_event.is_set():
         interval = simulator.story_interval
         if interval <= 0.0:
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop_event.wait(), timeout=10.0)
+            await dashboard.wait_with_countdown(
+                TASK_STORY,
+                "Story poll (paused — hidden)",
+                10.0,
+                stop_event,
+            )
             continue
 
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+        await dashboard.wait_with_countdown(
+            TASK_STORY,
+            "Story poll",
+            interval,
+            stop_event,
+        )
 
         if stop_event.is_set():
             break
@@ -703,6 +730,7 @@ async def _following_refresh_loop(
     stop_event: asyncio.Event,
     refresh_event: asyncio.Event,
     budget: ErrorBudget,
+    dashboard: DaemonDashboard | NullDashboard,
 ) -> None:
     """Periodically refresh the following list while the daemon is active.
 
@@ -722,12 +750,20 @@ async def _following_refresh_loop(
         return
 
     while not stop_event.is_set():
-        # Wait up to 5 minutes, but wake early when refresh_event is set
-        try:
-            await asyncio.wait_for(refresh_event.wait(), timeout=300.0)
+        # dashboard.wait_with_countdown composites stop_event + refresh_event
+        # + timeout into one wait, driving the countdown bar along the way.
+        # This also fixes the SIGINT-blindness bug that was in the previous
+        # single-event wait (up to 300s delay on shutdown).
+        await dashboard.wait_with_countdown(
+            TASK_FOLLOWING,
+            "Following refresh",
+            300.0,
+            stop_event,
+            refresh_event,
+        )
+
+        if refresh_event.is_set():
             refresh_event.clear()
-        except TimeoutError:
-            pass  # 5-minute timer expired — fall through to refresh
 
         if stop_event.is_set():
             break
@@ -760,6 +796,7 @@ async def _simulator_tick_loop(
     stop_event: asyncio.Event,
     ws: Any,
     refresh_event: asyncio.Event,
+    dashboard: DaemonDashboard | NullDashboard,
 ) -> None:
     """Periodically advance the ActivitySimulator state machine.
 
@@ -772,10 +809,19 @@ async def _simulator_tick_loop(
         stop_event: Set to stop the loop.
         ws: FanslyWebSocket instance (or compatible stub) for reconnection.
         refresh_event: Event to set on unhide to trigger following refresh.
+        dashboard: Dashboard to drive the countdown bar and status line.
     """
+    # Seed the state line with the initial simulator state so the operator
+    # doesn't see "initializing" for 30s until the first tick.
+    dashboard.set_simulator_state(simulator.state)
+
     while not stop_event.is_set():
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(stop_event.wait(), timeout=30.0)
+        await dashboard.wait_with_countdown(
+            TASK_SIMULATOR,
+            "Simulator tick",
+            30.0,
+            stop_event,
+        )
 
         if stop_event.is_set():
             break
@@ -787,14 +833,17 @@ async def _simulator_tick_loop(
                 simulator.state,
                 transition,
             )
+            dashboard.set_simulator_state(simulator.state)
 
         if transition == "unhide":
             refresh_event.set()
             try:
                 await ws.stop()
                 await ws.start_background()
+                dashboard.set_ws_state(True)
                 logger.info("daemon.runner: WebSocket reconnected after unhide")
             except Exception as exc:
+                dashboard.set_ws_state(False)
                 logger.warning(
                     "daemon.runner: WebSocket reconnect failed after unhide - {}",
                     exc,
@@ -878,6 +927,7 @@ async def run_daemon(
     config: FanslyConfig,
     *,
     ws_factory: Any = None,
+    stop_event: asyncio.Event | None = None,
 ) -> int:
     """Enter the monitoring loop.
 
@@ -917,7 +967,12 @@ async def run_daemon(
         config.monitoring_session_baseline,
     )
 
-    stop_event = asyncio.Event()
+    # stop_event accepted as a parameter so tests can drive shutdown by
+    # calling .set() directly, without having to patch asyncio.get_running_loop
+    # to intercept the SIGINT handler registration. Production callers pass
+    # nothing and get a fresh Event.
+    if stop_event is None:
+        stop_event = asyncio.Event()
     refresh_event = asyncio.Event()
     queue: asyncio.Queue[WorkItem] = asyncio.Queue()
 
@@ -929,6 +984,43 @@ async def run_daemon(
     session_baseline = config.monitoring_session_baseline
     baseline_consumed: set[int] = set()
 
+    # ---- Dashboard ----
+    # Enter the dashboard first so WebSocket startup/failure shows up on
+    # the status line. make_dashboard returns a NullDashboard when the
+    # user has opted out via schema.monitoring.dashboard_enabled=False.
+    dashboard = make_dashboard(config.monitoring_dashboard_enabled)
+    async with dashboard:
+        return await _run_daemon_body(
+            config=config,
+            ws_factory=ws_factory,
+            simulator=simulator,
+            budget=budget,
+            stop_event=stop_event,
+            refresh_event=refresh_event,
+            queue=queue,
+            session_baseline=session_baseline,
+            baseline_consumed=baseline_consumed,
+            dashboard=dashboard,
+        )
+
+
+async def _run_daemon_body(
+    *,
+    config: FanslyConfig,
+    ws_factory: Any,
+    simulator: ActivitySimulator,
+    budget: ErrorBudget,
+    stop_event: asyncio.Event,
+    refresh_event: asyncio.Event,
+    queue: asyncio.Queue[WorkItem],
+    session_baseline: datetime | None,
+    baseline_consumed: set[int],
+    dashboard: DaemonDashboard | NullDashboard,
+) -> int:
+    """Daemon body — extracted from ``run_daemon`` so the dashboard's async
+    context manager can wrap the entire lifecycle cleanly. All parameters are
+    already-constructed collaborators, not user-facing config.
+    """
     # ---- WebSocket setup ----
     ws: Any = (ws_factory or _make_ws)(config)
     ws.register_handler(
@@ -937,19 +1029,41 @@ async def run_daemon(
     )
     try:
         await ws.start_background()
+        dashboard.set_ws_state(True)
         logger.info("daemon.runner: WebSocket started")
     except Exception as exc:
+        dashboard.set_ws_state(False)
         logger.warning(
             "daemon.runner: WebSocket failed to start (continuing without WS) - {}",
             exc,
         )
 
     # ---- SIGINT handler ----
+    # loop.add_signal_handler replaces Python's default SIGINT handler
+    # (and the main program's signal.signal registration). If the loop's
+    # handler just sets stop_event, repeated Ctrl+C presses do nothing
+    # extra — they all set the same already-set flag. Escalate on the
+    # second press: uninstall our handler so Python's default raises
+    # KeyboardInterrupt, which propagates through asyncio.gather and
+    # forces immediate shutdown of any task still ignoring stop_event.
     loop = asyncio.get_running_loop()
+    sigint_count = 0
 
     def _sigint_handler() -> None:
-        logger.info("daemon.runner: SIGINT received - shutting down")
-        stop_event.set()
+        nonlocal sigint_count
+        sigint_count += 1
+        if sigint_count == 1:
+            logger.info("daemon.runner: SIGINT received - shutting down")
+            stop_event.set()
+        else:
+            logger.warning(
+                "daemon.runner: second SIGINT - forcing shutdown via KeyboardInterrupt"
+            )
+            with contextlib.suppress(NotImplementedError, OSError):
+                loop.remove_signal_handler(signal.SIGINT)
+            # Re-raise as KeyboardInterrupt on the next scheduler tick so
+            # any task still blocked in a wait unblocks via cancellation.
+            raise KeyboardInterrupt("daemon: force shutdown")
 
     with contextlib.suppress(NotImplementedError, OSError):
         loop.add_signal_handler(signal.SIGINT, _sigint_handler)
@@ -965,6 +1079,7 @@ async def run_daemon(
             stop_event,
             budget,
             refresh_event,
+            dashboard,
         ),
         name="daemon-timeline-poll",
     )
@@ -976,6 +1091,7 @@ async def run_daemon(
             stop_event,
             budget,
             refresh_event,
+            dashboard,
         ),
         name="daemon-story-poll",
     )
@@ -984,11 +1100,13 @@ async def run_daemon(
         name="daemon-worker",
     )
     sim_tick_task = asyncio.create_task(
-        _simulator_tick_loop(simulator, stop_event, ws, refresh_event),
+        _simulator_tick_loop(simulator, stop_event, ws, refresh_event, dashboard),
         name="daemon-simulator-tick",
     )
     following_refresh_task = asyncio.create_task(
-        _following_refresh_loop(config, simulator, stop_event, refresh_event, budget),
+        _following_refresh_loop(
+            config, simulator, stop_event, refresh_event, budget, dashboard
+        ),
         name="daemon-following-refresh",
     )
 

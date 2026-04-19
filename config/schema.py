@@ -255,6 +255,11 @@ class MonitoringSection(BaseModel):
     # operation (poll, WS ping-pong, or dispatch) still succeeds within the
     # window. Default 1 hour.
     unrecoverable_error_timeout_seconds: int = 3600
+    # Rich-based live dashboard showing simulator state and per-loop
+    # countdown bars while the daemon runs. Default on — set False to
+    # disable when piping output through tools that don't render ANSI
+    # escape sequences cleanly.
+    dashboard_enabled: bool = True
 
     @field_validator("session_baseline", mode="before")
     @classmethod
