@@ -202,11 +202,12 @@ async def _handle_messages_item(
     try:
         await download_messages(config, state)
     except Exception as exc:
-        logger.warning(
+        logger.opt(exception=exc).error(
             "daemon.runner: download_messages failed for group {} - {}",
             item.group_id,
             exc,
         )
+        raise
 
 
 async def _handle_full_creator_item(
@@ -242,11 +243,12 @@ async def _handle_full_creator_item(
         await download_messages(config, state)
         await download_wall(config, state)
     except Exception as exc:
-        logger.warning(
+        logger.opt(exception=exc).error(
             "daemon.runner: FullCreatorDownload failed for {} - {}",
             creator_name,
             exc,
         )
+        raise
 
 
 async def _handle_redownload_item(
@@ -278,11 +280,12 @@ async def _handle_redownload_item(
         await download_timeline(config, state)
         await download_messages(config, state)
     except Exception as exc:
-        logger.warning(
+        logger.opt(exception=exc).error(
             "daemon.runner: RedownloadCreatorMedia failed for {} - {}",
             creator_name,
             exc,
         )
+        raise
 
 
 async def _handle_check_access_item(
@@ -311,11 +314,12 @@ async def _handle_check_access_item(
     try:
         await get_creator_account_info(config, state)
     except Exception as exc:
-        logger.warning(
+        logger.opt(exception=exc).error(
             "daemon.runner: CheckCreatorAccess failed for {} - {}",
             creator_name,
             exc,
         )
+        raise
 
 
 async def _handle_stories_only_item(
@@ -348,11 +352,12 @@ async def _handle_stories_only_item(
         await get_creator_account_info(config, state)
         await download_stories(config, state, mark_viewed=False)
     except Exception as exc:
-        logger.warning(
+        logger.opt(exception=exc).error(
             "daemon.runner: DownloadStoriesOnly failed for {} - {}",
             creator_name,
             exc,
         )
+        raise
 
 
 async def _handle_timeline_only_item(
@@ -373,11 +378,12 @@ async def _handle_timeline_only_item(
         await get_creator_account_info(config, state)
         await download_timeline(config, state)
     except Exception as exc:
-        logger.warning(
+        logger.opt(exception=exc).error(
             "daemon.runner: timeline-only download failed for {}: {}",
             item.creator_id,
             exc,
         )
+        raise
 
 
 # Dispatch table: WorkItem type -> handler coroutine factory
@@ -633,10 +639,29 @@ async def _worker_loop(
 
         try:
             await _handle_work_item(config, item)
+        except DaemonUnrecoverableError:
+            # ErrorBudget decided we're done — propagate to asyncio.gather
+            # so the daemon exits cleanly. task_done() still fires via finally.
+            raise
+        except Exception as exc:
+            # Handler already .opt(exception=exc).error()'d its own traceback
+            # with creator context. This is a one-line summary — no need to
+            # dump the same traceback twice. Register with ErrorBudget so a
+            # prolonged burst escalates to DaemonUnrecoverableError. Do NOT
+            # fall through to the else branch — a failed download must not
+            # call mark_creator_processed (that would advance lastCheckedAt
+            # and cause the next poll to skip the creator, silently losing
+            # new content) or budget.on_success (which would mask failure).
+            logger.error(
+                "daemon.runner: worker error on {} - {}", type(item).__name__, exc
+            )
+            if budget is not None:
+                budget.on_error(exc)
+        else:
             if budget is not None:
                 budget.on_success()
 
-            # Post-processing: following refresh + mark processed
+            # Post-processing only runs on clean handler success (try/else).
             if isinstance(item, (FullCreatorDownload, DownloadTimelineOnly)):
                 if use_following:
                     await _refresh_following(config)
@@ -646,11 +671,6 @@ async def _worker_loop(
                 item, (RedownloadCreatorMedia, CheckCreatorAccess, DownloadStoriesOnly)
             ):
                 await mark_creator_processed(item.creator_id)
-
-        except Exception as exc:
-            logger.warning(
-                "daemon.runner: worker error on {} - {}", type(item).__name__, exc
-            )
         finally:
             queue.task_done()
 

@@ -118,7 +118,13 @@ class DatabaseLogger:
 
         if record.exception is not None:
             self._stats["errors"] += 1
-            db_logger.error(f"Database error: {record.exception}")
+            # .opt(exception=...) lets loguru format the full traceback from
+            # the exception's __traceback__ instead of bare str(exception).
+            # Include a query prefix so the log entry identifies which
+            # statement failed (useful when many concurrent queries run).
+            db_logger.opt(exception=record.exception).error(
+                f"Database error on query: {record.query[:200]}"
+            )
 
         if record.elapsed > 0.1:
             self._stats["slow_queries"] += 1

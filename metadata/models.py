@@ -612,31 +612,38 @@ class FanslyObject(BaseModel):
                 # before/field validators — timestamp coercion, alias
                 # handling, relationship reconstruction, etc.)
                 # Temporarily remove from cache so handler doesn't hit
-                # this same branch recursively.
+                # this same branch recursively. Wrapped in try/finally so
+                # a handler exception can't permanently leak the entry;
+                # without this, a single validation error would cause
+                # every subsequent validate of the same ID to miss the
+                # cache and try INSERT → UniqueViolationError.
                 cls._store.invalidate(cls, cached.id)
-                validated = handler(processed, ctx)
+                try:
+                    validated = handler(processed, ctx)
 
-                # Merge only fields that were explicitly provided in the
-                # input data — skip fields that just got Pydantic defaults.
-                # This prevents API data from overwriting DB-only fields
-                # (is_downloaded, content_hash, local_filename) with defaults.
-                # We rely solely on model_fields_set — no `is not None` guard,
-                # because the API may legitimately send falsy/None values.
-                for k in cls.__tracked_fields__:
-                    if k not in validated.model_fields_set:
-                        continue
-                    new_val = getattr(validated, k, None)
-                    object.__setattr__(cached, k, new_val)
+                    # Merge only fields that were explicitly provided in the
+                    # input data — skip fields that just got Pydantic defaults.
+                    # This prevents API data from overwriting DB-only fields
+                    # (is_downloaded, content_hash, local_filename) with defaults.
+                    # We rely solely on model_fields_set — no `is not None` guard,
+                    # because the API may legitimately send falsy/None values.
+                    for k in cls.__tracked_fields__:
+                        if k not in validated.model_fields_set:
+                            continue
+                        new_val = getattr(validated, k, None)
+                        object.__setattr__(cached, k, new_val)
 
-                # Defensive: if cached was previously saved to DB (or
-                # loaded from DB), ensure _is_new stays False so the
-                # next save() does UPDATE, not INSERT.
-                if not cached._is_new:
-                    cached._is_new = False
+                    # Defensive: if cached was previously saved to DB (or
+                    # loaded from DB), ensure _is_new stays False so the
+                    # next save() does UPDATE, not INSERT.
+                    if not cached._is_new:
+                        cached._is_new = False
 
-                # Re-cache the original instance (not the temp)
-                cls._store.cache_instance(cached)
-                return cached
+                    return cached
+                finally:
+                    # Always re-cache the original instance, even if handler
+                    # raised. Keeps the identity map consistent with the DB.
+                    cls._store.cache_instance(cached)
 
         # Normal Pydantic construction (preserve context for nested validators)
         instance = handler(processed, ctx)

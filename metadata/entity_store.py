@@ -722,11 +722,29 @@ class PostgresEntityStore:
                 new_id = await conn.fetchval(sql, *values)
                 obj.id = new_id
             else:
-                # Snowflake ID or non-id PK: INSERT with provided ID
-                sql = (
-                    f"INSERT INTO {table_name} ({', '.join(col_names)}) "
-                    f"VALUES ({', '.join(placeholders)})"
-                )
+                # Snowflake ID or non-id PK: UPSERT with provided ID.
+                # ON CONFLICT DO UPDATE makes the save idempotent when the
+                # identity map and the DB disagree — e.g., cache eviction
+                # from a validation-error leak, or concurrent writes from
+                # another process/task. EXCLUDED.col refers to the row that
+                # WOULD have been inserted.
+                update_cols = [k for k in table_data if k != pk_col]
+                if update_cols:
+                    update_clause = ", ".join(
+                        f"{self._q(k)} = EXCLUDED.{self._q(k)}" for k in update_cols
+                    )
+                    sql = (
+                        f"INSERT INTO {table_name} ({', '.join(col_names)}) "
+                        f"VALUES ({', '.join(placeholders)}) "
+                        f"ON CONFLICT ({self._q(pk_col)}) "
+                        f"DO UPDATE SET {update_clause}"
+                    )
+                else:
+                    sql = (
+                        f"INSERT INTO {table_name} ({', '.join(col_names)}) "
+                        f"VALUES ({', '.join(placeholders)}) "
+                        f"ON CONFLICT ({self._q(pk_col)}) DO NOTHING"
+                    )
                 await conn.execute(sql, *values)
 
     async def _update(self, obj: FanslyObject) -> None:
