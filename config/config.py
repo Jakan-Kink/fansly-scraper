@@ -10,7 +10,6 @@ from config.loader import load_or_migrate
 from config.logging import init_logging_config, set_debug_enabled, textio_logger
 from config.schema import ConfigSchema
 from errors import ConfigError
-from helpers.browser import open_url
 
 
 def save_config_or_raise(config: FanslyConfig) -> bool:
@@ -287,39 +286,34 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
         }
 
 
-def _handle_config_error(e: Exception, config: FanslyConfig) -> None:
-    """Handle configuration errors with appropriate messages."""
+def _handle_config_error(e: Exception) -> None:
+    """Handle configuration errors with appropriate messages.
+
+    Pydantic ValidationErrors arrive here already pre-formatted by
+    ``config/schema.py::_format_validation_error`` — a multi-line human
+    readable block listing each problem with its location and suggested
+    fix. We pass that through intact. Other error types (configparser,
+    missing keys) get a short fallback message.
+    """
     error_string = str(e)
-    wiki_url = "https://github.com/prof79/fansly-downloader-ng/wiki/Explanation-of-provided-programs-&-their-functionality#4-configini"
 
     if isinstance(e, configparser.NoOptionError):
         raise ConfigError(
-            f"Your config.ini file is invalid, please download a fresh version of it from GitHub.\n{error_string}"
+            f"config.yaml is invalid — please check the file and correct the offending value.\n{error_string}"
         )
     if isinstance(e, ValueError):
+        # Pydantic-derived multi-line messages start with "N problem(s) in "
+        # — pass them through intact so the user sees each issue listed.
+        if " problem(s) in " in error_string and error_string[0].isdigit():
+            raise ConfigError(f"Configuration file needs editing:\n{error_string}")
         if "a boolean" in error_string:
-            if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
-                open_url(wiki_url)
             raise ConfigError(
-                f"'{error_string.rsplit('boolean: ')[1]}' is malformed in the configuration file! This value can only be True or False"
-                f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [1]"
+                f"'{error_string.rsplit('boolean: ')[1]}' is malformed in config.yaml — must be true or false."
             )
-        if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
-            open_url(wiki_url)
-        raise ConfigError(
-            f"You have entered a wrong value in the config.ini file -> '{error_string}'"
-            f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [2]"
-        )
+        raise ConfigError(f"Invalid value in config.yaml:\n  {error_string}")
     if isinstance(e, (KeyError, NameError)):
-        if config.interactive and not os.getenv("PYTEST_CURRENT_TEST"):
-            open_url(wiki_url)
-        raise ConfigError(
-            f"'{e}' is missing or malformed in the configuration file!"
-            f"\n{17 * ' '}Read the Wiki > Explanation of provided programs & their functionality > config.ini [3]"
-        )
-    raise ConfigError(
-        f"An error occurred while reading the configuration file: {error_string}"
-    )
+        raise ConfigError(f"'{e}' is missing or malformed in config.yaml.")
+    raise ConfigError(f"An error occurred while reading config.yaml: {error_string}")
 
 
 def load_config(config: FanslyConfig) -> None:
@@ -362,4 +356,4 @@ def load_config(config: FanslyConfig) -> None:
         save_config_or_raise(config)
 
     except (configparser.NoOptionError, ValueError, KeyError, NameError) as e:
-        _handle_config_error(e, config)
+        _handle_config_error(e)

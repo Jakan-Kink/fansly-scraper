@@ -99,7 +99,10 @@ download_directory = Local_directory
 
     with pytest.raises(ConfigError) as exc_info:
         load_config(config)
-    assert "wrong value in the config.ini file" in str(exc_info.value)
+    err_msg = str(exc_info.value)
+    # New-format error: per-field location + value must surface.
+    assert "download_mode" in err_msg
+    assert "InvalidMode" in err_msg
 
 
 @pytest.mark.asyncio
@@ -119,7 +122,9 @@ download_directory = Local_directory
 
     with pytest.raises(ConfigError) as exc_info:
         load_config(config)
-    assert "wrong value in the config.ini file" in str(exc_info.value)
+    err_msg = str(exc_info.value)
+    assert "metadata_handling" in err_msg
+    assert "InvalidHandling" in err_msg
 
 
 @pytest.mark.asyncio
@@ -178,8 +183,10 @@ interactive = NotABoolean
 
     with pytest.raises(ConfigError) as exc_info:
         load_config(config)
-    assert "malformed in the configuration file" in str(exc_info.value)
-    assert "can only be True or False" in str(exc_info.value)
+    err_msg = str(exc_info.value)
+    assert "malformed in config.yaml" in err_msg
+    assert "true or false" in err_msg
+    assert "NotABoolean" in err_msg
 
 
 @pytest.mark.asyncio

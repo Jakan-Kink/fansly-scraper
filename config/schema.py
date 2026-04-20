@@ -11,7 +11,7 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import (
     BaseModel,
@@ -19,7 +19,9 @@ from pydantic import (
     Field,
     PrivateAttr,
     SecretStr,
+    ValidationError,
     field_validator,
+    model_validator,
 )
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -39,6 +41,94 @@ def _make_yaml() -> YAML:
     y = YAML(typ="rt")
     y.preserve_quotes = True
     return y
+
+
+def _format_validation_error(exc: ValidationError, path: Path) -> str:
+    """Translate a Pydantic ValidationError into a human-readable block.
+
+    Pydantic's default ``str(exc)`` is accurate but jargon-heavy and
+    points at pydantic.dev URLs instead of telling the user what to
+    actually change. This walks ``exc.errors()`` and renders each error
+    with a type-specific message, keeping the location path
+    (``options.separate_metadata``) intact so the user knows where to
+    look. Unknown error types fall through to the Pydantic default
+    message so we don't hide information.
+
+    Each error becomes one ``- <location>: <human-readable message>``
+    line. The first line is a header with file path and error count.
+    """
+    errors = exc.errors()
+    lines = [f"{len(errors)} problem(s) in {path}:"]
+    for err in errors:
+        loc = ".".join(str(part) for part in err["loc"])
+        err_type = err["type"]
+        message = _pretty_error_message(err)
+        lines.append(f"  - {loc}: {message} (error type: {err_type})")
+    return "\n".join(lines)
+
+
+# Pydantic error-type → formatter. Each formatter takes (value, ctx) and
+# returns a human-readable sentence. Defined at module level so the
+# dispatch happens via dict lookup, avoiding the PLR0911 "too many
+# returns" cascade inside _pretty_error_message. Unknown error types
+# fall through to Pydantic's own ``msg`` so diagnostic detail is never
+# silently dropped.
+_ERROR_FORMATTERS: dict[str, Any] = {
+    "extra_forbidden": lambda value, _ctx: (
+        f"unknown key (value was {value!r}). Either a typo, a key "
+        "that belongs in a different section, or a field that was "
+        "retired in a newer version — remove the line to resolve."
+    ),
+    "missing": lambda _value, _ctx: (
+        "required field is missing. Add it or restore the default."
+    ),
+    "bool_parsing": lambda value, _ctx: f"expected true or false; got {value!r}.",
+    "int_parsing": lambda value, _ctx: f"expected a whole number; got {value!r}.",
+    "int_type": lambda value, _ctx: f"expected a whole number; got {value!r}.",
+    "float_parsing": lambda value, _ctx: f"expected a decimal number; got {value!r}.",
+    "float_type": lambda value, _ctx: f"expected a decimal number; got {value!r}.",
+    "string_type": lambda value, _ctx: f"expected non-empty text; got {value!r}.",
+    "string_too_short": lambda value, _ctx: f"expected non-empty text; got {value!r}.",
+    "enum": lambda value, ctx: (
+        f"must be one of "
+        f"{ctx.get('expected') or ctx.get('permitted') or 'a valid option'}; "
+        f"got {value!r}."
+    ),
+    "literal_error": lambda value, ctx: (
+        f"must be one of "
+        f"{ctx.get('expected') or ctx.get('permitted') or 'a valid option'}; "
+        f"got {value!r}."
+    ),
+    "url_parsing": lambda value, _ctx: f"not a valid URL: {value!r}.",
+    "url_scheme": lambda value, _ctx: f"not a valid URL: {value!r}.",
+    "url_syntax_invalid": lambda value, _ctx: f"not a valid URL: {value!r}.",
+}
+
+
+def _pretty_error_message(err: dict[str, Any]) -> str:
+    """Render one Pydantic error dict as a plain-English sentence.
+
+    Dispatches via ``_ERROR_FORMATTERS`` for known types. ``value_error``
+    (raised by field validators) gets special handling to strip
+    Pydantic's ``"Value error, "`` prefix so the validator's own
+    wording reads naturally. Unknown types return the raw Pydantic
+    ``msg`` so diagnostic detail survives.
+    """
+    err_type = err["type"]
+    value = err.get("input")
+    ctx = err.get("ctx") or {}
+
+    formatter = _ERROR_FORMATTERS.get(err_type)
+    if formatter is not None:
+        return formatter(value, ctx)
+    if err_type == "value_error":
+        # Field validators raise ValueError with a specific message.
+        # Pydantic prefixes these with "Value error, " — strip it so the
+        # validator's own wording reads naturally.
+        msg = err.get("msg", "value rejected by custom validator.")
+        return msg.removeprefix("Value error, ")
+    # Unknown error type — fall back to Pydantic's own message
+    return err.get("msg", str(err))
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +179,28 @@ class OptionsSection(BaseModel):
     """Download behaviour and output options."""
 
     model_config = ConfigDict(extra="forbid")
+
+    # Fields that existed in older config.yaml files and have since been
+    # removed. Silently dropped during load so upgrading doesn't require
+    # manual config edits. Keys added here should stay for at least one
+    # release cycle before being removed again.
+    _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            # Removed: legacy SQLite-era flag that was no-op under Postgres.
+            # _build_connection_url never used creator_name, so the flag had
+            # no effect regardless of setting. See git history for details.
+            "separate_metadata",
+        }
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired_fields(cls, data: Any) -> Any:
+        """Strip retired keys from incoming YAML/dict before extra="forbid" bites."""
+        if isinstance(data, dict):
+            for key in cls._DROPPED_FIELDS:
+                data.pop(key, None)
+        return data
 
     download_directory: str = "Local_directory"
     download_mode: DownloadMode = DownloadMode.NORMAL
@@ -362,10 +474,13 @@ class ConfigSchema(BaseModel):
 
         try:
             instance = cls.model_validate(raw)
+        except ValidationError as exc:
+            raise ValueError(_format_validation_error(exc, path)) from exc
         except Exception as exc:
-            raise ValueError(
-                f"Configuration validation error in {path}: {exc}"
-            ) from exc
+            # Non-Pydantic errors (shouldn't happen here, but keep a
+            # catch so the user still gets a message rather than a raw
+            # traceback at the top level).
+            raise ValueError(f"Configuration error in {path}: {exc}") from exc
 
         instance._yaml_map = data
         return instance

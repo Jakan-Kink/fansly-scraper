@@ -317,6 +317,111 @@ def test_metadata_handling_validator_passthrough_non_string() -> None:
     assert section.metadata_handling == MetadataHandling.SIMPLE
 
 
+def test_retired_field_separate_metadata_silently_dropped() -> None:
+    """Old config.yaml files with removed keys load cleanly.
+
+    separate_metadata was removed (legacy SQLite-era flag that was no-op
+    under Postgres). An upgrade from an older version must not fail
+    validation just because the file still carries the key — the
+    _drop_retired_fields validator strips it before extra="forbid"
+    runs. Re-add any future removed fields to _DROPPED_FIELDS.
+    """
+    section = OptionsSection.model_validate(
+        {"separate_metadata": False, "download_mode": "NORMAL"}
+    )
+    assert not hasattr(section, "separate_metadata")
+    assert section.download_mode == DownloadMode.NORMAL
+
+
+def test_retired_field_survives_true_value() -> None:
+    """The value of the retired field is irrelevant — it's dropped either way."""
+    section = OptionsSection.model_validate({"separate_metadata": True})
+    assert not hasattr(section, "separate_metadata")
+
+
+def test_unknown_non_retired_field_still_rejected() -> None:
+    """The drop list is explicit — novel unknown keys still fail validation."""
+    with pytest.raises(ValidationError):
+        OptionsSection.model_validate({"unicorn_mode": True})
+
+
+# ---------------------------------------------------------------------------
+# Error-formatter tests: verify the human-readable rendering of Pydantic errors
+# ---------------------------------------------------------------------------
+
+
+def test_validation_error_formatter_extra_forbidden(tmp_path) -> None:
+    """Unknown key error mentions the value and suggests removing the line."""
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text("options:\n  unicorn_mode: true\n")
+    with pytest.raises(ValueError) as excinfo:
+        ConfigSchema.load_yaml(yaml_path)
+    msg = str(excinfo.value)
+    assert "1 problem(s) in" in msg
+    assert "options.unicorn_mode" in msg
+    assert "unknown key" in msg
+    assert "remove the line" in msg
+
+
+def test_validation_error_formatter_bool_parsing(tmp_path) -> None:
+    """bool_parsing error tells the user true/false is expected."""
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text("options:\n  open_folder_when_finished: maybe\n")
+    with pytest.raises(ValueError) as excinfo:
+        ConfigSchema.load_yaml(yaml_path)
+    msg = str(excinfo.value)
+    assert "options.open_folder_when_finished" in msg
+    assert "expected true or false" in msg
+    assert "maybe" in msg
+
+
+def test_validation_error_formatter_int_parsing(tmp_path) -> None:
+    """int_parsing error asks for a whole number."""
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text("options:\n  timeline_retries: not_a_number\n")
+    with pytest.raises(ValueError) as excinfo:
+        ConfigSchema.load_yaml(yaml_path)
+    msg = str(excinfo.value)
+    assert "options.timeline_retries" in msg
+    assert "expected a whole number" in msg
+
+
+def test_validation_error_formatter_multiple_errors(tmp_path) -> None:
+    """Multiple problems all surface — no early-return on the first."""
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        "options:\n"
+        "  open_folder_when_finished: maybe\n"
+        "  timeline_retries: not_a_number\n"
+        "  unicorn_mode: true\n"
+    )
+    with pytest.raises(ValueError) as excinfo:
+        ConfigSchema.load_yaml(yaml_path)
+    msg = str(excinfo.value)
+    assert "3 problem(s) in" in msg
+    assert "options.open_folder_when_finished" in msg
+    assert "options.timeline_retries" in msg
+    assert "options.unicorn_mode" in msg
+
+
+def test_validation_error_formatter_value_error_strips_prefix(tmp_path) -> None:
+    """Field validators raising ValueError shouldn't show 'Value error, ' prefix."""
+
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text("options:\n  download_mode: bogus_mode\n")
+    with pytest.raises(ValueError) as excinfo:
+        ConfigSchema.load_yaml(yaml_path)
+    msg = str(excinfo.value)
+    assert "options.download_mode" in msg
+    assert "not a valid DownloadMode" in msg
+    # The Pydantic "Value error, " prefix should be stripped
+    assert "Value error, " not in msg
+
+
 # ---------------------------------------------------------------------------
 # Test 10: load_yaml on empty YAML file returns all-defaults schema
 # ---------------------------------------------------------------------------

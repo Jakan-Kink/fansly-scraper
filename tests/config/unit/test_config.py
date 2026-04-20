@@ -193,7 +193,12 @@ download_mode = InvalidMode
 
     with pytest.raises(ConfigError) as exc_info:
         load_config(config)
-    assert "wrong value in the config.ini file" in str(exc_info.value)
+    err_msg = str(exc_info.value)
+    # New error format (ValidationError via load_yaml) OR the legacy
+    # configparser path — either way, the failing field + value must
+    # appear in the surfaced error.
+    assert "download_mode" in err_msg
+    assert "InvalidMode" in err_msg.lower() or "invalidmode" in err_msg.lower()
 
 
 def test_token_validation(config):
