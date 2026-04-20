@@ -367,31 +367,31 @@ async def main(config: FanslyConfig) -> int:
     if config.reverse_order:
         print_info("Processing creators in reverse order")
 
-    creators_progress = get_progress_manager()
-    if len(creators_list) > 1:
-        creators_progress.add_task(
-            name="creators",
-            description="Processing creators",
-            total=len(creators_list),
-            show_elapsed=True,
-        )
-
-    for creator_name in creators_list:
+    progress_mgr = get_progress_manager()
+    with progress_mgr.session():
+        creators_progress = progress_mgr
         if len(creators_list) > 1:
-            creators_progress.update_task(
-                "creators",
-                advance=0,
-                description=f"Creator: {creator_name}",
+            creators_progress.add_task(
+                name="creators",
+                description="Processing creators",
+                total=len(creators_list),
+                show_elapsed=True,
             )
-        with Timer(creator_name):
-            try:
-                state = DownloadState(creator_name=creator_name)
 
+        for creator_name in creators_list:
+            if len(creators_list) > 1:
+                creators_progress.update_task(
+                    "creators",
+                    advance=0,
+                    description=f"Creator: {creator_name}",
+                )
+            with Timer(creator_name):
                 try:
-                    creator_start_monotonic = monotonic()
-                    progress_mgr = get_progress_manager()
+                    state = DownloadState(creator_name=creator_name)
 
-                    with progress_mgr.session(auto_cleanup=True):
+                    try:
+                        creator_start_monotonic = monotonic()
+
                         print_download_info(config)
 
                         await get_creator_account_info(config, state)
@@ -404,7 +404,6 @@ async def main(config: FanslyConfig) -> int:
                             DownloadMode.STASH_ONLY,
                         ):
                             await dedupe_init(config, state)
-                            # await dedupe_init(config, state)
 
                         # Download mode:
                         # Normal: Downloads Timeline + Messages one after another.
@@ -486,10 +485,7 @@ async def main(config: FanslyConfig) -> int:
                         if config.stash_context_conn is not None:
                             from stash import StashProcessing
 
-                            # Create processor using factory method
                             stash_processor = StashProcessing.from_config(config, state)
-
-                            # Run initial processing and wait for background tasks
                             await stash_processor.start_creator_processing()
 
                             # Wait for background processing to complete
@@ -498,36 +494,32 @@ async def main(config: FanslyConfig) -> int:
                                     await stash_processor._background_task
                                 except Exception as e:
                                     print_error(f"Background processing failed: {e}")
-                                    # Continue to next creator even if background processing fails
                                     exit_code = SOME_USERS_FAILED
 
-                            # Clean up processor
                             await stash_processor.cleanup()
-                        monitor_semaphores(threshold=20)  # Warn if too many semaphores
-                        cleanup_semaphores(
-                            r"/mp-.*"
-                        )  # Clean up multiprocessing semaphores
+                        monitor_semaphores(threshold=20)
+                        cleanup_semaphores(r"/mp-.*")
 
+                    finally:
+                        # Log creator processing time
+                        creator_elapsed = monotonic() - creator_start_monotonic
+                        print_info(
+                            f"Completed processing @{state.creator_name} in {creator_elapsed:.1f}s"
+                        )
+
+                # Still continue if one creator failed
+                except ApiAccountInfoError as e:
+                    print_error(str(e))
+                    input_enter_continue(config.interactive)
+                    exit_code = SOME_USERS_FAILED
+
+                # Advance creator progress regardless of success/failure
                 finally:
-                    # Log creator processing time
-                    creator_elapsed = monotonic() - creator_start_monotonic
-                    print_info(
-                        f"Completed processing @{state.creator_name} in {creator_elapsed:.1f}s"
-                    )
+                    if len(creators_list) > 1:
+                        creators_progress.update_task("creators", advance=1)
 
-            # Still continue if one creator failed
-            except ApiAccountInfoError as e:
-                print_error(str(e))
-                input_enter_continue(config.interactive)
-                exit_code = SOME_USERS_FAILED
-
-            # Advance creator progress regardless of success/failure
-            finally:
-                if len(creators_list) > 1:
-                    creators_progress.update_task("creators", advance=1)
-
-    if len(creators_list) > 1:
-        creators_progress.remove_task("creators")
+        if len(creators_list) > 1:
+            creators_progress.remove_task("creators")
 
     timer.stop()
 
