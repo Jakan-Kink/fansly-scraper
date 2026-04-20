@@ -385,8 +385,17 @@ class ProgressManager:
         return self._groups[group_name]
 
     def _build_renderable(self) -> Group:
-        """Build the Group renderable for Live display."""
-        return Group(*self._groups.values())
+        """Build the Group renderable for Live display.
+
+        Only non-empty Progress groups are included so the Live block
+        stays tight and stable-height over active groups only. Empty
+        groups would still render structural overhead per refresh,
+        inflating the frame and interacting badly with terminal
+        scrollback when log output coincides with Live refreshes.
+        Called on every Live refresh via ``get_renderable=``.
+        """
+        active = [p for p in self._groups.values() if p.task_ids]
+        return Group(*active) if active else Group()
 
     @contextlib.contextmanager
     def session(self, auto_cleanup: bool = True) -> Iterator[None]:
@@ -404,7 +413,7 @@ class ProgressManager:
             self._session_count += 1
             if self.live is None:
                 self.live = Live(
-                    self._build_renderable(),
+                    get_renderable=self._build_renderable,
                     console=self.console,
                     refresh_per_second=30,
                 )
