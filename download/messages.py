@@ -19,7 +19,6 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
     state.download_type = DownloadType.MESSAGES
 
     print_info("Initiating Messages procedure. Standby for results.")
-    print()
 
     groups_response = config.get_api().get_group()
 
@@ -78,8 +77,6 @@ async def download_messages(config: FanslyConfig, state: DownloadState) -> None:
                         print_info(
                             f"Skipped {skipped_downloads} already downloaded media item{'' if skipped_downloads == 1 else 's'}."
                         )
-
-                    print()
 
                     # get next cursor
                     try:

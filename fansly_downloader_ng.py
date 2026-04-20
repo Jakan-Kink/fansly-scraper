@@ -13,8 +13,6 @@ import signal
 import sys
 import time
 import traceback
-
-# from memory_profiler import profile
 from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
 from time import monotonic
@@ -82,7 +80,6 @@ from textio import (
 from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 
-# Enforce minimum stash-graphql-client version
 def _check_stash_library_version() -> None:
     stash_version = pkg_version("stash-graphql-client")
     major, minor = (int(x) for x in stash_version.split(".")[:2])
@@ -94,13 +91,6 @@ def _check_stash_library_version() -> None:
 
 
 _check_stash_library_version()
-
-
-# tell PIL to be tolerant of files that are truncated
-# ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-# turn off for our purpose unnecessary PIL safety features
-# Image.MAX_IMAGE_PIXELS = None
 
 
 async def _safe_cleanup_database(config: FanslyConfig) -> None:
@@ -121,34 +111,29 @@ async def _safe_cleanup_database(config: FanslyConfig) -> None:
         return
 
     try:
-        # Add timeout for database cleanup
-        cleanup_timeout = 30  # 30 seconds timeout for cleanup
+        cleanup_timeout = 30
         try:
             await asyncio.wait_for(config._database.cleanup(), timeout=cleanup_timeout)
             print_info("Database connections closed successfully.")
         except TimeoutError:
             print_error(f"Database cleanup timed out after {cleanup_timeout} seconds")
             try:
-                # Force sync cleanup as last resort
                 config._database.close_sync()
             except Exception as force_e:
                 print_error(f"Forced cleanup also failed: {force_e}")
         except Exception as detail_e:
             print_error(f"Detailed error during database cleanup: {detail_e}")
             try:
-                # Try sync cleanup as fallback
                 config._database.close_sync()
             except Exception as sync_e:
                 print_error(f"Sync cleanup also failed: {sync_e}")
     except Exception as e:
         print_error(f"Error closing database connections: {e}")
         with contextlib.suppress(Exception):
-            # One final attempt with sync cleanup
             config._database.close_sync()
 
-    # Always check for leaked semaphores as a safety measure
     with contextlib.suppress(Exception):
-        monitor_semaphores(threshold=20)  # Monitor for leaked semaphores
+        monitor_semaphores(threshold=20)
 
 
 async def cleanup_database(config: FanslyConfig) -> None:
@@ -311,8 +296,6 @@ async def main(config: FanslyConfig) -> int:
             "Internal error - user name and download mode should not be empty after validation."
         )
 
-    print()
-
     # Check semaphores before database initialization
     monitor_semaphores(threshold=20)  # Check what semaphores exist before DB init
 
@@ -325,7 +308,6 @@ async def main(config: FanslyConfig) -> int:
     await config._database.create_entity_store()
     # Register cleanup function to ensure database is closed on exit
     atexit.register(cleanup_database_sync, config)
-    print()
 
     # Set up and print API information
     await config.setup_api()
@@ -348,8 +330,6 @@ async def main(config: FanslyConfig) -> int:
     await load_client_account_into_db(config, state, client_user_name)
 
     global_download_state = GlobalState()
-
-    print()
 
     # If no usernames specified or --use-following flag is set, get client account info and following list
     if not config.user_names or config.use_following:
@@ -417,7 +397,6 @@ async def main(config: FanslyConfig) -> int:
                         await get_creator_account_info(config, state)
 
                         print_info(f"Download mode is: {config.download_mode_str()}")
-                        print()
 
                         # Special treatment for deviating folder names later
                         if config.download_mode not in (
@@ -516,11 +495,7 @@ async def main(config: FanslyConfig) -> int:
                             # Wait for background processing to complete
                             if stash_processor._background_task:
                                 try:
-                                    # print_info(
-                                    #     "Waiting for background processing to complete..."
-                                    # )
                                     await stash_processor._background_task
-                                    # print_info("Background processing complete")
                                 except Exception as e:
                                     print_error(f"Background processing failed: {e}")
                                     # Continue to next creator even if background processing fails
@@ -833,26 +808,21 @@ async def _async_main(config: FanslyConfig) -> int:
         # Run main program
         exit_code = await main(config)
     except KeyboardInterrupt:
-        print()
         print_error("Program interrupted by user")
         exit_code = EXIT_ABORT
         # Make sure we don't try to raise KeyboardInterrupt again in cleanup
         if hasattr(_handle_interrupt, "interrupted"):
             print_info("Starting cleanup after interruption...")
     except ApiError as e:
-        print()
         print_error(str(e))
         exit_code = API_ERROR
     except ConfigError as e:
-        print()
         print_error(str(e))
         exit_code = CONFIG_ERROR
     except DownloadError as e:
-        print()
         print_error(str(e))
         exit_code = DOWNLOAD_ERROR
     except Exception as e:
-        print()
         print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
     finally:

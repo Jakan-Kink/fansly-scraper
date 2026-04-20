@@ -98,17 +98,13 @@ class StashProcessingBase(StashProcessingProtocol):
         self._owns_db = _owns_db
         self.log = logging.getLogger(__name__)
 
-        # Per-creator cached lookups — set in continue_stash_processing(),
-        # cleared in its finally block. Eliminates redundant GraphQL calls
-        # when processing batches for the same creator.
+        # Per-creator cached lookups — set/cleared in continue_stash_processing()
         self._account: Account | None = None
         self._performer: Performer | None = None
         self._studio: Studio | None = None
         self._stash_parent_task: str | None = None
 
-        # Media code indexes — built during _preload_creator_media(),
-        # enable O(1) lookups by media_id extracted from filenames.
-        # Pattern: {date}_at_{time}_UTC_id_{media_id}.{ext}
+        # Media code indexes — filename pattern: {date}_at_{time}_UTC_id_{media_id}.{ext}
         self._scene_code_index: dict[str, list[Scene]] = defaultdict(list)
         self._image_code_index: dict[str, list[Image]] = defaultdict(list)
 
@@ -137,8 +133,7 @@ class StashProcessingBase(StashProcessingProtocol):
         logger.info("Preloading shared Stash entities into identity map...")
 
         try:
-            # Shared entities — never expire, preload all
-            # Use find_iter() to avoid the 1000-result limit on find()
+            # find_iter() avoids the 1000-result limit on find()
             for entity_type in (Performer, Tag, Studio):
                 self.store.set_ttl(entity_type, None)
                 count = 0
@@ -153,7 +148,6 @@ class StashProcessingBase(StashProcessingProtocol):
         except Exception as e:
             logger.warning(f"Failed to preload entities (continuing anyway): {e}")
 
-        # Log cache state after shared entity preload
         stats = self.store.cache_stats()
         logger.info(
             f"Cache after shared preload: {stats.total_entries} entries "
@@ -177,7 +171,6 @@ class StashProcessingBase(StashProcessingProtocol):
         path_filter = str(self.state.base_path).rstrip("/")
         logger.info(f"Preloading creator media from: {path_filter}")
 
-        # Clear indexes before rebuilding
         self._scene_code_index.clear()
         self._image_code_index.clear()
 
@@ -198,10 +191,8 @@ class StashProcessingBase(StashProcessingProtocol):
                 self._index_image_files(image)
             logger.info(f"Preloaded {image_count} images")
 
-            # Galleries are metadata-only containers (no file path) — they're
-            # looked up by code (post ID) on demand and cached individually.
-            # Preloading all galleries is counterproductive: it loads the entire
-            # library and pulls in scene references via the GraphQL fragment.
+            # Galleries have no file path — looked up by code on demand.
+            # Preloading all galleries pulls in scene references via the fragment.
 
         except Exception as e:
             logger.warning(f"Failed to preload creator media (continuing anyway): {e}")
@@ -211,7 +202,6 @@ class StashProcessingBase(StashProcessingProtocol):
             f"{len(self._image_code_index)} image codes"
         )
 
-        # Log cache state after creator media preload
         stats = self.store.cache_stats()
         logger.info(
             f"Cache after creator preload: {stats.total_entries} entries "
@@ -305,10 +295,10 @@ class StashProcessingBase(StashProcessingProtocol):
             config=config,
             state=state_copy,
             context=context,
-            database=config._database,  # Use existing database instance
+            database=config._database,
             _background_task=None,
             _cleanup_event=asyncio.Event(),
-            _owns_db=False,  # We don't own the database
+            _owns_db=False,
         )
         return instance
 
@@ -320,7 +310,6 @@ class StashProcessingBase(StashProcessingProtocol):
                 self.state.download_path = set_create_directory_for_download(
                     self.config, self.state
                 )
-                # Update base_path to use the created download_path for scanning
                 self.state.base_path = self.state.download_path
                 print_info(f"Created download path: {self.state.download_path}")
             except Exception as e:
@@ -391,19 +380,14 @@ class StashProcessingBase(StashProcessingProtocol):
         )
         warnings.filterwarnings("always", category=StashUnmappedFieldWarning)
 
-        # Preload global entities (performers, tags, studios) into the store
-        # cache BEFORE any processing starts. Without this, every lookup
-        # hits GraphQL.
         await self._preload_stash_entities()
 
-        # scan_creator_folder() sets base_path AND triggers the Stash scan
-        # that discovers files. _preload_creator_media() must run AFTER so
-        # it can build the media-code index from the scanned results.
+        # _preload_creator_media() must run AFTER scan_creator_folder()
+        # so it can index the files the scan discovers.
         await self.scan_creator_folder()
         await self._preload_creator_media()
         account, performer = await self.process_creator()
 
-        # Continue processing in background with proper task management
         loop = asyncio.get_running_loop()
         self._background_task = loop.create_task(
             self._safe_background_processing(account, performer)

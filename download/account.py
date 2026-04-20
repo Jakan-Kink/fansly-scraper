@@ -186,7 +186,6 @@ def _update_state_from_account(
         )
 
         print_info(f"Targeted creator: '{state.creator_name}'")
-        print()
 
 
 async def get_creator_account_info(
@@ -248,12 +247,10 @@ async def get_creator_account_info(
             (w.id, w.pos, w.name, w.description) for w in preloaded_account.walls
         )
 
-    # Persist via Pydantic pipeline — model_validate handles nested
-    # timelineStats, mediaStoryState, walls, avatar, banner.
-    # This MERGES API data into preloaded cache (overwrites fetchedAt etc.)
+    # process_account_data MERGES API data into preloaded cache
+    # (overwrites fetchedAt etc.) — hence the pre-merge snapshots above.
     await process_account_data(config=config, data=account_data, state=state)
 
-    # Retrieve the Account object from identity map
     account = await store.get(Account, account_id)
     if account is None:
         raise ApiAccountInfoError(
@@ -329,7 +326,7 @@ async def _make_rate_limited_request(
             response = request_func(*args, **kwargs)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:  # Rate limited
+            if e.response.status_code == 429:
                 print_info(f"Rate limited, waiting {rate_limit_delay} seconds...")
                 await asyncio.sleep(rate_limit_delay)
                 continue
@@ -359,7 +356,6 @@ async def _get_following_page(
     Returns:
         Tuple of (account list, number of accounts)
     """
-    # Get list of account IDs
     response = await _make_rate_limited_request(
         config.get_api().get_following_list,
         rate_limit_delay=30.0,
@@ -372,7 +368,6 @@ async def _get_following_page(
     json_output(1, f"following_list_page_{page}", response.json())
     following_data = config.get_api().get_json_response_contents(response)
 
-    # Extract account IDs
     account_ids = [
         item["accountId"]
         for item in following_data
@@ -382,10 +377,8 @@ async def _get_following_page(
     if not account_ids:
         return [], 0
 
-    # Wait before next request
     await asyncio.sleep(request_delay)
 
-    # Get account details
     account_response = await _make_rate_limited_request(
         config.get_api().get_account_info_by_id,
         account_ids,
@@ -463,12 +456,10 @@ async def get_following_accounts(
         total = len(following_accounts)
         print_info(f"Found {total} followed accounts")
 
-        # Reverse list if requested
         if config.reverse_order:
             following_accounts = list(reversed(following_accounts))
             print_info("Processing accounts in reverse order")
 
-        # Process accounts and collect usernames
         usernames = set()
 
         for i, account_data in enumerate(following_accounts, 1):

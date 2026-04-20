@@ -83,6 +83,26 @@ class DaemonDashboard:
             total=None,
             group="daemon_state",
         )
+        # Pre-create all four countdown tasks at session entry so Rich's
+        # Live display has a stable-height panel from the first refresh.
+        # Per-iteration add_task calls work via the "update if exists"
+        # fallback but produce slightly different write patterns that
+        # interact badly with tmux scrollback capture. mymember-downloader
+        # (source of rich_progress.py) creates tasks once and only
+        # update()s afterward — matching that pattern here.
+        for task_name, desc in (
+            (TASK_TIMELINE, "Timeline poll"),
+            (TASK_STORY, "Story poll"),
+            (TASK_SIMULATOR, "Simulator tick"),
+            (TASK_FOLLOWING, "Following refresh"),
+        ):
+            self._progress.add_task(
+                task_name,
+                desc,
+                total=1,
+                group="daemon",
+                show_elapsed=False,
+            )
         return self
 
     async def __aexit__(
@@ -121,6 +141,23 @@ class DaemonDashboard:
             _STATE_TASK, advance=0, description=self._format_status_line()
         )
 
+    # ── Poll-in-progress transition ──────────────────────────────────
+
+    def mark_active(self, task_name: str, description: str) -> None:
+        """Swap in an "actively working" description on the countdown bar.
+
+        Called by poll loops between ``wait_with_countdown`` returning
+        and the actual API call firing. The bar stays at 100% (the state
+        wait_with_countdown left it in) while the description changes to
+        indicate work is running, then the next ``wait_with_countdown``
+        call resets it to 0% + original description.
+
+        Mirrors the poll_scheduler pattern in mymember-downloader where
+        the bar visibly transitions from "timer expired" to "work
+        happening" to "next countdown" as distinct states.
+        """
+        self._progress.update_task(task_name, advance=0, description=description)
+
     # ── Countdown helper ─────────────────────────────────────────────
 
     async def wait_with_countdown(
@@ -144,12 +181,16 @@ class DaemonDashboard:
         # Centiseconds for 100ms resolution without integer truncation
         total_ticks = max(1, int(duration * 10))
 
-        self._progress.add_task(
+        # Task was pre-created in __aenter__. Reset its counters + swap
+        # in the current description/total in one update call. No
+        # add_task here — that path creates churn in Rich's Live diff
+        # that produces duplicate-bar artifacts in tmux scrollback.
+        self._progress.update_task(
             task_name,
-            description,
+            advance=0,
+            description=description,
             total=total_ticks,
-            group="daemon",
-            show_elapsed=False,
+            completed=0,
         )
 
         events: Iterable[asyncio.Event] = (
@@ -223,6 +264,13 @@ class NullDashboard:
         return None
 
     def set_ws_state(self, connected: bool) -> None:  # noqa: ARG002
+        return None
+
+    def mark_active(
+        self,
+        task_name: str,  # noqa: ARG002
+        description: str,  # noqa: ARG002
+    ) -> None:
         return None
 
     async def wait_with_countdown(

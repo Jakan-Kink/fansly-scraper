@@ -92,7 +92,6 @@ class InterceptHandler(logging.Handler):
             # from coverage.py's SQLite connection being held in call stack
             del frame
             if exc_info:
-                # Clear traceback reference which holds all exception frames
                 del exc_info
             record.exc_info = None
 
@@ -126,7 +125,6 @@ class SQLAlchemyInterceptHandler(logging.Handler):
             # from coverage.py's SQLite connection being held in call stack
             del frame
             if exc_info:
-                # Clear traceback reference which holds all exception frames
                 del exc_info
             record.exc_info = None
 
@@ -221,7 +219,6 @@ def _auto_bind_logger(record: Any) -> Any:
     maintaining textio binding for direct loguru imports.
     """
     if "logger" not in record["extra"]:
-        # Check if this is a SQLAlchemy-related logger
         logger_name = record.get("name", "")
         if (
             logger_name.startswith(("sqlalchemy.", "asyncpg"))
@@ -241,7 +238,6 @@ logger.patch(_auto_bind_logger)
 # This prevents any early console output before init_logging_config is called
 def _early_sqlalchemy_suppression() -> None:
     """Suppress SQLAlchemy console output as early as possible."""
-    # Immediately disable console output for all SQLAlchemy/Alembic loggers
     sqlalchemy_loggers = [
         "sqlalchemy.engine",
         "sqlalchemy.engine.Engine",
@@ -268,7 +264,6 @@ def _early_sqlalchemy_suppression() -> None:
         sql_logger.addHandler(logging.NullHandler())
 
 
-# Run early suppression immediately
 _early_sqlalchemy_suppression()
 
 
@@ -295,8 +290,6 @@ def setup_handlers() -> None:
     3. stash_logger - Stash-specific logs
     4. db_logger - Database operation logs
     """
-    # Note: We read from global _handler_ids but don't modify it here
-
     # Remove any existing handlers
     for handler_id, (_handler, file_handler) in list(_handler_ids.items()):
         try:
@@ -563,7 +556,7 @@ def set_debug_enabled(enabled: bool) -> None:
     """Set the global debug flag."""
     global _debug_enabled
     _debug_enabled = enabled
-    update_logging_config(_config, enabled)  # Update logging config
+    update_logging_config(_config, enabled)
 
 
 def get_log_level(logger_name: str, default: str = "INFO") -> int:
@@ -632,8 +625,8 @@ def update_logging_config(config: Any, enabled: bool) -> None:
     if not isinstance(config, FanslyConfig):
         raise TypeError("config must be an instance of FanslyConfig")
     global _config, _debug_enabled
-    _config = config  # Update config reference
-    _debug_enabled = enabled  # Update debug flag
+    _config = config
+    _debug_enabled = enabled
 
     # Configure asyncio debug logging
     if enabled:

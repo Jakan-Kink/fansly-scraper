@@ -57,8 +57,6 @@ def validate_creator_names(config: FanslyConfig) -> bool:
             config.user_names.add(validated_name)
             list_changed = True
 
-    print()
-
     # Save any potential changes
     if list_changed:
         save_config_or_raise(config)
@@ -356,7 +354,6 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
     textio_logger.warning(
         "!!! FANSLY MAY BAN YOU FOR USING THIS SOFTWARE, BE WARNED !!!"
     )
-    print()
 
     if config.user_agent:
         from helpers.checkkey import guess_check_key
@@ -372,12 +369,10 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
             textio_logger.info(
                 f"Check key guessed from Fansly homepage: `{config.check_key}`"
             )
-            print()
 
             return
 
         textio_logger.warning("Web retrieval of check key failed!")
-        print()
 
     textio_logger.warning(
         f"Make sure, checking the main.js sources of the Fansly homepage, "

@@ -115,10 +115,12 @@ def get_token_from_firefox_db(
                 sqlite_file_name, interactive
             )  # recursively restart function
 
-        print(f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}")
+        textio_logger.error(
+            f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}"
+        )
 
     except Exception:
-        print(
+        textio_logger.error(
             f"Unexpected Error parsing Firefox SQLite databases:\n{traceback.format_exc()}"
         )
 

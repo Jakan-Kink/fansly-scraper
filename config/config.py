@@ -330,7 +330,6 @@ def load_config(config: FanslyConfig) -> None:
     set_debug_enabled(config.debug)
 
     textio_logger.opt(depth=1).log("INFO", "Reading configuration file ...")
-    print()
 
     config_dir = Path.cwd()
 

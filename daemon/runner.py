@@ -396,7 +396,6 @@ async def _handle_timeline_only_item(
         raise
 
 
-# Dispatch table: WorkItem type -> handler coroutine factory
 _WORK_DISPATCH: dict[type[WorkItem], Any] = {
     DownloadMessagesForGroup: _handle_messages_item,
     FullCreatorDownload: _handle_full_creator_item,
@@ -530,6 +529,7 @@ async def _timeline_poll_loop(
         if not simulator.should_poll:
             continue
 
+        dashboard.mark_active(TASK_TIMELINE, "Timeline poll: fetching...")
         try:
             new_creator_ids, posts_by_creator = await poll_home_timeline(config)
             budget.on_success()
@@ -605,6 +605,7 @@ async def _story_poll_loop(
         if not simulator.should_poll:
             continue
 
+        dashboard.mark_active(TASK_STORY, "Story poll: fetching...")
         try:
             creator_ids = await poll_story_states(config)
             budget.on_success()
@@ -770,9 +771,9 @@ async def _following_refresh_loop(
             break
 
         if simulator.state == "hidden":
-            # Still hidden — don't poll, wait again
             continue
 
+        dashboard.mark_active(TASK_FOLLOWING, "Following refresh: fetching...")
         try:
             state = DownloadState()
             new_names = await get_following_accounts(config, state)
@@ -827,6 +828,7 @@ async def _simulator_tick_loop(
         if stop_event.is_set():
             break
 
+        dashboard.mark_active(TASK_SIMULATOR, "Simulator tick: advancing...")
         transition = simulator.tick()
         if transition is not None:
             logger.info(
@@ -1161,7 +1163,6 @@ async def _run_daemon_body(
             worker_task.cancel()
             await asyncio.gather(worker_task, return_exceptions=True)
 
-        # Stop the WebSocket connection
         try:
             await ws.stop()
         except Exception as exc:

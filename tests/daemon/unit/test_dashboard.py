@@ -170,6 +170,52 @@ class TestDashboardState:
 
 
 # ---------------------------------------------------------------------------
+# DaemonDashboard — mark_active (countdown-done → work-active transition)
+# ---------------------------------------------------------------------------
+
+
+class TestMarkActive:
+    """mark_active swaps the description without disturbing the bar state."""
+
+    @pytest.mark.asyncio
+    async def test_mark_active_updates_description(self, progress_manager):
+        """The task's description field is updated to the new value."""
+        dashboard = DaemonDashboard(progress=progress_manager)
+        async with dashboard:
+            dashboard.mark_active(TASK_TIMELINE, "Timeline poll: fetching...")
+            fields = progress_manager.get_task_fields(TASK_TIMELINE)
+            # get_task_fields returns the task's .fields dict, which
+            # doesn't include description. Read via internal Rich Task
+            # to confirm the description swap landed.
+            task_id = progress_manager.active_tasks[TASK_TIMELINE]
+            task = progress_manager._groups["daemon"]._tasks[task_id]
+            assert "fetching" in task.description
+
+    @pytest.mark.asyncio
+    async def test_mark_active_preserves_completed(self, progress_manager):
+        """mark_active doesn't reset the bar fill — just the description."""
+        dashboard = DaemonDashboard(progress=progress_manager)
+        async with dashboard:
+            # Drive the bar to 100% with a pre-set stop_event
+            stop_event = asyncio.Event()
+            stop_event.set()
+            await dashboard.wait_with_countdown(
+                TASK_TIMELINE, "Timeline poll", 1.0, stop_event
+            )
+            # Bar should be at completed=total_ticks after triggered_early
+            task_id = progress_manager.active_tasks[TASK_TIMELINE]
+            task = progress_manager._groups["daemon"]._tasks[task_id]
+            completed_before = task.completed
+
+            dashboard.mark_active(TASK_TIMELINE, "Timeline poll: fetching...")
+
+            # completed unchanged — only description moved
+            task_after = progress_manager._groups["daemon"]._tasks[task_id]
+            assert task_after.completed == completed_before
+            assert "fetching" in task_after.description
+
+
+# ---------------------------------------------------------------------------
 # DaemonDashboard — wait_with_countdown semantics
 # ---------------------------------------------------------------------------
 
@@ -399,5 +445,7 @@ class TestDashboardPolymorphism:
             triggered = await dashboard.wait_with_countdown(
                 TASK_TIMELINE, "Timeline poll", 60.0, stop_event
             )
+            # Active-work transition must also be callable on both
+            dashboard.mark_active(TASK_TIMELINE, "Timeline poll: fetching...")
 
         assert triggered is True

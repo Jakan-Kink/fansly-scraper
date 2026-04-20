@@ -95,7 +95,6 @@ async def download_timeline(
             and use_pagination_duplication is True
     """
     print_info("Executing Timeline functionality...")
-    print()
 
     # This is important for directory creation later on.
     state.download_type = DownloadType.TIMELINE
@@ -104,12 +103,15 @@ async def download_timeline(
     timeline_cursor = 0
     attempts = 0
 
-    # Reliable short-circuit: creator's TimelineStats counts + wall
-    # structure are both identical to DB → no new content, no need to
-    # scan. Set by download.account.get_creator_account_info.
     if state.creator_content_unchanged:
+        # Credit skipped items to duplicate_count so the final summary
+        # reports them correctly — we never touched them individually,
+        # but counts matched, so they're all known-in-DB duplicates.
+        skipped = state.total_timeline_pictures + state.total_timeline_videos
+        state.duplicate_count += skipped
         print_info(
-            "Skipping Timeline download — creator counts and wall structure unchanged."
+            f"Skipping Timeline download — creator counts and wall structure "
+            f"unchanged ({skipped} items already in DB, counted as duplicates)."
         )
         return
 
@@ -195,8 +197,6 @@ async def download_timeline(
                         f"Skipped {state.current_batch_duplicates} already downloaded media item{'' if state.current_batch_duplicates == 1 else 's'}."
                     )
 
-                print()
-
                 # get next timeline_cursor
                 try:
                     # Slow down to avoid the Fansly rate-limit which was introduced in late August 2023
@@ -229,7 +229,6 @@ async def download_timeline(
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
-            print()
             e._handled = True
             break  # Break out of the loop to stop processing this timeline
 

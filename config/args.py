@@ -599,7 +599,6 @@ def _handle_debug_settings(args: argparse.Namespace, config: FanslyConfig) -> No
 
     if args.debug:
         textio_logger.opt(depth=1).log("DEBUG", f"Args: {args}")
-        print()
 
 
 def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
@@ -644,7 +643,6 @@ def _handle_user_settings(args: argparse.Namespace, config: FanslyConfig) -> boo
         textio_logger.opt(depth=1).log(
             "DEBUG", f"`config.username` is: {config.user_names}"
         )
-        print()
 
     return config_overridden
 
