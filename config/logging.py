@@ -175,7 +175,13 @@ _CUSTOM_LEVELS = {
         "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
         "color": "<blue>",
         "rich_style": "blue",
-        "icon": "ℹ️",  # noqa: RUF001
+        # U+1F4A1 LIGHT BULB (EA=W, single codepoint in supplementary
+        # plane). Replaces the canonical INFORMATION SOURCE glyph
+        # (U+2139 + U+FE0F) whose width depends on whether the
+        # terminal honors the variation selector — inconsistent over
+        # SSH/tmux and the cause of the INFO-line misalignment we
+        # saw earlier.
+        "icon": "💡",
     },
     "ERROR": {
         "name": "ERROR",
@@ -189,7 +195,11 @@ _CUSTOM_LEVELS = {
         "no": _LEVEL_VALUES["WARNING"],  # 30 (WARNING)
         "color": "<yellow>",
         "rich_style": "yellow",
-        "icon": "⚠️",
+        # U+1F6A8 POLICE CAR LIGHT (EA=W, single codepoint in
+        # supplementary plane). Replaces the canonical WARNING SIGN
+        # glyph (U+26A0 + U+FE0F) — same variation-selector width
+        # ambiguity as INFO above.
+        "icon": "🚨",
     },
     "INFO_HIGHLIGHT": {
         "name": "-INFO-",
