@@ -11,7 +11,6 @@ from helpers.common import get_post_id_from_request, is_valid_post_id
 
 from .config import parse_items_from_line, sanitize_creator_names
 from .fanslyconfig import FanslyConfig
-from .metadatahandling import MetadataHandling
 from .modes import DownloadMode
 
 
@@ -306,16 +305,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         dest="use_pagination_duplication",
         help="Check each page for duplicates during pagination.",
-    )
-    parser.add_argument(
-        "-mh",
-        "--metadata-handling",
-        required=False,
-        default=None,
-        type=str,
-        dest="metadata_handling",
-        help="How to handle media EXIF metadata. "
-        "Supported strategies: Advanced (Default), Simple",
     )
     parser.add_argument(
         "-tr",
@@ -684,22 +673,6 @@ def _handle_download_mode(
     return config_overridden, download_mode_set
 
 
-def _handle_metadata_settings(args: argparse.Namespace, config: FanslyConfig) -> bool:
-    """Handle metadata settings and return if config was overridden."""
-    if args.metadata_handling is None:
-        return False
-
-    handling = args.metadata_handling.strip().lower()
-    try:
-        config.metadata_handling = MetadataHandling(handling)
-    except ValueError:
-        raise ConfigError(
-            f"Argument error - '{handling}' is not a valid metadata handling strategy."
-        )
-    else:
-        return True
-
-
 def _handle_path_settings(
     args: argparse.Namespace, config: FanslyConfig, attr_name: str
 ) -> bool:
@@ -883,7 +856,6 @@ def map_args_to_config(args: argparse.Namespace, config: FanslyConfig) -> bool:
     if mode_set:
         download_mode_set = True
 
-    _handle_metadata_settings(args, config)
     _handle_not_none_settings(args, config)
     _handle_boolean_settings(args, config)
     _handle_unsigned_ints(args, config)

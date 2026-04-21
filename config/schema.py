@@ -27,7 +27,6 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.error import YAMLError
 
-from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 
 
@@ -190,6 +189,8 @@ class OptionsSection(BaseModel):
             # _build_connection_url never used creator_name, so the flag had
             # no effect regardless of setting. See git history for details.
             "separate_metadata",
+            # Removed: no runtime code branches on SIMPLE vs ADVANCED.
+            "metadata_handling",
         }
     )
 
@@ -204,12 +205,6 @@ class OptionsSection(BaseModel):
 
     download_directory: str = "Local_directory"
     download_mode: DownloadMode = DownloadMode.NORMAL
-    # DEPRECATED: No runtime code branches on SIMPLE vs ADVANCED — this
-    # setting is a fossil from the original project. Kept for backward
-    # compatibility with existing config.ini files; safe to remove once
-    # all users have migrated to YAML and no one complains about its
-    # absence. Do NOT add new branches on this value.
-    metadata_handling: MetadataHandling = MetadataHandling.ADVANCED
     show_downloads: bool = True
     show_skipped_downloads: bool = True
     download_media_previews: bool = True
@@ -245,14 +240,6 @@ class OptionsSection(BaseModel):
         """Accept any case spelling, e.g. 'normal', 'NORMAL', 'Normal'."""
         if isinstance(v, str):
             return DownloadMode(v.upper())
-        return v
-
-    @field_validator("metadata_handling", mode="before")
-    @classmethod
-    def _coerce_metadata_handling(cls, v: Any) -> MetadataHandling:
-        """Accept any case spelling, e.g. 'advanced', 'ADVANCED'."""
-        if isinstance(v, str):
-            return MetadataHandling(v.upper())
         return v
 
 
@@ -554,7 +541,7 @@ def _python_to_yaml_value(dump_value: Any, raw_attr: Any) -> Any:
     """Convert a Python value to a YAML-safe form.
 
     - ``SecretStr`` → plain string (the secret text)
-    - ``DownloadMode`` / ``MetadataHandling`` → string value
+    - ``DownloadMode`` → string value
     - ``datetime`` → pass through (ruamel.yaml rt mode serialises natively)
     - ``list[tuple[int, int]]`` → list of lists
     - Everything else: pass through
@@ -562,7 +549,7 @@ def _python_to_yaml_value(dump_value: Any, raw_attr: Any) -> Any:
     # SecretStr: use the actual secret value
     if isinstance(raw_attr, SecretStr):
         return raw_attr.get_secret_value()
-    if isinstance(raw_attr, (DownloadMode, MetadataHandling)):
+    if isinstance(raw_attr, DownloadMode):
         return str(raw_attr)
     # datetime: pass through unchanged — ruamel.yaml rt mode handles it natively
     if isinstance(raw_attr, datetime):

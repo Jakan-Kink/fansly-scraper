@@ -12,7 +12,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from config.config import load_config
-from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from config.schema import ConfigSchema
 from errors import ConfigError
@@ -67,22 +66,6 @@ async def test_config_with_download_modes(temp_config_dir, config):
 
 
 @pytest.mark.asyncio
-async def test_config_with_metadata_handling(temp_config_dir, config):
-    """Each MetadataHandling mode round-trips through config.yaml correctly."""
-    yaml_path = temp_config_dir / "config.yaml"
-
-    for mode in MetadataHandling:
-        schema = ConfigSchema()
-        schema.options.metadata_handling = mode
-        schema.dump_yaml(yaml_path)
-
-        fresh_config = config.__class__(program_version=config.program_version)
-        load_config(fresh_config)
-        assert fresh_config.metadata_handling == mode
-        assert fresh_config.metadata_handling_str() == mode.name.capitalize()
-
-
-@pytest.mark.asyncio
 async def test_config_with_invalid_mode(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 
@@ -103,28 +86,6 @@ download_directory = Local_directory
     # New-format error: per-field location + value must surface.
     assert "download_mode" in err_msg
     assert "InvalidMode" in err_msg
-
-
-@pytest.mark.asyncio
-async def test_config_with_invalid_metadata_handling(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
-
-    # Test invalid metadata handling
-    with config_path.open("w") as f:
-        f.write(
-            """[Options]
-download_mode = Normal
-metadata_handling = InvalidHandling
-interactive = True
-download_directory = Local_directory
-"""
-        )
-
-    with pytest.raises(ConfigError) as exc_info:
-        load_config(config)
-    err_msg = str(exc_info.value)
-    assert "metadata_handling" in err_msg
-    assert "InvalidHandling" in err_msg
 
 
 @pytest.mark.asyncio

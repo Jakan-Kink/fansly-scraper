@@ -394,9 +394,6 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
         parser, opts_section, "download_directory", fallback="Local_directory"
     )
     download_mode = _get_str(parser, opts_section, "download_mode", fallback="Normal")
-    metadata_handling = _get_str(
-        parser, opts_section, "metadata_handling", fallback="Advanced"
-    )
     show_downloads = _get_bool(parser, opts_section, "show_downloads", fallback=True)
     show_skipped_downloads = _get_bool(
         parser, opts_section, "show_skipped_downloads", fallback=True
@@ -597,7 +594,6 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
         "options": {
             "download_directory": download_directory,
             "download_mode": download_mode,
-            "metadata_handling": metadata_handling,
             "show_downloads": show_downloads,
             "show_skipped_downloads": show_skipped_downloads,
             "download_media_previews": download_media_previews,

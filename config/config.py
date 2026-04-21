@@ -173,7 +173,6 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.download_directory = Path(opts.download_directory)
 
     config.download_mode = opts.download_mode
-    config.metadata_handling = opts.metadata_handling
 
     # Booleans
     config.download_media_previews = opts.download_media_previews

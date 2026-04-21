@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from config.schema import (
     ConfigSchema,
@@ -311,12 +310,6 @@ def test_download_mode_rejects_invalid_string() -> None:
         OptionsSection(download_mode="bogus_mode")  # type: ignore[arg-type]
 
 
-def test_metadata_handling_validator_passthrough_non_string() -> None:
-    """When metadata_handling is already a MetadataHandling instance, it passes through."""
-    section = OptionsSection(metadata_handling=MetadataHandling.SIMPLE)
-    assert section.metadata_handling == MetadataHandling.SIMPLE
-
-
 def test_retired_field_separate_metadata_silently_dropped() -> None:
     """Old config.yaml files with removed keys load cleanly.
 
@@ -337,6 +330,20 @@ def test_retired_field_survives_true_value() -> None:
     """The value of the retired field is irrelevant — it's dropped either way."""
     section = OptionsSection.model_validate({"separate_metadata": True})
     assert not hasattr(section, "separate_metadata")
+
+
+def test_retired_field_metadata_handling_silently_dropped() -> None:
+    """metadata_handling was removed — no runtime code branches on it.
+
+    Legacy YAML/INI files carry ``metadata_handling: Advanced`` everywhere;
+    the _drop_retired_fields validator strips the key before extra="forbid"
+    rejects it.
+    """
+    section = OptionsSection.model_validate(
+        {"metadata_handling": "Advanced", "download_mode": "NORMAL"}
+    )
+    assert not hasattr(section, "metadata_handling")
+    assert section.download_mode == DownloadMode.NORMAL
 
 
 def test_unknown_non_retired_field_still_rejected() -> None:

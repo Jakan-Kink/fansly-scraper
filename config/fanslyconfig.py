@@ -12,7 +12,6 @@ from pydantic import SecretStr
 from stash_graphql_client import StashClient, StashContext
 
 from api import FanslyApi
-from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from config.schema import (
     CacheSection,
@@ -92,8 +91,6 @@ class FanslyConfig:
     download_mode: DownloadMode = DownloadMode.NORMAL
     download_directory: Path | None = None
     download_media_previews: bool = True
-    # "Advanced" | "Simple"
-    metadata_handling: MetadataHandling = MetadataHandling.ADVANCED
     open_folder_when_finished: bool = True
     separate_messages: bool = True
     separate_previews: bool = False
@@ -285,10 +282,6 @@ class FanslyConfig:
         """Gets the string representation of `download_mode`."""
         return str(self.download_mode).capitalize()
 
-    def metadata_handling_str(self) -> str:
-        """Gets the string representation of `metadata_handling`."""
-        return str(self.metadata_handling).capitalize()
-
     def _load_raw_config(self) -> list[str]:
         """Legacy stub — config loading is now handled by ``load_or_migrate``."""
         return []
@@ -450,7 +443,6 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
     base.options = OptionsSection(
         download_directory=str(config.download_directory or "Local_directory"),
         download_mode=config.download_mode,
-        metadata_handling=config.metadata_handling,
         show_downloads=config.show_downloads,
         show_skipped_downloads=config.show_skipped_downloads,
         download_media_previews=config.download_media_previews,

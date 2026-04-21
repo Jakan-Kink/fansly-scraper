@@ -419,15 +419,6 @@ async def main(config: FanslyConfig) -> int:
                         ):
                             await dedupe_init(config, state)
 
-                        # Download mode:
-                        # Normal: Downloads Timeline + Messages one after another.
-                        # Timeline: Scrapes only the creator's timeline content.
-                        # Messages: Scrapes only the creator's messages content.
-                        # Wall: Scrapes only the creator's wall content.
-                        # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
-                        # Collection: Download all content listed within the "Purchased Media Collection"
-                        # STASH_ONLY: Only process Stash metadata, skip downloading media.
-
                         if config.download_mode == DownloadMode.SINGLE:
                             await download_single_post(config, state)
 

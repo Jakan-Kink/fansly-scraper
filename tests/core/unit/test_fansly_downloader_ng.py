@@ -153,7 +153,6 @@ def mock_args():
     args.authorization_token = None
     args.user_agent = None
     args.check_key = None
-    args.metadata_handling = "simple"
     args.download_mode_single = None
     args.download_mode_collection = None
     args.download_mode_messages = None

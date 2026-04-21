@@ -15,7 +15,6 @@ import pytest
 
 from api import FanslyApi
 from config.fanslyconfig import FanslyConfig
-from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 
 
@@ -60,7 +59,6 @@ class TestFanslyConfig:
         assert config.debug is False
         assert config.trace is False
         assert config.download_mode == DownloadMode.NORMAL
-        assert config.metadata_handling == MetadataHandling.ADVANCED
         # _schema replaces _parser — no _parser attribute
         assert not hasattr(config, "_parser")
         assert config._schema is None
@@ -83,14 +81,6 @@ class TestFanslyConfig:
 
         config.download_mode = DownloadMode.TIMELINE
         assert config.download_mode_str() == "Timeline"
-
-    def test_metadata_handling_str(self, config):
-        """Test metadata_handling_str method."""
-        config.metadata_handling = MetadataHandling.ADVANCED
-        assert config.metadata_handling_str() == "Advanced"
-
-        config.metadata_handling = MetadataHandling.SIMPLE
-        assert config.metadata_handling_str() == "Simple"
 
     def test_save_config_writes_yaml(self, config, config_path, tmp_path):
         """Test _save_config writes a YAML file via schema.dump_yaml."""

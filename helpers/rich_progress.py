@@ -601,16 +601,6 @@ def get_progress_manager() -> ProgressManager:
     return _progress_manager
 
 
-# Legacy compatibility function (for migration period)
-def get_active_tqdm_count() -> int:
-    """Legacy function for compatibility during migration.
-
-    Returns:
-        Number of active progress tasks
-    """
-    return _progress_manager.get_active_count()
-
-
 def get_rich_console() -> Console:
     """Get the global Rich console instance.
 

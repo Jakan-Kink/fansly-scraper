@@ -29,7 +29,6 @@ from pathlib import Path
 from factory import Factory, LazyAttribute, LazyFunction
 
 from config import FanslyConfig
-from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 
 
@@ -100,8 +99,6 @@ class FanslyConfigFactory(Factory):
     download_path = LazyFunction(lambda: Path("/tmp/test_downloads"))  # noqa: S108
     local_directory = LazyAttribute(lambda o: str(o.download_path))
 
-    # Metadata handling
-    metadata_handling = MetadataHandling.ADVANCED
     # PostgreSQL settings - default to safe non-existent database
     # This prevents accidental connections to production/test databases
     pg_host = LazyFunction(lambda: os.getenv("FANSLY_PG_HOST", "localhost"))

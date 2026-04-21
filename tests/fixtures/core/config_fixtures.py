@@ -214,7 +214,6 @@ def complete_args():
         separate_previews=False,
         use_duplicate_threshold=False,
         use_pagination_duplication=False,
-        metadata_handling=None,
         timeline_retries=None,
         timeline_delay_seconds=None,
         api_max_retries=None,

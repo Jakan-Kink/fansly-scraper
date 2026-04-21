@@ -208,21 +208,10 @@ async def get_creator_account_info(
         else account_data["id"]
     )
 
-    # Capture DB snapshots BEFORE process_account_data merges API data
-    # into the identity map. Two independent signals are captured:
-    #
-    #   db_fetched_at — used by the existing fetched_timeline_duplication
-    #     path. Kept for backwards compatibility; noted unreliable because
-    #     TimelineStats.fetchedAt is server cache-regeneration metadata
-    #     (see project_monitoring_optimizations memory) — we keep the
-    #     signal wired but rely on the stronger check below.
-    #
-    #   db_stats_snapshot / db_wall_signature — capture the preloaded
-    #     content state (counts + wall structure). Compared below against
-    #     the merged API values to set creator_content_unchanged. These
-    #     fields DO change with real creator activity (posts added/removed,
-    #     walls added/deleted/renamed/reordered), so the combination is
-    #     reliable where fetchedAt alone is not.
+    # Capture DB snapshots BEFORE process_account_data merges the API
+    # response. fetchedAt alone is unreliable (server cache-regeneration
+    # metadata, not creator activity); stats + wall structure together
+    # reflect real content changes and drive creator_content_unchanged.
     db_fetched_at = None
     if config.use_duplicate_threshold:
         preloaded_stats = store.get_from_cache(TimelineStats, account_id)

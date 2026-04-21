@@ -12,7 +12,6 @@ from config.args import (
     _handle_boolean_settings,
     _handle_debug_settings,
     _handle_download_mode,
-    _handle_metadata_settings,
     _handle_monitoring_settings,
     _handle_path_settings,
     _handle_unsigned_ints,
@@ -55,7 +54,6 @@ def args():
         download_mode_timeline=False,
         download_mode_collection=False,
         download_mode_single=None,
-        metadata_handling=None,
         download_directory=None,
         token=None,
         user_agent=None,
@@ -308,19 +306,6 @@ def test_handle_download_mode_all_modes(config_with_path, args):
     override, mode_set = _handle_download_mode(args, config_with_path)
     assert override is False
     assert mode_set is False
-
-
-def test_handle_metadata_settings(config_with_path, args):
-    """Lines 623-636: None → False; valid → True; invalid → ConfigError."""
-    assert _handle_metadata_settings(args, config_with_path) is False
-
-    args.metadata_handling = "simple"
-    assert _handle_metadata_settings(args, config_with_path) is True
-    args.metadata_handling = None
-
-    args.metadata_handling = "nonexistent"
-    with pytest.raises(ConfigError, match="not a valid metadata handling"):
-        _handle_metadata_settings(args, config_with_path)
 
 
 def test_handle_path_settings_branches(config_with_path, args):
