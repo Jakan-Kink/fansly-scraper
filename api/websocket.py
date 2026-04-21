@@ -15,14 +15,19 @@ import json
 import ssl
 from collections.abc import Callable
 from contextlib import suppress
+from http.cookies import SimpleCookie
 from types import TracebackType
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from websockets import client as ws_client
 from websockets.exceptions import WebSocketException
 
 from config.logging import websocket_logger as logger
 from helpers.timer import timing_jitter
+
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class FanslyWebSocket:
@@ -102,21 +107,38 @@ class FanslyWebSocket:
         on_rate_limited: Callable[[], Any] | None = None,
         monitor_events: bool = False,
         base_url: str | None = None,
+        http_client: httpx.Client | None = None,
     ) -> None:
         """Initialize Fansly WebSocket client.
 
         Args:
             token: Fansly authentication token
             user_agent: User agent string to use for the connection
-            cookies: Optional cookies dict to send with connection
+            cookies: Optional cookies dict to send with connection. Used as
+                the backing store when ``http_client`` is not provided
+                (test path). When ``http_client`` IS provided, this dict
+                is ignored — cookies are read live from the client's jar
+                on every connect/reconnect (HTTP → WS direction).
             enable_logging: Enable detailed debug logging (default: False)
             on_unauthorized: Callback function to call on 401 error (logout)
             on_rate_limited: Callback function to call on 429 error (rate limit)
             monitor_events: Log all received events for protocol discovery (default: False)
             base_url: WebSocket server URL (default: wss://wsv3.fansly.com)
+            http_client: Optional shared ``httpx.Client`` whose cookie jar
+                is used bidirectionally. On connect/reconnect the
+                Cookie header is rebuilt from the jar (HTTP → WS
+                direction). Incoming Set-Cookie headers on the
+                WebSocket upgrade response are written back into the
+                same jar (WS → HTTP direction), so the API and WS stay
+                in sync as Fansly rotates session/check-key cookies.
+                Pass ``None`` in tests to use the static ``cookies`` dict.
         """
         self.token = token
         self.user_agent = user_agent
+        self.http_client = http_client
+        # Frozen dict path — only consulted when http_client is None.
+        # When http_client is set, _current_cookies() reads fresh from
+        # the jar on every call, so this value becomes unused.
         self.cookies = cookies or {}
         self.enable_logging = enable_logging
         self.on_unauthorized = on_unauthorized
@@ -168,15 +190,83 @@ class FanslyWebSocket:
         }
         return json.dumps(message)
 
+    def _current_cookies(self) -> dict[str, str]:
+        """Return the cookie snapshot to use for the next connect/reconnect.
+
+        When ``http_client`` is set (production path) this reads live from
+        the shared httpx jar, so cookie rotations made by HTTP requests
+        during the session are reflected in the next WS handshake.
+        When ``http_client`` is None (test path) it falls back to the
+        frozen ``cookies`` dict passed at construction.
+
+        Returns:
+            {cookie_name: cookie_value} for the current connection.
+        """
+        if self.http_client is None:
+            return dict(self.cookies)
+        # httpx.Cookies iteration yields Cookie objects via .jar —
+        # mirror the pattern api/fansly.py uses to build its snapshot.
+        return {c.name: c.value for c in self.http_client.cookies.jar}
+
     def _create_cookie_header(self) -> str:
-        """Create Cookie header from cookies dict.
+        """Create Cookie header from the current cookie snapshot.
 
         Returns:
             Cookie header string (e.g., "key1=value1; key2=value2")
         """
-        if not self.cookies:
+        current = self._current_cookies()
+        if not current:
             return ""
-        return "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+        return "; ".join(f"{k}={v}" for k, v in current.items())
+
+    def _absorb_response_cookies(self, response_headers: Any) -> None:
+        """Propagate Set-Cookie headers from the WS upgrade into the HTTP jar.
+
+        websockets' ClientProtocol exposes the HTTP response headers that
+        completed the upgrade. If Fansly rotates a cookie as part of the
+        upgrade (e.g., refreshing a session-binding cookie), we push
+        those values back into the shared httpx jar so subsequent HTTP
+        requests send the updated values. This is the WS → HTTP leg of
+        bidirectional cookie sync.
+
+        No-op when ``http_client`` is None (test path) or when the
+        response headers object does not expose Set-Cookie entries.
+
+        Args:
+            response_headers: Mapping-like object from the WebSocket
+                upgrade response (``websocket.response_headers``).
+        """
+        if self.http_client is None or response_headers is None:
+            return
+        # websockets < 12 exposes response_headers as a multi-dict; use
+        # get_all if available, else fall back to a single get() lookup.
+        get_all = getattr(response_headers, "get_all", None)
+        raw_values = (
+            get_all("Set-Cookie")
+            if callable(get_all)
+            else [response_headers.get("Set-Cookie")]
+        )
+        for raw in raw_values or []:
+            if not raw:
+                continue
+            # SimpleCookie parses a single Set-Cookie header line into
+            # morsels we can then push into the httpx jar. This handles
+            # the attribute-laden form (path, domain, expires, ...)
+            # that websockets won't pre-parse for us.
+            parsed = SimpleCookie()
+            try:
+                parsed.load(raw)
+            except Exception as exc:
+                logger.debug("WS Set-Cookie parse failed: {} ({})", raw, exc)
+                continue
+            for name, morsel in parsed.items():
+                self.http_client.cookies.set(
+                    name,
+                    morsel.value,
+                    domain=morsel["domain"] or "fansly.com",
+                    path=morsel["path"] or "/",
+                )
+                logger.trace("WS absorbed cookie {}={}", name, morsel.value)
 
     def register_handler(
         self,
@@ -791,6 +881,14 @@ class FanslyWebSocket:
             self._last_ping_response = (
                 asyncio.get_event_loop().time()
             )  # JS: lastPingResponse_ = Date.now()
+
+            # WS → HTTP cookie sync: absorb any Set-Cookie headers from
+            # the upgrade response back into the shared httpx jar so the
+            # API layer sees the latest values on its next HTTP request.
+            self._absorb_response_cookies(
+                getattr(self.websocket, "response_headers", None)
+            )
+
             logger.info("WebSocket connection established")
 
             # Send authentication message

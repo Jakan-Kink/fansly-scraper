@@ -34,7 +34,7 @@ import json
 import signal
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
 from loguru import logger
@@ -65,6 +65,10 @@ from daemon.handlers import (
 from daemon.polling import poll_home_timeline, poll_story_states
 from daemon.simulator import ActivitySimulator
 from daemon.state import mark_creator_processed
+
+
+if TYPE_CHECKING:
+    from daemon.bootstrap import DaemonBootstrap
 from download.core import (
     DownloadState,
     download_messages,
@@ -949,6 +953,7 @@ async def run_daemon(
     *,
     ws_factory: Any = None,
     stop_event: asyncio.Event | None = None,
+    bootstrap: DaemonBootstrap | None = None,
 ) -> int:
     """Enter the monitoring loop.
 
@@ -978,6 +983,12 @@ async def run_daemon(
         ws_factory: Optional callable returning a FanslyWebSocket-compatible
             object.  Defaults to creating a real FanslyWebSocket from config.
             Inject a stub in tests.
+        bootstrap: Optional pre-sync bootstrap produced by
+            ``daemon.bootstrap.bootstrap_daemon_ws``. When provided, the
+            daemon reuses its ws/queue/simulator (already filled with
+            delta events) instead of constructing fresh ones. Production
+            callers from ``fansly_downloader_ng.py`` pass one; tests
+            usually pass None to exercise the stand-alone path.
 
     Returns:
         Exit code: EXIT_SUCCESS (0) or DAEMON_UNRECOVERABLE (-8).
@@ -995,15 +1006,22 @@ async def run_daemon(
     if stop_event is None:
         stop_event = asyncio.Event()
     refresh_event = asyncio.Event()
-    queue: asyncio.Queue[WorkItem] = asyncio.Queue()
 
-    simulator = ActivitySimulator()
+    # Reuse bootstrap collaborators when available so events queued
+    # during initial sync carry over into daemon processing.
+    if bootstrap is not None:
+        queue = bootstrap.queue
+        simulator = bootstrap.simulator
+        baseline_consumed = bootstrap.baseline_consumed
+    else:
+        queue = asyncio.Queue()
+        simulator = ActivitySimulator()
+        baseline_consumed = set()
+
     budget = ErrorBudget(
         timeout_seconds=config.unrecoverable_error_timeout_seconds,
     )
-
     session_baseline = config.monitoring_session_baseline
-    baseline_consumed: set[int] = set()
 
     # ---- Dashboard ----
     # Enter the dashboard first so WebSocket startup/failure shows up on
@@ -1022,6 +1040,7 @@ async def run_daemon(
             session_baseline=session_baseline,
             baseline_consumed=baseline_consumed,
             dashboard=dashboard,
+            bootstrap=bootstrap,
         )
 
 
@@ -1037,27 +1056,43 @@ async def _run_daemon_body(
     session_baseline: datetime | None,
     baseline_consumed: set[int],
     dashboard: DaemonDashboard | NullDashboard,
+    bootstrap: DaemonBootstrap | None = None,
 ) -> int:
     """Daemon body — extracted from ``run_daemon`` so the dashboard's async
     context manager can wrap the entire lifecycle cleanly. All parameters are
     already-constructed collaborators, not user-facing config.
     """
     # ---- WebSocket setup ----
-    ws: Any = (ws_factory or _make_ws)(config)
-    ws.register_handler(
-        FanslyWebSocket.MSG_SERVICE_EVENT,
-        _make_ws_handler(simulator, queue, budget),
-    )
-    try:
-        await ws.start_background()
-        dashboard.set_ws_state(True)
-        ws_logger.info("daemon.runner: WebSocket started")
-    except Exception as exc:
-        dashboard.set_ws_state(False)
-        ws_logger.warning(
-            "daemon.runner: WebSocket failed to start (continuing without WS) - {}",
-            exc,
+    # When a bootstrap is supplied, reuse its already-started WS and just
+    # re-register the handler with a budget-aware closure. Otherwise
+    # build a fresh WS (legacy path for tests / non-bootstrapped callers).
+    if bootstrap is not None and bootstrap.ws_started:
+        ws: Any = bootstrap.ws
+        ws.register_handler(
+            FanslyWebSocket.MSG_SERVICE_EVENT,
+            _make_ws_handler(simulator, queue, budget),
         )
+        dashboard.set_ws_state(True)
+        ws_logger.info(
+            "daemon.runner: reusing bootstrap WebSocket (session_id={})",
+            getattr(ws, "session_id", None),
+        )
+    else:
+        ws = (ws_factory or _make_ws)(config)
+        ws.register_handler(
+            FanslyWebSocket.MSG_SERVICE_EVENT,
+            _make_ws_handler(simulator, queue, budget),
+        )
+        try:
+            await ws.start_background()
+            dashboard.set_ws_state(True)
+            ws_logger.info("daemon.runner: WebSocket started")
+        except Exception as exc:
+            dashboard.set_ws_state(False)
+            ws_logger.warning(
+                "daemon.runner: WebSocket failed to start (continuing without WS) - {}",
+                exc,
+            )
 
     # ---- SIGINT handler ----
     # loop.add_signal_handler replaces Python's default SIGINT handler

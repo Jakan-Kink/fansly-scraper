@@ -29,6 +29,12 @@ from config.args import (  # Keep in args to avoid circular imports
     map_args_to_config,
     parse_args,
 )
+from daemon.bootstrap import (
+    DaemonBootstrap,
+    bootstrap_daemon_ws,
+    drain_backfill,
+    shutdown_bootstrap,
+)
 from daemon.runner import run_daemon
 from download.core import (
     DownloadState,
@@ -313,6 +319,14 @@ async def main(config: FanslyConfig) -> int:
     await config.setup_api()
     api = config.get_api()
 
+    # Attach the daemon's delta-capture handler to the API's WebSocket so
+    # service events (PPV purchases, new follows, new DMs, subscription
+    # confirms) arriving during the initial sync are captured into a
+    # queue instead of dropped. After the sync completes we drain the
+    # queue via drain_backfill(); if daemon_mode is on, the daemon reuses
+    # the same queue/simulator/ws to continue processing live events.
+    bootstrap: DaemonBootstrap = await bootstrap_daemon_ws(config)
+
     print_info(f"Token: {config.token}")
     print_info(f"Check Key: {config.check_key}")
     print_info(
@@ -375,7 +389,7 @@ async def main(config: FanslyConfig) -> int:
                 name="creators",
                 description="Processing creators",
                 total=len(creators_list),
-                show_elapsed=True,
+                group="status",
             )
 
         for creator_name in creators_list:
@@ -659,8 +673,21 @@ async def main(config: FanslyConfig) -> int:
     monitor_semaphores(threshold=20)  # Warn if too many semaphores
     cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
+    # CBT-delta apply: process WS events captured during the initial
+    # sync. Downstream handlers dedup against the database, so items
+    # covering content sync already grabbed are idempotent.
+    await drain_backfill(config, bootstrap)
+
     if config.daemon_mode:
-        exit_code = await run_daemon(config)
+        # Hand bootstrap to the daemon — it reuses the same WS/queue/
+        # simulator and re-registers the handler with a budget-aware
+        # closure for continuous monitoring.
+        exit_code = await run_daemon(config, bootstrap=bootstrap)
+    else:
+        # Detach the handler — no consumer, no point letting the queue
+        # keep growing. The WS itself is torn down by the normal
+        # cleanup path via config._api.close_websocket().
+        await shutdown_bootstrap(bootstrap)
 
     return exit_code
 

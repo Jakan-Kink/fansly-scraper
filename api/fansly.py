@@ -540,18 +540,17 @@ class FanslyApi:
             await self._websocket_client.stop()
             self._websocket_client = None
 
-        # Create new WebSocket client with current session cookies
+        # Create new WebSocket client with shared cookie jar. Passing
+        # http_client= establishes bidirectional cookie sync: the WS
+        # reads live from self.http_session.cookies.jar on every
+        # connect/reconnect (HTTP → WS), and writes Set-Cookie values
+        # from the upgrade response back into the same jar (WS → HTTP).
         logger.info("Starting persistent WebSocket connection for anti-detection")
-
-        # Extract cookies as dict for WebSocket client
-        cookies_dict = {}
-        for cookie in self.http_session.cookies.jar:
-            cookies_dict[cookie.name] = cookie.value
 
         self._websocket_client = FanslyWebSocket(
             token=self.token,
             user_agent=self.user_agent,
-            cookies=cookies_dict,
+            http_client=self.http_session,
             enable_logging=False,  # Set to True for debugging
             on_unauthorized=self._handle_websocket_unauthorized,
             on_rate_limited=self._handle_websocket_rate_limited,

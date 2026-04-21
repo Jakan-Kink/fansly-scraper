@@ -387,15 +387,15 @@ class ProgressManager:
     def _build_renderable(self) -> Group:
         """Build the Group renderable for Live display.
 
-        Only non-empty Progress groups are included so the Live block
-        stays tight and stable-height over active groups only. Empty
-        groups would still render structural overhead per refresh,
-        inflating the frame and interacting badly with terminal
-        scrollback when log output coincides with Live refreshes.
-        Called on every Live refresh via ``get_renderable=``.
+        Includes all Progress groups unconditionally — empty Progress
+        instances render as zero rows and do not disturb sibling
+        positions. Swapping children in/out per frame (conditional
+        filtering) destabilises Live's frame skeleton and produces
+        scrollback churn in tmux. Called once at session start and the
+        same Group object is handed to Live; group internals manage
+        their own add/remove deltas.
         """
-        active = [p for p in self._groups.values() if p.task_ids]
-        return Group(*active) if active else Group()
+        return Group(*self._groups.values())
 
     @contextlib.contextmanager
     def session(self, auto_cleanup: bool = True) -> Iterator[None]:
@@ -413,7 +413,7 @@ class ProgressManager:
             self._session_count += 1
             if self.live is None:
                 self.live = Live(
-                    get_renderable=self._build_renderable,
+                    self._build_renderable(),
                     console=self.console,
                     refresh_per_second=30,
                 )
