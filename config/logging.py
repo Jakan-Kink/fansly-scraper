@@ -369,8 +369,20 @@ def setup_handlers() -> None:
 
         # RichHandler handles its own coloring — disable loguru's ANSI injection
         use_colorize = False
-    except Exception:
-        # Fallback to raw stdout if Rich integration fails for any reason
+    except Exception as exc:
+        # Fallback to raw stdout if Rich integration fails for any reason.
+        # We must surface *why* — raw stdout bypasses the ProgressManager's
+        # Live display and log lines collide with progress bars mid-frame,
+        # producing the striped/duplicated-bar symptom in terminals. A
+        # silent fallback hides this until someone reads the output.
+        import traceback as _tb
+
+        print(
+            f"[logging] RichHandler setup failed — falling back to plain stdout "
+            f"(bars will jitter). Cause: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        _tb.print_exc(file=sys.stderr)
         console_sink = sys.stdout
         format_record = "<level>{level.icon} {level.name:>8}</level> | <white>{time:HH:mm:ss.SS}</white> <level>|</level><light-white>| {message}</light-white>"
         use_colorize = True
