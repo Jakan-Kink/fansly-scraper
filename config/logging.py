@@ -140,48 +140,69 @@ _LEVEL_VALUES = {
     "CRITICAL": 50,  # Critical errors
 }
 
-# Custom level definitions with colors, mapped to standard level numbers
+# Custom level definitions with colors, mapped to standard level numbers.
+#
+# Each level carries TWO color strings because loguru and Rich disagree on
+# naming conventions:
+#
+#   * ``color`` is loguru markup with hyphens and angle brackets
+#     (e.g. ``<light-magenta>``, ``<red><bold>``).
+#   * ``rich_style`` is a Rich style string with underscores
+#     (e.g. ``bright_magenta``, ``bold red``).
+#
+# Storing them as separate fields avoids runtime translation and lets the
+# palette script (``scripts/color_palette.py``) show both forms side by
+# side. Keep them semantically equivalent — the goal is for a log line
+# to look identical under loguru's direct ANSI path and under the
+# Rich-integrated path. See the script for the full palette reference.
 _CUSTOM_LEVELS = {
     "CONFIG": {
         "name": "CONFIG",
         "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
-        "color": "<light-magenta>",
+        "color": "<magenta>",
+        "rich_style": "magenta",
         "icon": "🔧",
     },
     "DEBUG": {
         "name": "DEBUG",
         "no": _LEVEL_VALUES["DEBUG"],  # 10 (DEBUG)
-        "color": "<light-red>",
+        "color": "<red>",
+        "rich_style": "red",
         "icon": "🔍",
     },
     "INFO": {
         "name": "INFO",
         "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
-        "color": "<light-blue>",
+        "color": "<blue>",
+        "rich_style": "blue",
         "icon": "ℹ️",  # noqa: RUF001
     },
     "ERROR": {
         "name": "ERROR",
         "no": _LEVEL_VALUES["ERROR"],  # 40 (ERROR)
         "color": "<red><bold>",
+        "rich_style": "bold red",
         "icon": "❌",
     },
     "WARNING": {
         "name": "WARNING",
         "no": _LEVEL_VALUES["WARNING"],  # 30 (WARNING)
         "color": "<yellow>",
+        "rich_style": "yellow",
         "icon": "⚠️",
     },
     "INFO_HIGHLIGHT": {
         "name": "-INFO-",
         "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
-        "color": "<light-cyan><bold>",
+        "color": "<cyan><bold>",
+        "rich_style": "bold cyan",
         "icon": "✨",
     },
     "UPDATE": {
         "name": "UPDATE",
         "no": _LEVEL_VALUES["SUCCESS"],  # 25 (SUCCESS)
         "color": "<green>",
+        "rich_style": "green",
         "icon": "📦",
     },
 }
@@ -189,11 +210,40 @@ _CUSTOM_LEVELS = {
 # Remove default handler
 logger.remove()
 
-# Register custom levels with loguru
+# Register (or update) custom levels with loguru.
+#
+# Loguru refuses ``logger.level(name, no=X, ...)`` whenever the level
+# already exists — even when X matches the built-in's existing ``no`` —
+# with ``ValueError: Level 'DEBUG' already exists, you can't update its
+# severity no``. We therefore split the call into two paths:
+#
+#   * New level names (CONFIG, -INFO-, UPDATE) → create with full params.
+#   * Existing built-ins (DEBUG/INFO/WARNING/ERROR/SUCCESS/CRITICAL/TRACE)
+#     → omit ``no`` so loguru treats it as an update of color+icon only.
+#
+# Before this split, a blanket ``contextlib.suppress(ValueError)`` hid
+# the raise and every built-in level kept loguru's default color instead
+# of the one declared in _CUSTOM_LEVELS, which is why DEBUG rendered
+# blue in the console even though it was marked ``<light-red>`` here.
 for level_data in _CUSTOM_LEVELS.values():
-    with contextlib.suppress(TypeError, ValueError):
+    name = level_data["name"]
+    try:
+        logger.level(name)  # arg-less call: exists? returns it; missing? ValueError
+        level_exists = True
+    except ValueError:
+        level_exists = False
+
+    if level_exists:
+        # Update path — only color+icon may change; ``no`` is immutable.
         logger.level(
-            level_data["name"],
+            name,
+            color=level_data["color"],
+            icon=level_data["icon"],
+        )
+    else:
+        # Create path — first registration of this name.
+        logger.level(
+            name,
             no=level_data["no"],
             color=level_data["color"],
             icon=level_data["icon"],
@@ -346,10 +396,14 @@ def setup_handlers() -> None:
     try:
         from helpers.rich_progress import create_rich_handler
 
+        # Rich's Theme/Style parser wants underscore-separated names
+        # (e.g. "bright_magenta"), not loguru's hyphen form. _CUSTOM_LEVELS
+        # carries both variants — pick the Rich one here so Theme() never
+        # falls over on a stray hyphen.
         level_styles = {
-            str(data["name"]): str(data["color"]).strip("<>")
+            str(data["name"]): str(data["rich_style"])
             for _name, data in _CUSTOM_LEVELS.items()
-            if isinstance(data["color"], str) and isinstance(data["name"], str)
+            if isinstance(data.get("rich_style"), str) and isinstance(data["name"], str)
         }
         console_sink = create_rich_handler(level_styles=level_styles)
 
