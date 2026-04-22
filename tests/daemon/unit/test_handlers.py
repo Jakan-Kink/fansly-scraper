@@ -15,6 +15,7 @@ from daemon.handlers import (
     DownloadMessagesForGroup,
     DownloadTimelineOnly,
     FullCreatorDownload,
+    MarkMessagesDeleted,
     RedownloadCreatorMedia,
     WorkItem,
     dispatch_ws_event,
@@ -194,6 +195,74 @@ def test_wallet_credited_returns_none() -> None:
         }
     }
     result = dispatch_ws_event(6, 2, event)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# svc=32 type=7 — Story PPV purchase (StoryService)
+# ---------------------------------------------------------------------------
+
+
+def test_story_ppv_purchase_returns_redownload() -> None:
+    """svc=32 type=7 shares payload shape with svc=2 type=7 → RedownloadCreatorMedia."""
+    event = {
+        "order": {
+            "orderId": "900000000001",
+            "accountMediaId": "800000000001",
+            "correlationAccountId": "658810502633238529",
+            "type": 1,
+        }
+    }
+    result = dispatch_ws_event(32, 7, event)
+    assert result == RedownloadCreatorMedia(creator_id=658810502633238529)
+
+
+# ---------------------------------------------------------------------------
+# svc=5 type=10 — Message deleted (MessageService)
+# ---------------------------------------------------------------------------
+
+
+def test_message_deleted_with_ids_list_returns_mark_deleted() -> None:
+    """svc=5 type=10 with ``ids`` list → MarkMessagesDeleted."""
+    event = {"message": {"ids": ["900000000001", "900000000002"]}}
+    result = dispatch_ws_event(5, 10, event)
+    assert result == MarkMessagesDeleted(message_ids=(900000000001, 900000000002))
+
+
+def test_message_deleted_with_single_id_matches_observed_shape() -> None:
+    """svc=5 type=10 with single ``id`` + ``deletedAt`` (the shape Fansly emits)."""
+    event = {"message": {"id": "903213063648329728", "deletedAt": 1776837144}}
+    result = dispatch_ws_event(5, 10, event)
+    assert result == MarkMessagesDeleted(
+        message_ids=(903213063648329728,),
+        deleted_at_epoch=1776837144,
+    )
+
+
+def test_message_deleted_without_deleted_at_falls_back_to_none() -> None:
+    """Missing ``deletedAt`` → deleted_at_epoch=None so runner falls back to now()."""
+    event = {"message": {"id": "900000000042"}}
+    result = dispatch_ws_event(5, 10, event)
+    assert result == MarkMessagesDeleted(
+        message_ids=(900000000042,), deleted_at_epoch=None
+    )
+
+
+def test_message_deleted_empty_payload_returns_none() -> None:
+    """svc=5 type=10 without ids or id → None."""
+    result = dispatch_ws_event(5, 10, {"message": {}})
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# svc=12 type=2 — Account profile updated (AccountService)
+# ---------------------------------------------------------------------------
+
+
+def test_account_profile_updated_is_observation_only() -> None:
+    """svc=12 type=2 logs the accountId and returns None (observation-only)."""
+    event = {"account": {"id": "720167541418237953", "displayName": "Test", "flags": 0}}
+    result = dispatch_ws_event(12, 2, event)
     assert result is None
 
 

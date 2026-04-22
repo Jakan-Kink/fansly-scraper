@@ -109,6 +109,24 @@ class DownloadTimelineOnly(WorkItem):
     creator_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class MarkMessagesDeleted(WorkItem):
+    """Mark already-downloaded DM rows as deleted in the local archive.
+
+    Produced by svc=5 type=10 (message deleted). We preserve the file on
+    disk and any Attachment rows — only the Message row's ``deleted`` /
+    ``deletedAt`` fields are flipped so the archive reflects the
+    creator's state change without losing content.
+
+    ``deleted_at_epoch`` is the server-provided unix timestamp on the
+    deletion payload when available; the runner falls back to "now"
+    only if the server did not supply one.
+    """
+
+    message_ids: tuple[int, ...]
+    deleted_at_epoch: int | None = None
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -194,7 +212,7 @@ def _handle_subscription_event(event: dict[str, Any]) -> WorkItem | None:
 
 
 def _handle_ppv_purchase(event: dict[str, Any]) -> WorkItem | None:
-    """Handle svc=2 type=7 and type=8 — PPV media / bundle purchased.
+    """Handle svc=2 type=7/8 and svc=32 type=7 — PPV media / bundle / story purchased.
 
     Returns:
         RedownloadCreatorMedia when correlationAccountId is present and valid.
@@ -207,11 +225,67 @@ def _handle_ppv_purchase(event: dict[str, Any]) -> WorkItem | None:
     creator_id = _safe_int(order.get("correlationAccountId"))
     if creator_id is None:
         logger.warning(
-            "daemon.handlers: svc=2 PPV event — missing/invalid correlationAccountId"
+            "daemon.handlers: PPV event — missing/invalid correlationAccountId"
         )
         return None
 
     return RedownloadCreatorMedia(creator_id=creator_id)
+
+
+def _handle_message_deleted(event: dict[str, Any]) -> WorkItem | None:
+    """Handle svc=5 type=10 — message deleted.
+
+    Returns:
+        MarkMessagesDeleted with the affected message_ids and the
+        server-provided ``deletedAt`` epoch when present. None if the
+        payload carries no ids we can act on.
+    """
+    message = event.get("message")
+    if not isinstance(message, dict):
+        return None
+
+    raw_ids = message.get("ids") or message.get("messageIds") or []
+    if not isinstance(raw_ids, list):
+        return None
+
+    ids: list[int] = []
+    for raw_id in raw_ids:
+        coerced = _safe_int(raw_id)
+        if coerced is not None:
+            ids.append(coerced)
+
+    # Fallback: single ``id`` field on the message object (the shape Fansly
+    # actually emits per observed traffic).
+    single = _safe_int(message.get("id"))
+    if single is not None and single not in ids:
+        ids.append(single)
+
+    if not ids:
+        return None
+
+    return MarkMessagesDeleted(
+        message_ids=tuple(ids),
+        deleted_at_epoch=_safe_int(message.get("deletedAt")),
+    )
+
+
+def _handle_account_profile_updated(event: dict[str, Any]) -> WorkItem | None:
+    """Handle svc=12 type=2 — account profile updated.
+
+    Observation-only for now. Documentation is ambiguous about whether this
+    fires for other creators' profiles or just our own; log the accountId
+    so we can decide empirically before wiring a real state-sync action.
+    """
+    account = event.get("account")
+    if not isinstance(account, dict):
+        return None
+
+    account_id = _safe_int(account.get("id"))
+    logger.info(
+        "daemon.handlers: svc=12 type=2 profile update observed (accountId={})",
+        account_id,
+    )
+    return None
 
 
 def _handle_new_follow(event: dict[str, Any]) -> WorkItem | None:
@@ -254,11 +328,14 @@ def _handle_wallet_event(_event: dict[str, Any]) -> WorkItem | None:
 # Handlers receive the decoded event dict and return WorkItem | None.
 _DISPATCH: dict[tuple[int, int], Any] = {
     (5, 1): _handle_new_message,
+    (5, 10): _handle_message_deleted,
     (15, 5): _handle_subscription_event,
     (2, 7): _handle_ppv_purchase,
     (2, 8): _handle_ppv_purchase,
     (3, 2): _handle_new_follow,
     (6, 2): _handle_wallet_event,
+    (12, 2): _handle_account_profile_updated,
+    (32, 7): _handle_ppv_purchase,
 }
 
 

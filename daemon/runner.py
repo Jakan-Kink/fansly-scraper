@@ -58,6 +58,7 @@ from daemon.handlers import (
     DownloadStoriesOnly,
     DownloadTimelineOnly,
     FullCreatorDownload,
+    MarkMessagesDeleted,
     RedownloadCreatorMedia,
     WorkItem,
     dispatch_ws_event,
@@ -79,7 +80,7 @@ from download.core import (
     get_following_accounts,
 )
 from errors import DAEMON_UNRECOVERABLE, EXIT_SUCCESS, DaemonUnrecoverableError
-from metadata.models import Account, get_store
+from metadata.models import Account, Message, get_store
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +401,46 @@ async def _handle_timeline_only_item(
         raise
 
 
+async def _handle_mark_messages_deleted(
+    config: FanslyConfig,  # noqa: ARG001 — store access is process-global
+    item: MarkMessagesDeleted,
+) -> None:
+    """Mark existing Message rows as deleted without touching files on disk.
+
+    Args:
+        config: FanslyConfig instance (unused; kept for dispatch uniformity).
+        item: Work item carrying the message_ids flagged by the creator.
+    """
+    store = get_store()
+    # Prefer the server-provided deletedAt over our receipt time; only
+    # fall back to "now" when the payload didn't ship a timestamp.
+    if item.deleted_at_epoch is not None:
+        deleted_at = datetime.fromtimestamp(item.deleted_at_epoch, tz=UTC)
+    else:
+        deleted_at = datetime.now(UTC)
+    missing: list[int] = []
+    for message_id in item.message_ids:
+        try:
+            message = await store.get(Message, message_id)
+        except Exception as exc:
+            logger.debug(
+                "daemon.runner: message {} lookup failed - {}", message_id, exc
+            )
+            missing.append(message_id)
+            continue
+        if message is None:
+            missing.append(message_id)
+            continue
+        message.deleted = True
+        message.deletedAt = deleted_at
+        await store.save(message)
+    logger.info(
+        "daemon.runner: marked {} message(s) deleted ({} not in local archive)",
+        len(item.message_ids) - len(missing),
+        len(missing),
+    )
+
+
 _WORK_DISPATCH: dict[type[WorkItem], Any] = {
     DownloadMessagesForGroup: _handle_messages_item,
     FullCreatorDownload: _handle_full_creator_item,
@@ -407,6 +448,7 @@ _WORK_DISPATCH: dict[type[WorkItem], Any] = {
     CheckCreatorAccess: _handle_check_access_item,
     DownloadStoriesOnly: _handle_stories_only_item,
     DownloadTimelineOnly: _handle_timeline_only_item,
+    MarkMessagesDeleted: _handle_mark_messages_deleted,
 }
 
 
