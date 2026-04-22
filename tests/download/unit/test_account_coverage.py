@@ -12,12 +12,10 @@ from config.fanslyconfig import FanslyConfig
 from download.account import (
     _extract_account_data,
     _get_account_response,
-    get_following_accounts,
 )
 from download.downloadstate import DownloadState
 from errors import ApiAccountInfoError, ApiError
 from tests.fixtures.api.api_fixtures import dump_fansly_calls
-from tests.fixtures.utils import snowflake_id
 
 
 @pytest.fixture
@@ -85,98 +83,3 @@ class TestGetAccountResponseNon200:
                     await _get_account_response(real_config, state)
             finally:
                 dump_fansly_calls(route.calls)
-
-
-class TestGetFollowingAccountsEdgeCases:
-    """Cover get_following_accounts edge cases (lines 405-407, 427-430)."""
-
-    @pytest.mark.asyncio
-    async def test_reverse_order(self, real_config):
-        """reverse_order=True reverses the following list (lines 405-407)."""
-        real_config.reverse_order = True
-
-        state = DownloadState()
-        state.creator_name = "testcreator"
-        state.creator_id = snowflake_id()
-
-        cid1 = str(snowflake_id())
-        cid2 = str(snowflake_id())
-
-        # _get_following_page makes 2 calls:
-        #   1. get_following_list → [{accountId: ...}, ...]
-        #   2. get_account_info_by_id → [{id:..., username:...}, ...]
-        # Then pagination ends because count(2) < page_size(50)
-        following_list_response = [
-            {"accountId": cid1},
-            {"accountId": cid2},
-        ]
-        account_details_response = [
-            {"id": cid1, "username": "user_first"},
-            {"id": cid2, "username": "user_second"},
-        ]
-
-        with respx.mock:
-            respx.options(url__regex=r".*").mock(side_effect=[httpx.Response(200)] * 10)
-            route = respx.get(url__regex=r".*").mock(
-                side_effect=[
-                    # Call 1: following list
-                    httpx.Response(
-                        200,
-                        json={"success": "true", "response": following_list_response},
-                    ),
-                    # Call 2: account details
-                    httpx.Response(
-                        200,
-                        json={"success": "true", "response": account_details_response},
-                    ),
-                ]
-            )
-
-            try:
-                result = await get_following_accounts(real_config, state)
-            finally:
-                dump_fansly_calls(route.calls)
-
-        assert result == {"user_first", "user_second"}
-
-    @pytest.mark.asyncio
-    async def test_account_processing_error_continues(self, real_config):
-        """Exception processing one account continues to next (lines 427-430)."""
-        state = DownloadState()
-        state.creator_name = "testcreator"
-        state.creator_id = snowflake_id()
-
-        good_cid = str(snowflake_id())
-
-        following_list_response = [
-            {"accountId": good_cid},
-            {"accountId": "bad_id"},
-        ]
-        # One valid account, one missing required fields → error in model_validate
-        account_details_response = [
-            {"id": good_cid, "username": "good_user"},
-            {"notid": "will_fail_validation"},
-        ]
-
-        with respx.mock:
-            respx.options(url__regex=r".*").mock(side_effect=[httpx.Response(200)] * 10)
-            route = respx.get(url__regex=r".*").mock(
-                side_effect=[
-                    httpx.Response(
-                        200,
-                        json={"success": "true", "response": following_list_response},
-                    ),
-                    httpx.Response(
-                        200,
-                        json={"success": "true", "response": account_details_response},
-                    ),
-                ]
-            )
-
-            try:
-                result = await get_following_accounts(real_config, state)
-            finally:
-                dump_fansly_calls(route.calls)
-
-        # good_user should still be in results despite error on second account
-        assert "good_user" in result

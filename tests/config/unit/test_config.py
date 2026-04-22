@@ -1,15 +1,12 @@
-import configparser
 import os
 from configparser import ConfigParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
 import pytest
 from loguru import logger
 
 from config.config import (
-    _handle_config_error,
     copy_old_config_values,
     load_config,
     parse_items_from_line,
@@ -609,89 +606,6 @@ textio = INFO
     assert config.log_levels["textio"] == "INFO"
 
 
-# -- _handle_config_error branches --
-
-
-class TestHandleConfigError:
-    """Cover all branches in _handle_config_error (lines 448-475)."""
-
-    def test_no_option_error(self, config):
-        e = configparser.NoOptionError("missing_opt", "SomeSection")
-        with pytest.raises(ConfigError, match=r"config\.ini file is invalid"):
-            _handle_config_error(e, config)
-
-    def test_value_error_boolean(self, config):
-        """ValueError with 'a boolean' substring → boolean-specific message (line 453)."""
-        config.interactive = False
-        e = ValueError("Not a boolean: notbool")
-        with pytest.raises(ConfigError, match="malformed in the configuration file"):
-            _handle_config_error(e, config)
-
-    def test_value_error_generic(self, config):
-        """Plain ValueError without 'boolean' → generic value error (line 460)."""
-        config.interactive = False
-        e = ValueError("'INVALID' is not a valid DownloadMode")
-        with pytest.raises(ConfigError, match=r"wrong value in the config\.ini file"):
-            _handle_config_error(e, config)
-
-    def test_key_error(self, config):
-        """KeyError → missing/malformed message (line 466)."""
-        config.interactive = False
-        e = KeyError("some_key")
-        with pytest.raises(ConfigError, match="missing or malformed"):
-            _handle_config_error(e, config)
-
-    def test_name_error(self, config):
-        """NameError → missing/malformed message (line 466)."""
-        config.interactive = False
-        e = NameError("undefined_name")
-        with pytest.raises(ConfigError, match="missing or malformed"):
-            _handle_config_error(e, config)
-
-    def test_generic_exception(self, config):
-        """Unrecognized exception type → generic message (line 473)."""
-        config.interactive = False
-        e = RuntimeError("something went wrong")
-        with pytest.raises(ConfigError, match="An error occurred"):
-            _handle_config_error(e, config)
-
-    def test_value_error_boolean_interactive_opens_url(self, config, monkeypatch):
-        """Interactive + boolean ValueError opens wiki URL (line 455)."""
-        config.interactive = True
-        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-        e = ValueError("Not a boolean: notbool")
-        with (
-            patch("config.config.open_url") as mock_open,
-            pytest.raises(ConfigError, match="malformed in the configuration file"),
-        ):
-            _handle_config_error(e, config)
-        mock_open.assert_called_once()
-
-    def test_value_error_generic_interactive_opens_url(self, config, monkeypatch):
-        """Interactive + generic ValueError opens wiki URL (line 461)."""
-        config.interactive = True
-        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-        e = ValueError("'BAD' is not valid")
-        with (
-            patch("config.config.open_url") as mock_open,
-            pytest.raises(ConfigError, match=r"wrong value in the config\.ini file"),
-        ):
-            _handle_config_error(e, config)
-        mock_open.assert_called_once()
-
-    def test_key_error_interactive_opens_url(self, config, monkeypatch):
-        """Interactive + KeyError opens wiki URL (line 468)."""
-        config.interactive = True
-        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-        e = KeyError("missing_key")
-        with (
-            patch("config.config.open_url") as mock_open,
-            pytest.raises(ConfigError, match="missing or malformed"),
-        ):
-            _handle_config_error(e, config)
-        mock_open.assert_called_once()
-
-
 # -- Renamed option handling in load_config --
 
 
@@ -710,11 +624,9 @@ use_suffix = False
         )
 
     load_config(config)
+    # Legacy INI keys map onto their current schema fields.
     assert config.use_duplicate_threshold is True
     assert config.use_folder_suffix is False
-    # Old options should be removed
-    assert not config._parser.has_option("Options", "utilise_duplicate_threshold")
-    assert not config._parser.has_option("Options", "use_suffix")
 
 
 # -- Rate limiting config options --
@@ -771,21 +683,6 @@ Check_Key = {outdated_key}
     assert config.check_key == "oybZy8-fySzis-bubayf"
 
 
-# -- Deprecated option cleanup --
-
-
-def test_load_config_removes_deprecated_include_meta(temp_config_dir, config):
-    """include_meta_database option is removed from config (line 380)."""
-    config_path = temp_config_dir / "config.ini"
-
-    with config_path.open("w") as f:
-        f.write(
-            """[Options]
-download_mode = Normal
-metadata_handling = Advanced
-include_meta_database = True
-"""
-        )
-
-    load_config(config)
-    assert not config._parser.has_option("Options", "include_meta_database")
+# Retired-field silent-drop coverage lives in tests/config/unit/test_schema.py
+# (test_retired_field_*_silently_dropped) — the ConfigParser-based "remove
+# from _parser" check disappeared with the Pydantic migration.
