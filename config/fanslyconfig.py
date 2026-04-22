@@ -122,12 +122,6 @@ class FanslyConfig:
     rate_limiting_retry_after_seconds: int = 30  # Base backoff duration
     rate_limiting_backoff_factor: float = 1.5  # Exponential backoff multiplier
     rate_limiting_max_backoff_seconds: int = 300  # Cap backoff at 5 minutes
-    # Database sync settings (SQLite only - deprecated for PostgreSQL)
-    db_sync_commits: int | None = None  # Sync after this many commits (default: 1000)
-    db_sync_seconds: int | None = None  # Sync after this many seconds (default: 60)
-    db_sync_min_size: int | None = (
-        None  # Only use background sync for DBs larger than this MB (default: 50)
-    )
 
     # PostgreSQL configuration
     pg_host: str = "localhost"
@@ -467,9 +461,6 @@ def _rebuild_schema_from_config(config: FanslyConfig) -> ConfigSchema:
         rate_limiting_retry_after_seconds=config.rate_limiting_retry_after_seconds,
         rate_limiting_backoff_factor=config.rate_limiting_backoff_factor,
         rate_limiting_max_backoff_seconds=config.rate_limiting_max_backoff_seconds,
-        db_sync_commits=config.db_sync_commits,
-        db_sync_seconds=config.db_sync_seconds,
-        db_sync_min_size=config.db_sync_min_size,
         temp_folder=str(config.temp_folder) if config.temp_folder is not None else None,
     )
 

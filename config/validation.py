@@ -408,41 +408,6 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
         input_enter_continue(config.interactive)
 
 
-# def validate_adjust_session_id(config: FanslyConfig) -> None:
-#     """Validates the input value for `session_id` in `config.ini`.
-
-#     :param FanslyConfig config: The configuration to validate and correct.
-#     """
-
-#     if config.session_id is None or config.session_id.lower() == 'null':
-#         logger.warning(
-#             f"Session ID is invalid. Please provide a valid value from your browser's DevTools:"
-#             f"\n{20 * ' '}Look for `fansly-session-id` in requests or `id` from `session_active_session`"
-#             f"\n{20 * ' '}in local storage for https://fansly.com (18 digits)."
-#         )
-
-#     if config.interactive:
-
-#         done = False
-
-#         while not done:
-#             session_id = input(f"\n{20 * ' '}► Session ID: "
-#             ).strip()
-
-#             if re.match(r'\d{18}', session_id):
-#                 done = True
-#                 config.session_id = session_id
-#                 save_config_or_raise(config)
-
-#             else:
-#                 logger.warning(
-#                     f'Invalid session ID, should be 18 digits. Please try again.'
-#                 )
-
-#     else:
-#         input_enter_close(config.interactive)
-
-
 def validate_log_levels(config: FanslyConfig) -> None:
     """Validate and adjust logging levels in config.
 

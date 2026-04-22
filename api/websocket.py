@@ -944,6 +944,9 @@ class FanslyWebSocket:
         If no ping response within 1.2x the interval, resets the connection
         (JS: lastPingResponse_ > pingTimeout_ → resetWebsocket).
         """
+        # Clear stale ref if the previous worker self-exited on timeout.
+        if self._ping_task is not None and self._ping_task.done():
+            self._ping_task = None
         if self._ping_task is not None:
             logger.warning("Ping loop already running")
             return

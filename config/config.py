@@ -204,11 +204,6 @@ def _populate_config_from_schema(config: FanslyConfig, schema: ConfigSchema) -> 
     config.rate_limiting_backoff_factor = opts.rate_limiting_backoff_factor
     config.rate_limiting_max_backoff_seconds = opts.rate_limiting_max_backoff_seconds
 
-    # DB sync settings (optional ints)
-    config.db_sync_commits = opts.db_sync_commits
-    config.db_sync_seconds = opts.db_sync_seconds
-    config.db_sync_min_size = opts.db_sync_min_size
-
     # Temp folder
     if opts.temp_folder:
         config.temp_folder = Path(opts.temp_folder)

@@ -221,14 +221,12 @@ def test_stash_context_round_trip(config_dir: Path, fresh_config: FanslyConfig) 
 
 
 # ---------------------------------------------------------------------------
-# 7. Rate limiting and db_sync fields round-trip
+# 7. Rate limiting fields round-trip
 # ---------------------------------------------------------------------------
 
 
-def test_rate_limiting_and_db_sync_round_trip(
-    config_dir: Path, fresh_config: FanslyConfig
-) -> None:
-    """Rate limiting and db_sync settings are persisted and reloaded correctly."""
+def test_rate_limiting_round_trip(config_dir: Path, fresh_config: FanslyConfig) -> None:
+    """Rate limiting settings are persisted and reloaded correctly."""
     yaml_path = config_dir / "config.yaml"
 
     schema = ConfigSchema()
@@ -236,9 +234,6 @@ def test_rate_limiting_and_db_sync_round_trip(
     schema.options.rate_limiting_requests_per_minute = 30
     schema.options.rate_limiting_burst_size = 5
     schema.options.rate_limiting_backoff_factor = 2.0
-    schema.options.db_sync_commits = 500
-    schema.options.db_sync_seconds = 30
-    schema.options.db_sync_min_size = 25
     schema.dump_yaml(yaml_path)
 
     load_config(fresh_config)
@@ -247,9 +242,6 @@ def test_rate_limiting_and_db_sync_round_trip(
     assert fresh_config.rate_limiting_requests_per_minute == 30
     assert fresh_config.rate_limiting_burst_size == 5
     assert fresh_config.rate_limiting_backoff_factor == 2.0
-    assert fresh_config.db_sync_commits == 500
-    assert fresh_config.db_sync_seconds == 30
-    assert fresh_config.db_sync_min_size == 25
 
 
 # ---------------------------------------------------------------------------

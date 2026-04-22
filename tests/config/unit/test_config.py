@@ -233,29 +233,6 @@ def test_useragent_validation(config):
     assert config.useragent_is_valid() is False
 
 
-def test_load_config_with_db_sync_settings(temp_config_dir, config):
-    config_path = temp_config_dir / "config.ini"
-
-    # Create config with DB sync settings
-    with config_path.open("w") as f:
-        f.write(
-            """[Options]
-download_mode = Normal
-metadata_handling = Advanced
-interactive = True
-download_directory = Local_directory
-db_sync_commits = 500
-db_sync_seconds = 30
-db_sync_min_size = 100
-"""
-        )
-
-    load_config(config)
-    assert config.db_sync_commits == 500
-    assert config.db_sync_seconds == 30
-    assert config.db_sync_min_size == 100
-
-
 def test_load_config_with_cache_section(temp_config_dir, config):
     config_path = temp_config_dir / "config.ini"
 

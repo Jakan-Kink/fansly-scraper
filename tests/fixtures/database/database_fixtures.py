@@ -526,10 +526,6 @@ async def test_async_session(
 def config(uuid_test_db_factory) -> FanslyConfig:
     """Create a test configuration with isolated PostgreSQL database (UUID-based)."""
     config = uuid_test_db_factory
-    # Database sync settings (deprecated for PostgreSQL but kept for compatibility)
-    config.db_sync_min_size = 50
-    config.db_sync_commits = 1000
-    config.db_sync_seconds = 60
 
     return config
 
@@ -549,10 +545,6 @@ def config_with_database(uuid_test_db_factory) -> FanslyConfig:
         FanslyConfig with _database initialized and ready to use
     """
     config = uuid_test_db_factory
-    # Database sync settings (deprecated for PostgreSQL but kept for compatibility)
-    config.db_sync_min_size = 50
-    config.db_sync_commits = 1000
-    config.db_sync_seconds = 60
 
     # Initialize database with migrations skipped (tables created by test_engine)
     config._database = Database(config, skip_migrations=True)

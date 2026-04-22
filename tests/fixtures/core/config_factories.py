@@ -109,11 +109,6 @@ class FanslyConfigFactory(Factory):
     pg_password = LazyFunction(lambda: os.getenv("FANSLY_PG_PASSWORD", ""))
     pg_database = "test_mock_should_not_connect"  # Safe default
 
-    # Database sync settings
-    db_sync_min_size = 50
-    db_sync_commits = 1000
-    db_sync_seconds = 60
-
     # UI/UX settings
     interactive = False  # Non-interactive by default for tests
     textio_debug = False

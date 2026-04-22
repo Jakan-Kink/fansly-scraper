@@ -88,8 +88,8 @@ class InterceptHandler(logging.Handler):
         try:
             logger.opt(depth=depth, exception=exc_info).log(level, record.getMessage())
         finally:
-            # Explicitly clear references to prevent ResourceWarning
-            # from coverage.py's SQLite connection being held in call stack
+            # Release refs so coverage.py's SQLite connection doesn't linger
+            # on the call stack and trigger a ResourceWarning.
             del frame
             if exc_info:
                 del exc_info
@@ -116,13 +116,11 @@ class SQLAlchemyInterceptHandler(logging.Handler):
 
         exc_info = record.exc_info
         try:
-            # Use db_logger to ensure proper logger binding for SQLAlchemy
             db_logger.opt(depth=depth, exception=exc_info).log(
                 level, record.getMessage()
             )
         finally:
-            # Explicitly clear references to prevent ResourceWarning
-            # from coverage.py's SQLite connection being held in call stack
+            # Same ResourceWarning mitigation as InterceptHandler.emit above.
             del frame
             if exc_info:
                 del exc_info
@@ -140,21 +138,13 @@ _LEVEL_VALUES = {
     "CRITICAL": 50,  # Critical errors
 }
 
-# Custom level definitions with colors, mapped to standard level numbers.
-#
-# Each level carries TWO color strings because loguru and Rich disagree on
-# naming conventions:
-#
-#   * ``color`` is loguru markup with hyphens and angle brackets
-#     (e.g. ``<light-magenta>``, ``<red><bold>``).
-#   * ``rich_style`` is a Rich style string with underscores
-#     (e.g. ``bright_magenta``, ``bold red``).
-#
-# Storing them as separate fields avoids runtime translation and lets the
-# palette script (``scripts/color_palette.py``) show both forms side by
-# side. Keep them semantically equivalent — the goal is for a log line
-# to look identical under loguru's direct ANSI path and under the
-# Rich-integrated path. See the script for the full palette reference.
+# Custom level definitions. Each level carries TWO color strings
+# because loguru and Rich disagree on naming:
+#   * ``color``      — loguru markup, hyphens + angle brackets
+#   * ``rich_style`` — Rich style, underscores + space-compound
+# Separate fields avoid runtime translation. Preview any edit with
+# ``poetry run python scripts/color_palette.py`` before shipping —
+# invalid rich_style renders [INVALID: ...] in the sample column.
 _CUSTOM_LEVELS = {
     "CONFIG": {
         "name": "CONFIG",
@@ -175,12 +165,9 @@ _CUSTOM_LEVELS = {
         "no": _LEVEL_VALUES["INFO"],  # 20 (INFO)
         "color": "<blue>",
         "rich_style": "blue",
-        # U+1F4A1 LIGHT BULB (EA=W, single codepoint in supplementary
-        # plane). Replaces the canonical INFORMATION SOURCE glyph
-        # (U+2139 + U+FE0F) whose width depends on whether the
-        # terminal honors the variation selector — inconsistent over
-        # SSH/tmux and the cause of the INFO-line misalignment we
-        # saw earlier.
+        # U+1F4A1 LIGHT BULB — supplementary-plane, unambiguously
+        # width=2. The canonical INFORMATION SOURCE glyph is
+        # BMP + VS16, which misaligns over SSH/tmux.
         "icon": "💡",
     },
     "ERROR": {
@@ -195,10 +182,7 @@ _CUSTOM_LEVELS = {
         "no": _LEVEL_VALUES["WARNING"],  # 30 (WARNING)
         "color": "<yellow>",
         "rich_style": "yellow",
-        # U+1F6A8 POLICE CAR LIGHT (EA=W, single codepoint in
-        # supplementary plane). Replaces the canonical WARNING SIGN
-        # glyph (U+26A0 + U+FE0F) — same variation-selector width
-        # ambiguity as INFO above.
+        # U+1F6A8 POLICE CAR LIGHT — same VS16 rationale as INFO.
         "icon": "🚨",
     },
     "INFO_HIGHLIGHT": {
@@ -220,21 +204,12 @@ _CUSTOM_LEVELS = {
 # Remove default handler
 logger.remove()
 
-# Register (or update) custom levels with loguru.
-#
-# Loguru refuses ``logger.level(name, no=X, ...)`` whenever the level
-# already exists — even when X matches the built-in's existing ``no`` —
-# with ``ValueError: Level 'DEBUG' already exists, you can't update its
-# severity no``. We therefore split the call into two paths:
-#
-#   * New level names (CONFIG, -INFO-, UPDATE) → create with full params.
-#   * Existing built-ins (DEBUG/INFO/WARNING/ERROR/SUCCESS/CRITICAL/TRACE)
-#     → omit ``no`` so loguru treats it as an update of color+icon only.
-#
-# Before this split, a blanket ``contextlib.suppress(ValueError)`` hid
-# the raise and every built-in level kept loguru's default color instead
-# of the one declared in _CUSTOM_LEVELS, which is why DEBUG rendered
-# blue in the console even though it was marked ``<light-red>`` here.
+# Register (or update) custom levels. Loguru refuses
+# ``logger.level(name, no=X, ...)`` on any pre-existing level — even
+# when X matches the current no — with ``ValueError: Level 'DEBUG'
+# already exists, you can't update its severity no``. Split into
+# create vs. update: for built-ins (DEBUG/INFO/WARNING/ERROR/SUCCESS/
+# CRITICAL/TRACE) omit ``no=`` so only color+icon change.
 for level_data in _CUSTOM_LEVELS.values():
     name = level_data["name"]
     try:
@@ -294,8 +269,8 @@ def _auto_bind_logger(record: Any) -> Any:
 logger.patch(_auto_bind_logger)
 
 
-# Configure SQLAlchemy logging immediately at module import time
-# This prevents any early console output before init_logging_config is called
+# Run at import time so SQLAlchemy can't log to console before
+# init_logging_config installs the real handlers.
 def _early_sqlalchemy_suppression() -> None:
     """Suppress SQLAlchemy console output as early as possible."""
     sqlalchemy_loggers = [
@@ -319,7 +294,6 @@ def _early_sqlalchemy_suppression() -> None:
         sql_logger = logging.getLogger(logger_name)
         sql_logger.handlers.clear()
         sql_logger.propagate = False
-        # Set to CRITICAL to suppress all output initially
         sql_logger.setLevel(logging.CRITICAL)
         sql_logger.addHandler(logging.NullHandler())
 
@@ -334,11 +308,9 @@ def _trace_level_only(record: Any) -> bool:
     return True
 
 
-# For very detailed logging
 trace_logger = logger.bind(logger="trace").patch(_trace_level_only)
 
-# Handler IDs for cleanup
-_handler_ids = {}  # {id: (handler, file_handler)}
+_handler_ids: dict[int, tuple[Any, Any]] = {}  # {id: (handler, file_handler)}
 
 
 def setup_handlers() -> None:
@@ -350,7 +322,6 @@ def setup_handlers() -> None:
     3. stash_logger - Stash-specific logs
     4. db_logger - Database operation logs
     """
-    # Remove any existing handlers
     for handler_id, (_handler, file_handler) in list(_handler_ids.items()):
         try:
             logger.remove(handler_id)
@@ -359,18 +330,16 @@ def setup_handlers() -> None:
                     file_handler.close()
         except ValueError:
             pass  # Handler already removed
-
-    # Clear all handlers
     _handler_ids.clear()
 
-    # Create logs directory
     log_dir = Path.cwd() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Import handler here to avoid circular imports
+    # Import inside the function to avoid circular imports.
     from textio.logging import SizeTimeRotatingHandler
 
-    # Common enqueue settings for all handlers
+    # Loguru's multi-process queue is off in tests (enqueue=True pickles
+    # the sink, which breaks with RichHandler + module-scoped fixtures).
     enqueue_args = (
         {"enqueue": False} if os.getenv("TESTING") == "1" else {"enqueue": True}
     )
@@ -381,13 +350,12 @@ def setup_handlers() -> None:
         extra = record.get("extra", {})
         logger_type = extra.get("logger")
 
-        # Only show textio logs, exclude db logs from console
         if logger_type == "textio":
             return True
         if logger_type == "db":
             return False
 
-        # For unbound logs, check if they're SQLAlchemy related
+        # Unbound logs: suppress SQLAlchemy/asyncpg/alembic noise.
         logger_name = record.get("name", "")
         if (
             logger_name.startswith(("sqlalchemy.", "asyncpg"))
@@ -397,19 +365,15 @@ def setup_handlers() -> None:
 
         return logger_type == "textio"
 
-    # Use RichHandler via shared console so log output coordinates with
-    # the ProgressManager's Live display (prevents striped/duplicated bars).
-    # Falls back to sys.stdout if Rich integration is unavailable.
+    # Console handler routes through Rich's shared console to coordinate
+    # with ProgressManager's Live display. Fallback is loud (see except).
     format_record: Any
     console_sink: Any
     use_colorize: bool
     try:
         from helpers.rich_progress import create_rich_handler
 
-        # Rich's Theme/Style parser wants underscore-separated names
-        # (e.g. "bright_magenta"), not loguru's hyphen form. _CUSTOM_LEVELS
-        # carries both variants — pick the Rich one here so Theme() never
-        # falls over on a stray hyphen.
+        # Pick rich_style (not color) — Rich's parser wants underscores.
         level_styles = {
             str(data["name"]): str(data["rich_style"])
             for _name, data in _CUSTOM_LEVELS.items()
@@ -434,11 +398,9 @@ def setup_handlers() -> None:
         # RichHandler handles its own coloring — disable loguru's ANSI injection
         use_colorize = False
     except Exception as exc:
-        # Fallback to raw stdout if Rich integration fails for any reason.
-        # We must surface *why* — raw stdout bypasses the ProgressManager's
-        # Live display and log lines collide with progress bars mid-frame,
-        # producing the striped/duplicated-bar symptom in terminals. A
-        # silent fallback hides this until someone reads the output.
+        # Loud fallback: raw stdout bypasses Live coordination, so the
+        # symptom (striped bars) is visible before the cause. Silent
+        # fallback hid this for months before we caught it.
         import traceback as _tb
 
         print(
@@ -553,8 +515,7 @@ def setup_handlers() -> None:
         compression="gz",
         keep_uncompressed=2,
     )
-    # Add a special tag for debugging
-    db_handler.handler.db_logger_name = "database_logger"
+    db_handler.handler.db_logger_name = "database_logger"  # debug tag
     handler_id = logger.add(
         db_handler.write,
         format="{level.icon}   {level.name:>8} | {time:HH:mm:ss.SS} || {message}",
@@ -585,10 +546,7 @@ def setup_handlers() -> None:
     )
     _handler_ids[handler_id] = (trace_handler, None)
 
-    # 8. WebSocket File Handler — dedicated sink for api/websocket.py and
-    # daemon WS event dispatch. Keeps frame-level traffic out of the main
-    # log so operators can inspect WS activity without wading through
-    # download/metadata noise.
+    # 8. WebSocket File Handler — frame-level traffic kept out of the main log
     websocket_file = log_dir / DEFAULT_WEBSOCKET_LOG_FILE
     websocket_handler = SizeTimeRotatingHandler(
         filename=str(websocket_file),
@@ -748,28 +706,17 @@ def _configure_sqlalchemy_logging() -> None:
 
     for logger_name in sqlalchemy_loggers:
         sql_logger = logging.getLogger(logger_name)
-
-        # Clear ALL existing handlers aggressively
         sql_logger.handlers.clear()
-
-        # Disable propagation to prevent console spam from root logger
+        # Propagation off prevents root-logger console spam.
         sql_logger.propagate = False
-
-        # Use existing get_log_level function (respects trace mode)
         level = get_log_level("sqlalchemy", "INFO")
         sql_logger.setLevel(level)
-
-        # Clear any existing handlers (including null handlers from early suppression)
+        # Second clear drops any null handlers from _early_sqlalchemy_suppression.
         sql_logger.handlers.clear()
-
-        # Add ONLY our SQLAlchemyInterceptHandler to route to db_logger
         if level < logging.ERROR:
             sql_logger.addHandler(SQLAlchemyInterceptHandler())
-
-        # Add a null handler as the only other handler to prevent console fallback
+        # NullHandler prevents console fallback if our intercept is removed.
         sql_logger.addHandler(logging.NullHandler())
-
-        # Debug: Log the configuration
         db_logger.debug(
             f"Configured SQLAlchemy logger '{logger_name}': level={level}, "
             f"handlers={[type(h).__name__ for h in sql_logger.handlers]}, "

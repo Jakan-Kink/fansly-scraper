@@ -30,11 +30,6 @@ from ruamel.yaml.error import YAMLError
 from config.modes import DownloadMode
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _make_yaml() -> YAML:
     """Return a round-trip YAML instance with consistent settings."""
     y = YAML(typ="rt")
@@ -43,18 +38,10 @@ def _make_yaml() -> YAML:
 
 
 def _format_validation_error(exc: ValidationError, path: Path) -> str:
-    """Translate a Pydantic ValidationError into a human-readable block.
+    """Render a ValidationError as ``N problem(s) in <path>:`` + per-error lines.
 
-    Pydantic's default ``str(exc)`` is accurate but jargon-heavy and
-    points at pydantic.dev URLs instead of telling the user what to
-    actually change. This walks ``exc.errors()`` and renders each error
-    with a type-specific message, keeping the location path
-    (``options.separate_metadata``) intact so the user knows where to
-    look. Unknown error types fall through to the Pydantic default
-    message so we don't hide information.
-
-    Each error becomes one ``- <location>: <human-readable message>``
-    line. The first line is a header with file path and error count.
+    Unknown error types fall through to Pydantic's own ``msg`` so
+    diagnostic detail is preserved.
     """
     errors = exc.errors()
     lines = [f"{len(errors)} problem(s) in {path}:"]
@@ -66,12 +53,9 @@ def _format_validation_error(exc: ValidationError, path: Path) -> str:
     return "\n".join(lines)
 
 
-# Pydantic error-type → formatter. Each formatter takes (value, ctx) and
-# returns a human-readable sentence. Defined at module level so the
-# dispatch happens via dict lookup, avoiding the PLR0911 "too many
-# returns" cascade inside _pretty_error_message. Unknown error types
-# fall through to Pydantic's own ``msg`` so diagnostic detail is never
-# silently dropped.
+# Pydantic error-type → formatter(value, ctx) → sentence. Module-level
+# dict dispatch avoids a PLR0911 return-cascade in _pretty_error_message;
+# unknown types fall through to Pydantic's own ``msg``.
 _ERROR_FORMATTERS: dict[str, Any] = {
     "extra_forbidden": lambda value, _ctx: (
         f"unknown key (value was {value!r}). Either a typo, a key "
@@ -121,18 +105,11 @@ def _pretty_error_message(err: dict[str, Any]) -> str:
     if formatter is not None:
         return formatter(value, ctx)
     if err_type == "value_error":
-        # Field validators raise ValueError with a specific message.
-        # Pydantic prefixes these with "Value error, " — strip it so the
-        # validator's own wording reads naturally.
+        # Strip Pydantic's "Value error, " prefix so the validator's wording reads naturally.
         msg = err.get("msg", "value rejected by custom validator.")
         return msg.removeprefix("Value error, ")
     # Unknown error type — fall back to Pydantic's own message
     return err.get("msg", str(err))
-
-
-# ---------------------------------------------------------------------------
-# Section models
-# ---------------------------------------------------------------------------
 
 
 class TargetedCreatorSection(BaseModel):
@@ -179,10 +156,8 @@ class OptionsSection(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # Fields that existed in older config.yaml files and have since been
-    # removed. Silently dropped during load so upgrading doesn't require
-    # manual config edits. Keys added here should stay for at least one
-    # release cycle before being removed again.
+    # Retired fields silently dropped during load so upgrading doesn't
+    # require manual config edits. Keep entries for at least one release.
     _DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             # Removed: legacy SQLite-era flag that was no-op under Postgres.
@@ -191,6 +166,12 @@ class OptionsSection(BaseModel):
             "separate_metadata",
             # Removed: no runtime code branches on SIMPLE vs ADVANCED.
             "metadata_handling",
+            # Removed: SQLite-era write-sync tuning knobs, never read
+            # under Postgres. CLI flags (--db-sync-commits etc.) and
+            # INI keys are still silently accepted for backward compat.
+            "db_sync_commits",
+            "db_sync_seconds",
+            "db_sync_min_size",
         }
     )
 
@@ -229,9 +210,6 @@ class OptionsSection(BaseModel):
     rate_limiting_retry_after_seconds: int = 30
     rate_limiting_backoff_factor: float = 1.5
     rate_limiting_max_backoff_seconds: int = 300
-    db_sync_commits: int | None = None
-    db_sync_seconds: int | None = None
-    db_sync_min_size: int | None = None
     temp_folder: str | None = None
 
     @field_validator("download_mode", mode="before")
@@ -382,11 +360,6 @@ class LogicSection(BaseModel):
     main_js_pattern: str = r"\ssrc\s*=\s*\"(main\..*?\.js)\""
 
 
-# ---------------------------------------------------------------------------
-# Root schema
-# ---------------------------------------------------------------------------
-
-
 class ConfigSchema(BaseModel):
     """Root configuration schema for config.yaml.
 
@@ -420,30 +393,19 @@ class ConfigSchema(BaseModel):
     # Internal storage for the live CommentedMap so we can preserve comments.
     _yaml_map: CommentedMap | None = PrivateAttr(default=None)
 
-    # -----------------------------------------------------------------
-    # I/O
-    # -----------------------------------------------------------------
-
     @classmethod
     def load_yaml(cls, path: Path | str) -> ConfigSchema:
         """Load a ConfigSchema from a YAML file, preserving comments.
 
-        Parameters
-        ----------
-        path:
-            Path to the YAML file.
+        Args:
+            path: Path to the YAML file.
 
-        Returns
-        -------
-        ConfigSchema
+        Returns:
             Fully validated schema instance with comment map retained.
 
-        Raises
-        ------
-        ValueError
-            If the YAML is malformed or the schema validation fails.
-        FileNotFoundError
-            If the file does not exist.
+        Raises:
+            ValueError: YAML is malformed or schema validation failed.
+            FileNotFoundError: *path* does not exist.
         """
         path = Path(path)
         y = _make_yaml()
@@ -478,10 +440,8 @@ class ConfigSchema(BaseModel):
         If this instance was created in-memory (not via ``load_yaml``), a fresh
         CommentedMap is built from the current model state.
 
-        Parameters
-        ----------
-        path:
-            Destination path.  The file is created or overwritten.
+        Args:
+            path: Destination path. The file is created or overwritten.
         """
         path = Path(path)
         y = _make_yaml()
@@ -503,11 +463,6 @@ class ConfigSchema(BaseModel):
         buf = io.StringIO()
         y.dump(self._yaml_map, buf)
         return buf.getvalue()
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
 
 
 def _commentedmap_to_dict(obj: Any) -> Any:

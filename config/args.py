@@ -131,13 +131,6 @@ def parse_args() -> argparse.Namespace:
         help="Fansly's _checkKey in the main.js on https://fansly.com. "
         "Essential for digital signature and preventing bans.",
     )
-    # parser.add_argument(
-    #     '-sid', '--session-id',
-    #     required=False,
-    #     default=None,
-    #     dest='session_id',
-    #     help="Fansly's session ID.",
-    # )
 
     # endregion Essentials
 
@@ -352,36 +345,6 @@ def parse_args() -> argparse.Namespace:
         "Lower values may cause downloads to fail during sustained rate limiting.",
     )
 
-    parser.add_argument(
-        "--db-sync-commits",
-        required=False,
-        default=None,
-        type=int,
-        dest="db_sync_commits",
-        help="[DEPRECATED - SQLite only] Number of commits before syncing database to remote location. "
-        "Only applies to databases larger than --db-sync-min-size. "
-        "PostgreSQL manages transactions natively.",
-    )
-    parser.add_argument(
-        "--db-sync-seconds",
-        required=False,
-        default=None,
-        type=int,
-        dest="db_sync_seconds",
-        help="[DEPRECATED - SQLite only] Number of seconds between database syncs to remote location. "
-        "Only applies to databases larger than --db-sync-min-size. "
-        "PostgreSQL manages transactions natively.",
-    )
-    parser.add_argument(
-        "--db-sync-min-size",
-        required=False,
-        default=None,
-        type=int,
-        dest="db_sync_min_size",
-        help="[DEPRECATED - SQLite only] Minimum database size in MB to enable background syncing. "
-        "Smaller databases are synced immediately. "
-        "PostgreSQL manages transactions natively.",
-    )
     # PostgreSQL arguments
     parser.add_argument(
         "--pg-host",
@@ -705,9 +668,6 @@ def _handle_not_none_settings(args: argparse.Namespace, config: FanslyConfig) ->
         "user_agent",
         "check_key",
         "updated_to",
-        "db_sync_commits",
-        "db_sync_seconds",
-        "db_sync_min_size",
         "temp_folder",
         # PostgreSQL settings
         "pg_host",

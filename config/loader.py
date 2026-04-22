@@ -36,13 +36,9 @@ from config.schema import ConfigSchema
 from errors import ConfigError
 
 
-# ---------------------------------------------------------------------------
-# Known ini keys — used to detect and warn about unknown sections/keys
-# ---------------------------------------------------------------------------
-
-#: Maps ini section name → set of keys that the migrator explicitly reads.
-#: Both legacy and current spellings are included for [Options].
-#: Unknown sections/keys are logged as warnings but never cause failure.
+# Section → known keys map for unknown-key warning detection.
+# Options includes both legacy and current spellings; unknown keys warn
+# but never fail.
 _KNOWN_INI_KEYS: dict[str, set[str]] = {
     "TargetedCreator": {
         "username",
@@ -271,11 +267,6 @@ def migrate_ini_to_yaml(
     return schema_from_ini
 
 
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
 def _warn_unknown_ini_keys(
     parser: configparser.ConfigParser,
     ini_path: Path,
@@ -361,9 +352,7 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
     confirms this.  We check ``[Postgres]`` first (future-proof) then fall
     back to ``[Options]``.
     """
-    # ------------------------------------------------------------------
     # [TargetedCreator]
-    # ------------------------------------------------------------------
     tc_section = "TargetedCreator"
     username_raw = _get_str(parser, tc_section, "Username", fallback="replaceme")
     use_following = _get_bool(parser, tc_section, "use_following", fallback=False)
@@ -371,9 +360,7 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
         parser, tc_section, "use_following_with_pagination", fallback=False
     )
 
-    # ------------------------------------------------------------------
     # [MyAccount]
-    # ------------------------------------------------------------------
     acct_section = "MyAccount"
     authorization_token = _get_str(
         parser, acct_section, "Authorization_Token", fallback="ReplaceMe"
@@ -497,19 +484,6 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
         )
     else:
         rate_limiting_backoff_factor = 1.5
-    # db_sync_* are optional int fields (None = not set)
-    db_sync_commits: int | None = None
-    if parser.has_option(opts_section, "db_sync_commits"):
-        db_sync_commits = _get_int(parser, opts_section, "db_sync_commits", fallback=0)
-    db_sync_seconds: int | None = None
-    if parser.has_option(opts_section, "db_sync_seconds"):
-        db_sync_seconds = _get_int(parser, opts_section, "db_sync_seconds", fallback=0)
-    db_sync_min_size: int | None = None
-    if parser.has_option(opts_section, "db_sync_min_size"):
-        db_sync_min_size = _get_int(
-            parser, opts_section, "db_sync_min_size", fallback=0
-        )
-
     # ------------------------------------------------------------------
     # [Logic]
     # ------------------------------------------------------------------
@@ -618,9 +592,6 @@ def _build_schema_from_parser(parser: configparser.ConfigParser) -> ConfigSchema
             "rate_limiting_retry_after_seconds": rate_limiting_retry_after_seconds,
             "rate_limiting_backoff_factor": rate_limiting_backoff_factor,
             "rate_limiting_max_backoff_seconds": rate_limiting_max_backoff_seconds,
-            "db_sync_commits": db_sync_commits,
-            "db_sync_seconds": db_sync_seconds,
-            "db_sync_min_size": db_sync_min_size,
             "temp_folder": temp_folder,
         },
         "postgres": {
