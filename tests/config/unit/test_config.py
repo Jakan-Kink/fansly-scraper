@@ -1,12 +1,15 @@
+import configparser
 import os
 from configparser import ConfigParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import pytest
 from loguru import logger
 
 from config.config import (
+    _handle_config_error,
     copy_old_config_values,
     load_config,
     parse_items_from_line,
@@ -461,3 +464,340 @@ temp_folder =
 
     load_config(config)
     assert config.temp_folder is None
+
+
+# -- copy_old_config_values: section/option mismatch branches --
+
+
+def test_copy_old_config_skips_section_not_in_new(temp_config_dir):
+    """Old config has a section the new config doesn't → skip it (line 111)."""
+    old_path = temp_config_dir / "old_config.ini"
+    new_path = temp_config_dir / "config.ini"
+
+    with old_path.open("w") as f:
+        f.write(
+            """[MyAccount]
+Authorization_Token = old_tok
+
+[ExtraSection]
+some_key = some_value
+"""
+        )
+    with new_path.open("w") as f:
+        f.write(
+            """[MyAccount]
+Authorization_Token = new_tok
+"""
+        )
+
+    copy_old_config_values()
+
+    result = ConfigParser(interpolation=None)
+    result.read(new_path)
+    assert result.get("MyAccount", "Authorization_Token") == "old_tok"
+    assert not result.has_section("ExtraSection")
+
+
+def test_copy_old_config_skips_option_not_in_new(temp_config_dir):
+    """Old config has an option the new config doesn't → skip it (line 115)."""
+    old_path = temp_config_dir / "old_config.ini"
+    new_path = temp_config_dir / "config.ini"
+
+    with old_path.open("w") as f:
+        f.write(
+            """[MyAccount]
+Authorization_Token = old_tok
+Extra_Option = extra_value
+"""
+        )
+    with new_path.open("w") as f:
+        f.write(
+            """[MyAccount]
+Authorization_Token = new_tok
+"""
+        )
+
+    copy_old_config_values()
+
+    result = ConfigParser(interpolation=None)
+    result.read(new_path)
+    assert result.get("MyAccount", "Authorization_Token") == "old_tok"
+    assert not result.has_option("MyAccount", "Extra_Option")
+
+
+def test_copy_old_config_skips_version(temp_config_dir):
+    """version key in [Other] section is never overwritten (line 121)."""
+    old_path = temp_config_dir / "old_config.ini"
+    new_path = temp_config_dir / "config.ini"
+
+    with old_path.open("w") as f:
+        f.write(
+            """[Other]
+version = 0.9.0
+"""
+        )
+    with new_path.open("w") as f:
+        f.write(
+            """[Other]
+version = 1.0.0
+"""
+        )
+
+    copy_old_config_values()
+
+    result = ConfigParser(interpolation=None)
+    result.read(new_path)
+    assert result.get("Other", "version") == "1.0.0"
+
+
+# -- SSL path handling in _handle_postgresql_options --
+
+
+def test_load_config_with_ssl_paths(temp_config_dir, config):
+    """SSL cert/key/rootcert paths are parsed when present (lines 326, 330, 334)."""
+    config_path = temp_config_dir / "config.ini"
+
+    with config_path.open("w") as f:
+        f.write(
+            """[Options]
+download_mode = Normal
+metadata_handling = Advanced
+pg_sslmode = verify-full
+pg_sslcert = /path/to/client-cert.pem
+pg_sslkey = /path/to/client-key.pem
+pg_sslrootcert = /path/to/ca.pem
+"""
+        )
+
+    load_config(config)
+    assert config.pg_sslcert == Path("/path/to/client-cert.pem")
+    assert config.pg_sslkey == Path("/path/to/client-key.pem")
+    assert config.pg_sslrootcert == Path("/path/to/ca.pem")
+    assert config.pg_sslmode == "verify-full"
+
+
+# -- StashContext section handling --
+
+
+def test_load_config_with_stash_section(temp_config_dir, config):
+    """StashContext section is parsed into stash_context_conn dict (line 400)."""
+    config_path = temp_config_dir / "config.ini"
+
+    with config_path.open("w") as f:
+        f.write(
+            """[StashContext]
+scheme = https
+host = stash.local
+port = 9998
+apikey = my-api-key
+"""
+        )
+
+    load_config(config)
+    assert config.stash_context_conn is not None
+    assert config.stash_context_conn["scheme"] == "https"
+    assert config.stash_context_conn["host"] == "stash.local"
+    assert config.stash_context_conn["port"] == 9998
+    assert config.stash_context_conn["apikey"] == "my-api-key"
+
+
+# -- Invalid log level warning in _handle_logging_section --
+
+
+def test_load_config_with_invalid_log_level(temp_config_dir, config):
+    """Invalid log level triggers warning and falls back to INFO (lines 434-440)."""
+    config_path = temp_config_dir / "config.ini"
+
+    with config_path.open("w") as f:
+        f.write(
+            """[Logging]
+sqlalchemy = GARBAGE
+textio = INFO
+"""
+        )
+
+    load_config(config)
+    assert config.log_levels["sqlalchemy"] == "INFO"
+    assert config.log_levels["textio"] == "INFO"
+
+
+# -- _handle_config_error branches --
+
+
+class TestHandleConfigError:
+    """Cover all branches in _handle_config_error (lines 448-475)."""
+
+    def test_no_option_error(self, config):
+        e = configparser.NoOptionError("missing_opt", "SomeSection")
+        with pytest.raises(ConfigError, match=r"config\.ini file is invalid"):
+            _handle_config_error(e, config)
+
+    def test_value_error_boolean(self, config):
+        """ValueError with 'a boolean' substring → boolean-specific message (line 453)."""
+        config.interactive = False
+        e = ValueError("Not a boolean: notbool")
+        with pytest.raises(ConfigError, match="malformed in the configuration file"):
+            _handle_config_error(e, config)
+
+    def test_value_error_generic(self, config):
+        """Plain ValueError without 'boolean' → generic value error (line 460)."""
+        config.interactive = False
+        e = ValueError("'INVALID' is not a valid DownloadMode")
+        with pytest.raises(ConfigError, match=r"wrong value in the config\.ini file"):
+            _handle_config_error(e, config)
+
+    def test_key_error(self, config):
+        """KeyError → missing/malformed message (line 466)."""
+        config.interactive = False
+        e = KeyError("some_key")
+        with pytest.raises(ConfigError, match="missing or malformed"):
+            _handle_config_error(e, config)
+
+    def test_name_error(self, config):
+        """NameError → missing/malformed message (line 466)."""
+        config.interactive = False
+        e = NameError("undefined_name")
+        with pytest.raises(ConfigError, match="missing or malformed"):
+            _handle_config_error(e, config)
+
+    def test_generic_exception(self, config):
+        """Unrecognized exception type → generic message (line 473)."""
+        config.interactive = False
+        e = RuntimeError("something went wrong")
+        with pytest.raises(ConfigError, match="An error occurred"):
+            _handle_config_error(e, config)
+
+    def test_value_error_boolean_interactive_opens_url(self, config, monkeypatch):
+        """Interactive + boolean ValueError opens wiki URL (line 455)."""
+        config.interactive = True
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        e = ValueError("Not a boolean: notbool")
+        with (
+            patch("config.config.open_url") as mock_open,
+            pytest.raises(ConfigError, match="malformed in the configuration file"),
+        ):
+            _handle_config_error(e, config)
+        mock_open.assert_called_once()
+
+    def test_value_error_generic_interactive_opens_url(self, config, monkeypatch):
+        """Interactive + generic ValueError opens wiki URL (line 461)."""
+        config.interactive = True
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        e = ValueError("'BAD' is not valid")
+        with (
+            patch("config.config.open_url") as mock_open,
+            pytest.raises(ConfigError, match=r"wrong value in the config\.ini file"),
+        ):
+            _handle_config_error(e, config)
+        mock_open.assert_called_once()
+
+    def test_key_error_interactive_opens_url(self, config, monkeypatch):
+        """Interactive + KeyError opens wiki URL (line 468)."""
+        config.interactive = True
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        e = KeyError("missing_key")
+        with (
+            patch("config.config.open_url") as mock_open,
+            pytest.raises(ConfigError, match="missing or malformed"),
+        ):
+            _handle_config_error(e, config)
+        mock_open.assert_called_once()
+
+
+# -- Renamed option handling in load_config --
+
+
+def test_load_config_renamed_options(temp_config_dir, config):
+    """Old option names (utilise_duplicate_threshold, use_suffix) are migrated."""
+    config_path = temp_config_dir / "config.ini"
+
+    with config_path.open("w") as f:
+        f.write(
+            """[Options]
+download_mode = Normal
+metadata_handling = Advanced
+utilise_duplicate_threshold = True
+use_suffix = False
+"""
+        )
+
+    load_config(config)
+    assert config.use_duplicate_threshold is True
+    assert config.use_folder_suffix is False
+    # Old options should be removed
+    assert not config._parser.has_option("Options", "utilise_duplicate_threshold")
+    assert not config._parser.has_option("Options", "use_suffix")
+
+
+# -- Rate limiting config options --
+
+
+def test_load_config_rate_limiting_options(temp_config_dir, config):
+    """Rate limiting settings are parsed from config.ini."""
+    config_path = temp_config_dir / "config.ini"
+
+    with config_path.open("w") as f:
+        f.write(
+            """[Options]
+download_mode = Normal
+metadata_handling = Advanced
+rate_limiting_enabled = False
+rate_limiting_adaptive = False
+rate_limiting_requests_per_minute = 30
+rate_limiting_burst_size = 5
+rate_limiting_retry_after_seconds = 15
+rate_limiting_max_backoff_seconds = 120
+rate_limiting_backoff_factor = 2.0
+"""
+        )
+
+    load_config(config)
+    assert config.rate_limiting_enabled is False
+    assert config.rate_limiting_adaptive is False
+    assert config.rate_limiting_requests_per_minute == 30
+    assert config.rate_limiting_burst_size == 5
+    assert config.rate_limiting_retry_after_seconds == 15
+    assert config.rate_limiting_max_backoff_seconds == 120
+    assert config.rate_limiting_backoff_factor == 2.0
+
+
+# -- Outdated check key replacement --
+
+
+def test_load_config_replaces_outdated_check_keys(temp_config_dir, config):
+    """Known outdated check keys are replaced with the current default."""
+    config_path = temp_config_dir / "config.ini"
+    outdated_key = "negwij-zyZnek-wavje1"
+
+    with config_path.open("w") as f:
+        f.write(
+            f"""[MyAccount]
+Authorization_Token = test_token
+User_Agent = test_agent
+Check_Key = {outdated_key}
+"""
+        )
+
+    load_config(config)
+    assert config.check_key != outdated_key
+    assert config.check_key == "oybZy8-fySzis-bubayf"
+
+
+# -- Deprecated option cleanup --
+
+
+def test_load_config_removes_deprecated_include_meta(temp_config_dir, config):
+    """include_meta_database option is removed from config (line 380)."""
+    config_path = temp_config_dir / "config.ini"
+
+    with config_path.open("w") as f:
+        f.write(
+            """[Options]
+download_mode = Normal
+metadata_handling = Advanced
+include_meta_database = True
+"""
+        )
+
+    load_config(config)
+    assert not config._parser.has_option("Options", "include_meta_database")

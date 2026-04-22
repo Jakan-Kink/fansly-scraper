@@ -1,15 +1,22 @@
 """Test logging configuration."""
 
+import logging
+
 import pytest
 from loguru import logger
 
 from config.fanslyconfig import FanslyConfig
 from config.logging import (
     _LEVEL_VALUES,
+    InterceptHandler,
+    SQLAlchemyInterceptHandler,
+    _auto_bind_logger,
+    _configure_sqlalchemy_logging,
     _trace_level_only,
     get_log_level,
     init_logging_config,
     set_debug_enabled,
+    update_logging_config,
 )
 from errors import InvalidTraceLogError
 
@@ -220,3 +227,167 @@ def test_get_log_level_minimum_debug():
     finally:
         config.trace = False
         init_logging_config(config)
+
+
+# -- InterceptHandler.emit --
+
+
+class TestInterceptHandler:
+    """Cover InterceptHandler.emit branches (lines 75-96)."""
+
+    def test_emit_with_known_level(self):
+        """Standard log level is resolved by name (line 77)."""
+        handler = InterceptHandler()
+        record = logging.LogRecord(
+            "test", logging.INFO, "", 0, "test message", (), None
+        )
+        # Should not raise — just routes to loguru
+        handler.emit(record)
+
+    def test_emit_with_custom_level(self):
+        """Custom level that exists in loguru is handled (line 77)."""
+        handler = InterceptHandler()
+        record = logging.LogRecord(
+            "test", logging.WARNING, "", 0, "warning message", (), None
+        )
+        # Should not raise
+        handler.emit(record)
+
+    def test_emit_with_exception(self):
+        """Exception info is passed through and cleaned up (lines 87-96)."""
+        handler = InterceptHandler()
+        try:
+            raise ValueError("test error")
+        except ValueError:
+            import sys
+
+            exc_info = sys.exc_info()
+            record = logging.LogRecord(
+                "test", logging.ERROR, "", 0, "error msg", (), exc_info
+            )
+            handler.emit(record)
+            # exc_info should be cleared on the record
+            assert record.exc_info is None
+
+
+# -- SQLAlchemyInterceptHandler.emit --
+
+
+class TestSQLAlchemyInterceptHandler:
+    """Cover SQLAlchemyInterceptHandler.emit branches (lines 106-130)."""
+
+    def test_emit_routes_to_db_logger(self):
+        """SQLAlchemy logs are routed to db_logger (lines 119-121)."""
+        handler = SQLAlchemyInterceptHandler()
+        record = logging.LogRecord(
+            "sqlalchemy.engine", logging.INFO, "", 0, "SELECT 1", (), None
+        )
+        handler.emit(record)
+
+    def test_emit_with_debug_level(self):
+        """DEBUG level SQL log is handled by SQLAlchemy handler (lines 108-110)."""
+        handler = SQLAlchemyInterceptHandler()
+        record = logging.LogRecord(
+            "sqlalchemy.engine", logging.DEBUG, "", 0, "SELECT 1", (), None
+        )
+        handler.emit(record)
+
+
+# -- _auto_bind_logger --
+
+
+class TestAutoBindLogger:
+    """Cover _auto_bind_logger routing (lines 221-231)."""
+
+    def test_unbound_record_gets_textio(self):
+        """Unbound record (no logger extra) → defaults to 'textio' (line 230)."""
+        record = {"extra": {}, "name": "some.module"}
+        result = _auto_bind_logger(record)
+        assert result["extra"]["logger"] == "textio"
+
+    def test_sqlalchemy_record_gets_db(self):
+        """SQLAlchemy-related record → 'db' binding (lines 225-228)."""
+        record = {"extra": {}, "name": "sqlalchemy.engine"}
+        result = _auto_bind_logger(record)
+        assert result["extra"]["logger"] == "db"
+
+    def test_asyncpg_record_gets_db(self):
+        """asyncpg record → 'db' binding."""
+        record = {"extra": {}, "name": "asyncpg"}
+        result = _auto_bind_logger(record)
+        assert result["extra"]["logger"] == "db"
+
+    def test_alembic_migration_gets_db(self):
+        """Alembic migration record → 'db' binding."""
+        record = {"extra": {}, "name": "alembic.runtime.migration"}
+        result = _auto_bind_logger(record)
+        assert result["extra"]["logger"] == "db"
+
+    def test_already_bound_record_unchanged(self):
+        """Record with existing logger binding is left alone (line 221)."""
+        record = {"extra": {"logger": "stash"}, "name": "anything"}
+        result = _auto_bind_logger(record)
+        assert result["extra"]["logger"] == "stash"
+
+
+# -- update_logging_config --
+
+
+class TestUpdateLoggingConfig:
+    """Cover update_logging_config (lines 591-622)."""
+
+    def test_update_enables_debug(self):
+        """Enabling debug adds asyncio handler."""
+        config = FanslyConfig(program_version="test")
+        update_logging_config(config, True)
+
+        asyncio_logger = logging.getLogger("asyncio")
+        assert asyncio_logger.level == logging.DEBUG
+
+    def test_update_disables_debug(self):
+        """Disabling debug removes asyncio handlers and sets WARNING level."""
+        config = FanslyConfig(program_version="test")
+        update_logging_config(config, False)
+
+        asyncio_logger = logging.getLogger("asyncio")
+        assert asyncio_logger.level == logging.WARNING
+
+    def test_update_requires_fanslyconfig(self):
+        """Non-FanslyConfig raises TypeError (line 601)."""
+        with pytest.raises(TypeError, match="must be an instance of FanslyConfig"):
+            update_logging_config("not_a_config", True)
+
+
+# -- setup_handlers and _configure_sqlalchemy_logging --
+
+
+class TestSetupHandlers:
+    """Cover setup_handlers (lines 287-515) and related."""
+
+    def test_setup_handlers_creates_log_dir(self, tmp_path):
+        """setup_handlers creates log directory (line 312-313)."""
+        import os
+        from pathlib import Path
+
+        original_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            config = FanslyConfig(program_version="test")
+            init_logging_config(config)
+            assert (tmp_path / "logs").is_dir()
+        finally:
+            logger.remove()
+            os.chdir(original_cwd)
+
+    def test_configure_sqlalchemy_logging(self):
+        """_configure_sqlalchemy_logging sets up handlers for SA loggers (lines 625-676)."""
+        config = FanslyConfig(program_version="test")
+        init_logging_config(config)
+        _configure_sqlalchemy_logging()
+
+        # Verify SQLAlchemy logger is configured
+        sa_logger = logging.getLogger("sqlalchemy.engine")
+        assert sa_logger.propagate is False
+        # Should have at least NullHandler
+        handler_types = [type(h).__name__ for h in sa_logger.handlers]
+        assert "NullHandler" in handler_types

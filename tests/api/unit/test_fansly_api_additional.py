@@ -1,5 +1,6 @@
 """Additional unit tests for FanslyApi class to improve coverage"""
 
+import types
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -7,6 +8,9 @@ import pytest
 import respx
 
 from api.fansly import FanslyApi
+from api.rate_limiter import RateLimiter
+from config.fanslyconfig import FanslyConfig
+from tests.fixtures.api.api_fixtures import dump_fansly_calls
 
 
 class TestFanslyApiAdditional:
@@ -474,3 +478,162 @@ class TestFanslyApiAdditional:
 
         # Verify the device ID was updated
         assert api.device_id == "updated_device_id"
+
+
+class TestValidateJsonResponse:
+    """Cover validate_json_response edge cases."""
+
+    def test_non_200_status_raises(self, fansly_api):
+        """Non-200 response after raise_for_status raises RuntimeError (line 892).
+
+        204 No Content is valid HTTP but not expected by the Fansly API.
+        raise_for_status() only raises for 4xx/5xx, so 204 passes through to
+        the explicit != 200 check.
+        """
+        request = httpx.Request("GET", "https://apiv3.fansly.com/api/v1/test")
+        response = httpx.Response(204, json={"success": "true"}, request=request)
+        with pytest.raises(RuntimeError, match="Web request failed"):
+            fansly_api.validate_json_response(response)
+
+    @respx.mock
+    def test_418_teapot_retried(self, fansly_api):
+        """HTTP 418 is in the retry status codes list — verifies retry logic.
+
+        The Fansly API uses 418 as a custom error code that triggers retries.
+        get_with_ngsw should retry on 418 and eventually succeed.
+        """
+        # CORS OPTIONS
+        respx.options(url__regex=r".*api/v1/test.*").mock(
+            side_effect=[httpx.Response(200)]
+        )
+        # First call returns 418, retry returns success
+        route = respx.get(url__regex=r".*api/v1/test.*").mock(
+            side_effect=[
+                httpx.Response(418),
+                httpx.Response(
+                    200,
+                    json={"success": "true", "response": {"data": "ok"}},
+                ),
+            ]
+        )
+
+        try:
+            response = fansly_api.get_with_ngsw("https://apiv3.fansly.com/api/v1/test")
+            assert response.status_code == 200
+        finally:
+            dump_fansly_calls(route.calls)
+
+
+class TestConvertIdsToInt:
+    """Cover convert_ids_to_int edge cases."""
+
+    def test_non_numeric_id_string_unchanged(self):
+        """Non-numeric ID string falls back to original value (lines 922-923)."""
+        data = {"id": "not_a_number", "name": "test"}
+        result = FanslyApi.convert_ids_to_int(data)
+        assert result["id"] == "not_a_number"
+        assert result["name"] == "test"
+
+    def test_nested_list_of_dicts(self):
+        """Nested list of dicts has IDs converted recursively."""
+        data = [{"id": "123", "parentId": "456"}]
+        result = FanslyApi.convert_ids_to_int(data)
+        assert result[0]["id"] == 123
+        assert result[0]["parentId"] == 456
+
+    def test_ids_list_field(self):
+        """Fields ending with 'Ids' have list items converted."""
+        data = {"accountIds": ["111", "222", 333]}
+        result = FanslyApi.convert_ids_to_int(data)
+        assert result["accountIds"] == [111, 222, 333]
+
+
+class TestWebSocketHandlers:
+    """Cover WebSocket callback handlers (lines 995-1029)."""
+
+    def test_handle_unauthorized_resets_session(self, fansly_api):
+        """401 handler resets session_id (lines 995-996)."""
+        fansly_api.session_id = "active_session"
+        fansly_api._handle_websocket_unauthorized()
+        assert fansly_api.session_id == "null"
+
+    def test_handle_rate_limited_with_limiter(self, fansly_api):
+        """429 handler triggers rate limiter backoff (lines 1006-1010)."""
+        config = FanslyConfig(program_version="1.0.0")
+        fansly_api.rate_limiter = RateLimiter(config)
+
+        fansly_api._handle_websocket_rate_limited()
+        # Should record the 429 response without raising
+
+    def test_handle_rate_limited_no_limiter(self, fansly_api):
+        """429 handler without rate limiter logs warning (lines 1011-1014)."""
+        fansly_api.rate_limiter = None
+        fansly_api._handle_websocket_rate_limited()
+        # Should log warning without raising
+
+    @pytest.mark.asyncio
+    async def test_close_websocket_no_client(self, fansly_api):
+        """Closing with no websocket client is a no-op (line 1022)."""
+        fansly_api._websocket_client = None
+        await fansly_api.close_websocket()
+        assert fansly_api._websocket_client is None
+
+    @pytest.mark.asyncio
+    async def test_close_websocket_with_client(self, fansly_api):
+        """Closing with websocket client calls stop and clears ref (lines 1022-1029)."""
+        stop_called = []
+
+        async def fake_stop():
+            stop_called.append(True)
+
+        fansly_api._websocket_client = types.SimpleNamespace(
+            stop=fake_stop,
+            connected=True,
+            session_id="test",
+        )
+        await fansly_api.close_websocket()
+        assert fansly_api._websocket_client is None
+        assert len(stop_called) == 1
+
+    @pytest.mark.asyncio
+    async def test_close_websocket_stop_raises(self, fansly_api):
+        """Stop raising exception is handled gracefully (lines 1026-1027)."""
+
+        async def failing_stop():
+            raise RuntimeError("stop failed")
+
+        fansly_api._websocket_client = types.SimpleNamespace(
+            stop=failing_stop,
+            connected=False,
+        )
+        await fansly_api.close_websocket()
+        assert fansly_api._websocket_client is None
+
+
+class TestGetClientUserName:
+    """Cover get_client_user_name edge case (line 965)."""
+
+    @respx.mock
+    def test_empty_username_returns_none(self, fansly_api):
+        """Empty username in API response returns None (line 965)."""
+        respx.options(url__regex=r".*account/me.*").mock(
+            side_effect=[httpx.Response(200)]
+        )
+        route = respx.get(url__regex=r".*account/me.*").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "success": "true",
+                        "response": {
+                            "account": {"username": ""},
+                        },
+                    },
+                )
+            ]
+        )
+        try:
+            result = fansly_api.get_client_user_name()
+            assert result is None
+        finally:
+            dump_fansly_calls(route.calls)

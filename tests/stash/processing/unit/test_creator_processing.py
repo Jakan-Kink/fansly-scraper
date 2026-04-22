@@ -14,11 +14,12 @@ import asyncio
 import contextlib
 import json
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 import respx
+from stash_graphql_client.errors import StashVersionError
 from stash_graphql_client.types.job import JobStatus
 
 from tests.fixtures import (
@@ -322,6 +323,62 @@ class TestCreatorProcessing:
             # Verify warning was printed
             mock_print_warning.assert_called_once()
             assert "not configured" in str(mock_print_warning.call_args)
+
+    @pytest.mark.asyncio
+    async def test_start_creator_processing_stash_version_error(
+        self, entity_store, respx_stash_processor
+    ):
+        """Test start_creator_processing when Stash server is too old (lines 379-382)."""
+        processor = respx_stash_processor
+        processor.config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": "9999",
+            "apikey": "",
+        }
+
+        with (
+            patch.object(
+                processor.context,
+                "get_client",
+                new_callable=AsyncMock,
+                side_effect=StashVersionError("Server too old"),
+            ),
+            patch("stash.processing.base.print_error") as mock_error,
+            patch("stash.processing.base.print_warning") as mock_warning,
+        ):
+            await processor.start_creator_processing()
+
+            mock_error.assert_called_once()
+            assert "too old" in str(mock_error.call_args)
+            mock_warning.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_start_creator_processing_runtime_error(
+        self, entity_store, respx_stash_processor
+    ):
+        """Test start_creator_processing when client init fails (lines 383-385)."""
+        processor = respx_stash_processor
+        processor.config.stash_context_conn = {
+            "scheme": "http",
+            "host": "localhost",
+            "port": "9999",
+            "apikey": "",
+        }
+
+        with (
+            patch.object(
+                processor.context,
+                "get_client",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("Connection refused"),
+            ),
+            patch("stash.processing.base.print_error") as mock_error,
+        ):
+            await processor.start_creator_processing()
+
+            mock_error.assert_called_once()
+            assert "Failed to initialize" in str(mock_error.call_args)
 
     @pytest.mark.asyncio
     async def test_start_creator_processing_with_stash_context(

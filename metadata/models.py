@@ -1583,6 +1583,23 @@ class Attachment(FanslyObject):
             return None
         return self._store.get_from_cache(Post, self.contentId)
 
+    async def resolve_content(
+        self,
+    ) -> AccountMedia | AccountMediaBundle | Post | None:
+        """Resolve the content based on contentType and contentId.
+
+        Returns the related object from the identity map cache, or None.
+        Restored from the pre-Pydantic SQLAlchemy model to keep the
+        stash processing code's hasattr() checks working.
+        """
+        if self.contentType == ContentType.ACCOUNT_MEDIA:
+            return self.media
+        if self.contentType == ContentType.ACCOUNT_MEDIA_BUNDLE:
+            return self.bundle
+        if self.contentType == ContentType.AGGREGATED_POSTS:
+            return self.aggregated_post
+        return None
+
 
 class PostMention(FanslyObject):
     """A mention in a post, linking to an account by handle.

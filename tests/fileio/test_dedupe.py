@@ -17,11 +17,13 @@ from fileio.dedupe import (
     categorize_file,
     dedupe_init,
     dedupe_media_file,
+    file_exists_in_download_path,
     get_account_id,
     get_filename_only,
     get_or_create_media,
     migrate_full_paths_to_filenames,
     safe_rglob,
+    verify_file_existence,
 )
 from fileio.normalize import normalize_filename
 from metadata import Account, Media
@@ -180,12 +182,14 @@ async def test_get_account_id(entity_store):
     assert result == existing_account_id
     assert state.creator_id == existing_account_id
 
-    # Note: Test case 3 (account creation for unknown username) is skipped because
-    # get_account_id() creates Account(username=...) without an id, which violates
-    # the NOT NULL constraint on the accounts.id column. This is a pre-existing
-    # production bug — in practice, state.creator_id is always set from the API.
+    # Test case 3: Account doesn't exist in DB → returns None
+    # (TODO: should query Fansly API by username in the future)
+    state.creator_id = None
+    state.creator_name = f"nonexistent_{snowflake_id()}"
+    result = await get_account_id(state)
+    assert result is None
 
-    # Test case 3: No creator_name - should return None
+    # Test case 4: No creator_name - should return None
     state.creator_id = None
     state.creator_name = None
     result = await get_account_id(state)
@@ -1223,7 +1227,6 @@ class TestFileExistenceChecks:
     @pytest.mark.asyncio
     async def test_file_exists_in_download_path(self, tmp_path):
         """Lines 105-120: direct path, rglob fallback, not found."""
-        from fileio.dedupe import file_exists_in_download_path
 
         create_test_file(tmp_path, "found.txt")
         create_test_file(tmp_path / "sub", "nested.txt")
@@ -1236,16 +1239,19 @@ class TestFileExistenceChecks:
 
     @pytest.mark.asyncio
     async def test_verify_file_existence_real(self, tmp_path):
-        """Lines 123-153: verify multiple files at once."""
-        from fileio.dedupe import verify_file_existence
-
+        """Lines 123-153: verify multiple files, including rglob fallback (146-148)."""
         create_test_file(tmp_path, "a.txt")
         create_test_file(tmp_path, "b.txt")
+        # File in subdirectory — not found by direct path, found by rglob (lines 146-148)
+        create_test_file(tmp_path, "subdir/nested.txt")
 
-        results = await verify_file_existence(tmp_path, ["a.txt", "b.txt", "c.txt"])
+        results = await verify_file_existence(
+            tmp_path, ["a.txt", "b.txt", "c.txt", "nested.txt"]
+        )
         assert results["a.txt"] is True
         assert results["b.txt"] is True
         assert results["c.txt"] is False
+        assert results["nested.txt"] is True  # Found via rglob fallback
 
 
 if __name__ == "__main__":

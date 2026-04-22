@@ -16,6 +16,7 @@ from metadata import ContentType
 from stash.processing import StashProcessing
 from tests.fixtures import (
     AccountFactory,
+    AccountMediaBundleFactory,
     AccountMediaFactory,
     AttachmentFactory,
     GroupFactory,
@@ -144,6 +145,120 @@ class TestCollectMediaFromAttachments:
         media_ids = [m.id for m in result]
         assert media_id_1 in media_ids
         assert media_id_2 in media_ids
+
+    @pytest.mark.asyncio
+    async def test_attachments_with_previews(
+        self,
+        entity_store,
+        respx_stash_processor: StashProcessing,
+    ):
+        """Test _collect_media_from_attachments collects preview media (lines 241, 250, 253).
+
+        AccountMedia and bundles can have a previewId pointing to a separate
+        Media object (e.g., a thumbnail). These should also be collected.
+        """
+        acct_id = snowflake_id()
+        main_media_id = snowflake_id()
+        preview_media_id = snowflake_id()
+        bundle_preview_id = snowflake_id()
+        bundle_item_media_id = snowflake_id()
+        bundle_item_preview_id = snowflake_id()
+
+        # FK parent
+        account = AccountFactory.build(id=acct_id, username="preview_user")
+        await entity_store.save(account)
+
+        # Main media + its preview
+        main_media = MediaFactory.build(
+            id=main_media_id,
+            accountId=acct_id,
+            mimetype="video/mp4",
+        )
+        preview_media = MediaFactory.build(
+            id=preview_media_id,
+            accountId=acct_id,
+            mimetype="image/jpeg",
+        )
+        await entity_store.save(main_media)
+        await entity_store.save(preview_media)
+
+        # AccountMedia with both mediaId and previewId → hits line 241
+        acct_media = AccountMediaFactory.build(
+            id=main_media_id,
+            accountId=acct_id,
+            mediaId=main_media_id,
+            previewId=preview_media_id,
+        )
+        await entity_store.save(acct_media)
+
+        att1 = AttachmentFactory.build(
+            id=70001,
+            contentType=ContentType.ACCOUNT_MEDIA,
+            contentId=main_media_id,
+            pos=0,
+        )
+
+        # Bundle media + bundle preview → hits lines 250, 253
+        bundle_item_media = MediaFactory.build(
+            id=bundle_item_media_id,
+            accountId=acct_id,
+            mimetype="image/png",
+        )
+        bundle_item_preview = MediaFactory.build(
+            id=bundle_item_preview_id,
+            accountId=acct_id,
+            mimetype="image/jpeg",
+        )
+        bundle_preview = MediaFactory.build(
+            id=bundle_preview_id,
+            accountId=acct_id,
+            mimetype="image/jpeg",
+        )
+        await entity_store.save(bundle_item_media)
+        await entity_store.save(bundle_item_preview)
+        await entity_store.save(bundle_preview)
+
+        # AccountMedia inside the bundle (with its own preview)
+        bundle_acct_media = AccountMediaFactory.build(
+            id=bundle_item_media_id,
+            accountId=acct_id,
+            mediaId=bundle_item_media_id,
+            previewId=bundle_item_preview_id,
+        )
+        await entity_store.save(bundle_acct_media)
+
+        # The bundle itself
+        bundle = AccountMediaBundleFactory.build(
+            id=snowflake_id(),
+            accountId=acct_id,
+            previewId=bundle_preview_id,
+        )
+        await bundle._add_to_relationship("accountMedia", bundle_acct_media)
+        await entity_store.save(bundle)
+
+        att2 = AttachmentFactory.build(
+            id=70002,
+            contentType=ContentType.ACCOUNT_MEDIA_BUNDLE,
+            contentId=bundle.id,
+            pos=1,
+        )
+
+        result = await respx_stash_processor._collect_media_from_attachments(
+            [att1, att2]
+        )
+
+        result_ids = {m.id for m in result}
+
+        # Direct media: main + preview (lines 238-241)
+        assert main_media_id in result_ids
+        assert preview_media_id in result_ids
+
+        # Bundle item media + its preview (lines 247-250)
+        assert bundle_item_media_id in result_ids
+        assert bundle_item_preview_id in result_ids
+
+        # Bundle's own preview (line 252-253)
+        assert bundle_preview_id in result_ids
 
 
 class TestProcessItemsWithGallery:

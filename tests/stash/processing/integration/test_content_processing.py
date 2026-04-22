@@ -13,16 +13,19 @@ import pytest
 from stash_graphql_client.types import Gallery, Performer, Studio
 
 from metadata import ContentType
+from metadata.models import FanslyObject
 from tests.fixtures.metadata.metadata_factories import (
     AccountFactory,
+    AccountMediaFactory,
     AttachmentFactory,
     GroupFactory,
+    MediaFactory,
     MessageFactory,
     PostFactory,
 )
 from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_integration_fixtures import capture_graphql_calls
-from tests.fixtures.utils.test_isolation import get_unique_test_id
+from tests.fixtures.utils.test_isolation import get_unique_test_id, snowflake_id
 
 
 class TestContentProcessingIntegration:
@@ -1183,3 +1186,272 @@ class TestContentProcessingIntegration:
                     f"Expected at least 1 imageUpdate with gallery_ids "
                     f"for second post, got {len(updates_with_gallery_ids)}"
                 )
+
+    @pytest.mark.asyncio
+    async def test_process_item_gallery_no_stash_media(
+        self,
+        entity_store,
+        real_stash_processor,
+        stash_cleanup_tracker,
+    ):
+        """Test _process_item_gallery when media exists but not in Stash (lines 638-646).
+
+        Post has ACCOUNT_MEDIA attachments but the media IDs don't match any
+        files in Docker Stash. Gallery is created then deleted because no
+        content was processed.
+        """
+        async with stash_cleanup_tracker(
+            real_stash_processor.context.client
+        ) as cleanup:
+            test_id = get_unique_test_id()
+            account = AccountFactory.build(username=f"empty_gallery_{test_id}")
+            await entity_store.save(account)
+
+            # Create media that won't match anything in Stash
+            media = MediaFactory.build(
+                id=snowflake_id(),
+                accountId=account.id,
+                mimetype="image/jpeg",
+                local_filename="nonexistent_in_stash.jpg",
+            )
+            await entity_store.save(media)
+
+            acct_media = AccountMediaFactory.build(
+                id=media.id,
+                accountId=account.id,
+                mediaId=media.id,
+            )
+            await entity_store.save(acct_media)
+
+            post = PostFactory.build(
+                accountId=account.id,
+                content=f"Empty gallery test {test_id}",
+                createdAt=datetime(2000, 1, 1, tzinfo=UTC),
+            )
+            await entity_store.save(post)
+
+            att = AttachmentFactory.build(
+                postId=post.id,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                contentId=acct_media.id,
+                pos=0,
+            )
+            await post._add_to_relationship("attachments", att)
+
+            # Point state at our account so process_creator finds it
+            real_stash_processor.state.creator_id = account.id
+            real_stash_processor.state.creator_name = account.username
+
+            # Create real performer and studio in Docker Stash via process_creator
+            _, performer = await real_stash_processor.process_creator()
+            cleanup["performers"].append(performer.id)
+            studio = real_stash_processor._studio
+            if studio:
+                cleanup["studios"].append(studio.id)
+
+            # Process — gallery created but no media found, triggers delete (638-646)
+            await real_stash_processor._process_item_gallery(
+                item=post,
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type="post",
+                url_pattern=f"https://fansly.com/post/{post.id}",
+            )
+
+    @pytest.mark.asyncio
+    async def test_process_item_gallery_save_error(
+        self,
+        entity_store,
+        real_stash_processor,
+        message_media_generator,
+        stash_cleanup_tracker,
+    ):
+        """Test _process_item_gallery when gallery save fails (lines 681-696).
+
+        Gallery is created and populated with content, but the final save() raises.
+        """
+        async with stash_cleanup_tracker(
+            real_stash_processor.context.client
+        ) as cleanup:
+            post_media = await message_media_generator()
+
+            test_id = get_unique_test_id()
+            account = AccountFactory.build(username=f"save_error_{test_id}")
+            await entity_store.save(account)
+
+            for media in post_media.media_items:
+                media.accountId = account.id
+                await entity_store.save(media)
+
+            for account_media in post_media.account_media_items:
+                account_media.accountId = account.id
+                await entity_store.save(account_media)
+
+            post = PostFactory.build(
+                accountId=account.id,
+                content=f"Save error test {test_id}",
+                createdAt=datetime(2000, 1, 1, tzinfo=UTC),
+            )
+            await entity_store.save(post)
+
+            for attachments_created, am in enumerate(post_media.account_media_items):
+                att = AttachmentFactory.build(
+                    postId=post.id,
+                    contentType=ContentType.ACCOUNT_MEDIA,
+                    contentId=am.id,
+                    pos=attachments_created,
+                )
+                await post._add_to_relationship("attachments", att)
+
+            # Point state at our account so process_creator finds it
+            real_stash_processor.state.creator_id = account.id
+            real_stash_processor.state.creator_name = account.username
+
+            # Create real performer and studio in Docker Stash
+            _, performer = await real_stash_processor.process_creator()
+            cleanup["performers"].append(performer.id)
+            studio = real_stash_processor._studio
+            if studio:
+                cleanup["studios"].append(studio.id)
+
+            # Patch store.save to fail only on the SECOND Gallery save
+            # (first save creates the gallery, second is the final persist at line 680)
+            original_save = real_stash_processor.store.save
+            gallery_save_count = [0]
+
+            async def failing_gallery_save(obj):
+                if isinstance(obj, Gallery):
+                    gallery_save_count[0] += 1
+                    if gallery_save_count[0] > 1:
+                        raise RuntimeError("Simulated gallery save failure")
+                return await original_save(obj)
+
+            with patch.object(
+                real_stash_processor.store, "save", side_effect=failing_gallery_save
+            ):
+                # Should not raise — error caught at lines 681-696
+                await real_stash_processor._process_item_gallery(
+                    item=post,
+                    account=account,
+                    performer=performer,
+                    studio=studio,
+                    item_type="post",
+                    url_pattern=f"https://fansly.com/post/{post.id}",
+                )
+
+    @pytest.mark.asyncio
+    async def test_process_item_gallery_with_aggregated_posts(
+        self,
+        entity_store,
+        real_stash_processor,
+        message_media_generator,
+        stash_cleanup_tracker,
+    ):
+        """Test _get_or_create_gallery creates chapters for aggregated posts (lines 426-439).
+
+        Main post has an AGGREGATED_POSTS attachment pointing to a nested post
+        that has ACCOUNT_MEDIA. The gallery gets chapters for each aggregated post.
+        """
+        async with stash_cleanup_tracker(
+            real_stash_processor.context.client
+        ) as cleanup:
+            # Generate real media from Docker Stash
+            post_media = await message_media_generator()
+
+            test_id = get_unique_test_id()
+            account = AccountFactory.build(username=f"agg_gallery_{test_id}")
+            await entity_store.save(account)
+
+            real_stash_processor.state.creator_id = account.id
+            real_stash_processor.state.creator_name = account.username
+
+            _, performer = await real_stash_processor.process_creator()
+            cleanup["performers"].append(performer.id)
+            studio = real_stash_processor._studio
+            if studio:
+                cleanup["studios"].append(studio.id)
+
+            # Save media to entity store
+            for media in post_media.media_items:
+                media.accountId = account.id
+                await entity_store.save(media)
+            for account_media in post_media.account_media_items:
+                account_media.accountId = account.id
+                await entity_store.save(account_media)
+
+            # Create nested post with ACCOUNT_MEDIA (this is the aggregated content)
+            nested_post = PostFactory.build(
+                accountId=account.id,
+                content=f"Nested aggregated content {test_id}",
+                createdAt=datetime(2000, 1, 2, tzinfo=UTC),
+            )
+            await entity_store.save(nested_post)
+
+            # Add media attachments to the nested post
+            for i, am in enumerate(post_media.account_media_items):
+                nested_att = AttachmentFactory.build(
+                    postId=nested_post.id,
+                    contentType=ContentType.ACCOUNT_MEDIA,
+                    contentId=am.id,
+                    pos=i,
+                )
+                await nested_post._add_to_relationship("attachments", nested_att)
+
+            # Create main post with both direct media AND an AGGREGATED_POSTS attachment
+            main_post = PostFactory.build(
+                accountId=account.id,
+                content=f"Main post with aggregated {test_id}",
+                createdAt=datetime(2000, 1, 1, tzinfo=UTC),
+            )
+            await entity_store.save(main_post)
+
+            # Add direct media attachment (so gallery gets created)
+            direct_att = AttachmentFactory.build(
+                postId=main_post.id,
+                contentType=ContentType.ACCOUNT_MEDIA,
+                contentId=post_media.account_media_items[0].id,
+                pos=0,
+            )
+            await main_post._add_to_relationship("attachments", direct_att)
+
+            # Add AGGREGATED_POSTS attachment pointing to nested post
+            agg_att = AttachmentFactory.build(
+                postId=main_post.id,
+                contentType=ContentType.AGGREGATED_POSTS,
+                contentId=nested_post.id,
+                pos=1,
+            )
+            await main_post._add_to_relationship("attachments", agg_att)
+
+            # Verify the aggregated post resolves correctly
+            assert FanslyObject._store is not None, "_store not set"
+            resolved = FanslyObject._store.get_from_cache(
+                type(nested_post), nested_post.id
+            )
+            assert resolved is not None, f"nested_post {nested_post.id} not in cache"
+            assert agg_att.contentId == nested_post.id
+            content = await agg_att.resolve_content()
+            assert content is not None, (
+                f"resolve_content returned None, "
+                f"contentType={agg_att.contentType}, "
+                f"contentId={agg_att.contentId}"
+            )
+            has_media = await real_stash_processor._has_media_content(content)
+            assert has_media, (
+                f"Resolved post has no media content: "
+                f"attachments={getattr(content, 'attachments', 'MISSING')}"
+            )
+
+            # Invalidate gallery cache so search methods don't find leftovers
+            real_stash_processor.store.invalidate_type(Gallery)
+
+            # Process — should create gallery with chapters for aggregated posts
+            await real_stash_processor._process_item_gallery(
+                item=main_post,
+                account=account,
+                performer=performer,
+                studio=studio,
+                item_type="post",
+                url_pattern=f"https://fansly.com/post/{main_post.id}",
+            )

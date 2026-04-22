@@ -3,6 +3,8 @@
 Tests migrated to use respx_stash_processor fixture for HTTP boundary mocking.
 """
 
+from unittest.mock import patch
+
 import httpx
 import pytest
 import respx
@@ -16,6 +18,7 @@ from tests.fixtures import (
     create_tag_create_result,
     create_tag_dict,
 )
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 
 
 @pytest.mark.asyncio
@@ -209,3 +212,127 @@ async def test_add_preview_tag_no_tag_found(respx_stash_processor):
 
     # Verify no tag was added since none was found
     assert len(scene.tags) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_tag_cache_hit(respx_stash_processor):
+    """Tag found in local cache returns immediately (line 61).
+
+    When a tag is already in the identity-map cache (e.g., from preload),
+    _get_or_create_tag returns it without any GraphQL call.
+    """
+    # Pre-populate the store cache by saving a tag
+    # save() with an existing ID triggers an update mutation, which populates the cache
+    existing_tag = TagFactory.build(id="cached_tag_1", name="cached_tag")
+
+    # Mock the GraphQL mutation for the save, then the tag is cached
+    tag_dict = create_tag_dict(id="cached_tag_1", name="cached_tag")
+    route = respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=create_graphql_response("tagUpdate", tag_dict),
+            ),
+        ]
+    )
+
+    try:
+        await respx_stash_processor.store.save(existing_tag)
+    finally:
+        dump_graphql_calls(route.calls, "test_get_or_create_tag_cache_hit (save)")
+
+    # Reset route so no further GraphQL calls are allowed
+    respx.reset()
+
+    # Now the cache lookup should succeed without any GraphQL call
+    tag = await respx_stash_processor._get_or_create_tag("cached_tag")
+
+    assert tag.id == "cached_tag_1"
+    assert tag.name == "cached_tag"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_tag_alias_hit(respx_stash_processor):
+    """Tag found by alias fallback returns that tag (line 71).
+
+    When name search returns nothing but alias search matches,
+    the aliased tag is returned.
+    """
+    empty_result = create_find_tags_result(count=0, tags=[])
+    aliased_tag_dict = create_tag_dict(
+        id="alias_match_tag",
+        name="original_name",
+        aliases=["my_alias"],
+    )
+    alias_result = create_find_tags_result(count=1, tags=[aliased_tag_dict])
+
+    route = respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", empty_result),
+            ),
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", alias_result),
+            ),
+        ]
+    )
+
+    try:
+        tag = await respx_stash_processor._get_or_create_tag("my_alias")
+    finally:
+        dump_graphql_calls(route.calls, "test_get_or_create_tag_alias_hit")
+
+    assert tag.name == "original_name"
+    assert tag.id == "alias_match_tag"
+
+
+@pytest.mark.asyncio
+async def test_process_hashtags_batch_exception_fallback(respx_stash_processor):
+    """Batch gather failure falls back to sequential processing (lines 134-143).
+
+    When asyncio.gather itself raises (not individual return_exceptions),
+    the code falls back to processing tags one at a time.
+    """
+    hashtag1 = HashtagFactory.build(value="fallback1")
+    hashtag2 = HashtagFactory.build(value="fallback2")
+
+    tag1_dict = create_tag_dict(id="fb_tag_1", name="fallback1")
+    tag2_dict = create_tag_dict(id="fb_tag_2", name="fallback2")
+    result1 = create_find_tags_result(count=1, tags=[tag1_dict])
+    result2 = create_find_tags_result(count=1, tags=[tag2_dict])
+
+    async def failing_gather(*coros, **kwargs):
+        """Simulate gather failure — cancel coroutines to avoid warnings."""
+        for coro in coros:
+            coro.close()
+        raise RuntimeError("gather exploded")
+
+    route = respx.post("http://localhost:9999/graphql").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", result1),
+            ),
+            httpx.Response(
+                200,
+                json=create_graphql_response("findTags", result2),
+            ),
+        ]
+    )
+
+    try:
+        with patch("asyncio.gather", side_effect=failing_gather):
+            tags = await respx_stash_processor._process_hashtags_to_tags(
+                [hashtag1, hashtag2]
+            )
+    finally:
+        dump_graphql_calls(
+            route.calls, "test_process_hashtags_batch_exception_fallback"
+        )
+
+    assert len(tags) == 2
+    tag_names = {t.name for t in tags}
+    assert "fallback1" in tag_names
+    assert "fallback2" in tag_names

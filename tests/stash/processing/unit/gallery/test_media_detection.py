@@ -243,11 +243,10 @@ class TestMediaDetection:
         ):
             result = await respx_stash_processor._has_media_content(post4)
 
-            # The production code checks hasattr(attachment, "resolve_content")
-            # which is False for Pydantic Attachment models (they use .aggregated_post
-            # property instead). So the aggregated path is not taken.
-            # The result is False because no direct media attachments exist.
-            assert result is False
+            # resolve_content() is now restored on Pydantic Attachment, so the
+            # aggregated post path IS taken. The nested post has ACCOUNT_MEDIA,
+            # so _check_aggregated_posts returns True → _has_media_content returns True.
+            assert result is True
 
         # Test with aggregated posts but no media
         nested_post_no_media = PostFactory.build(
@@ -281,8 +280,8 @@ class TestMediaDetection:
         ):
             result = await respx_stash_processor._has_media_content(post6)
 
-            # Same as above: resolve_content doesn't exist on Pydantic Attachment,
-            # so aggregated path is not taken. Result is False.
+            # resolve_content() now works. The nested post has only TIP_GOALS
+            # (no media), so _check_aggregated_posts returns False.
             assert result is False
 
         # Test with no attachments

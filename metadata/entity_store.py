@@ -17,6 +17,7 @@ Filter syntax mirrors stash-graphql-client's StashEntityStore:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import threading
 from collections import defaultdict
@@ -298,6 +299,8 @@ class PostgresEntityStore:
             max_size=3,
             command_timeout=30,
             init=self._init_pg_connection,
+            setup=self._setup_pg_connection,
+            reset=self._reset_pg_connection,
         )
         with self._thread_pool_lock:
             # Double-check: another coroutine may have created one while
@@ -314,7 +317,11 @@ class PostgresEntityStore:
 
     @staticmethod
     async def _init_pg_connection(conn: asyncpg.Connection) -> None:
-        """Register JSONB codec and query logging on new pool connections."""
+        """Register JSONB codec and query logger on new pool connections.
+
+        Runs once per new connection. Query loggers don't trigger asyncpg's
+        release warning, so they stay in ``init``.
+        """
         await conn.set_type_codec(
             "jsonb",
             encoder=json.dumps,
@@ -323,7 +330,33 @@ class PostgresEntityStore:
         )
         from .logging_config import get_db_logger
 
-        get_db_logger().setup_connection_logging(conn)
+        conn.add_query_logger(get_db_logger().query_logger_callback)
+
+    @staticmethod
+    async def _setup_pg_connection(conn: asyncpg.Connection) -> None:
+        """Attach log listener on every acquire from pool.
+
+        Paired with ``_reset_pg_connection`` which removes the log listener
+        before each release, preventing asyncpg InterfaceWarning about
+        active log listeners on pool release.
+        """
+        from .logging_config import DatabaseLogger
+
+        conn.add_log_listener(DatabaseLogger.log_listener_callback)
+
+    @staticmethod
+    async def _reset_pg_connection(conn: asyncpg.Connection) -> None:
+        """Remove log listener before connection is released to pool.
+
+        asyncpg warns (InterfaceWarning) when a connection with active
+        log listeners is returned to the pool. This ``reset`` callback
+        removes it; ``_setup_pg_connection`` re-adds it on next acquire.
+        """
+        from .logging_config import DatabaseLogger
+
+        # Listener may already be removed or was never added if setup didn't run
+        with contextlib.suppress(ValueError):
+            conn.remove_log_listener(DatabaseLogger.log_listener_callback)
 
     async def close_thread_resources(self) -> None:
         """Close all per-thread asyncpg pools."""

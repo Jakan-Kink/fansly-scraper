@@ -13,6 +13,7 @@ import respx
 from PIL import Image
 
 from tests.fixtures.metadata.metadata_factories import AccountFactory, MediaFactory
+from tests.fixtures.stash.stash_api_fixtures import dump_graphql_calls
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_graphql_response,
     create_performer_dict,
@@ -642,3 +643,97 @@ class TestAccountProcessingMixin:
         # Note: store.get() fails with exception when not found, triggers fallback
         assert result is not None
         assert result.id == "123"
+
+    @pytest.mark.asyncio
+    async def test_get_or_create_performer_alias_cache_hit(self, respx_stash_processor):
+        """_get_or_create_performer finds performer by alias in cache (lines 141-142).
+
+        When a performer is already in the store cache with an alias matching
+        the username, the alias cache lookup succeeds without a GraphQL call.
+        """
+        acct_id = snowflake_id()
+        account = AccountFactory.build(id=acct_id, username="alias_user")
+
+        # Pre-populate store cache with a performer whose alias matches the username
+        cached_performer = PerformerFactory.build(
+            id="cached_perf_1",
+            name="Real Name",
+            alias_list=["alias_user"],
+        )
+        # Save to store to populate identity map cache
+        performer_dict = create_performer_dict(
+            id="cached_perf_1",
+            name="Real Name",
+            aliases=["alias_user"],
+        )
+        route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # performerUpdate from store.save()
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("performerUpdate", performer_dict),
+                ),
+                # findPerformers by name — cache filter doesn't match name, falls to GraphQL
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", {"count": 0, "performers": []}
+                    ),
+                ),
+            ]
+        )
+
+        try:
+            await respx_stash_processor.store.save(cached_performer)
+            result = await respx_stash_processor._get_or_create_performer(account)
+        finally:
+            dump_graphql_calls(route.calls, "test_alias_cache_hit")
+
+        assert result is not None
+        assert result.name == "Real Name"
+
+    @pytest.mark.asyncio
+    async def test_find_existing_performer_stash_id_exception(
+        self, respx_stash_processor
+    ):
+        """_find_existing_performer handles exception in stash_id lookup (lines 321-322).
+
+        When store.get() raises an exception (e.g., GraphQL error),
+        the exception is caught and fallback to name search occurs.
+        """
+        acct_id = snowflake_id()
+        account = AccountFactory.build(
+            id=acct_id,
+            username="test_user",
+            stash_id=999,
+        )
+
+        await respx_stash_processor.context.get_client()
+
+        performer_dict = create_performer_dict(id="fallback_123", name="test_user")
+
+        route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # store.get_cached → None (not in cache)
+                # store.get() → GraphQL error
+                httpx.Response(
+                    200,
+                    json={"errors": [{"message": "performer not found"}], "data": None},
+                ),
+                # Fallback: store.find_one() by name → found
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers", {"count": 1, "performers": [performer_dict]}
+                    ),
+                ),
+            ]
+        )
+
+        try:
+            result = await respx_stash_processor._find_existing_performer(account)
+        finally:
+            dump_graphql_calls(route.calls, "test_stash_id_exception")
+
+        assert result is not None
+        assert result.id == "fallback_123"

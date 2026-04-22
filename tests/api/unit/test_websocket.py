@@ -6,6 +6,7 @@ Everything else — message dispatch, ping logic, reconnect, auth — runs real 
 
 import asyncio
 import json
+from contextlib import suppress
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +24,7 @@ class FakeSocket:
     def __init__(self, recv_messages: list[str] | None = None):
         self.sent: list[str] = []
         self._recv_queue = list(recv_messages or [])
+        self._block_event = asyncio.Event()
         self.closed = False
 
     async def send(self, message: str) -> None:
@@ -31,12 +33,13 @@ class FakeSocket:
     async def recv(self) -> str:
         if self._recv_queue:
             return self._recv_queue.pop(0)
-        # Block forever (simulates waiting for server message)
-        await asyncio.sleep(999)
-        return ""  # unreachable
+        # Block until unblocked (simulates waiting for server message)
+        await self._block_event.wait()
+        return ""
 
     async def close(self) -> None:
         self.closed = True
+        self._block_event.set()  # Unblock any pending recv
 
 
 def _make_ws(*, enable_logging=False, on_unauthorized=None, on_rate_limited=None):
@@ -400,8 +403,296 @@ class TestSendMessage:
             await ws.send_message(1, "data")
 
 
+class TestPingLoop:
+    """Lines 425-498: ping worker, start/stop, timeout detection."""
+
+    @pytest.mark.asyncio
+    async def test_ping_sends_p(self):
+        """Ping loop sends 'p' to websocket (line 469)."""
+        ws = _make_ws(enable_logging=True)
+        fake = FakeSocket()
+        ws.websocket = fake
+        ws.connected = True
+
+        ws._start_ping_loop()
+        # Let the ping worker run one iteration
+        # Override the timing to be fast
+        with patch("api.websocket.timing_jitter", return_value=0.05):
+            ws._start_ping_loop()  # Already running → warning (line 433-434)
+            await asyncio.sleep(0.15)
+
+        ws.connected = False  # Signal the loop to exit
+        ws._stop_ping_loop()
+        await asyncio.sleep(0.05)
+
+        # Verify at least one 'p' was sent
+        assert "p" in fake.sent
+
+    @pytest.mark.asyncio
+    async def test_ping_timeout_resets_connection(self):
+        """Ping timeout detection disconnects (lines 457-467)."""
+        ws = _make_ws()
+        fake = FakeSocket()
+        ws.websocket = fake
+        ws.connected = True
+        # Set last ping response far in the past to trigger timeout
+        ws._last_ping_response = 0.0
+        ws._last_connection_reset = 0.0
+
+        with patch("api.websocket.timing_jitter", return_value=0.01):
+            ws._start_ping_loop()
+            await asyncio.sleep(0.1)
+
+        # Timeout should have set connected=False
+        assert ws.connected is False
+        ws._stop_ping_loop()
+
+    @pytest.mark.asyncio
+    async def test_ping_websocket_error(self):
+        """WebSocket error during ping stops loop (lines 474-477)."""
+        from websockets.exceptions import ConnectionClosed
+
+        ws = _make_ws()
+        ws.connected = True
+
+        # FakeSocket that raises on send
+        class ErrorSocket(FakeSocket):
+            async def send(self, message):
+                from websockets.frames import Close
+
+                raise ConnectionClosed(Close(1006, "gone"), None)
+
+        ws.websocket = ErrorSocket()
+
+        with patch("api.websocket.timing_jitter", return_value=0.01):
+            ws._start_ping_loop()
+            await asyncio.sleep(0.1)
+
+        assert ws.connected is False
+        ws._stop_ping_loop()
+
+    @pytest.mark.asyncio
+    async def test_stop_ping_loop_logging(self):
+        """_stop_ping_loop with enable_logging (lines 497-498)."""
+        ws = _make_ws(enable_logging=True)
+        ws._ping_task = asyncio.create_task(asyncio.sleep(999))
+        ws._stop_ping_loop()
+        assert ws._ping_task is None
+
+    @pytest.mark.asyncio
+    async def test_start_ping_already_running(self):
+        """_start_ping_loop when already running warns (lines 432-434)."""
+        ws = _make_ws()
+        ws.connected = True
+        ws.websocket = FakeSocket()
+
+        ws._start_ping_loop()
+        first_task = ws._ping_task
+        ws._start_ping_loop()  # Should warn, not create a second task
+        assert ws._ping_task is first_task
+        ws._stop_ping_loop()
+        ws.connected = False
+
+
+class TestListenLoop:
+    """Lines 500-528: _listen_loop — recv, timeout, errors."""
+
+    @pytest.mark.asyncio
+    async def test_listen_loop_processes_messages(self):
+        """_listen_loop receives and dispatches messages (lines 506-513).
+
+        Feed two messages then signal exit. The second recv sets
+        connected=False and returns a valid message so the loop exits
+        after processing.
+        """
+        ws = _make_ws()
+        ws.connected = True
+
+        call_count = [0]
+
+        class TwoMessageSocket(FakeSocket):
+            async def recv(self) -> str:
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    return _msg(2, '{"ping": 1}')
+                # Second recv: signal stop and return valid msg
+                ws.connected = False
+                return _msg(2, '{"ping": 2}')
+
+        ws.websocket = TwoMessageSocket()
+        await ws._listen_loop()
+        assert call_count[0] >= 2
+
+    @pytest.mark.asyncio
+    async def test_listen_loop_timeout_continues(self):
+        """Listen timeout is normal — continues then exits (lines 514-518).
+
+        _listen_loop wraps recv() in asyncio.wait_for(..., timeout=60.0).
+        We simulate the timeout by raising TimeoutError from recv, which is
+        what asyncio.wait_for raises when the inner coroutine times out.
+        On second call, we set connected=False and return immediately so the
+        while loop exits cleanly.
+        """
+        ws = _make_ws(enable_logging=True)
+        ws.connected = True
+
+        timeout_count = [0]
+
+        class TimeoutOnceSocket(FakeSocket):
+            async def recv(self) -> str:
+                timeout_count[0] += 1
+                if timeout_count[0] == 1:
+                    raise TimeoutError
+                # Second call: signal exit and return immediately
+                ws.connected = False
+                return _msg(2, '{"ping": 0}')  # Valid message to process
+
+        ws.websocket = TimeoutOnceSocket()
+        await ws._listen_loop()
+        assert timeout_count[0] >= 2
+
+    @pytest.mark.asyncio
+    async def test_listen_loop_websocket_error(self):
+        """WebSocket error in listen → connected=False (lines 519-522)."""
+        from websockets.exceptions import ConnectionClosed
+        from websockets.frames import Close
+
+        ws = _make_ws()
+        ws.connected = True
+
+        class ErrorSocket(FakeSocket):
+            async def recv(self):
+                raise ConnectionClosed(Close(1006, "gone"), None)
+
+        ws.websocket = ErrorSocket()
+        await ws._listen_loop()
+        assert ws.connected is False
+
+    @pytest.mark.asyncio
+    async def test_listen_loop_unexpected_error(self):
+        """Unexpected error in listen → connected=False (lines 526-528)."""
+        ws = _make_ws()
+        ws.connected = True
+
+        class BrokenSocket(FakeSocket):
+            async def recv(self):
+                raise RuntimeError("boom")
+
+        ws.websocket = BrokenSocket()
+        await ws._listen_loop()
+        assert ws.connected is False
+
+
+class TestMaintainConnection:
+    """Lines 530-567: _maintain_connection — reconnect logic."""
+
+    @pytest.mark.asyncio
+    async def test_max_reconnect_attempts(self):
+        """Max reconnect attempts reached → stops (lines 535-540)."""
+        ws = _make_ws()
+        ws._max_reconnect_attempts = 1
+        ws._reconnect_attempts = 1
+        ws._reconnect_delay = 0.01
+
+        # Already at max attempts, loop body exits on first check
+        await asyncio.wait_for(ws._maintain_connection(), timeout=2.0)
+
+    @pytest.mark.asyncio
+    async def test_reconnect_with_delay(self):
+        """Reconnect after failure uses exponential backoff (lines 542-549)."""
+        ws = _make_ws()
+        ws._max_reconnect_attempts = 2
+        ws._reconnect_delay = 0.01
+        ws._max_reconnect_delay = 0.05
+
+        connect_count = [0]
+
+        async def fail_connect(**_kw):
+            connect_count[0] += 1
+            raise OSError("refused")
+
+        with patch("api.websocket.ws_client.connect", side_effect=fail_connect):
+            await asyncio.wait_for(ws._maintain_connection(), timeout=5.0)
+
+        assert connect_count[0] == 2  # Tried twice then stopped
+
+    @pytest.mark.asyncio
+    async def test_maintenance_cancelled(self):
+        """CancelledError in maintenance loop is handled (lines 562-564)."""
+        ws = _make_ws()
+        ws._reconnect_delay = 0.01
+
+        async def hang_connect(**_kw):
+            # Wait for stop event instead of sleeping forever
+            await ws._stop_event.wait()
+
+        with patch("api.websocket.ws_client.connect", side_effect=hang_connect):
+            task = asyncio.create_task(ws._maintain_connection())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+
+class TestDisconnectEdgeCases:
+    """Lines 414-423: disconnect error handling."""
+
+    @pytest.mark.asyncio
+    async def test_disconnect_close_error(self):
+        """Error during websocket.close is caught (lines 416-417)."""
+        ws = _make_ws()
+        ws.connected = True
+
+        class ErrorCloseSocket(FakeSocket):
+            async def close(self):
+                raise RuntimeError("close failed")
+
+        ws.websocket = ErrorCloseSocket()
+        await ws.disconnect()
+        assert ws.connected is False
+        assert ws.websocket is None
+
+
+class TestStartStopBackground:
+    """Lines 569-619: start_background, stop."""
+
+    @pytest.mark.asyncio
+    async def test_start_background_already_running(self):
+        """start_background when already running → warning (lines 581-583)."""
+        ws = _make_ws()
+        done = asyncio.Event()
+        ws._background_task = asyncio.create_task(done.wait())
+
+        await ws.start_background()  # Should warn and return
+
+        done.set()
+        await ws._background_task
+
+    @pytest.mark.asyncio
+    async def test_stop_no_background_task(self):
+        """stop() when no background task → warning (lines 595-597)."""
+        ws = _make_ws()
+        ws._background_task = None
+        await ws.stop()  # Should warn and return
+
+    @pytest.mark.asyncio
+    async def test_stop_timeout_cancels(self):
+        """Background task doesn't stop in time → cancel (lines 607-611)."""
+        ws = _make_ws()
+        never_done = asyncio.Event()
+
+        async def hang():
+            await never_done.wait()
+
+        ws._background_task = asyncio.create_task(hang())
+        ws._stop_event = asyncio.Event()
+
+        await ws.stop()
+        assert ws._background_task is None
+
+
 class TestContextManager:
-    """Lines 571-583: async context manager."""
+    """Lines 644-656: async context manager."""
 
     @pytest.mark.asyncio
     async def test_async_context_manager(self):

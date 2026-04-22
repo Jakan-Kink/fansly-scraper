@@ -7,6 +7,7 @@ import httpx
 import pytest
 import respx
 
+from tests.fixtures.metadata.metadata_factories import PostFactory
 from tests.fixtures.stash.stash_graphql_fixtures import (
     create_find_performers_result,
     create_find_studios_result,
@@ -16,6 +17,7 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_studio_dict,
     create_tag_dict,
 )
+from tests.fixtures.stash.stash_type_factories import PerformerFactory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
@@ -157,7 +159,67 @@ class TestMetadataUpdate:
         assert mock_image.title == original_title
         assert mock_image.code == original_code
         assert mock_image.details == original_details
-        # No need to check save() - method exits early, no exception = success
+
+        # Test 2: Bad title "Media from" overrides organized check (line 461)
+        mock_image.title = "Media from old batch"
+        mock_image.organized = True
+
+        performer_dict = create_performer_dict(
+            id=str(mock_account.stash_id or "123"),
+            name=mock_account.username,
+        )
+        fansly_studio = create_studio_dict(
+            id="fansly_246", name="Fansly (network)", urls=["https://fansly.com"]
+        )
+        creator_studio = create_studio_dict(
+            id="creator_123",
+            name=f"{mock_account.username} (Fansly)",
+            parent_studio=fansly_studio,
+        )
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findPerformers",
+                        create_find_performers_result(
+                            count=1, performers=[performer_dict]
+                        ),
+                    ),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios",
+                        create_find_studios_result(count=1, studios=[fansly_studio]),
+                    ),
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response(
+                        "findStudios", create_find_studios_result(count=0, studios=[])
+                    ),
+                ),
+                httpx.Response(
+                    200, json=create_graphql_response("studioCreate", creator_studio)
+                ),
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("imageUpdate", {"id": mock_image.id}),
+                ),
+            ]
+        )
+
+        await respx_stash_processor._update_stash_metadata(
+            stash_obj=mock_image,
+            item=mock_item,
+            account=mock_account,
+            media_id="media_123",
+        )
+
+        # Bad title forced full update despite organized=True
+        assert graphql_route.call_count == 5
+        assert mock_image.title != "Media from old batch"  # Title was replaced
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_later_date(
@@ -167,6 +229,7 @@ class TestMetadataUpdate:
 
         The method should SKIP updates when the new item is LATER than existing,
         to preserve the earliest occurrence's metadata.
+        Also covers invalid date format (line 493-494) and bad title (line 461).
         """
         # Test 1: Item is LATER than existing date - should NOT update
         mock_image.date = "2024-03-01"  # Earlier date already stored
@@ -186,24 +249,8 @@ class TestMetadataUpdate:
         assert mock_image.title == original_title  # Title unchanged
         assert mock_image.date == "2024-03-01"  # Date unchanged
         assert mock_image.code == original_code  # Code unchanged
-        # No exception = method exited early correctly
 
-        # Test 2: Item is EARLIER than existing date - should UPDATE
-        mock_image.date = "2024-05-01"  # Later date in storage
-
-        # Create item with earlier date using PostFactory
-        from tests.fixtures.metadata.metadata_factories import PostFactory
-
-        earlier_item = PostFactory.build(
-            id=snowflake_id(),
-            accountId=mock_account.id,
-            content="Earlier content",
-            createdAt=datetime(2024, 3, 1, 0, 0, 0, tzinfo=UTC),  # Earlier!
-        )
-        earlier_item.hashtags = []
-        earlier_item.mentions = []
-
-        # Mock GraphQL responses for the update path (performer, studios already exist)
+        # Shared GraphQL responses for Test 1b and Test 2 (both go through full update)
         performer_dict = create_performer_dict(
             id=str(mock_account.stash_id or "123"),
             name=mock_account.username,
@@ -228,14 +275,15 @@ class TestMetadataUpdate:
 
         image_update_result = {
             "id": mock_image.id,
-            "title": "Earlier content",
-            "code": "media_456",
-            "date": "2024-03-01",
-            "details": "Earlier content",
+            "title": "Test",
+            "code": "media_123",
+            "date": mock_item.createdAt.strftime("%Y-%m-%d"),
+            "details": mock_item.content,
         }
 
-        graphql_route = respx.post("http://localhost:9999/graphql").mock(
-            side_effect=[
+        def _make_update_responses():
+            """5 responses for a full metadata update path."""
+            return [
                 httpx.Response(
                     200,
                     json=create_graphql_response("findPerformers", performers_result),
@@ -257,6 +305,52 @@ class TestMetadataUpdate:
                     json=create_graphql_response("imageUpdate", image_update_result),
                 ),
             ]
+
+        # Test 1b: Invalid date string → ValueError caught, proceeds to update (line 493-494)
+        mock_image.date = "not-a-valid-date"
+        mock_image.organized = False
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=_make_update_responses()
+        )
+
+        await respx_stash_processor._update_stash_metadata(
+            stash_obj=mock_image,
+            item=mock_item,
+            account=mock_account,
+            media_id="media_123",
+        )
+
+        # Invalid date was parsed, ValueError caught, update proceeded through full path
+        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
+        calls = graphql_route.calls
+        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
+        assert "findStudios" in json.loads(calls[1].request.content)["query"]
+        assert "findStudios" in json.loads(calls[2].request.content)["query"]
+        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
+        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
+
+        # Test 2: Item is EARLIER than existing date - should UPDATE
+        # Performer and studios are now cached from Test 1b, so only imageUpdate needed
+        respx.reset()
+        mock_image.date = "2024-05-01"  # Later date in storage
+
+        earlier_item = PostFactory.build(
+            id=snowflake_id(),
+            accountId=mock_account.id,
+            content="Earlier content",
+            createdAt=datetime(2024, 3, 1, 0, 0, 0, tzinfo=UTC),  # Earlier!
+        )
+        earlier_item.hashtags = []
+        earlier_item.mentions = []
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("imageUpdate", image_update_result),
+                ),
+            ]
         )
 
         # Call method with earlier item
@@ -272,16 +366,11 @@ class TestMetadataUpdate:
         assert mock_image.code == "media_456"  # Updated
         assert mock_image.details == "Earlier content"  # Updated
 
-        # Verify GraphQL call sequence (permanent assertion)
-        assert len(graphql_route.calls) == 5, "Expected exactly 5 GraphQL calls"
-        calls = graphql_route.calls
-
-        # Verify query types in order
-        assert "findPerformers" in json.loads(calls[0].request.content)["query"]
-        assert "findStudios" in json.loads(calls[1].request.content)["query"]
-        assert "findStudios" in json.loads(calls[2].request.content)["query"]
-        assert "studioCreate" in json.loads(calls[3].request.content)["query"]
-        assert "imageUpdate" in json.loads(calls[4].request.content)["query"]
+        # Performer and studios cached from Test 1b — only imageUpdate call needed
+        assert graphql_route.call_count == 1
+        assert (
+            "imageUpdate" in json.loads(graphql_route.calls[0].request.content)["query"]
+        )
 
     @pytest.mark.asyncio
     async def test_update_stash_metadata_performers(
@@ -857,3 +946,64 @@ class TestMetadataUpdate:
         assert "imageUpdate" in response_data.get("data", {}), (
             "Last call should be imageUpdate"
         )
+
+        # Test 2: Performer cache hit — _performer and _account set (line 550)
+        # Skips _find_existing_performer GraphQL lookup, uses cached performer
+        respx.reset()
+        cached_perf = PerformerFactory.build(
+            id="cached_999", name=mock_account.username
+        )
+        respx_stash_processor._performer = cached_perf
+        respx_stash_processor._account = mock_account
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                # Only imageUpdate — performer cached, studio cached from Test 1
+                httpx.Response(
+                    200,
+                    json=create_graphql_response("imageUpdate", {"id": mock_image.id}),
+                ),
+            ]
+        )
+
+        mock_image.title = None  # Reset so it gets updated
+        mock_image.organized = False
+        mock_image.date = None
+
+        await respx_stash_processor._update_stash_metadata(
+            stash_obj=mock_image,
+            item=mock_item,
+            account=mock_account,
+            media_id="media_cached",
+        )
+
+        # Only 1 call — performer and studio were cached
+        assert graphql_route.call_count == 1
+        assert (
+            "imageUpdate" in json.loads(graphql_route.calls[0].request.content)["query"]
+        )
+
+        # Test 3: Save error — imageUpdate returns GraphQL error (lines 617-628)
+        respx.reset()
+        respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "errors": [{"message": "save failed"}],
+                        "data": None,
+                    },
+                ),
+            ]
+        )
+
+        mock_image.title = None
+        mock_image.date = None
+
+        with pytest.raises(ValueError, match="Failed to save"):
+            await respx_stash_processor._update_stash_metadata(
+                stash_obj=mock_image,
+                item=mock_item,
+                account=mock_account,
+                media_id="media_save_fail",
+            )

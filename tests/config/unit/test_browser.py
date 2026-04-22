@@ -458,6 +458,17 @@ def test_get_auth_token_from_leveldb_interactive_browser_locked(
     mock_input.assert_called_once()
 
 
+@pytest.mark.skipif(not HAS_PLYVEL, reason="plyvel not installed")
+@patch("plyvel.DB")
+def test_get_auth_token_from_leveldb_generic_exception(mock_db_class):
+    """Generic exception during LevelDB access returns None (lines 338-339)."""
+    mock_db_class.side_effect = RuntimeError("unexpected db error")
+
+    result = get_auth_token_from_leveldb_folder("test/path")
+
+    assert result is None
+
+
 @patch("platform.system")
 @patch("os.getenv")
 def test_get_browser_config_paths_windows_no_env(mock_getenv, mock_platform):

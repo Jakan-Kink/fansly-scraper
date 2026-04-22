@@ -303,3 +303,52 @@ class TestProcessItemGallery:
         )
         # Studio ID is optional depending on configuration
         # assert found_studio_id, f"Studio ID '{studio.id}' should appear in GraphQL calls"
+
+    @pytest.mark.asyncio
+    async def test_process_item_gallery_non_media_attachments(
+        self,
+        entity_store,
+        respx_stash_processor,
+    ):
+        """Test _process_item_gallery with non-media attachments (lines 368-375, 532-539).
+
+        Post has attachments, but none are media (TIP_GOALS only).
+        _get_or_create_gallery calls _has_media_content → False → returns None.
+        _process_item_gallery sees gallery=None → returns early.
+        """
+        acct_id = snowflake_id()
+        post_id = snowflake_id()
+
+        account = AccountFactory.build(id=acct_id, username="test_user")
+        await entity_store.save(account)
+
+        # Post with a non-media attachment (TIP_GOALS)
+        post = PostFactory.build(id=post_id, accountId=acct_id, content="Tips welcome")
+        tip_attachment = AttachmentFactory.build(
+            id=90001,
+            postId=post_id,
+            contentId=snowflake_id(),
+            contentType=ContentType.TIP_GOALS,
+            pos=0,
+        )
+        await post._add_to_relationship("attachments", tip_attachment)
+        await entity_store.save(post)
+
+        performer = PerformerFactory.build(id="performer_123", name="test_user")
+        studio = StudioFactory.build(id="studio_123", name="Test Studio")
+
+        graphql_route = respx.post("http://localhost:9999/graphql").mock(
+            side_effect=[]  # No GraphQL calls expected
+        )
+
+        await respx_stash_processor._process_item_gallery(
+            item=post,
+            account=account,
+            performer=performer,
+            studio=studio,
+            item_type="post",
+            url_pattern="https://test.com/{username}/post/{id}",
+        )
+
+        # Gallery creation skipped because _has_media_content returned False
+        assert len(graphql_route.calls) == 0

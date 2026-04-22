@@ -101,8 +101,11 @@ class DatabaseLogger:
     def setup_connection_logging(self, conn: asyncpg.Connection) -> None:
         """Register query and log listeners on an asyncpg connection.
 
-        Called from ``PostgresEntityStore._init_pg_connection`` for every
-        new connection created by the pool.
+        Note: In pool usage, query logger is added via ``init`` (once per
+        new connection) and log listener is managed by ``setup``/``reset``
+        (add on acquire, remove on release) to prevent asyncpg
+        InterfaceWarning. This method is retained for non-pool connections
+        or direct usage.
         """
         conn.add_query_logger(self.query_logger_callback)
         conn.add_log_listener(self.log_listener_callback)

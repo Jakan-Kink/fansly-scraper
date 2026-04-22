@@ -500,11 +500,11 @@ async def get_account_id(state: DownloadState) -> int | None:
         if account:
             state.creator_id = account.id
             return account.id
-        # Create new account if it doesn't exist
-        account = Account(username=state.creator_name)
-        await store.save(account)
-        state.creator_id = account.id
-        return account.id
+        # TODO: Query Fansly API by username to get the real account with
+        # a proper snowflake ID, then persist via process_account_data().
+        # For now, return None — caller should have set state.creator_id
+        # from the API before reaching this path.
+        return None
 
     return None
 

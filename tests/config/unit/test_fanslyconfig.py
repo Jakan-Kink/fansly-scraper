@@ -426,3 +426,225 @@ class TestFanslyConfig:
         mock_task1.cancel.assert_called_once()
         mock_task2.cancel.assert_not_called()  # Since it's already done
         assert config._background_tasks == []
+
+
+class TestGetApiLoginFlow:
+    """Cover get_api login credentials flow (lines 210-219)."""
+
+    def test_get_api_with_login_credentials(self, config):
+        """When username/password set but token invalid → performs login."""
+        config._api = None
+        config.username = "myuser"
+        config.password = "mypass"
+        config.token = "short"  # invalid token
+
+        mock_api = MagicMock(spec=FanslyApi)
+        mock_api.token = "new_token_from_login_very_long_enough_for_validation"
+
+        with (
+            patch("config.fanslyconfig.FanslyApi", return_value=mock_api),
+            patch("api.rate_limiter.RateLimiter"),
+            patch.object(config, "_save_token_to_original_config"),
+            patch.object(config, "_save_config"),
+        ):
+            result = config.get_api()
+
+        mock_api.login.assert_called_once_with("myuser", "mypass")
+        assert config.token == "new_token_from_login_very_long_enough_for_validation"
+        assert result is mock_api
+
+    def test_get_api_login_failure_raises(self, config):
+        """When login() raises → wraps in RuntimeError (line 219)."""
+        config._api = None
+        config.username = "myuser"
+        config.password = "mypass"
+        config.token = "short"  # invalid token
+
+        mock_api = MagicMock(spec=FanslyApi)
+        mock_api.login.side_effect = Exception("auth failed")
+
+        with (
+            patch("config.fanslyconfig.FanslyApi", return_value=mock_api),
+            patch("api.rate_limiter.RateLimiter"),
+            pytest.raises(RuntimeError, match="Login failed"),
+        ):
+            config.get_api()
+
+
+class TestSyncSettingsExtraBranches:
+    """Cover _sync_settings branches not hit by existing tests."""
+
+    def test_sync_settings_with_use_following_in_config(self, config):
+        """use_following is saved only if it exists in the config file (line 278)."""
+        config._parser.set("TargetedCreator", "use_following", "False")
+        config.use_following = True
+
+        config._sync_settings()
+
+        assert config._parser.get("TargetedCreator", "use_following") == "True"
+
+    def test_sync_settings_with_username_password(self, config):
+        """username/password are saved when present (lines 300, 302)."""
+        config.username = "myuser"
+        config.password = "mypass"
+
+        config._sync_settings()
+
+        assert config._parser.get("MyAccount", "username") == "myuser"
+        assert config._parser.get("MyAccount", "password") == "mypass"
+
+    def test_sync_settings_deprecated_metadata_db_file(self, config):
+        """metadata_db_file is removed during sync (line 333)."""
+        config._parser.set("Options", "metadata_db_file", "old.sqlite")
+
+        config._sync_settings()
+
+        assert not config._parser.has_option("Options", "metadata_db_file")
+
+    def test_sync_settings_debug_trace_options(self, config):
+        """debug/trace are saved only if they exist in config (lines 348, 350)."""
+        config._parser.set("Options", "debug", "False")
+        config._parser.set("Options", "trace", "False")
+        config.debug = True
+        config.trace = True
+
+        config._sync_settings()
+
+        assert config._parser.get("Options", "debug") == "True"
+        assert config._parser.get("Options", "trace") == "True"
+
+    def test_sync_settings_with_stash_context(self, config):
+        """StashContext settings are saved when _stash is set (lines 383-389)."""
+        mock_stash = MagicMock()
+        mock_stash.conn = {
+            "Scheme": "https",
+            "Host": "stash.local",
+            "Port": 9998,
+            "ApiKey": "secret",
+        }
+        config._stash = mock_stash
+
+        config._sync_settings()
+
+        assert config._parser.has_section("StashContext")
+        assert config._parser.get("StashContext", "scheme") == "https"
+        assert config._parser.get("StashContext", "host") == "stash.local"
+        assert config._parser.get("StashContext", "port") == "9998"
+        assert config._parser.get("StashContext", "apikey") == "secret"
+
+    def test_sync_settings_with_api_cache(self, config):
+        """Cache section is populated from _api device info (lines 391-397)."""
+        mock_api = MagicMock()
+        mock_api.device_id = "device-abc"
+        mock_api.device_id_timestamp = 999
+        config._api = mock_api
+
+        config._sync_settings()
+
+        assert config._parser.get("Cache", "device_id") == "device-abc"
+        assert config._parser.get("Cache", "device_id_timestamp") == "999"
+        assert config.cached_device_id == "device-abc"
+        assert config.cached_device_id_timestamp == 999
+
+
+class TestSaveTokenToOriginalConfig:
+    """Cover _save_token_to_original_config (lines 430-448)."""
+
+    def test_saves_token_to_original_config(self, config, tmp_path):
+        """Token is persisted to the original config.ini file."""
+        original_path = tmp_path / "original_config.ini"
+        original_path.write_text("[MyAccount]\nAuthorization_Token = old_token\n")
+
+        config.original_config_path = original_path
+        config.token = "new_long_token_from_browser_extraction"
+
+        result = config._save_token_to_original_config()
+
+        assert result is True
+        parser = ConfigParser(interpolation=None)
+        parser.read(original_path)
+        assert (
+            parser.get("MyAccount", "authorization_token")
+            == "new_long_token_from_browser_extraction"
+        )
+
+    def test_creates_section_if_missing(self, config, tmp_path):
+        """MyAccount section is created if it doesn't exist."""
+        original_path = tmp_path / "original_config.ini"
+        original_path.write_text("[Options]\ndownload_mode = Normal\n")
+
+        config.original_config_path = original_path
+        config.token = "some_token"
+
+        result = config._save_token_to_original_config()
+        assert result is True
+
+    def test_returns_false_when_no_path(self, config):
+        """Returns False if both original_config_path and config_path are None."""
+        config.original_config_path = None
+        config.config_path = None
+        config.token = "some_token"
+
+        assert config._save_token_to_original_config() is False
+
+    def test_returns_false_when_no_token(self, config):
+        """Returns False if token is None."""
+        config.token = None
+
+        assert config._save_token_to_original_config() is False
+
+    def test_falls_back_to_config_path(self, config, tmp_path):
+        """Uses config_path when original_config_path is None."""
+        config_file = tmp_path / "config.ini"
+        config_file.write_text("[MyAccount]\nAuthorization_Token = old\n")
+
+        config.original_config_path = None
+        config.config_path = config_file
+        config.token = "fallback_token"
+
+        result = config._save_token_to_original_config()
+        assert result is True
+
+
+class TestSaveCheckkeyToOriginalConfig:
+    """Cover _save_checkkey_to_original_config (lines 459-477)."""
+
+    def test_saves_checkkey_to_original_config(self, config, tmp_path):
+        """Check key is persisted to the original config.ini file."""
+        original_path = tmp_path / "original_config.ini"
+        original_path.write_text("[MyAccount]\nCheck_Key = old_key\n")
+
+        config.original_config_path = original_path
+        config.check_key = "new-check-key-value"
+
+        result = config._save_checkkey_to_original_config()
+
+        assert result is True
+        parser = ConfigParser(interpolation=None)
+        parser.read(original_path)
+        assert parser.get("MyAccount", "check_key") == "new-check-key-value"
+
+    def test_creates_section_if_missing(self, config, tmp_path):
+        """MyAccount section is created if it doesn't exist."""
+        original_path = tmp_path / "original_config.ini"
+        original_path.write_text("[Options]\ndownload_mode = Normal\n")
+
+        config.original_config_path = original_path
+        config.check_key = "some_key"
+
+        result = config._save_checkkey_to_original_config()
+        assert result is True
+
+    def test_returns_false_when_no_path(self, config):
+        """Returns False if both paths are None."""
+        config.original_config_path = None
+        config.config_path = None
+        config.check_key = "some_key"
+
+        assert config._save_checkkey_to_original_config() is False
+
+    def test_returns_false_when_no_check_key(self, config):
+        """Returns False if check_key is None."""
+        config.check_key = None
+
+        assert config._save_checkkey_to_original_config() is False

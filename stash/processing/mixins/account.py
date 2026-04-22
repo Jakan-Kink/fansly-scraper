@@ -322,9 +322,9 @@ class AccountProcessingMixin(StashProcessingProtocol):
                 logger.debug(f"Failed to get performer by stash_id: {e}")
 
         # Fallback to name search (cache-first, then GraphQL)
-        # Supports both Account (username) and PostMention (handle)
-        name = getattr(account, "username", None) or getattr(account, "handle", None)
-        if not name:
+        # Supports both Account (username) and PostMention (handle) via duck-typing
+        name = account.username if hasattr(account, "username") else account.handle
+        if not name:  # pragma: no cover — username and handle are required str fields
             return None
         results = self.store.filter(Performer, lambda p: p.name == name)
         performer = results[0] if results else None

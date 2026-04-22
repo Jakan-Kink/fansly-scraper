@@ -1,5 +1,6 @@
 """Unit tests for configuration validation"""
 
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -379,3 +380,355 @@ def test_validate_log_levels_debug_mode(mock_config):
     mock_config.debug = True
     validate_log_levels(mock_config)
     assert all(level == "DEBUG" for level in mock_config.log_levels.values())
+
+
+# -- validate_adjust_token: username/password configured → skip (lines 141-145) --
+
+
+def test_validate_adjust_token_skips_with_credentials(mock_config):
+    """When username and password are set, skip token validation entirely."""
+    mock_config.username = "user"
+    mock_config.password = "pass"
+
+    # Should return without touching token_is_valid or raising
+    validate_adjust_token(mock_config)
+    mock_config.token_is_valid.assert_not_called()
+
+
+# -- validate_adjust_token: plyvel import error branch (lines 155-157) --
+
+
+@patch("importlib.util.find_spec", side_effect=ImportError("no plyvel"))
+def test_validate_adjust_token_plyvel_import_error(mock_find_spec, mock_config):
+    """ImportError during plyvel check → logs info about browser-auth."""
+    mock_config.token_is_valid.return_value = False
+    mock_config.interactive = False
+
+    with pytest.raises(ConfigError, match=r"authorization token.*still invalid"):
+        validate_adjust_token(mock_config)
+
+
+# -- validate_adjust_token: plyvel installed, no account found (line 266-274) --
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_plyvel_installed_no_account_interactive(
+    mock_find_spec, mock_config
+):
+    """Plyvel installed, browsers searched, no account found → raises ConfigError."""
+    mock_find_spec.return_value = MagicMock()  # plyvel is "installed"
+    mock_config.token_is_valid.return_value = False
+    mock_config.interactive = True
+
+    with (
+        patch("config.browser.get_browser_config_paths", return_value=[]),
+        patch("config.validation.open_get_started_url"),
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        validate_adjust_token(mock_config)
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_plyvel_installed_no_account_non_interactive(
+    mock_find_spec, mock_config
+):
+    """Non-interactive mode, no account found → raises ConfigError without opening URL."""
+    mock_find_spec.return_value = MagicMock()
+    mock_config.token_is_valid.return_value = False
+    mock_config.interactive = False
+
+    with (
+        patch("config.browser.get_browser_config_paths", return_value=[]),
+        pytest.raises(ConfigError, match="not found in any of your browser"),
+    ):
+        validate_adjust_token(mock_config)
+
+
+# -- validate_adjust_token: browser found, non-interactive auto-link (lines 242-258) --
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_auto_link_non_interactive(mock_find_spec, mock_config):
+    """Non-interactive mode: found token in browser → auto-links."""
+    mock_find_spec.return_value = MagicMock()
+    # First call: invalid (triggers browser search), second call: valid (final check)
+    mock_config.token_is_valid.side_effect = [False, False, True]
+    mock_config.interactive = False
+
+    mock_api = MagicMock()
+    mock_api.get_client_user_name.return_value = "found_user"
+    mock_config.get_api.return_value = mock_api
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.config/chromium"],
+        ),
+        patch(
+            "config.browser.find_leveldb_folders",
+            return_value=["/home/user/.config/chromium/Default/Local Storage/leveldb"],
+        ),
+        patch(
+            "config.browser.get_auth_token_from_leveldb_folder",
+            return_value="valid_browser_token",
+        ),
+        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
+        patch("config.validation.save_config_or_raise"),
+    ):
+        validate_adjust_token(mock_config)
+
+    assert mock_config.token == "valid_browser_token"
+    assert mock_config.token_from_browser_name == "Chromium"
+
+
+# -- validate_adjust_token: firefox path (lines 210-216) --
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_firefox_path(mock_find_spec, mock_config):
+    """Firefox browser path uses get_token_from_firefox_profile instead of leveldb."""
+    mock_find_spec.return_value = MagicMock()
+    mock_config.token_is_valid.side_effect = [False, False, True]
+    mock_config.interactive = False
+
+    mock_api = MagicMock()
+    mock_api.get_client_user_name.return_value = "firefox_user"
+    mock_config.get_api.return_value = mock_api
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.mozilla/firefox"],
+        ),
+        patch(
+            "config.browser.get_token_from_firefox_profile",
+            return_value="firefox_token",
+        ),
+        patch("config.browser.parse_browser_from_string", return_value="Firefox"),
+        patch("config.validation.save_config_or_raise"),
+    ):
+        validate_adjust_token(mock_config)
+
+    assert mock_config.token == "firefox_token"
+
+
+# -- validate_adjust_user_agent: httpx error fallback (line 338-339) --
+
+
+@patch("httpx.get", side_effect=MagicMock(side_effect=Exception("network error")))
+def test_validate_adjust_user_agent_http_error(mock_get, mock_config):
+    """HTTP error during user-agent fetch → falls back to hardcoded UA."""
+    import httpx
+
+    mock_config.useragent_is_valid.return_value = False
+    mock_get.side_effect = httpx.HTTPError("timeout")
+
+    with patch("config.validation.save_config_or_raise"):
+        validate_adjust_user_agent(mock_config)
+
+    # Should use fallback UA
+    assert mock_config.user_agent is not None
+
+
+# -- validate_adjust_user_agent: non-200 response (line 336) --
+
+
+@patch("httpx.get")
+def test_validate_adjust_user_agent_non_200(mock_get, mock_config):
+    """Non-200 response during user-agent fetch → falls back to hardcoded UA."""
+    mock_config.useragent_is_valid.return_value = False
+    mock_config.token_from_browser_name = None
+    mock_get.return_value.status_code = 500
+
+    with patch("config.validation.save_config_or_raise"):
+        validate_adjust_user_agent(mock_config)
+
+    assert mock_config.user_agent is not None
+
+
+# -- validate_adjust_user_agent: browser name info message (line 304-308) --
+
+
+@patch("httpx.get")
+def test_validate_adjust_user_agent_with_browser_name(mock_get, mock_config):
+    """When token_from_browser_name is set, logs browser-specific message."""
+    mock_config.useragent_is_valid.return_value = False
+    mock_config.token_from_browser_name = "Chrome"
+    mock_get.return_value.status_code = 200
+    mock_get.return_value.json.return_value = ["some-agent"]
+
+    with patch("config.validation.save_config_or_raise"):
+        validate_adjust_user_agent(mock_config)
+
+    assert mock_config.user_agent is not None
+
+
+# -- validate_adjust_check_key: no user_agent (lines 382-383) --
+
+
+def test_validate_adjust_check_key_no_user_agent_non_interactive(mock_config):
+    """No user_agent → warning about web retrieval failure, non-interactive fallback."""
+    mock_config.user_agent = None
+    mock_config.interactive = False
+
+    with patch("config.validation.input_enter_continue") as mock_continue:
+        validate_adjust_check_key(mock_config)
+        mock_continue.assert_called_once_with(False)
+
+
+# -- validate_adjust_check_key: guess fails, interactive confirms (line 396) --
+
+
+def test_validate_adjust_check_key_guess_fails_interactive_confirm(
+    mock_config, monkeypatch
+):
+    """Web guess fails, interactive user confirms existing key is correct (line 396)."""
+    mock_config.interactive = True
+    mock_config.user_agent = "test-agent"
+
+    # Confirm with 'y'
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+
+    with (
+        patch("helpers.checkkey.guess_check_key", return_value=None),
+        patch("config.validation.textio_logger"),
+    ):
+        validate_adjust_check_key(mock_config)
+    # Key unchanged
+    assert mock_config.check_key == "test_check_key"
+
+
+# -- validate_adjust_download_directory: temp_folder exists but is not a dir (506-510) --
+
+
+def test_validate_adjust_download_directory_temp_not_a_dir(mock_config):
+    """Temp folder exists but is not a directory → falls back to None."""
+    mock_path = MagicMock(spec=Path)
+    mock_path.exists.return_value = True
+    mock_path.is_dir.return_value = False
+    mock_config.temp_folder = mock_path
+
+    with patch("config.validation.textio_logger"):
+        validate_adjust_download_directory(mock_config)
+    assert mock_config.temp_folder is None
+
+
+# -- validate_adjust_download_directory: temp_folder exists and is valid dir (512) --
+
+
+def test_validate_adjust_download_directory_temp_valid_dir(mock_config):
+    """Temp folder exists and is a valid directory → keeps it."""
+    mock_path = MagicMock(spec=Path)
+    mock_path.exists.return_value = True
+    mock_path.is_dir.return_value = True
+    mock_config.temp_folder = mock_path
+
+    with patch("config.validation.textio_logger"):
+        validate_adjust_download_directory(mock_config)
+    assert mock_config.temp_folder is mock_path
+
+
+# -- validate_creator_names: list_changed triggers save (line 63->68) --
+
+
+def test_validate_creator_names_empty_after_removal(mock_config):
+    """All names removed → returns True with 'will process following list' info."""
+    mock_config.user_names = {"bad1"}
+    with (
+        patch("config.validation.validate_adjust_creator_name", return_value=None),
+        patch("config.validation.save_config_or_raise"),
+    ):
+        result = validate_creator_names(mock_config)
+    assert result is True
+    assert len(mock_config.user_names) == 0
+
+
+# -- validate_adjust_token: interactive mode with token found (lines 222-258) --
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_interactive_user_accepts(mock_find_spec, monkeypatch):
+    """Interactive mode: found token → user confirms → token saved (lines 224-258)."""
+    config = FanslyConfig(program_version="0.11.0")
+    config.interactive = True
+    config.token = "short"  # invalid
+    config.user_agent = "a" * 50
+    config.check_key = "test-key"
+    config.username = None
+    config.password = None
+
+    mock_find_spec.return_value = types.SimpleNamespace()  # plyvel "installed"
+
+    # User types "yes" to link the account
+    monkeypatch.setattr("builtins.input", lambda _: "yes")
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.config/chromium"],
+        ),
+        patch(
+            "config.browser.find_leveldb_folders",
+            return_value=["/home/user/.config/chromium/leveldb"],
+        ),
+        patch(
+            "config.browser.get_auth_token_from_leveldb_folder",
+            return_value="a" * 60,  # valid-length token
+        ),
+        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
+        patch("config.validation.save_config_or_raise"),
+        # Patch get_api on config to avoid creating a real FanslyApi
+        patch.object(
+            FanslyConfig,
+            "get_api",
+            return_value=types.SimpleNamespace(
+                get_client_user_name=lambda _token: "found_user"
+            ),
+        ),
+    ):
+        validate_adjust_token(config)
+
+    assert config.token == "a" * 60
+    assert config.token_from_browser_name == "Chromium"
+
+
+@patch("importlib.util.find_spec")
+def test_validate_adjust_token_interactive_user_rejects(mock_find_spec, monkeypatch):
+    """Interactive mode: found token → user says no → raises ConfigError."""
+    config = FanslyConfig(program_version="0.11.0")
+    config.interactive = True
+    config.token = "short"
+    config.user_agent = "a" * 50
+    config.check_key = "test-key"
+    config.username = None
+    config.password = None
+
+    mock_find_spec.return_value = types.SimpleNamespace()
+
+    monkeypatch.setattr("builtins.input", lambda _: "no")
+
+    with (
+        patch(
+            "config.browser.get_browser_config_paths",
+            return_value=["/home/user/.config/chromium"],
+        ),
+        patch(
+            "config.browser.find_leveldb_folders",
+            return_value=["/home/user/.config/chromium/leveldb"],
+        ),
+        patch(
+            "config.browser.get_auth_token_from_leveldb_folder",
+            return_value="a" * 60,
+        ),
+        patch("config.browser.parse_browser_from_string", return_value="Chromium"),
+        patch("config.validation.open_get_started_url"),
+        patch.object(
+            FanslyConfig,
+            "get_api",
+            return_value=types.SimpleNamespace(
+                get_client_user_name=lambda _token: "found_user"
+            ),
+        ),
+        pytest.raises(ConfigError, match=r"authorization token.*still invalid"),
+    ):
+        validate_adjust_token(config)

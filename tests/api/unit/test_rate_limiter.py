@@ -78,6 +78,56 @@ class TestAdaptiveBackoff:
         assert rl.consecutive_successes == 0  # reset after reduction
         assert rl.current_backoff_seconds < 45.0
 
+    def test_backoff_at_minimum_floor(self):
+        """Lines 225-226: backoff at minimum floor after consecutive successes.
+
+        When backoff equals the floor and 2 successes arrive, the backoff
+        stays at the floor (can't go lower) and successes reset.
+        """
+        rl = RateLimiter(_make_config())
+
+        # Build up violations to establish a floor
+        for _ in range(5):
+            rl._apply_adaptive_backoff(429)
+
+        # Reduce via successes until at or near floor
+        for _ in range(20):
+            rl._apply_adaptive_backoff(200)
+
+        # At this point, backoff should be at or near the floor
+        floor = rl._calculate_minimum_floor()
+        if floor > 0.0:
+            # Force backoff to exactly the floor
+            rl.current_backoff_seconds = floor
+            rl.consecutive_successes = 0
+
+            # Two successes → hits "at minimum floor" branch (225-226)
+            rl._apply_adaptive_backoff(200)
+            rl._apply_adaptive_backoff(200)
+            assert rl.current_backoff_seconds == floor  # Can't go below floor
+
+    def test_backoff_normal_reduction_above_floor(self):
+        """Lines 243-244: normal backoff reduction above minimum floor.
+
+        When backoff is above the floor (but floor > 0), 2 successes reduce
+        backoff but not below the floor.
+        """
+        rl = RateLimiter(_make_config())
+
+        # Build violations to establish a non-zero floor
+        for _ in range(3):
+            rl._apply_adaptive_backoff(429)
+
+        floor = rl._calculate_minimum_floor()
+        # Set backoff above the floor
+        rl.current_backoff_seconds = floor + 20.0
+        rl.consecutive_successes = 0
+
+        # Two successes → normal reduction (243-244)
+        rl._apply_adaptive_backoff(200)
+        rl._apply_adaptive_backoff(200)
+        assert rl.current_backoff_seconds >= floor
+
     def test_429_at_max_backoff(self):
         """Lines 184-191: consecutive 429s hit max_backoff_seconds cap."""
         rl = RateLimiter(
@@ -238,6 +288,15 @@ class TestWaitForRequest:
         with patch("api.rate_limiter.time.sleep"):
             rl.wait_for_request()
 
+    @pytest.mark.asyncio
+    async def test_async_wait_with_floor_enforcement(self):
+        """Lines 361-363, 388-392: async minimum floor enforces delay."""
+        rl = RateLimiter(_make_config())
+        rl.learned_floor = 0.01
+        rl.last_request_time = rl.last_refill  # recent request
+
+        await rl.async_wait_for_request()
+
 
 class TestRecordResponse:
     """Lines 415-451: record_response feeds adaptive backoff + outcomes."""
@@ -292,6 +351,12 @@ class TestStatsAndConfig:
         assert stats["total_requests"] == 1
         assert stats["available_tokens"] == 9.0
         assert "utilization_percent" in stats
+
+        # With active backoff → hits lines 474-475 (backoff remaining calculation)
+        rl._apply_adaptive_backoff(429)
+        stats_with_backoff = rl.get_stats()
+        assert stats_with_backoff["backoff_remaining"] >= 0.0
+        assert stats_with_backoff["rate_limit_violations"] == 1
 
     def test_reset_stats(self):
         """Lines 499-507: resets counters."""

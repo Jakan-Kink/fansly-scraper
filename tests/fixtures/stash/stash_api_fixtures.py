@@ -125,7 +125,7 @@ def dump_graphql_calls(calls, label: str = "GraphQL calls") -> None:
             variables = req_body.get("variables", {})
 
             resp_body = call.response.json() if call.response else {}
-            data_keys = list(resp_body.get("data", {}).keys()) if resp_body else []
+            data_keys = list((resp_body.get("data") or {}).keys()) if resp_body else []
 
             print(f"\n  [{i}] {first_line}")
             print(f"      variables: {json.dumps(variables, default=str)[:200]}")

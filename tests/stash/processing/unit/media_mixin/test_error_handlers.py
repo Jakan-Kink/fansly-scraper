@@ -4,6 +4,7 @@ This module tests uncovered error paths and edge cases to improve coverage from 
 Focuses on exception handling, validation, and fallback logic.
 """
 
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -16,6 +17,12 @@ from tests.fixtures.stash.stash_graphql_fixtures import (
     create_graphql_response,
     create_image_dict,
     create_scene_dict,
+)
+from tests.fixtures.stash.stash_type_factories import (
+    ImageFactory,
+    ImageFileFactory,
+    SceneFactory,
+    VideoFileFactory,
 )
 
 
@@ -273,3 +280,103 @@ class TestErrorHandlers:
 
         # Should return empty result
         assert result == {"images": [], "scenes": []}
+
+
+class TestIndexBasedLookup:
+    """Test _find_stash_files_by_path using index (lines 323-347)."""
+
+    @pytest.mark.asyncio
+    async def test_find_by_path_uses_scene_index(self, respx_stash_processor):
+        """When scene code index is populated, uses O(1) lookup (lines 333-340)."""
+        video = VideoFileFactory(
+            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_999.mp4"
+        )
+        scene = SceneFactory(id="s100", files=[video])
+
+        # Populate the scene code index
+        respx_stash_processor._scene_code_index["999"].append(scene)
+
+        result = await respx_stash_processor._find_stash_files_by_path(
+            media_files=[("999", "video/mp4")]
+        )
+
+        assert len(result) == 1
+        assert result[0][0].id == "s100"
+
+    @pytest.mark.asyncio
+    async def test_find_by_path_uses_image_index(self, respx_stash_processor):
+        """When image code index is populated, uses O(1) lookup (lines 324-331)."""
+        img_file = ImageFileFactory(
+            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_888.jpg"
+        )
+        image = ImageFactory(id="i200", visual_files=[img_file])
+
+        respx_stash_processor._image_code_index["888"].append(image)
+
+        result = await respx_stash_processor._find_stash_files_by_path(
+            media_files=[("888", "image/jpeg")]
+        )
+
+        assert len(result) == 1
+        assert result[0][0].id == "i200"
+
+    @pytest.mark.asyncio
+    async def test_find_by_path_index_returns_early(self, respx_stash_processor):
+        """Index lookup returns found results without falling to regex (line 347)."""
+        video = VideoFileFactory(
+            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_777.mp4"
+        )
+        scene = SceneFactory(id="s300", files=[video])
+
+        respx_stash_processor._scene_code_index["777"].append(scene)
+
+        result = await respx_stash_processor._find_stash_files_by_path(
+            media_files=[("777", "video/mp4")]
+        )
+
+        # Returns early with results — no GraphQL call made
+        assert len(result) == 1
+
+
+class TestHasMatchingFile:
+    """Test _match_files_by_regex for Image type (lines 286-292)."""
+
+    def test_match_files_by_regex_image(self, respx_stash_processor):
+        """Image with matching visual_file path returns True (line 286-287)."""
+        img_file = ImageFileFactory(
+            path="/downloads/creator/2024_01_15_at_12_00_00_UTC_id_555.jpg"
+        )
+        image = ImageFactory(id="img1", visual_files=[img_file])
+
+        pattern = re.compile(r"555")
+        assert respx_stash_processor._match_files_by_regex(image, pattern) is True
+
+    def test_match_files_by_regex_image_no_match(self, respx_stash_processor):
+        """Image with non-matching path returns False."""
+        img_file = ImageFileFactory(path="/downloads/creator/other_file.jpg")
+        image = ImageFactory(id="img2", visual_files=[img_file])
+
+        pattern = re.compile(r"555")
+        assert respx_stash_processor._match_files_by_regex(image, pattern) is False
+
+    def test_match_files_by_regex_unknown_type(self, respx_stash_processor):
+        """Unknown type returns False (line 291)."""
+        pattern = re.compile(r"test")
+        assert (
+            respx_stash_processor._match_files_by_regex("not_a_scene", pattern) is False
+        )
+
+
+class TestCreateTargetedRegex:
+    """Test _create_targeted_regex_pattern fallback (line 128)."""
+
+    def test_fallback_without_base_path(self, respx_stash_processor):
+        """No base_path → simple OR pattern without path constraint (line 128)."""
+        respx_stash_processor.state.base_path = None
+
+        pattern = respx_stash_processor._create_targeted_regex_pattern(["id1", "id2"])
+
+        # Should be a simple OR of escaped codes
+        assert "id1" in pattern
+        assert "id2" in pattern
+        assert "|" in pattern
