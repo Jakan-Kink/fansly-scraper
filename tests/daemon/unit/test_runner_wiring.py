@@ -126,6 +126,90 @@ class TestDaemonTaskScheduling:
 
 
 # ---------------------------------------------------------------------------
+# Test 1b: run_daemon bootstrap-fallback path (ws_started=False)
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonBootstrapFallback:
+    """Verify the ``bootstrap is not None but ws_started=False`` branch.
+
+    Hit when ``bootstrap_daemon_ws`` couldn't attach a handler (the API's
+    anti-detection WS wasn't connected when bootstrap ran). The daemon
+    must still reuse the bootstrap's queue + simulator + baseline_consumed
+    but construct a fresh WS via ``ws_factory`` and start it itself.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_fallback_builds_fresh_ws_and_reuses_collaborators(
+        self, config_wired, entity_store, fake_ws
+    ):
+        """ws_started=False → ws_factory called, queue/simulator reused."""
+        from daemon.bootstrap import DaemonBootstrap
+        from daemon.handlers import WorkItem as _WorkItem
+        from daemon.simulator import ActivitySimulator as _Simulator
+
+        shared_queue: asyncio.Queue[_WorkItem] = asyncio.Queue()
+        shared_simulator = _Simulator()
+        shared_baseline: set[int] = {999_000_000_001}
+
+        bootstrap = DaemonBootstrap(
+            ws=None,
+            queue=shared_queue,
+            simulator=shared_simulator,
+            baseline_consumed=shared_baseline,
+            ws_started=False,
+        )
+
+        stop_event = asyncio.Event()
+
+        # Capture the queue the worker loop actually drains so we can
+        # assert identity against the bootstrap's queue.
+        captured_queue: list[asyncio.Queue] = []
+        original_worker = None
+
+        from daemon import runner as _runner
+
+        async def _instrumented_worker(config, queue, stop_ev, use_following, budget):
+            captured_queue.append(queue)
+            # Drain nothing — we only care about identity.
+            await stop_ev.wait()
+
+        original_worker = _runner._worker_loop
+        _runner._worker_loop = _instrumented_worker
+        try:
+            task = asyncio.create_task(
+                run_daemon(
+                    config_wired,
+                    ws_factory=_fake_ws_factory(fake_ws),
+                    stop_event=stop_event,
+                    bootstrap=bootstrap,
+                )
+            )
+            await asyncio.sleep(0.05)
+            stop_event.set()
+            try:
+                await asyncio.wait_for(task, timeout=5.0)
+            except (TimeoutError, asyncio.CancelledError):
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        finally:
+            _runner._worker_loop = original_worker
+
+        # Fresh WS was constructed via ws_factory and started.
+        assert fake_ws.started, "Fallback did not build + start a fresh WS"
+        # Handler was registered on the fresh WS (budget-aware variant).
+        assert fake_ws.MSG_SERVICE_EVENT in fake_ws._handlers, (
+            "Service-event handler was not registered on the fallback WS"
+        )
+        # Bootstrap's queue is the same object the worker received.
+        assert captured_queue, "Worker loop was not invoked"
+        assert captured_queue[0] is shared_queue, (
+            "Daemon built a fresh queue instead of reusing the bootstrap's"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Test (B1): _is_creator_in_scope
 # ---------------------------------------------------------------------------
 

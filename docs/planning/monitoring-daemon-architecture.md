@@ -7,7 +7,7 @@ against the actual production code.
 ## Agreed Architecture Decisions (2026-04-16)
 
 These decisions are the implementation contract; subsequent sections describe
-the *behaviors*, this section pins down the *shape*.
+the _behaviors_, this section pins down the _shape_.
 
 ### Invocation model — flag, not mode
 
@@ -15,8 +15,8 @@ The daemon is **not** a `DownloadMode`. It is a flag that appends a monitoring
 phase after a normal batch download completes. This lets `-dm normal -u alice
 --daemon` mean "download everything once, then watch forever."
 
-| Flag | Alias | Alias | Behavior |
-|---|---|---|---|
+| Flag | Alias      | Alias       | Behavior                                                                 |
+| ---- | ---------- | ----------- | ------------------------------------------------------------------------ |
 | `-d` | `--daemon` | `--monitor` | Enter daemon loop after the batch download completes. Runs until SIGINT. |
 
 Empirically verified: `-d` coexists with existing `-dir` and `-dm` because
@@ -59,13 +59,13 @@ Scoped schema — the identity map already tracks `Post` existence via
 so **no `lastPostIdSeen` column** is needed. The table stores only state that
 has no existing home:
 
-| Column | Type | Purpose |
-|---|---|---|
-| `creatorId` | `BigInteger` PK | The creator this state is for |
-| `lastHasActiveStories` | `Boolean` | Prior value of `hasActiveStories` (drives flip detection) |
-| `lastSeenAtAtLastRun` | `DateTime` | Snapshot of `Account.lastSeenAt` at last daemon tick (Optimization 3) |
-| `lastRunAt` | `DateTime` | When daemon last processed this creator |
-| `updatedAt` | `DateTime` | Row modification time |
+| Column                 | Type            | Purpose                                                               |
+| ---------------------- | --------------- | --------------------------------------------------------------------- |
+| `creatorId`            | `BigInteger` PK | The creator this state is for                                         |
+| `lastHasActiveStories` | `Boolean`       | Prior value of `hasActiveStories` (drives flip detection)             |
+| `lastSeenAtAtLastRun`  | `DateTime`      | Snapshot of `Account.lastSeenAt` at last daemon tick (Optimization 3) |
+| `lastRunAt`            | `DateTime`      | When daemon last processed this creator                               |
+| `updatedAt`            | `DateTime`      | Row modification time                                                 |
 
 Persistence also means a daemon restart doesn't re-trigger every story or
 re-scan the full `check_page_duplicates` sequence against a cold cache.
@@ -89,6 +89,7 @@ tests/daemon/
 ```
 
 Plus updates to existing tests:
+
 - `tests/api/` — new tests for `get_home_timeline`, `get_story_states_following`
 - `tests/download/unit/test_stories.py` — cover `mark_viewed=False` branch
 - `tests/fixtures/metadata/metadata_factories.py` — `MonitorStateFactory`
@@ -97,6 +98,7 @@ Plus updates to existing tests:
 ### File map (implementation scope)
 
 New files:
+
 - `daemon/__init__.py`, `daemon/runner.py`, `daemon/simulator.py`,
   `daemon/polling.py`, `daemon/filters.py`, `daemon/handlers.py`,
   `daemon/state.py`
@@ -105,6 +107,7 @@ New files:
   `tests/daemon/integration/__init__.py`, plus 7 test files listed above
 
 Modified files:
+
 - `api/fansly.py` — two new methods
 - `download/stories.py` — `mark_viewed` param
 - `config/args.py` — `-d`/`--daemon`/`--monitor` flag + `[Monitoring]` CLI overrides
@@ -245,6 +248,7 @@ in every other well-designed Python tool — they shape the run, they don't
 touch disk.
 
 Files to remove/simplify:
+
 - `config_args.ini` entry in `.gitignore`
 - `config.original_config_path` field in `FanslyConfig`
 - `_save_token_to_original_config`, `_save_checkkey_to_original_config` helpers
@@ -283,6 +287,7 @@ the same commit.
 ### File map additions for the YAML spike
 
 New files:
+
 - `config/schema.py` — Pydantic `ConfigSchema` + all section models
 - `config/loader.py` — YAML load + one-shot `.ini` migration
 - `config/writer.py` — round-trip YAML dump (or fold into loader)
@@ -293,6 +298,7 @@ New files:
   migration with real files (comment preservation, backup creation, value parity)
 
 Modified files:
+
 - `pyproject.toml` / `poetry.lock` — add `ruamel.yaml`
 - `config/config.py` — replace ~60 `_parser.*` calls with schema reads
 - `config/fanslyconfig.py` — replace ~71 `_parser.*` calls; drop `_parser` field
@@ -307,36 +313,36 @@ files" applies squarely here.
 
 ### Risks and mitigations
 
-| Risk | Mitigation |
-|---|---|
-| User has a heavily-customized `config.ini` → migration silently loses something | Dump YAML, then re-parse it into `ConfigSchema`, and compare to the in-memory state loaded from `.ini`. On any mismatch, abort migration and print a diff. |
-| Automation runs overlap the migration (two processes see `.ini`, both try to write `.yaml`) | Acquire `config.ini.migrating.lock` via exclusive file open before migrating |
-| Pydantic validation rejects edge cases present in prod `.ini` files (blank strings, unusual types) | First migration uses `BaseModel` with permissive validators; tighten in a follow-up |
-| Comment loss / reorder on writeback despite `ruamel.yaml` | Integration test asserts comment preservation across a full load→modify→dump→reload cycle |
+| Risk                                                                                               | Mitigation                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User has a heavily-customized `config.ini` → migration silently loses something                    | Dump YAML, then re-parse it into `ConfigSchema`, and compare to the in-memory state loaded from `.ini`. On any mismatch, abort migration and print a diff. |
+| Automation runs overlap the migration (two processes see `.ini`, both try to write `.yaml`)        | Acquire `config.ini.migrating.lock` via exclusive file open before migrating                                                                               |
+| Pydantic validation rejects edge cases present in prod `.ini` files (blank strings, unusual types) | First migration uses `BaseModel` with permissive validators; tighten in a follow-up                                                                        |
+| Comment loss / reorder on writeback despite `ruamel.yaml`                                          | Integration test asserts comment preservation across a full load→modify→dump→reload cycle                                                                  |
 
 ## Event Detection Architecture
 
 ### What the WebSocket CAN detect (account-scoped, real-time)
 
-| Event | Service | Type | Action |
-|---|---|---|---|
-| New DM received | MessageService (5) | 1 | Download message + attachments for that group |
-| Message with attachment | MessageService (5) | 1 | Check `attachments[]` for contentType 1/2, download media |
-| Message deleted | MessageService (5) | 10 | Mark media as removed (optional) |
-| New subscription confirmed | SubscriptionService (15) | 5 (status=3) | Queue full download for newly-accessible creator |
-| PPV media purchased | MediaService (2) | 7 | Re-download that creator's media (now accessible) |
-| PPV bundle purchased | MediaService (2) | 8 | Re-download that creator's bundles |
-| New follow | FollowerService (3) | 2 | Permission flag 2 added — some content may be newly accessible |
-| Wallet credited | WalletService (6) | 2 | Informational — balance available for purchases |
+| Event                      | Service                  | Type         | Action                                                         |
+| -------------------------- | ------------------------ | ------------ | -------------------------------------------------------------- |
+| New DM received            | MessageService (5)       | 1            | Download message + attachments for that group                  |
+| Message with attachment    | MessageService (5)       | 1            | Check `attachments[]` for contentType 1/2, download media      |
+| Message deleted            | MessageService (5)       | 10           | Mark media as removed (optional)                               |
+| New subscription confirmed | SubscriptionService (15) | 5 (status=3) | Queue full download for newly-accessible creator               |
+| PPV media purchased        | MediaService (2)         | 7            | Re-download that creator's media (now accessible)              |
+| PPV bundle purchased       | MediaService (2)         | 8            | Re-download that creator's bundles                             |
+| New follow                 | FollowerService (3)      | 2            | Permission flag 2 added — some content may be newly accessible |
+| Wallet credited            | WalletService (6)        | 2            | Informational — balance available for purchases                |
 
 ### What the WebSocket CANNOT detect (requires polling)
 
-| Content | Why | Detection method |
-|---|---|---|
-| New posts from creators | Server doesn't push followed creators' posts | Home timeline poll |
-| New stories from creators | Server doesn't push story state changes | Story state poll |
-| New wall posts | Only pushed for YOUR walls via PostService type=9 | Home timeline poll |
-| Creator profile changes | No push for followed accounts | Following list refresh |
+| Content                   | Why                                               | Detection method       |
+| ------------------------- | ------------------------------------------------- | ---------------------- |
+| New posts from creators   | Server doesn't push followed creators' posts      | Home timeline poll     |
+| New stories from creators | Server doesn't push story state changes           | Story state poll       |
+| New wall posts            | Only pushed for YOUR walls via PostService type=9 | Home timeline poll     |
+| Creator profile changes   | No push for followed accounts                     | Following list refresh |
 
 ### Polling Cadence (matching real browser behavior)
 
@@ -449,11 +455,11 @@ The original plan proposed skipping creators whose `Account.lastSeenAt`
 hadn't advanced since the last run. Two alternative signals were
 considered. All three had disqualifying flaws:
 
-| Signal | Source | Why it fails as a skip criterion |
-|---|---|---|
-| `Account.lastSeenAt` | Fansly API presence field | **Privacy opt-out returns 0.** main.js line 16014: `t.lastSeenAt = e.lastSeenAt \|\| 0`. Creators with last-seen visibility off return `0` forever → compared as 1970-01-01 → stuck-skipped indefinitely. |
-| `TimelineStats.fetchedAt` | Timeline stats metadata | **Not a content-change timestamp.** Empirical evidence (user observation): `fetchedAt = 1774849061652` (ms, = 2026-04-27) appeared ~18 h AFTER the creator's most recent `createdAt` (1774783936 s, = 2026-04-26) with no new content in between. main.js evidence: client NEVER reads `timelineStats.fetchedAt` for any purpose; it's server cache-regeneration metadata, not post-event metadata. |
-| Fansly `lastPostedAt` equivalent | N/A | **Does not exist.** Zero hits for `lastPosted`, `latestPost`, `postCount`, `mostRecent` in main.js. If Fansly tracked "when did this creator last post?" anywhere, the client UI would surface it — it doesn't. |
+| Signal                           | Source                    | Why it fails as a skip criterion                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Account.lastSeenAt`             | Fansly API presence field | **Privacy opt-out returns 0.** main.js line 16014: `t.lastSeenAt = e.lastSeenAt \|\| 0`. Creators with last-seen visibility off return `0` forever → compared as 1970-01-01 → stuck-skipped indefinitely.                                                                                                                                                                                           |
+| `TimelineStats.fetchedAt`        | Timeline stats metadata   | **Not a content-change timestamp.** Empirical evidence (user observation): `fetchedAt = 1774849061652` (ms, = 2026-04-27) appeared ~18 h AFTER the creator's most recent `createdAt` (1774783936 s, = 2026-04-26) with no new content in between. main.js evidence: client NEVER reads `timelineStats.fetchedAt` for any purpose; it's server cache-regeneration metadata, not post-event metadata. |
+| Fansly `lastPostedAt` equivalent | N/A                       | **Does not exist.** Zero hits for `lastPosted`, `latestPost`, `postCount`, `mostRecent` in main.js. If Fansly tracked "when did this creator last post?" anywhere, the client UI would surface it — it doesn't.                                                                                                                                                                                     |
 
 The only safe "did the creator post new content since we last checked?"
 signal Fansly exposes is the actual `post.createdAt` value on each
@@ -506,10 +512,10 @@ snapshot of a Fansly field.
 CLI and config can supply a per-run override that ignores stored
 `MonitorState.lastCheckedAt` values:
 
-| Flag | Equivalent | Use case |
-|---|---|---|
-| `--monitor-since 2026-01-01T00:00:00Z` | `session_baseline=<iso>` | Cherry-pick a precise re-sync window (e.g., after a known-bad period) |
-| `--full-pass` | `session_baseline=2000-01-01T00:00:00Z` | Zero-friction "download everything that's new since epoch" |
+| Flag                                   | Equivalent                              | Use case                                                              |
+| -------------------------------------- | --------------------------------------- | --------------------------------------------------------------------- |
+| `--monitor-since 2026-01-01T00:00:00Z` | `session_baseline=<iso>`                | Cherry-pick a precise re-sync window (e.g., after a known-bad period) |
+| `--full-pass`                          | `session_baseline=2000-01-01T00:00:00Z` | Zero-friction "download everything that's new since epoch"            |
 
 Mutually exclusive at CLI. Persisted via `[Monitoring] session_baseline`
 in YAML (null by default). Session baseline takes precedence over
@@ -715,26 +721,75 @@ causes the user to switch back to the Fansly tab, resuming all activity.
 
 ## Complete Event-to-Action Map
 
-| Source | Event | Download Action |
-|---|---|---|
-| Home timeline poll | New post ID detected | `download_timeline(creator)` |
-| Story state poll | `hasActiveStories` flipped true | `download_stories(creator)` |
-| WS svc=5 type=1 | New message with attachments | `download_messages(group)` |
-| WS svc=15 type=5 status=3 | Subscription confirmed | Full download for creator |
-| WS svc=2 type=7 | PPV media purchased | Re-download creator media |
-| WS svc=2 type=8 | PPV bundle purchased | Re-download creator bundles |
-| WS svc=3 type=2 | New follow | Check for newly-accessible content |
-| WS svc=6 type=2 | Wallet credited | Informational only |
+| Source                    | Event                           | Download Action                    |
+| ------------------------- | ------------------------------- | ---------------------------------- |
+| Home timeline poll        | New post ID detected            | `download_timeline(creator)`       |
+| Story state poll          | `hasActiveStories` flipped true | `download_stories(creator)`        |
+| WS svc=5 type=1           | New message with attachments    | `download_messages(group)`         |
+| WS svc=15 type=5 status=3 | Subscription confirmed          | Full download for creator          |
+| WS svc=2 type=7           | PPV media purchased             | Re-download creator media          |
+| WS svc=2 type=8           | PPV bundle purchased            | Re-download creator bundles        |
+| WS svc=3 type=2           | New follow                      | Check for newly-accessible content |
+| WS svc=6 type=2           | Wallet credited                 | Informational only                 |
 
 ## API Calls Per Cycle (optimized)
 
-| Phase | API Calls | Frequency |
-|---|---|---|
-| Story state check | 1 call | Every 30s-5min |
-| Home timeline check | 1 call | Every 3-10min |
-| Per-creator timeline download | N calls (only creators with new posts) | On demand |
-| Per-creator story download | N calls (only creators with new stories) | On demand |
-| Message download | On WS event only | Real-time |
+| Phase                         | API Calls                                | Frequency      |
+| ----------------------------- | ---------------------------------------- | -------------- |
+| Story state check             | 1 call                                   | Every 30s-5min |
+| Home timeline check           | 1 call                                   | Every 3-10min  |
+| Per-creator timeline download | N calls (only creators with new posts)   | On demand      |
+| Per-creator story download    | N calls (only creators with new stories) | On demand      |
+| Message download              | On WS event only                         | Real-time      |
 
 Worst case with 50 followed creators: ~2 polling calls per cycle + targeted
 per-creator downloads. Compare to naive approach: 50+ calls per cycle.
+
+## Config Surface (config.yaml)
+
+All daemon tunables live under `monitoring:` in `config.yaml`. They are
+optional — defaults are calibrated for the three-tier active/idle/hidden
+profile described above. Set any subset in `config.yaml`:
+
+```yaml
+monitoring:
+  # Daemon enablement — CLI flag (-d / --daemon / --monitor) is equivalent.
+  daemon_mode: false
+
+  # Simulator state durations (minutes).
+  active_duration_minutes: 60
+  idle_duration_minutes: 120
+  hidden_duration_minutes: 300
+
+  # Poll cadence per state (seconds). The active/idle split mirrors the
+  # browser's own cadence; hidden = 0 (polls suspended).
+  timeline_poll_active_seconds: 180
+  timeline_poll_idle_seconds: 600
+  story_poll_active_seconds: 30
+  story_poll_idle_seconds: 300
+
+  # Optional per-run baseline override. When set, the very first
+  # should_process_creator call per creator uses this value instead of
+  # MonitorState.lastCheckedAt. A very old value (e.g. 2000-01-01)
+  # forces a full pass for every creator this session.
+  session_baseline: null # ISO-8601 datetime or null
+
+  # Fatal-error escalation: if NO successful daemon operation has
+  # happened for this many seconds, exit with DAEMON_UNRECOVERABLE (-8).
+  # Rate-limited / transient 5xx / network blips don't escalate as long
+  # as *some* op (poll, WS ping-pong, dispatch) still succeeds.
+  unrecoverable_error_timeout_seconds: 3600
+
+  # Rich-based live dashboard (simulator state + per-loop countdown bars).
+  # Set False when piping output through tools that don't render ANSI
+  # cleanly (e.g. pagers, logs-only collection).
+  dashboard_enabled: true
+```
+
+Runtime-only flags (not written to `config.yaml`):
+
+| Flag                            | Effect                                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| `-d` / `--daemon` / `--monitor` | Enter daemon loop after batch download completes                                   |
+| `-u alice,bob`                  | Restrict daemon scope to these creators (same flag as the batch download)          |
+| `-uf` / `-ufp`                  | Daemon watches the full following list; refreshed on subscription-confirmed events |
