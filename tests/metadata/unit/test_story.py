@@ -1,54 +1,49 @@
-"""Unit tests for metadata/story.py"""
+"""Unit tests for metadata/story.py — MediaStory model."""
 
 from datetime import datetime
 
-from metadata.story import Story
+from metadata.story import MediaStory
 from tests.fixtures.utils.test_isolation import snowflake_id
 
 
-class TestStory:
-    """Tests for Story model."""
+class TestMediaStory:
+    """Tests for MediaStory model."""
 
-    def test_story_init_with_timestamps(self):
-        """Test Story initialization with timestamp conversion."""
+    def test_media_story_init_with_timestamps(self):
+        """Test MediaStory initialization with millisecond timestamp conversion."""
         story_id = snowflake_id()
-        author_id = snowflake_id()
+        account_id = snowflake_id()
+        content_id = snowflake_id()
 
-        # Test with millisecond timestamps
-        story = Story(
+        story = MediaStory(
             id=story_id,
-            authorId=author_id,
-            content="Story content",
-            title="Story Title",
-            description="Story description",
-            createdAt=1705329000000,  # milliseconds
-            updatedAt=1705329100000,  # milliseconds
+            accountId=account_id,
+            contentType=1,
+            contentId=content_id,
+            createdAt=1776270684000,  # milliseconds
+            updatedAt=1776270684000,
         )
 
         assert story.id == story_id
-        assert story.authorId == author_id
-        assert story.content == "Story content"
-        assert story.title == "Story Title"
-        assert story.description == "Story description"
-        # Timestamps should be converted to datetime objects
+        assert story.accountId == account_id
+        assert story.contentType == 1
+        assert story.contentId == content_id
         assert isinstance(story.createdAt, datetime)
         assert isinstance(story.updatedAt, datetime)
 
-    def test_story_init_without_optional_fields(self):
-        """Test Story initialization without optional fields."""
+    def test_media_story_init_without_optional_fields(self):
+        """Test MediaStory initialization without optional fields."""
         story_id = snowflake_id()
-        author_id = snowflake_id()
+        account_id = snowflake_id()
 
-        story = Story(
+        story = MediaStory(
             id=story_id,
-            authorId=author_id,
-            content="Story content",
-            createdAt=1705329000,
+            accountId=account_id,
+            createdAt=1776270684,
         )
 
         assert story.id == story_id
-        assert story.authorId == author_id
-        assert story.content == "Story content"
-        assert story.title is None
-        assert story.description is None
+        assert story.accountId == account_id
+        assert story.contentType is None
+        assert story.contentId is None
         assert story.updatedAt is None

@@ -22,6 +22,13 @@ class DownloadState(GlobalState):
     base_path: Path | None = None
     download_path: Path | None = None
     fetched_timeline_duplication: bool = False
+    # Stronger signal than fetched_timeline_duplication: True when the
+    # creator's TimelineStats counts (image/video/bundle) AND wall
+    # structure (id, pos, name, description) are byte-identical between
+    # the preloaded DB state and the freshly-fetched API response. Set
+    # by download.account.get_creator_account_info before merge.
+    # Timeline/wall download paths short-circuit when this is True.
+    creator_content_unchanged: bool = False
 
     # History
     recent_audio_media_ids: set = field(default_factory=set)

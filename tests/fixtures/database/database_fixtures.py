@@ -15,13 +15,7 @@ import json
 import os
 import time
 import uuid
-from collections.abc import (
-    AsyncGenerator,
-    Callable,
-    Coroutine,
-    Generator,
-    Sequence,
-)
+from collections.abc import AsyncGenerator, Callable, Coroutine, Generator, Sequence
 from contextlib import asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
 from functools import wraps
@@ -62,10 +56,10 @@ from tests.fixtures.metadata.metadata_factories import (
     HashtagFactory,
     MediaFactory,
     MediaLocationFactory,
+    MediaStoryFactory,
     MediaStoryStateFactory,
     MessageFactory,
     PostFactory,
-    StoryFactory,
     StubTrackerFactory,
     TimelineStatsFactory,
     WallFactory,
@@ -532,10 +526,6 @@ async def test_async_session(
 def config(uuid_test_db_factory) -> FanslyConfig:
     """Create a test configuration with isolated PostgreSQL database (UUID-based)."""
     config = uuid_test_db_factory
-    # Database sync settings (deprecated for PostgreSQL but kept for compatibility)
-    config.db_sync_min_size = 50
-    config.db_sync_commits = 1000
-    config.db_sync_seconds = 60
 
     return config
 
@@ -555,10 +545,6 @@ def config_with_database(uuid_test_db_factory) -> FanslyConfig:
         FanslyConfig with _database initialized and ready to use
     """
     config = uuid_test_db_factory
-    # Database sync settings (deprecated for PostgreSQL but kept for compatibility)
-    config.db_sync_min_size = 50
-    config.db_sync_commits = 1000
-    config.db_sync_seconds = 60
 
     # Initialize database with migrations skipped (tables created by test_engine)
     config._database = Database(config, skip_migrations=True)
@@ -901,7 +887,7 @@ def factory_session(test_database_sync: Database):
         AccountMediaFactory,
         AccountMediaBundleFactory,
         HashtagFactory,
-        StoryFactory,
+        MediaStoryFactory,
         WallFactory,
         MediaStoryStateFactory,
         TimelineStatsFactory,
@@ -972,7 +958,7 @@ async def factory_async_session(test_engine: AsyncEngine, session: AsyncSession)
         AccountMediaFactory,
         AccountMediaBundleFactory,
         HashtagFactory,
-        StoryFactory,
+        MediaStoryFactory,
         WallFactory,
         MediaStoryStateFactory,
         TimelineStatsFactory,

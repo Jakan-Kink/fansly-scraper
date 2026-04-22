@@ -186,7 +186,6 @@ def _update_state_from_account(
         )
 
         print_info(f"Targeted creator: '{state.creator_name}'")
-        print()
 
 
 async def get_creator_account_info(
@@ -209,20 +208,38 @@ async def get_creator_account_info(
         else account_data["id"]
     )
 
-    # Capture DB's fetchedAt BEFORE process_account_data merges API data
-    # into the identity map (preloaded TimelineStats has DB state)
+    # Capture DB snapshots BEFORE process_account_data merges the API
+    # response. fetchedAt alone is unreliable (server cache-regeneration
+    # metadata, not creator activity); stats + wall structure together
+    # reflect real content changes and drive creator_content_unchanged.
     db_fetched_at = None
     if config.use_duplicate_threshold:
         preloaded_stats = store.get_from_cache(TimelineStats, account_id)
         if preloaded_stats:
             db_fetched_at = preloaded_stats.fetchedAt
 
-    # Persist via Pydantic pipeline — model_validate handles nested
-    # timelineStats, mediaStoryState, walls, avatar, banner.
-    # This MERGES API data into preloaded cache (overwrites fetchedAt etc.)
+    db_stats_snapshot: tuple | None = None
+    preloaded_stats = store.get_from_cache(TimelineStats, account_id)
+    if preloaded_stats:
+        db_stats_snapshot = (
+            preloaded_stats.imageCount,
+            preloaded_stats.videoCount,
+            preloaded_stats.bundleCount,
+            preloaded_stats.bundleImageCount,
+            preloaded_stats.bundleVideoCount,
+        )
+
+    db_wall_signature: frozenset | None = None
+    preloaded_account = store.get_from_cache(Account, account_id)
+    if preloaded_account is not None and preloaded_account.walls:
+        db_wall_signature = frozenset(
+            (w.id, w.pos, w.name, w.description) for w in preloaded_account.walls
+        )
+
+    # process_account_data MERGES API data into preloaded cache
+    # (overwrites fetchedAt etc.) — hence the pre-merge snapshots above.
     await process_account_data(config=config, data=account_data, state=state)
 
-    # Retrieve the Account object from identity map
     account = await store.get(Account, account_id)
     if account is None:
         raise ApiAccountInfoError(
@@ -231,14 +248,45 @@ async def get_creator_account_info(
 
     _update_state_from_account(config, state, account)
 
-    # Timeline duplication: compare DB's fetchedAt (captured before merge)
-    # with the API's fetchedAt (now on the merged TimelineStats object)
+    # Legacy fetchedAt path (kept for backwards compat with downstream
+    # flags that look at this field). Unreliable alone — see notes above.
     if (
         db_fetched_at
         and account.timelineStats
         and account.timelineStats.fetchedAt == db_fetched_at
     ):
         state.fetched_timeline_duplication = True
+
+    # Reliable content-unchanged detection: counts match AND wall
+    # structure matches. Both conditions required — counts can match
+    # while walls change (post moved between walls), and walls can
+    # match while counts change (post added to existing wall). Only
+    # when BOTH are identical is it safe to skip the timeline+wall scan.
+    api_stats_snapshot: tuple | None = None
+    if account.timelineStats:
+        api_stats_snapshot = (
+            account.timelineStats.imageCount,
+            account.timelineStats.videoCount,
+            account.timelineStats.bundleCount,
+            account.timelineStats.bundleImageCount,
+            account.timelineStats.bundleVideoCount,
+        )
+
+    api_wall_signature: frozenset | None = None
+    if account.walls:
+        api_wall_signature = frozenset(
+            (w.id, w.pos, w.name, w.description) for w in account.walls
+        )
+
+    counts_match = (
+        db_stats_snapshot is not None and db_stats_snapshot == api_stats_snapshot
+    )
+    walls_match = (
+        db_wall_signature is not None and db_wall_signature == api_wall_signature
+    )
+
+    if counts_match and walls_match:
+        state.creator_content_unchanged = True
 
 
 async def _make_rate_limited_request(
@@ -267,7 +315,7 @@ async def _make_rate_limited_request(
             response = request_func(*args, **kwargs)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:  # Rate limited
+            if e.response.status_code == 429:
                 print_info(f"Rate limited, waiting {rate_limit_delay} seconds...")
                 await asyncio.sleep(rate_limit_delay)
                 continue
@@ -297,7 +345,6 @@ async def _get_following_page(
     Returns:
         Tuple of (account list, number of accounts)
     """
-    # Get list of account IDs
     response = await _make_rate_limited_request(
         config.get_api().get_following_list,
         rate_limit_delay=30.0,
@@ -310,7 +357,6 @@ async def _get_following_page(
     json_output(1, f"following_list_page_{page}", response.json())
     following_data = config.get_api().get_json_response_contents(response)
 
-    # Extract account IDs
     account_ids = [
         item["accountId"]
         for item in following_data
@@ -320,10 +366,8 @@ async def _get_following_page(
     if not account_ids:
         return [], 0
 
-    # Wait before next request
     await asyncio.sleep(request_delay)
 
-    # Get account details
     account_response = await _make_rate_limited_request(
         config.get_api().get_account_info_by_id,
         account_ids,
@@ -401,20 +445,17 @@ async def get_following_accounts(
         total = len(following_accounts)
         print_info(f"Found {total} followed accounts")
 
-        # Reverse list if requested
         if config.reverse_order:
             following_accounts = list(reversed(following_accounts))
             print_info("Processing accounts in reverse order")
 
-        # Process accounts and collect usernames
         usernames = set()
 
         for i, account_data in enumerate(following_accounts, 1):
             try:
-                if not config.separate_metadata:
-                    await process_account_data(
-                        config=config, state=state, data=account_data
-                    )
+                await process_account_data(
+                    config=config, state=state, data=account_data
+                )
 
                 # Use the Account object from identity map
                 account = Account.model_validate(account_data)

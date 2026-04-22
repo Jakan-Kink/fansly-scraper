@@ -84,11 +84,8 @@ def get_token_from_firefox_db(
                         break
 
     except sqlite3.OperationalError:
-        # Got
-        # "sqlite3.OperationalError: Could not decode to UTF-8 column 'value' with text"
-        # all over the place.
-        # I guess this is from other databases with different encodings,
-        # maybe UTF-16. So just ignore.
+        # Other browsers' cookies DBs use non-UTF-8 encodings (UTF-16, etc.);
+        # "Could not decode to UTF-8 column 'value'" — skip rather than crash.
         pass
 
     except sqlite3.Error as e:
@@ -115,10 +112,12 @@ def get_token_from_firefox_db(
                 sqlite_file_name, interactive
             )  # recursively restart function
 
-        print(f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}")
+        textio_logger.error(
+            f"Unexpected Error processing SQLite file:\n{traceback.format_exc()}"
+        )
 
     except Exception:
-        print(
+        textio_logger.error(
             f"Unexpected Error parsing Firefox SQLite databases:\n{traceback.format_exc()}"
         )
 

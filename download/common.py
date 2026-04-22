@@ -97,13 +97,11 @@ def print_download_info(config: FanslyConfig) -> None:
     print_info(
         f"Downloading files marked as preview, is set to: '{config.download_media_previews}'"
     )
-    print()
 
     if config.download_media_previews:
         print_warning(
             "Previews downloading is enabled; repetitive and/or emoji spammed media might be downloaded!"
         )
-        print()
 
 
 async def process_download_accessible_media(

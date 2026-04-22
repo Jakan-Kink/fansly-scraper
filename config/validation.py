@@ -57,8 +57,6 @@ def validate_creator_names(config: FanslyConfig) -> bool:
             config.user_names.add(validated_name)
             list_changed = True
 
-    print()
-
     # Save any potential changes
     if list_changed:
         save_config_or_raise(config)
@@ -356,7 +354,6 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
     textio_logger.warning(
         "!!! FANSLY MAY BAN YOU FOR USING THIS SOFTWARE, BE WARNED !!!"
     )
-    print()
 
     if config.user_agent:
         from helpers.checkkey import guess_check_key
@@ -367,20 +364,15 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
 
         if guessed_key is not None:
             config.check_key = guessed_key
-            # Save to original config file (not config_args.ini)
-            config._save_checkkey_to_original_config()
-            # Also save to working config for current session
             save_config_or_raise(config)
 
             textio_logger.info(
                 f"Check key guessed from Fansly homepage: `{config.check_key}`"
             )
-            print()
 
             return
 
         textio_logger.warning("Web retrieval of check key failed!")
-        print()
 
     textio_logger.warning(
         f"Make sure, checking the main.js sources of the Fansly homepage, "
@@ -410,48 +402,10 @@ def validate_adjust_check_key(config: FanslyConfig) -> None:
                 if new_key_confirmation.startswith("y"):
                     done = True
                     config.check_key = new_key
-                    # Save to original config file (not config_args.ini)
-                    config._save_checkkey_to_original_config()
-                    # Also save to working config for current session
                     save_config_or_raise(config)
 
     else:
         input_enter_continue(config.interactive)
-
-
-# def validate_adjust_session_id(config: FanslyConfig) -> None:
-#     """Validates the input value for `session_id` in `config.ini`.
-
-#     :param FanslyConfig config: The configuration to validate and correct.
-#     """
-
-#     if config.session_id is None or config.session_id.lower() == 'null':
-#         logger.warning(
-#             f"Session ID is invalid. Please provide a valid value from your browser's DevTools:"
-#             f"\n{20 * ' '}Look for `fansly-session-id` in requests or `id` from `session_active_session`"
-#             f"\n{20 * ' '}in local storage for https://fansly.com (18 digits)."
-#         )
-
-#     if config.interactive:
-
-#         done = False
-
-#         while not done:
-#             session_id = input(f"\n{20 * ' '}► Session ID: "
-#             ).strip()
-
-#             if re.match(r'\d{18}', session_id):
-#                 done = True
-#                 config.session_id = session_id
-#                 save_config_or_raise(config)
-
-#             else:
-#                 logger.warning(
-#                     f'Invalid session ID, should be 18 digits. Please try again.'
-#                 )
-
-#     else:
-#         input_enter_close(config.interactive)
 
 
 def validate_log_levels(config: FanslyConfig) -> None:

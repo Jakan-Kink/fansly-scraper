@@ -34,7 +34,6 @@ from loguru import logger
 
 from config import FanslyConfig
 from config.fanslyconfig import FanslyConfig as FanslyConfigClass
-from config.metadatahandling import MetadataHandling
 from config.modes import DownloadMode
 from download.core import DownloadState
 
@@ -426,7 +425,6 @@ def mock_config_file(temp_config_dir, request):
         config_content = """
         [Options]
         download_mode = Normal
-        metadata_handling = Advanced
         interactive = True
         download_directory = Local_directory
         """
@@ -475,7 +473,6 @@ def valid_api_config(mock_config_file):
         [Options]
         interactive = True
         download_mode = Normal
-        metadata_handling = Advanced
         download_directory = Local_directory
         """
         )
@@ -486,12 +483,6 @@ def valid_api_config(mock_config_file):
 def download_modes():
     """Get all available download modes."""
     return list(DownloadMode)
-
-
-@pytest.fixture(scope="session")
-def metadata_handling_modes():
-    """Get all available metadata handling modes."""
-    return list(MetadataHandling)
 
 
 @pytest.fixture

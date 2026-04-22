@@ -120,6 +120,15 @@ async def download_wall(
     before_cursor = "0"
     attempts = 0
 
+    # Reliable short-circuit: creator's TimelineStats counts + wall
+    # structure are both identical to DB → no activity since last run,
+    # no need to scan this wall. Set by download.account.get_creator_account_info.
+    if state.creator_content_unchanged:
+        print_info(
+            f"Creator counts and wall structure unchanged — skipping wall {wall_info}"
+        )
+        return
+
     if (
         config.use_duplicate_threshold or config.use_pagination_duplication
     ) and state.fetched_timeline_duplication:
@@ -127,7 +136,6 @@ async def download_wall(
             "Deduplication is enabled and the timeline has been fetched before. "
             "Only new media items will be downloaded."
         )
-        print()
         return
 
     # Careful - "retry" means (1 + retries) runs
@@ -206,8 +214,6 @@ async def download_wall(
                         f"Skipped {skipped_downloads} already downloaded media item{'' if skipped_downloads == 1 else 's'}."
                     )
 
-                print()
-
                 # Get next before_cursor
                 try:
                     # Slow down to avoid the Fansly rate-limit
@@ -243,7 +249,6 @@ async def download_wall(
 
         except DuplicatePageError as e:
             print_info_highlight(str(e))
-            print()
             e._handled = True
             break  # Break out of the loop to stop processing this wall
 

@@ -594,7 +594,7 @@ def build_config_for_dedupe(
     config.pg_user = settings["pg_user"]
     config.pg_password = settings["pg_password"]
 
-    config._database = Database(config, creator_name=None)
+    config._database = Database(config)
     return config
 
 

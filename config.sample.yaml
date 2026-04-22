@@ -1,0 +1,97 @@
+# Fansly Downloader NG — sample configuration file
+#
+# Copy this file to `config.yaml` (in the same directory you run the
+# downloader from) and fill in your values. Comments are preserved across
+# load → modify → save cycles, so feel free to annotate freely.
+#
+# Legacy note: if you have an existing `config.ini` the first run will
+# migrate it automatically to `config.yaml` and rename the original to
+# `config.ini.bak.<timestamp>`. You do not need to translate it by hand.
+
+targeted_creator:
+  # One or more Fansly creator usernames to download. A YAML list is
+  # preferred, but a comma-separated string also works (legacy format).
+  usernames:
+    - replaceme
+  # If true, the full following-list is processed instead of `usernames`.
+  use_following: false
+  use_following_with_pagination: false
+
+my_account:
+  # Browser-scraped authorization token. Required for any API call.
+  authorization_token: ReplaceMe
+  # The browser User-Agent string that matched the token above. Must be
+  # consistent with the browser session that produced the token.
+  user_agent: ReplaceMe
+  # Fansly extracts this from main.js; keep the value below unless you
+  # know you need a different one.
+  check_key: qybZy9-fyszis-bybxyf
+  # Optional login credentials (used only for token refresh). Plaintext
+  # in YAML but wrapped as SecretStr internally so the value never
+  # appears in log output.
+  username: null
+  password: null
+
+options:
+  download_directory: Local_directory
+  # Download mode: normal | timeline | messages | collection | wall |
+  # single | stories | stash_only. Case-insensitive.
+  download_mode: normal
+  # DEPRECATED: no runtime code branches on this value anymore. Kept
+  # only for backward compatibility with existing config.ini files.
+  metadata_handling: advanced
+  show_downloads: true
+  show_skipped_downloads: true
+  download_media_previews: true
+  open_folder_when_finished: true
+  # When true, messages/timeline/previews each get their own subfolder.
+  separate_messages: true
+  separate_previews: false
+  separate_timeline: true
+  # Count-based duplicate early-exit (complements identity-map-based
+  # pagination_duplication; see use_pagination_duplication below).
+  use_duplicate_threshold: false
+  use_folder_suffix: true
+  interactive: true
+  prompt_on_exit: true
+  timeline_retries: 1
+  timeline_delay_seconds: 60
+  temp_folder: null
+
+postgres:
+  pg_host: localhost
+  pg_port: 5432
+  pg_database: fansly_metadata
+  pg_user: fansly_user
+  # SecretStr — stored as plaintext in the file but never printed in logs.
+  pg_password: null
+  # The pg_ssl* settings are accepted but NOT yet wired to
+  # asyncpg.create_pool. See `metadata/database.py` — a follow-up task
+  # will pass them through.
+  pg_sslmode: prefer
+  pg_sslcert: null
+  pg_sslkey: null
+  pg_sslrootcert: null
+  pg_pool_size: 5
+
+monitoring:
+  # Enable the post-batch monitoring daemon. See
+  # docs/planning/monitoring-daemon-architecture.md for the full design.
+  # Can also be toggled at runtime via --daemon / --monitor / -d.
+  enabled: false
+  # Three-tier activity simulator durations (minutes). Matches real
+  # browser behaviour: active → idle → hidden → active.
+  active_duration_minutes: 60
+  idle_duration_minutes: 120
+  hidden_duration_minutes: 300
+  # Per-phase polling intervals (seconds).
+  timeline_poll_active_seconds: 180
+  timeline_poll_idle_seconds: 600
+  story_poll_active_seconds: 30
+  story_poll_idle_seconds: 300
+
+logic:
+  # Regex patterns the check-key extractor uses against Fansly's main.js.
+  # Only edit if Fansly changes their front-end structure.
+  check_key_pattern: 'this\.checkKey_\s*=\s*["'']([^"'']+)["'']'
+  main_js_pattern: '\ssrc\s*=\s*"(main\..*?\.js)"'

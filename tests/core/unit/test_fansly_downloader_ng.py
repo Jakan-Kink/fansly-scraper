@@ -153,7 +153,6 @@ def mock_args():
     args.authorization_token = None
     args.user_agent = None
     args.check_key = None
-    args.metadata_handling = "simple"
     args.download_mode_single = None
     args.download_mode_collection = None
     args.download_mode_messages = None
@@ -171,7 +170,6 @@ def mock_config():
     config.config_path = Path("config.ini")
     config.user_names = {"test_user"}
     config.download_mode = DownloadMode.NORMAL
-    config.separate_metadata = False
     config.interactive = False  # Disable interactive mode for tests
     # Set direct values for retries and other config
     config.timeline_retries = 3
@@ -209,28 +207,6 @@ def mock_config():
     mock_api.get_wall.return_value = MagicMock(status_code=404, text="Not found")
     config.get_api.return_value = mock_api
     config.get_background_tasks.return_value = []
-
-    # Mock parser
-    mock_parser = MagicMock()
-
-    def mock_get(section, option, fallback=None):
-        value = {
-            ("Downloader", "download_mode"): "NORMAL",
-            ("Downloader", "metadata_handling"): "simple",
-            ("API", "token"): "test_token",
-            ("API", "check_key"): "test_key",
-            ("API", "device_id"): "test_device_id",
-            ("API", "session_id"): "test_session_id",
-            ("Downloader", "timeline_retries"): "3",
-            ("Downloader", "messages_retries"): "3",
-            ("Downloader", "wall_retries"): "3",
-            ("Downloader", "collection_retries"): "3",
-            ("Downloader", "single_retries"): "3",
-        }.get((section, option))
-        return value if value is not None else fallback
-
-    mock_parser.get.side_effect = mock_get
-    config._parser = mock_parser
 
     return config
 

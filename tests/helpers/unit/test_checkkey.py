@@ -762,3 +762,87 @@ class TestGuessCheckKey:
             result = guess_check_key("Mozilla/5.0")
 
         assert result == "oybZy8-fySzis-bubayf"
+
+
+# ── JS bridge shutdown ─────────────────────────────────────────────────
+
+
+class TestJsBridgeShutdown:
+    """Verify the node bridge subprocess is terminated after checkKey extraction.
+
+    JSPyBridge spawns a Node.js child process on first import; that child
+    would otherwise linger for the entire daemon run (hours). The finally
+    block in guess_check_key must call connection.stop() so the bridge
+    dies at the natural end of its useful lifetime.
+    """
+
+    def test_bridge_stopped_on_success(self):
+        """connection.stop is called when extraction succeeds."""
+        html = '<script src="main.abc123.js"></script>'
+        js_content = 'this.checkKey_ = "test";'
+
+        with (
+            respx.mock,
+            patch("helpers.checkkey.connection") as mock_connection,
+            patch(
+                "helpers.checkkey.extract_checkkey_from_js",
+                return_value="oybZy8-fySzis-bubayf",
+            ),
+        ):
+            respx.get("https://fansly.com").mock(
+                side_effect=[httpx.Response(200, text=html)]
+            )
+            respx.get("https://fansly.com/main.abc123.js").mock(
+                side_effect=[httpx.Response(200, text=js_content)]
+            )
+            guess_check_key("Mozilla/5.0")
+
+        mock_connection.stop.assert_called_once()
+
+    def test_bridge_stopped_on_network_error(self):
+        """connection.stop is called even when network fails before JS use."""
+        with (
+            respx.mock,
+            patch("helpers.checkkey.connection") as mock_connection,
+        ):
+            respx.get("https://fansly.com").mock(side_effect=httpx.ConnectError("boom"))
+            guess_check_key("Mozilla/5.0")
+
+        mock_connection.stop.assert_called_once()
+
+    def test_bridge_stopped_on_unexpected_exception(self):
+        """connection.stop runs from the finally block even when an unexpected error raises."""
+        with (
+            respx.mock,
+            patch("helpers.checkkey.connection") as mock_connection,
+        ):
+            respx.get("https://fansly.com").mock(side_effect=RuntimeError("boom"))
+            guess_check_key("Mozilla/5.0")
+
+        mock_connection.stop.assert_called_once()
+
+    def test_bridge_stop_exception_is_suppressed(self):
+        """If connection.stop raises, we don't propagate — the checkKey result stands."""
+        html = '<script src="main.abc123.js"></script>'
+        js_content = 'this.checkKey_ = "test";'
+
+        with (
+            respx.mock,
+            patch("helpers.checkkey.connection") as mock_connection,
+            patch(
+                "helpers.checkkey.extract_checkkey_from_js",
+                return_value="oybZy8-fySzis-bubayf",
+            ),
+        ):
+            mock_connection.stop.side_effect = RuntimeError("bridge already stopped")
+            respx.get("https://fansly.com").mock(
+                side_effect=[httpx.Response(200, text=html)]
+            )
+            respx.get("https://fansly.com/main.abc123.js").mock(
+                side_effect=[httpx.Response(200, text=js_content)]
+            )
+            # Should NOT raise despite connection.stop throwing
+            result = guess_check_key("Mozilla/5.0")
+
+        assert result == "oybZy8-fySzis-bubayf"
+        mock_connection.stop.assert_called_once()

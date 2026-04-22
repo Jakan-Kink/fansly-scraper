@@ -31,7 +31,6 @@ class FanslyApi:
         token: str,
         user_agent: str,
         check_key: str,
-        # session_id: str,
         device_id: str | None = None,
         device_id_timestamp: int | None = None,
         on_device_updated: Callable[[], Any] | None = None,
@@ -43,16 +42,14 @@ class FanslyApi:
         self.rate_limiter = rate_limiter
         self.config = config
 
-        # Define HTTP client with retry transport and HTTP/2 support
-        # Create retry configuration with exponential backoff
         # httpx-retries Retry parameters:
         # - total: max retry attempts (default 10)
         # - backoff_factor: exponential backoff multiplier (default 0.0)
         # - status_forcelist: HTTP status codes to retry (default [429, 502, 503, 504])
         # - allowed_methods: HTTP methods that can be retried (default HEAD, GET, PUT, DELETE, OPTIONS, TRACE)
-        # NOTE: When rate_limiter is provided, 429 is removed from
-        # status_forcelist — get_with_ngsw handles 429 retries itself
-        # using the RateLimiter's adaptive backoff.
+        # When rate_limiter is provided, 429 is removed from status_forcelist —
+        # get_with_ngsw handles 429 retries itself using the RateLimiter's
+        # adaptive backoff.
         retry = Retry(
             total=3,
             backoff_factor=0.5,  # 0.5s base delay with exponential backoff: 0.5s, 1s, 2s
@@ -63,7 +60,6 @@ class FanslyApi:
             ),
         )
 
-        # Create transport with HTTP/2 and retry support
         base_transport = httpx.HTTPTransport(http2=True)
         retry_transport = RetryTransport(transport=base_transport, retry=retry)
 
@@ -93,10 +89,8 @@ class FanslyApi:
             )
             self.update_device_id()
 
-        # Session setup is now async and must be done separately
         self.session_id = "null"
 
-        # WebSocket client for persistent connection (anti-detection)
         self._websocket_client: FanslyWebSocket | None = None
 
     # region HTTP Header Management
@@ -139,9 +133,7 @@ class FanslyApi:
         self.set_text_accept(headers)
 
         if add_fansly_headers:
-            # TODO: Add Fansly session auth headers
             fansly_headers = {
-                # Device ID
                 "fansly-client-id": self.device_id,
                 # Mandatory: A client timestamp
                 "fansly-client-ts": str(self.client_timestamp),
@@ -149,9 +141,7 @@ class FanslyApi:
                 "fansly-client-check": self.get_fansly_client_check(url),
             }
 
-            # Mandatory: Session ID - from WebSockets, uaggghh
-            # Not for /account/me
-            # TODO
+            # Mandatory: Session ID from WebSockets. Not for /account/me.
             if self.session_id != "null":
                 fansly_headers["fansly-session-id"] = self.session_id
 
@@ -446,6 +436,64 @@ class FanslyApi:
             params=custom_params,
         )
 
+    def get_home_timeline(self) -> httpx.Response:
+        """Fetch home timeline for all followed creators.
+
+        Returns:
+            Response containing home timeline posts for all followed creators.
+            Used by the daemon monitor to detect which followed creators posted
+            new content with a single fleet-wide call.
+        """
+        return self.get_with_ngsw(
+            url="https://apiv3.fansly.com/api/v1/timeline/home",
+            params={"before": "0", "after": "0", "mode": "0"},
+        )
+
+    def get_media_stories(self, account_id: int | str) -> httpx.Response:
+        """Fetch active media stories for a creator account.
+
+        Args:
+            account_id: The account ID of the creator
+
+        Returns:
+            Response containing mediaStories list and aggregationData.accountMedia
+        """
+        return self.get_with_ngsw(
+            url="https://apiv3.fansly.com/api/v1/mediastoriesnew",
+            params={"accountId": str(account_id)},
+        )
+
+    def get_story_states_following(self) -> httpx.Response:
+        """Fetch story states for all followed creators.
+
+        Returns:
+            Response containing story state entries for followed creators,
+            each with accountId and hasActiveStories. Used by the daemon
+            monitor to detect when hasActiveStories flips true.
+        """
+        return self.get_with_ngsw(
+            url="https://apiv3.fansly.com/api/v1/mediastories/following",
+            params={"limit": "100", "offset": "0"},
+        )
+
+    def mark_story_viewed(self, story_id: int | str) -> httpx.Response:
+        """Mark a story as viewed (POST /api/v1/mediastory/view).
+
+        Args:
+            story_id: The story ID to mark as viewed
+
+        Returns:
+            Response with storyId and accountId confirmation
+        """
+        url = "https://apiv3.fansly.com/api/v1/mediastory/view"
+        headers = self.get_http_headers(url=url, add_fansly_headers=True)
+        return self.http_session.post(
+            url,
+            json={"storyId": str(story_id)},
+            headers=headers,
+            params=self.get_ngsw_params(),
+        )
+
     def get_group(self) -> httpx.Response:
         return self.get_with_ngsw(
             url="https://apiv3.fansly.com/api/v1/messaging/groups",
@@ -492,18 +540,17 @@ class FanslyApi:
             await self._websocket_client.stop()
             self._websocket_client = None
 
-        # Create new WebSocket client with current session cookies
+        # Create new WebSocket client with shared cookie jar. Passing
+        # http_client= establishes bidirectional cookie sync: the WS
+        # reads live from self.http_session.cookies.jar on every
+        # connect/reconnect (HTTP → WS), and writes Set-Cookie values
+        # from the upgrade response back into the same jar (WS → HTTP).
         logger.info("Starting persistent WebSocket connection for anti-detection")
-
-        # Extract cookies as dict for WebSocket client
-        cookies_dict = {}
-        for cookie in self.http_session.cookies.jar:
-            cookies_dict[cookie.name] = cookie.value
 
         self._websocket_client = FanslyWebSocket(
             token=self.token,
             user_agent=self.user_agent,
-            cookies=cookies_dict,
+            http_client=self.http_session,
             enable_logging=False,  # Set to True for debugging
             on_unauthorized=self._handle_websocket_unauthorized,
             on_rate_limited=self._handle_websocket_rate_limited,
@@ -649,10 +696,8 @@ class FanslyApi:
                 logger.warning(f"Could not parse login response JSON: {e}")
                 response_data = {"success": True, "response": {}}
 
-            # Extract session cookie (f-s-c) from response FIRST
-            # This cookie is CRITICAL - it's used to derive the authorization token
-            # Observed format: ODM4NTY5NDk3NTcxOTA5NjMyOjE6MTplMzIwZmU5ODUzYTU5YzU2YmU5ZGE2ODU5MWQ2Njk
-            # Decoded: sessionId:1:1:hash
+            # f-s-c cookie is CRITICAL — used to derive the authorization token.
+            # Observed format (base64): sessionId:1:1:hash
             session_cookie = None
             for cookie in response.cookies.jar:
                 if cookie.name == "f-s-c":
@@ -693,12 +738,8 @@ class FanslyApi:
                 logger.error(f"Could not extract session ID from cookie: {e}")
                 raise RuntimeError(f"Login failed: Could not parse session cookie: {e}")
 
-            # Extract authorization token from response
-            # Based on observations:
-            # - Authorization token format (base64): sessionId:1:2:hash
-            # - Different from cookie which is: sessionId:1:1:hash
-            # - The token is in response.response.session.token
-
+            # Authorization token format (base64) is sessionId:1:2:hash
+            # (cookie is :1:1:hash). Located at response.response.session.token.
             token_found = False
             if response_data.get("response"):
                 resp_inner = response_data["response"]

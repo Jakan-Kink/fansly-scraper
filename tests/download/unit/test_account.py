@@ -648,8 +648,6 @@ class TestGetFollowingAccounts:
         self, mock_make_request, mock_config_with_api, entity_store
     ):
         """Test successful retrieval of following accounts."""
-        mock_config_with_api.separate_metadata = False
-
         creator1_id = snowflake_id()
         creator2_id = snowflake_id()
 
@@ -803,8 +801,6 @@ class TestGetFollowingAccounts:
         self, mock_make_request, mock_config_with_api, entity_store
     ):
         """Test following list pagination."""
-        mock_config_with_api.separate_metadata = True  # Skip process_account_data
-
         state = DownloadState()
         state.creator_id = snowflake_id()
 

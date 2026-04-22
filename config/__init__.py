@@ -3,7 +3,8 @@
 from typing import Any
 
 
-from .config import (  # isort:skip
+# isort: off
+from .config import (
     parse_items_from_line,
     sanitize_creator_names,
     save_config_or_raise,
@@ -12,8 +13,9 @@ from .config import (  # isort:skip
     copy_old_config_values,
     load_config,
 )
-from .fanslyconfig import FanslyConfig  # isort:skip
+from .fanslyconfig import FanslyConfig
 
+# isort: on
 # Browser imports are lazy-loaded via __getattr__ to avoid requiring plyvel
 from .logging import (
     db_logger,
@@ -26,7 +28,6 @@ from .logging import (
     trace_logger,
     update_logging_config,
 )
-from .metadatahandling import MetadataHandling
 from .modes import DownloadMode
 from .validation import validate_adjust_config
 
@@ -48,21 +49,13 @@ _BROWSER_FUNCTIONS = {
 __all__ = [
     "DownloadMode",
     "FanslyConfig",
-    "MetadataHandling",
-    "close_browser_by_name",
     "copy_old_config_values",
     "db_logger",
-    "find_leveldb_folders",
-    "get_auth_token_from_leveldb_folder",
-    "get_browser_config_paths",
     "get_log_level",
-    "get_token_from_firefox_db",
-    "get_token_from_firefox_profile",
     "init_logging_config",
     "json_logger",
     "load_config",
     "map_args_to_config",
-    "parse_browser_from_string",
     "parse_items_from_line",
     "sanitize_creator_names",
     "save_config_or_raise",

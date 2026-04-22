@@ -17,7 +17,6 @@ Filter syntax mirrors stash-graphql-client's StashEntityStore:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import threading
 from collections import defaultdict
@@ -41,12 +40,13 @@ from .models import (
     Hashtag,
     Media,
     MediaLocation,
+    MediaStory,
     MediaStoryState,
     Message,
+    MonitorState,
     PinnedPost,
     Post,
     PostMention,
-    Story,
     TimelineStats,
     Wall,
     get_from_cache_by_type_name,
@@ -69,12 +69,13 @@ _TYPE_REGISTRY: dict[str, type] = {
         Hashtag,
         Media,
         MediaLocation,
+        MediaStory,
         MediaStoryState,
         Message,
+        MonitorState,
         PinnedPost,
         Post,
         PostMention,
-        Story,
         TimelineStats,
         Wall,
     ]
@@ -299,8 +300,6 @@ class PostgresEntityStore:
             max_size=3,
             command_timeout=30,
             init=self._init_pg_connection,
-            setup=self._setup_pg_connection,
-            reset=self._reset_pg_connection,
         )
         with self._thread_pool_lock:
             # Double-check: another coroutine may have created one while
@@ -331,32 +330,6 @@ class PostgresEntityStore:
         from .logging_config import get_db_logger
 
         conn.add_query_logger(get_db_logger().query_logger_callback)
-
-    @staticmethod
-    async def _setup_pg_connection(conn: asyncpg.Connection) -> None:
-        """Attach log listener on every acquire from pool.
-
-        Paired with ``_reset_pg_connection`` which removes the log listener
-        before each release, preventing asyncpg InterfaceWarning about
-        active log listeners on pool release.
-        """
-        from .logging_config import DatabaseLogger
-
-        conn.add_log_listener(DatabaseLogger.log_listener_callback)
-
-    @staticmethod
-    async def _reset_pg_connection(conn: asyncpg.Connection) -> None:
-        """Remove log listener before connection is released to pool.
-
-        asyncpg warns (InterfaceWarning) when a connection with active
-        log listeners is returned to the pool. This ``reset`` callback
-        removes it; ``_setup_pg_connection`` re-adds it on next acquire.
-        """
-        from .logging_config import DatabaseLogger
-
-        # Listener may already be removed or was never added if setup didn't run
-        with contextlib.suppress(ValueError):
-            conn.remove_log_listener(DatabaseLogger.log_listener_callback)
 
     async def close_thread_resources(self) -> None:
         """Close all per-thread asyncpg pools."""
@@ -753,11 +726,29 @@ class PostgresEntityStore:
                 new_id = await conn.fetchval(sql, *values)
                 obj.id = new_id
             else:
-                # Snowflake ID or non-id PK: INSERT with provided ID
-                sql = (
-                    f"INSERT INTO {table_name} ({', '.join(col_names)}) "
-                    f"VALUES ({', '.join(placeholders)})"
-                )
+                # Snowflake ID or non-id PK: UPSERT with provided ID.
+                # ON CONFLICT DO UPDATE makes the save idempotent when the
+                # identity map and the DB disagree — e.g., cache eviction
+                # from a validation-error leak, or concurrent writes from
+                # another process/task. EXCLUDED.col refers to the row that
+                # WOULD have been inserted.
+                update_cols = [k for k in table_data if k != pk_col]
+                if update_cols:
+                    update_clause = ", ".join(
+                        f"{self._q(k)} = EXCLUDED.{self._q(k)}" for k in update_cols
+                    )
+                    sql = (
+                        f"INSERT INTO {table_name} ({', '.join(col_names)}) "
+                        f"VALUES ({', '.join(placeholders)}) "
+                        f"ON CONFLICT ({self._q(pk_col)}) "
+                        f"DO UPDATE SET {update_clause}"
+                    )
+                else:
+                    sql = (
+                        f"INSERT INTO {table_name} ({', '.join(col_names)}) "
+                        f"VALUES ({', '.join(placeholders)}) "
+                        f"ON CONFLICT ({self._q(pk_col)}) DO NOTHING"
+                    )
                 await conn.execute(sql, *values)
 
     async def _update(self, obj: FanslyObject) -> None:

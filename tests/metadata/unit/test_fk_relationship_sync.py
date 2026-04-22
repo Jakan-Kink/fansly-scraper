@@ -15,10 +15,10 @@ from metadata.models import (
     Group,
     Hashtag,
     Media,
+    MediaStory,
     Message,
     Post,
     RelationshipMetadata,
-    Story,
     Wall,
 )
 from tests.fixtures.utils.test_isolation import snowflake_id
@@ -84,15 +84,14 @@ class TestFkToRelationshipSync:
         wall = Wall(id=snowflake_id(), accountId=account.id)
         assert wall.account is account
 
-    def test_story_author_id_resolves_author(self, store_with_account):
+    def test_media_story_account_id_resolves_account(self, store_with_account):
         _, account = store_with_account
-        story = Story(
+        story = MediaStory(
             id=snowflake_id(),
-            authorId=account.id,
-            content="test",
+            accountId=account.id,
             createdAt="2024-01-01T00:00:00Z",
         )
-        assert story.author is account
+        assert story.account is account
 
     def test_message_sender_id_resolves_sender(self, store_with_account):
         _, account = store_with_account

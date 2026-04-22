@@ -13,8 +13,6 @@ import signal
 import sys
 import time
 import traceback
-
-# from memory_profiler import profile
 from datetime import UTC, datetime
 from importlib.metadata import version as pkg_version
 from time import monotonic
@@ -31,12 +29,20 @@ from config.args import (  # Keep in args to avoid circular imports
     map_args_to_config,
     parse_args,
 )
+from daemon.bootstrap import (
+    DaemonBootstrap,
+    bootstrap_daemon_ws,
+    drain_backfill,
+    shutdown_bootstrap,
+)
+from daemon.runner import run_daemon
 from download.core import (
     DownloadState,
     GlobalState,
     download_collections,
     download_messages,
     download_single_post,
+    download_stories,
     download_timeline,
     download_wall,
     get_creator_account_info,
@@ -80,7 +86,6 @@ from textio import (
 from utils.semaphore_monitor import cleanup_semaphores, monitor_semaphores
 
 
-# Enforce minimum stash-graphql-client version
 def _check_stash_library_version() -> None:
     stash_version = pkg_version("stash-graphql-client")
     major, minor = (int(x) for x in stash_version.split(".")[:2])
@@ -92,13 +97,6 @@ def _check_stash_library_version() -> None:
 
 
 _check_stash_library_version()
-
-
-# tell PIL to be tolerant of files that are truncated
-# ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-# turn off for our purpose unnecessary PIL safety features
-# Image.MAX_IMAGE_PIXELS = None
 
 
 async def _safe_cleanup_database(config: FanslyConfig) -> None:
@@ -119,34 +117,29 @@ async def _safe_cleanup_database(config: FanslyConfig) -> None:
         return
 
     try:
-        # Add timeout for database cleanup
-        cleanup_timeout = 30  # 30 seconds timeout for cleanup
+        cleanup_timeout = 30
         try:
             await asyncio.wait_for(config._database.cleanup(), timeout=cleanup_timeout)
             print_info("Database connections closed successfully.")
         except TimeoutError:
             print_error(f"Database cleanup timed out after {cleanup_timeout} seconds")
             try:
-                # Force sync cleanup as last resort
                 config._database.close_sync()
             except Exception as force_e:
                 print_error(f"Forced cleanup also failed: {force_e}")
         except Exception as detail_e:
             print_error(f"Detailed error during database cleanup: {detail_e}")
             try:
-                # Try sync cleanup as fallback
                 config._database.close_sync()
             except Exception as sync_e:
                 print_error(f"Sync cleanup also failed: {sync_e}")
     except Exception as e:
         print_error(f"Error closing database connections: {e}")
         with contextlib.suppress(Exception):
-            # One final attempt with sync cleanup
             config._database.close_sync()
 
-    # Always check for leaked semaphores as a safety measure
     with contextlib.suppress(Exception):
-        monitor_semaphores(threshold=20)  # Monitor for leaked semaphores
+        monitor_semaphores(threshold=20)
 
 
 async def cleanup_database(config: FanslyConfig) -> None:
@@ -297,10 +290,6 @@ async def main(config: FanslyConfig) -> int:
     load_config(config)
 
     args = parse_args()
-    # Note that due to config._sync_settings(), command-line arguments
-    # may overwrite config.ini settings later on during validation
-    # when the config may be saved again.
-    # Thus a separate config_args.ini will be used for the session.
     download_mode_set = map_args_to_config(args, config)
     update_logging_config(
         config, config.debug
@@ -313,28 +302,30 @@ async def main(config: FanslyConfig) -> int:
             "Internal error - user name and download mode should not be empty after validation."
         )
 
-    print()
-
     # Check semaphores before database initialization
     monitor_semaphores(threshold=20)  # Check what semaphores exist before DB init
 
     # Initialize database first since we need it for deduplication
-    if config.separate_metadata:
-        print_info("Using separate metadata databases per creator")
-    else:
-        print_info(
-            f"Using global PostgreSQL database: {config.pg_database} "
-            f"at {config.pg_host}:{config.pg_port}"
-        )
-        config._database = Database(config, creator_name=None)
-        await config._database.create_entity_store()
-        # Register cleanup function to ensure database is closed on exit
-        atexit.register(cleanup_database_sync, config)
-    print()
+    print_info(
+        f"Using global PostgreSQL database: {config.pg_database} "
+        f"at {config.pg_host}:{config.pg_port}"
+    )
+    config._database = Database(config)
+    await config._database.create_entity_store()
+    # Register cleanup function to ensure database is closed on exit
+    atexit.register(cleanup_database_sync, config)
 
     # Set up and print API information
     await config.setup_api()
     api = config.get_api()
+
+    # Attach the daemon's delta-capture handler to the API's WebSocket so
+    # service events (PPV purchases, new follows, new DMs, subscription
+    # confirms) arriving during the initial sync are captured into a
+    # queue instead of dropped. After the sync completes we drain the
+    # queue via drain_backfill(); if daemon_mode is on, the daemon reuses
+    # the same queue/simulator/ws to continue processing live events.
+    bootstrap: DaemonBootstrap = await bootstrap_daemon_ws(config)
 
     print_info(f"Token: {config.token}")
     print_info(f"Check Key: {config.check_key}")
@@ -348,14 +339,11 @@ async def main(config: FanslyConfig) -> int:
     if client_user_name is None or client_user_name == "":
         raise ConfigError("Could not retrieve client account user name from API")
 
-    # Load client account into global database if not using separate metadata
-    if not config.separate_metadata:
-        state = DownloadState()
-        await load_client_account_into_db(config, state, client_user_name)
+    # Load client account into the global database
+    state = DownloadState()
+    await load_client_account_into_db(config, state, client_user_name)
 
     global_download_state = GlobalState()
-
-    print()
 
     # If no usernames specified or --use-following flag is set, get client account info and following list
     if not config.user_names or config.use_following:
@@ -363,11 +351,8 @@ async def main(config: FanslyConfig) -> int:
             try:
                 # Get client account info first
                 state = DownloadState()
-
-                # Skip account data processing if using separate metadata
-                if not config.separate_metadata:
-                    await get_creator_account_info(config, state)
-                    print_info("Creator account info retrieved...")
+                await get_creator_account_info(config, state)
+                print_info("Creator account info retrieved...")
                 await asyncio.sleep(timing_jitter(0.4, 0.75))
 
                 print_info("Getting following list... (from main)")
@@ -396,58 +381,36 @@ async def main(config: FanslyConfig) -> int:
     if config.reverse_order:
         print_info("Processing creators in reverse order")
 
-    creators_progress = get_progress_manager()
-    if len(creators_list) > 1:
-        creators_progress.add_task(
-            name="creators",
-            description="Processing creators",
-            total=len(creators_list),
-            show_elapsed=True,
-        )
-
-    for creator_name in creators_list:
+    progress_mgr = get_progress_manager()
+    with progress_mgr.session():
+        creators_progress = progress_mgr
         if len(creators_list) > 1:
-            creators_progress.update_task(
-                "creators",
-                advance=0,
-                description=f"Creator: {creator_name}",
+            creators_progress.add_task(
+                name="creators",
+                description="Processing creators",
+                total=len(creators_list),
+                group="status",
             )
-        with Timer(creator_name):
-            try:
-                state = DownloadState(creator_name=creator_name)
 
-                # Initialize database-related variables
-                creator_database = None
-                orig_database = None
-
-                # Handle per-creator database if enabled
-                # Note: With PostgreSQL, this still uses the same database connection
-                # but allows for per-creator schema isolation if needed in future
-                if config.separate_metadata:
-                    print_info(
-                        f"Using per-creator metadata for: {creator_name} "
-                        f"(PostgreSQL: {config.pg_database} at {config.pg_host}:{config.pg_port})"
-                    )
-                    # Store original database instance
-                    orig_database = config._database
-                    # Set up creator database context
-                    creator_database = Database(config, creator_name=creator_name)
-                    await creator_database.create_entity_store()
-                    config._database = creator_database
-                    # Load client account into separate database
-                    await load_client_account_into_db(config, state, client_user_name)
-
+        for creator_name in creators_list:
+            if len(creators_list) > 1:
+                creators_progress.update_task(
+                    "creators",
+                    advance=0,
+                    description=f"Creator: {creator_name}",
+                )
+            with Timer(creator_name):
                 try:
-                    creator_start_monotonic = monotonic()
-                    progress_mgr = get_progress_manager()
+                    state = DownloadState(creator_name=creator_name)
 
-                    with progress_mgr.session(auto_cleanup=True):
+                    try:
+                        creator_start_monotonic = monotonic()
+
                         print_download_info(config)
 
                         await get_creator_account_info(config, state)
 
                         print_info(f"Download mode is: {config.download_mode_str()}")
-                        print()
 
                         # Special treatment for deviating folder names later
                         if config.download_mode not in (
@@ -455,16 +418,6 @@ async def main(config: FanslyConfig) -> int:
                             DownloadMode.STASH_ONLY,
                         ):
                             await dedupe_init(config, state)
-                            # await dedupe_init(config, state)
-
-                        # Download mode:
-                        # Normal: Downloads Timeline + Messages one after another.
-                        # Timeline: Scrapes only the creator's timeline content.
-                        # Messages: Scrapes only the creator's messages content.
-                        # Wall: Scrapes only the creator's wall content.
-                        # Single: Fetch a single post by the post's ID. Click on a post to see its ID in the url bar e.g. ../post/1283493240234
-                        # Collection: Download all content listed within the "Purchased Media Collection"
-                        # STASH_ONLY: Only process Stash metadata, skip downloading media.
 
                         if config.download_mode == DownloadMode.SINGLE:
                             await download_single_post(config, state)
@@ -488,6 +441,14 @@ async def main(config: FanslyConfig) -> int:
                                 ]
                             ):
                                 await download_timeline(config, state)
+
+                            if any(
+                                [
+                                    config.download_mode == DownloadMode.STORIES,
+                                    config.download_mode == DownloadMode.NORMAL,
+                                ]
+                            ):
+                                await download_stories(config, state)
 
                             if (
                                 any(
@@ -529,57 +490,41 @@ async def main(config: FanslyConfig) -> int:
                         if config.stash_context_conn is not None:
                             from stash import StashProcessing
 
-                            # Create processor using factory method
                             stash_processor = StashProcessing.from_config(config, state)
-
-                            # Run initial processing and wait for background tasks
                             await stash_processor.start_creator_processing()
 
                             # Wait for background processing to complete
                             if stash_processor._background_task:
                                 try:
-                                    # print_info(
-                                    #     "Waiting for background processing to complete..."
-                                    # )
                                     await stash_processor._background_task
-                                    # print_info("Background processing complete")
                                 except Exception as e:
                                     print_error(f"Background processing failed: {e}")
-                                    # Continue to next creator even if background processing fails
                                     exit_code = SOME_USERS_FAILED
 
-                            # Clean up processor
                             await stash_processor.cleanup()
-                        monitor_semaphores(threshold=20)  # Warn if too many semaphores
-                        cleanup_semaphores(
-                            r"/mp-.*"
-                        )  # Clean up multiprocessing semaphores
+                        monitor_semaphores(threshold=20)
+                        cleanup_semaphores(r"/mp-.*")
 
+                    finally:
+                        # Log creator processing time
+                        creator_elapsed = monotonic() - creator_start_monotonic
+                        print_info(
+                            f"Completed processing @{state.creator_name} in {creator_elapsed:.1f}s"
+                        )
+
+                # Still continue if one creator failed
+                except ApiAccountInfoError as e:
+                    print_error(str(e))
+                    input_enter_continue(config.interactive)
+                    exit_code = SOME_USERS_FAILED
+
+                # Advance creator progress regardless of success/failure
                 finally:
-                    # Log creator processing time
-                    creator_elapsed = monotonic() - creator_start_monotonic
-                    print_info(
-                        f"Completed processing @{state.creator_name} in {creator_elapsed:.1f}s"
-                    )
+                    if len(creators_list) > 1:
+                        creators_progress.update_task("creators", advance=1)
 
-                    # Restore the original database instance - don't cleanup the database
-                    # since stash might still be using the shared memory
-                    if config.separate_metadata and orig_database is not None:
-                        config._database = orig_database
-
-            # Still continue if one creator failed
-            except ApiAccountInfoError as e:
-                print_error(str(e))
-                input_enter_continue(config.interactive)
-                exit_code = SOME_USERS_FAILED
-
-            # Advance creator progress regardless of success/failure
-            finally:
-                if len(creators_list) > 1:
-                    creators_progress.update_task("creators", advance=1)
-
-    if len(creators_list) > 1:
-        creators_progress.remove_task("creators")
+        if len(creators_list) > 1:
+            creators_progress.remove_task("creators")
 
     timer.stop()
 
@@ -719,6 +664,22 @@ async def main(config: FanslyConfig) -> int:
     monitor_semaphores(threshold=20)  # Warn if too many semaphores
     cleanup_semaphores(r"/mp-.*")  # Clean up multiprocessing semaphores
 
+    # CBT-delta apply: process WS events captured during the initial
+    # sync. Downstream handlers dedup against the database, so items
+    # covering content sync already grabbed are idempotent.
+    await drain_backfill(config, bootstrap)
+
+    if config.daemon_mode:
+        # Hand bootstrap to the daemon — it reuses the same WS/queue/
+        # simulator and re-registers the handler with a budget-aware
+        # closure for continuous monitoring.
+        exit_code = await run_daemon(config, bootstrap=bootstrap)
+    else:
+        # Detach the handler — no consumer, no point letting the queue
+        # keep growing. The WS itself is torn down by the normal
+        # cleanup path via config._api.close_websocket().
+        await shutdown_bootstrap(bootstrap)
+
     return exit_code
 
 
@@ -857,26 +818,21 @@ async def _async_main(config: FanslyConfig) -> int:
         # Run main program
         exit_code = await main(config)
     except KeyboardInterrupt:
-        print()
         print_error("Program interrupted by user")
         exit_code = EXIT_ABORT
         # Make sure we don't try to raise KeyboardInterrupt again in cleanup
         if hasattr(_handle_interrupt, "interrupted"):
             print_info("Starting cleanup after interruption...")
     except ApiError as e:
-        print()
         print_error(str(e))
         exit_code = API_ERROR
     except ConfigError as e:
-        print()
         print_error(str(e))
         exit_code = CONFIG_ERROR
     except DownloadError as e:
-        print()
         print_error(str(e))
         exit_code = DOWNLOAD_ERROR
     except Exception as e:
-        print()
         print_error(f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         exit_code = UNEXPECTED_ERROR
     finally:

@@ -11,6 +11,7 @@ Pure Pydantic BaseModel subclasses — no SQLAlchemy ORM.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum
@@ -495,7 +496,6 @@ class FanslyObject(BaseModel):
 
             # ── Resolve fk_column for belongs_to ─────────────────────
             if meta.fk_column is _DEFERRED:
-                # belongs_to auto-derives fk_column = target_field
                 meta.fk_column = meta.target_field
 
             # ── Build FK→relationship reverse map ────────────────────
@@ -548,9 +548,8 @@ class FanslyObject(BaseModel):
                 data[k] = _parse_timestamp(v)
         return data
 
-    # Fields excluded from DB writes:
-    # - Inverse-only relationship fields (no DB column, populated by bidirectional sync)
-    # Subclasses extend this for model-specific exclusions.
+    # Fields excluded from DB writes (extended by subclasses): inverse-only
+    # relationship fields have no DB column and are populated by bidirectional sync.
     _WRITE_EXCLUDED: ClassVar[set[str]] = set()
 
     # ── Identity Semantics ───────────────────────────────────────────
@@ -562,12 +561,13 @@ class FanslyObject(BaseModel):
         if not isinstance(other, FanslyObject):
             return NotImplemented
         if self.id is None or other.id is None:
-            return self is other  # Unsaved objects: identity comparison
+            # Unsaved objects fall back to Python identity
+            return self is other
         return type(self) is type(other) and self.id == other.id
 
     def __hash__(self) -> int:
         if self.id is None:
-            return id(self)  # Unsaved objects: object identity
+            return id(self)
         return hash((type(self).__name__, self.id))
 
     # ── Identity Map ─────────────────────────────────────────────────
@@ -595,9 +595,8 @@ class FanslyObject(BaseModel):
         # relationship objects with raw ints when a second preload re-validates.
         processed = cls._process_nested_cache_lookups(data)
 
-        # Check cache for existing entity.
-        # Models with __pk_column__ (e.g., TimelineStats uses accountId)
-        # need lookup by PK field since _set_id_from_pk hasn't run yet.
+        # Models with __pk_column__ (e.g., TimelineStats uses accountId) need
+        # lookup by PK field since _set_id_from_pk hasn't run yet.
         entity_id = processed.get("id")
         if entity_id is None:
             pk_col = getattr(cls, "__pk_column__", None)
@@ -607,44 +606,36 @@ class FanslyObject(BaseModel):
         if entity_id is not None:
             cached = cls._store.get_from_cache(cls, entity_id)
             if cached is not None:
-                # Run full Pydantic validation on the new data (runs all
-                # before/field validators — timestamp coercion, alias
-                # handling, relationship reconstruction, etc.)
-                # Temporarily remove from cache so handler doesn't hit
-                # this same branch recursively.
+                # Evict during re-validation to avoid recursion. try/finally
+                # guards against a validation-error leak that would otherwise
+                # force the next save into INSERT → UniqueViolationError.
                 cls._store.invalidate(cls, cached.id)
-                validated = handler(processed, ctx)
+                try:
+                    validated = handler(processed, ctx)
 
-                # Merge only fields that were explicitly provided in the
-                # input data — skip fields that just got Pydantic defaults.
-                # This prevents API data from overwriting DB-only fields
-                # (is_downloaded, content_hash, local_filename) with defaults.
-                # We rely solely on model_fields_set — no `is not None` guard,
-                # because the API may legitimately send falsy/None values.
-                for k in cls.__tracked_fields__:
-                    if k not in validated.model_fields_set:
-                        continue
-                    new_val = getattr(validated, k, None)
-                    object.__setattr__(cached, k, new_val)
+                    # Merge only explicitly-provided fields (via model_fields_set)
+                    # so Pydantic defaults don't overwrite DB-only fields like
+                    # is_downloaded / content_hash / local_filename. No
+                    # `is not None` guard — the API may send falsy/None values.
+                    for k in cls.__tracked_fields__:
+                        if k not in validated.model_fields_set:
+                            continue
+                        new_val = getattr(validated, k, None)
+                        object.__setattr__(cached, k, new_val)
 
-                # Defensive: if cached was previously saved to DB (or
-                # loaded from DB), ensure _is_new stays False so the
-                # next save() does UPDATE, not INSERT.
-                if not cached._is_new:
-                    cached._is_new = False
+                    if not cached._is_new:
+                        cached._is_new = False
 
-                # Re-cache the original instance (not the temp)
-                cls._store.cache_instance(cached)
-                return cached
+                    return cached
+                finally:
+                    cls._store.cache_instance(cached)
 
         # Normal Pydantic construction (preserve context for nested validators)
         instance = handler(processed, ctx)
 
-        # Not from cache → needs INSERT on first save().
         # DB-loading paths (preload/get) clear this after model_validate.
         instance._is_new = True
 
-        # Cache the new instance
         if instance.id is not None and cls._store:
             cls._store.cache_instance(instance)
 
@@ -710,10 +701,9 @@ class FanslyObject(BaseModel):
                             resolved.append(cached)
                     elif isinstance(item, dict):
                         # Always enrich and let Pydantic validate — don't
-                        # shortcut to cached objects here.  The identity map
-                        # merge in _identity_map_validator will update the
-                        # cached instance with fresh data (e.g. locations
-                        # from the API that were lost during preload).
+                        # shortcut to cached objects here. The identity-map
+                        # merge will refresh the cached instance with API data
+                        # that was lost during preload (e.g. locations).
                         enriched = cls._enrich_child_dict(
                             item, meta, parent_id, parent_account_id
                         )
@@ -1147,32 +1137,33 @@ class Hashtag(FanslyObject):
 # ── FK-Dependent Entities ────────────────────────────────────────────────
 
 
-class Story(FanslyObject):
-    """A story post authored by an account."""
+class MediaStory(FanslyObject):
+    """An ephemeral media story linking an account to an AccountMedia item.
 
-    __table_name__: ClassVar[str] = "stories"
+    Stories are thin wrappers: contentId points to an AccountMedia entry
+    whose media contains the actual video/image content and CDN URLs.
+    """
+
+    __table_name__: ClassVar[str] = "media_stories"
     __tracked_fields__: ClassVar[set[str]] = {
-        "authorId",
-        "title",
-        "description",
-        "content",
+        "accountId",
+        "contentType",
+        "contentId",
         "createdAt",
         "updatedAt",
-        "author",
     }
     __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
-        "author": belongs_to("Account", fk_column="authorId"),
+        "account": belongs_to("Account", fk_column="accountId"),
     }
 
-    authorId: SnowflakeId
-    title: str | None = None
-    description: str | None = None
-    content: str
+    accountId: SnowflakeId
+    contentType: int | None = None
+    contentId: SnowflakeId | None = None
     createdAt: datetime
     updatedAt: datetime | None = None
 
     # Relationships
-    author: Account | None = None  # type: ignore[name-defined]
+    account: Account | None = None  # type: ignore[name-defined]
 
 
 class TimelineStats(FanslyObject):
@@ -1237,6 +1228,59 @@ class MediaStoryState(FanslyObject):
         return data
 
 
+class MonitorState(FanslyObject):
+    """Per-creator daemon state persisted between monitoring runs.
+
+    Stores state that has no existing home in the identity map or other tables.
+    The PK is ``creatorId`` (mirrored to ``id`` for identity-map compatibility).
+
+    Fields:
+        creatorId: FK to accounts.id — the creator being monitored.
+        lastHasActiveStories: Previous value of Account.hasActiveStories used
+            to detect story-active flips between polling cycles.
+        lastCheckedAt: Wall-clock time of the last daemon run for this creator.
+            Used by should_process_creator to compare against post createdAt.
+        lastRunAt: When the daemon last processed this creator.
+        updatedAt: Row modification time (set on every save).
+    """
+
+    __table_name__: ClassVar[str] = "monitor_state"
+    __pk_column__: ClassVar[str] = "creatorId"
+    __tracked_fields__: ClassVar[set[str]] = {
+        "lastHasActiveStories",
+        "lastCheckedAt",
+        "lastRunAt",
+        "updatedAt",
+    }
+    _WRITE_EXCLUDED: ClassVar[set[str]] = {"id"}
+
+    __relationships__: ClassVar[dict[str, RelationshipMetadata]] = {
+        "account": belongs_to("Account", fk_column="creatorId"),
+    }
+
+    creatorId: SnowflakeId
+    lastHasActiveStories: bool | None = None
+    lastCheckedAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
+    # lastRunAt and updatedAt also coerce int/float unix timestamps —
+    # the daemon writes values straight from WS frame timestamps which
+    # arrive as integer milliseconds.
+    lastRunAt: Annotated[datetime | None, BeforeValidator(_parse_timestamp)] = None
+    updatedAt: Annotated[datetime, BeforeValidator(_parse_timestamp)] = Field(
+        default_factory=lambda: datetime.now(UTC)
+    )
+
+    # Relationship — auto-resolved from FK scalar via __setattr__ / cache
+    account: Account | None = None  # type: ignore[name-defined]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _set_id_from_pk(cls, data: Any) -> Any:
+        """Copy creatorId → id so the identity map can key by id."""
+        if isinstance(data, dict) and "creatorId" in data:
+            data["id"] = data["creatorId"]
+        return data
+
+
 class Media(FanslyObject):
     """A media item (image, video) with its metadata and variants."""
 
@@ -1295,8 +1339,6 @@ class Media(FanslyObject):
         if not data.get("mimetype", "").startswith("video/"):
             return data
         try:
-            import json
-
             parsed = json.loads(raw_meta)
             if "original" in parsed:
                 data.setdefault("width", parsed["original"].get("width"))
@@ -1919,7 +1961,7 @@ class Account(FanslyObject):
             fk_column="accountId",
             target_field="bundle_ids",
         ),
-        "stories": has_many("Story", fk_column="authorId"),
+        "stories": has_many("MediaStory", fk_column="accountId"),
         "timelineStats": has_one("TimelineStats", fk_column="accountId"),
         "mediaStoryState": has_one("MediaStoryState", fk_column="accountId"),
     }
@@ -1949,7 +1991,7 @@ class Account(FanslyObject):
     walls: list[Wall] = []
     accountMedia: list[AccountMedia] = []
     accountMediaBundles: list[AccountMediaBundle] = []
-    stories: list[Story] = []
+    stories: list[MediaStory] = []
 
     # Inverse-only relationships (populated by bidirectional sync)
     timelineStats: TimelineStats | None = None
@@ -1979,7 +2021,7 @@ _TYPE_REGISTRY: dict[str, type[FanslyObject]] = {
         Message,
         Post,
         PostMention,
-        Story,
+        MediaStory,
         TimelineStats,
         Wall,
     ]
@@ -2008,7 +2050,7 @@ Post.model_rebuild()
 Message.model_rebuild()
 Group.model_rebuild()
 Account.model_rebuild()
-Story.model_rebuild()
+MediaStory.model_rebuild()
 TimelineStats.model_rebuild()
 MediaStoryState.model_rebuild()
 AccountMedia.model_rebuild()

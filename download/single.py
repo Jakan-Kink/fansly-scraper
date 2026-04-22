@@ -37,7 +37,6 @@ async def download_single_post(config: FanslyConfig, state: DownloadState) -> No
             f"Please enter the link or the ID of the post you would like to download."
             f"\n{17 * ' '}After you click on a post, the ID will show in your browser's URL bar."
         )
-        print()
 
         while True:
             requested_post = input(f"\n{17 * ' '}► Post Link or ID: ")  # noqa: ASYNC250 # intentional blocking input

@@ -304,6 +304,11 @@ async def _download_m3u8_file(
     store = get_store()
     kwargs = {}
     if config.temp_folder:
+        # mkdtemp does not create intermediates; ensure the parent
+        # exists or we crash with FileNotFoundError mid-download.
+        await asyncio.to_thread(
+            Path(config.temp_folder).mkdir, parents=True, exist_ok=True
+        )
         kwargs["dir"] = config.temp_folder
     temp_dir = Path(tempfile.mkdtemp(**kwargs))
     temp_path = temp_dir / f"temp_{check_path.name}"

@@ -193,11 +193,7 @@ async def process_account_data(
 
     account = Account.model_validate(data)
 
-    # save() handles the correct order:
-    # 1. INSERT Account row (scalars only)
-    # 2. Save related entities for junctions (avatar/banner Media)
-    # 3. Sync junction tables — _ensure_junction_fk_targets creates
-    #    stubs for any missing FK targets (e.g., Posts for pinned_posts)
+    # save() handles related-entity ordering + junction-FK stub creation.
     await store.save(account)
 
     if account.timelineStats:

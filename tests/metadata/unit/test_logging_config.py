@@ -30,72 +30,81 @@ class TestGetCallerInfo:
         result = get_caller_info()
         assert "test_logging_config.py" in result
 
-    def test_skips_venv_frames_and_wrapper_funcs(self):
-        """Line 61: frames in site-packages/venv are skipped.
-        Line 62: frames with skip_funcs names are skipped.
-        Line 67-68: ValueError from relative_to when file is outside cwd."""
+    def test_skips_outside_repo_vendored_and_wrapper_frames(
+        self, tmp_path, monkeypatch
+    ):
+        """Frames outside cwd (stdlib), inside cwd/.venv (vendored), and in
+        _SKIP_FUNCS must all be excluded. The first in-repo, non-vendored
+        frame wins."""
+        monkeypatch.chdir(tmp_path)
+        real_caller = tmp_path / "daemon" / "state.py"
         fake_stack = [
             SimpleNamespace(filename="<current>", function="get_caller_info", lineno=1),
-            # Line 61: venv frame → skip
+            # stdlib — outside cwd → relative_to raises ValueError → skip
             SimpleNamespace(
-                filename="/path/to/venv/lib/asyncpg/pool.py",
+                filename="/usr/lib/python3.14/asyncio/events.py",
+                function="_run",
+                lineno=94,
+            ),
+            # vendored — inside cwd but path contains .venv → skip
+            SimpleNamespace(
+                filename=str(tmp_path / ".venv" / "lib" / "asyncpg" / "pool.py"),
                 function="fetch",
                 lineno=10,
             ),
-            # Line 61: site-packages frame → skip
+            # vendored — site-packages segment → skip
             SimpleNamespace(
-                filename="/lib/site-packages/gql/client.py",
+                filename=str(
+                    tmp_path / ".venv" / "lib" / "site-packages" / "gql" / "client.py"
+                ),
                 function="execute",
                 lineno=20,
             ),
-            # Line 62: wrapper func name → skip
+            # wrapper func name → skip even though path is in-repo
             SimpleNamespace(
-                filename="/app/metadata/entity_store.py",
+                filename=str(tmp_path / "metadata" / "entity_store.py"),
                 function="async_wrapper",
                 lineno=30,
             ),
-            # Line 67-68: outside cwd → ValueError from relative_to
+            # real caller — in-repo, not vendored, not a skip func → win
             SimpleNamespace(
-                filename="/totally/outside/cwd/script.py",
-                function="real_caller",
+                filename=str(real_caller),
+                function="mark_creator_processed",
                 lineno=42,
             ),
         ]
         with patch("metadata.logging_config.inspect.stack", return_value=fake_stack):
             result = get_caller_info()
-        assert "real_caller" in result
-        assert "script.py" in result  # Falls back to filepath.name
+        assert "mark_creator_processed" in result
+        assert "daemon/state.py" in result
         assert ":42" in result
 
-    def test_fallback_when_all_frames_filtered(self):
-        """Lines 71-80: every frame after [0] is filtered → fallback dumps deepest 5.
-        Also covers line 77-78 (Exception in fallback's relative_to)."""
+    def test_unknown_caller_when_all_frames_excluded(self, tmp_path, monkeypatch):
+        """When every frame is stdlib/vendored/wrapper, return the sentinel
+        instead of falling back to a stdlib frame (which was the original
+        bug — asyncio.events._run getting attributed as app code)."""
+        monkeypatch.chdir(tmp_path)
         fake_stack = [
             SimpleNamespace(filename="<current>", function="get_caller_info", lineno=1),
-            # Every frame is venv/site-packages or has a skip_funcs name
             SimpleNamespace(
-                filename="/venv/lib/asyncpg/connection.py", function="fetch", lineno=10
+                filename="/usr/lib/python3.14/asyncio/events.py",
+                function="_run",
+                lineno=94,
             ),
             SimpleNamespace(
-                filename="/venv/lib/asyncpg/pool.py", function="_execute", lineno=20
+                filename=str(tmp_path / ".venv" / "lib" / "asyncpg" / "pool.py"),
+                function="_execute",
+                lineno=20,
             ),
             SimpleNamespace(
-                filename="/site-packages/gql/transport.py",
+                filename=str(tmp_path / ".venv" / "lib" / "site-packages" / "gql.py"),
                 function="execute",
                 lineno=30,
-            ),
-            SimpleNamespace(
-                filename="/venv/lib/asyncio/tasks.py", function="__call__", lineno=40
-            ),
-            SimpleNamespace(
-                filename="/venv/lib/python3.13/runpy.py", function="close", lineno=50
             ),
         ]
         with patch("metadata.logging_config.inspect.stack", return_value=fake_stack):
             result = get_caller_info()
-        # Fallback: joins deepest 5 frames with newlines
-        assert "\n" in result
-        assert "runpy.py:50" in result
+        assert result == "<unknown caller>"
 
 
 class TestDatabaseLoggerUnit:
@@ -188,14 +197,6 @@ class TestDatabaseLoggerUnit:
         )
         logger.query_logger_callback(record)
         assert logger.get_stats()["slow_queries"] == 0
-
-    def test_log_listener_callback_no_error(self):
-        """log_listener_callback should not raise on valid messages."""
-        logger = DatabaseLogger()
-        fake_conn = None
-        message = SimpleNamespace(severity="NOTICE", message="test notice")
-        # Should not raise
-        logger.log_listener_callback(fake_conn, message)
 
 
 class TestGetDbLogger:

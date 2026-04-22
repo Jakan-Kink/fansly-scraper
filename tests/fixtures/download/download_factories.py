@@ -66,6 +66,7 @@ class DownloadStateFactory(Factory):
     base_path: Path | None = None
     download_path: Path | None = None
     fetched_timeline_duplication = False
+    creator_content_unchanged = False
 
     # History tracking - use LazyFunction to create new sets for each instance
     recent_audio_media_ids = LazyFunction(set)

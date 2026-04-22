@@ -15,14 +15,19 @@ import json
 import ssl
 from collections.abc import Callable
 from contextlib import suppress
+from http.cookies import SimpleCookie
 from types import TracebackType
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from websockets import client as ws_client
 from websockets.exceptions import WebSocketException
 
-from config.logging import textio_logger as logger
+from config.logging import websocket_logger as logger
 from helpers.timer import timing_jitter
+
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class FanslyWebSocket:
@@ -54,6 +59,43 @@ class FanslyWebSocket:
     MSG_PING = 2  # PingResponseEvent — response to "p" ping
     MSG_SERVICE_EVENT = 10000  # ServiceEvent — real-time notifications
     MSG_BATCH = 10001  # Batch — array of messages, recursively unpacked
+    MSG_CHAT_ROOM = 46001  # Chat room join (chatws only)
+
+    # Known service IDs within ServiceEvent (from observed traffic)
+    SVC_POST = 1  # Post interactions (likes, etc.)
+    SVC_MEDIA = 2  # Media/content interactions (likes, etc.)
+    SVC_FOLLOWS = 3  # Follow/unfollow events
+    SVC_MESSAGING = 4  # Message delivery and acknowledgments
+    SVC_MSG_INTERACT = 5  # Message interactions (new messages, likes)
+    SVC_WALLET = 6  # Wallet balance updates and transactions
+    SVC_NOTIFICATIONS = 9  # Notification events (created, read)
+    SVC_SUBSCRIPTIONS = 15  # Subscription lifecycle (created → confirmed)
+    SVC_PAYMENTS = 16  # External payment processing (card charges, 3DS)
+    SVC_POLLS = 42  # Poll viewport subscriptions (auto sub/unsub on scroll)
+    SVC_CHAT = 46  # Livestream chat room messages
+
+    # Notification type codes (serviceId * 1000 + N).
+    # ClassVar so ruff RUF012 doesn't flag the mutable-default warning —
+    # this is shared class-level lookup data, not per-instance state.
+    NOTIFICATION_TYPES: ClassVar[dict[int, str]] = {
+        1002: "Post Like",
+        1003: "Post Reply",
+        1004: "Post Reply",
+        1005: "Post Quote",
+        2002: "Media Like",
+        2007: "Media Purchase",
+        2008: "Bundle Purchase",
+        3002: "New Follower",
+        3003: "Unfollowed",
+        5003: "Message Reaction",
+        7001: "Tip",
+        15006: "New Subscriber",
+        15007: "Sub Expired",
+        15011: "Promotion",
+        15016: "New Subscriber",
+        32007: "Locked Text Purchase",
+        45012: "Stream Ticket Purchase",
+    }
 
     def __init__(
         self,
@@ -63,24 +105,46 @@ class FanslyWebSocket:
         enable_logging: bool = False,
         on_unauthorized: Callable[[], Any] | None = None,
         on_rate_limited: Callable[[], Any] | None = None,
+        monitor_events: bool = False,
+        base_url: str | None = None,
+        http_client: httpx.Client | None = None,
     ) -> None:
         """Initialize Fansly WebSocket client.
 
         Args:
             token: Fansly authentication token
             user_agent: User agent string to use for the connection
-            cookies: Optional cookies dict to send with connection
+            cookies: Optional cookies dict to send with connection. Used as
+                the backing store when ``http_client`` is not provided
+                (test path). When ``http_client`` IS provided, this dict
+                is ignored — cookies are read live from the client's jar
+                on every connect/reconnect (HTTP → WS direction).
             enable_logging: Enable detailed debug logging (default: False)
             on_unauthorized: Callback function to call on 401 error (logout)
             on_rate_limited: Callback function to call on 429 error (rate limit)
+            monitor_events: Log all received events for protocol discovery (default: False)
+            base_url: WebSocket server URL (default: wss://wsv3.fansly.com)
+            http_client: Optional shared ``httpx.Client`` whose cookie jar
+                is used bidirectionally. On connect/reconnect the
+                Cookie header is rebuilt from the jar (HTTP → WS
+                direction). Incoming Set-Cookie headers on the
+                WebSocket upgrade response are written back into the
+                same jar (WS → HTTP direction), so the API and WS stay
+                in sync as Fansly rotates session/check-key cookies.
+                Pass ``None`` in tests to use the static ``cookies`` dict.
         """
         self.token = token
         self.user_agent = user_agent
+        self.http_client = http_client
+        # Frozen dict path — only consulted when http_client is None.
+        # When http_client is set, _current_cookies() reads fresh from
+        # the jar on every call, so this value becomes unused.
         self.cookies = cookies or {}
         self.enable_logging = enable_logging
         self.on_unauthorized = on_unauthorized
         self.on_rate_limited = on_rate_limited
-        self.base_url = self.WEBSOCKET_URL
+        self.monitor_events = monitor_events
+        self.base_url = base_url or self.WEBSOCKET_URL
         self.connected = False
         self.session_id: str | None = None
         self.websocket_session_id: str | None = None
@@ -126,15 +190,83 @@ class FanslyWebSocket:
         }
         return json.dumps(message)
 
+    def _current_cookies(self) -> dict[str, str]:
+        """Return the cookie snapshot to use for the next connect/reconnect.
+
+        When ``http_client`` is set (production path) this reads live from
+        the shared httpx jar, so cookie rotations made by HTTP requests
+        during the session are reflected in the next WS handshake.
+        When ``http_client`` is None (test path) it falls back to the
+        frozen ``cookies`` dict passed at construction.
+
+        Returns:
+            {cookie_name: cookie_value} for the current connection.
+        """
+        if self.http_client is None:
+            return dict(self.cookies)
+        # httpx.Cookies iteration yields Cookie objects via .jar —
+        # mirror the pattern api/fansly.py uses to build its snapshot.
+        return {c.name: c.value for c in self.http_client.cookies.jar}
+
     def _create_cookie_header(self) -> str:
-        """Create Cookie header from cookies dict.
+        """Create Cookie header from the current cookie snapshot.
 
         Returns:
             Cookie header string (e.g., "key1=value1; key2=value2")
         """
-        if not self.cookies:
+        current = self._current_cookies()
+        if not current:
             return ""
-        return "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+        return "; ".join(f"{k}={v}" for k, v in current.items())
+
+    def _absorb_response_cookies(self, response_headers: Any) -> None:
+        """Propagate Set-Cookie headers from the WS upgrade into the HTTP jar.
+
+        websockets' ClientProtocol exposes the HTTP response headers that
+        completed the upgrade. If Fansly rotates a cookie as part of the
+        upgrade (e.g., refreshing a session-binding cookie), we push
+        those values back into the shared httpx jar so subsequent HTTP
+        requests send the updated values. This is the WS → HTTP leg of
+        bidirectional cookie sync.
+
+        No-op when ``http_client`` is None (test path) or when the
+        response headers object does not expose Set-Cookie entries.
+
+        Args:
+            response_headers: Mapping-like object from the WebSocket
+                upgrade response (``websocket.response_headers``).
+        """
+        if self.http_client is None or response_headers is None:
+            return
+        # websockets < 12 exposes response_headers as a multi-dict; use
+        # get_all if available, else fall back to a single get() lookup.
+        get_all = getattr(response_headers, "get_all", None)
+        raw_values = (
+            get_all("Set-Cookie")
+            if callable(get_all)
+            else [response_headers.get("Set-Cookie")]
+        )
+        for raw in raw_values or []:
+            if not raw:
+                continue
+            # SimpleCookie parses a single Set-Cookie header line into
+            # morsels we can then push into the httpx jar. This handles
+            # the attribute-laden form (path, domain, expires, ...)
+            # that websockets won't pre-parse for us.
+            parsed = SimpleCookie()
+            try:
+                parsed.load(raw)
+            except Exception as exc:
+                logger.debug("WS Set-Cookie parse failed: {} ({})", raw, exc)
+                continue
+            for name, morsel in parsed.items():
+                self.http_client.cookies.set(
+                    name,
+                    morsel.value,
+                    domain=morsel["domain"] or "fansly.com",
+                    path=morsel["path"] or "/",
+                )
+                logger.trace("WS absorbed cookie {}={}", name, morsel.value)
 
     def register_handler(
         self,
@@ -176,12 +308,15 @@ class FanslyWebSocket:
             message_type = data.get("t")
             message_data = data.get("d")
 
-            if self.enable_logging:
-                logger.debug(
-                    "Received WebSocket message - type: {}, data: {}",
-                    message_type,
-                    message_data,
-                )
+            logger.trace(
+                "Received WebSocket message - type: {}, data: {}",
+                message_type,
+                message_data,
+            )
+
+            # Event monitor — categorized logging for protocol discovery
+            if self.monitor_events:
+                self._monitor_event(message_type, message_data)
 
             # JS: 0 === r → handleErrorEvent(decodeMessage("ErrorEvent", t.d))
             if message_type == self.MSG_ERROR:
@@ -199,8 +334,7 @@ class FanslyWebSocket:
             # JS: 2 === r → handlePingResponseEvent
             elif message_type == self.MSG_PING:
                 self._last_ping_response = asyncio.get_event_loop().time()
-                if self.enable_logging:
-                    logger.debug("Received ping response: {}", message_data)
+                logger.trace("Received ping response: {}", message_data)
 
             # JS: 1e4 === r → handleServiceEvent(decodeMessage("ServiceEvent", t.d))
             elif message_type == self.MSG_SERVICE_EVENT:
@@ -234,8 +368,11 @@ class FanslyWebSocket:
                 else:
                     handler(message_data)
 
-            # Silently discard unknown message types (anti-detection)
-            elif self.enable_logging:
+            # Unknown message types silently discarded (anti-detection).
+            # Logged at DEBUG so enabling the websocket level surfaces them
+            # during protocol reverse-engineering without triggering any
+            # user-visible behavior change in production.
+            else:
                 logger.debug(
                     "Received unhandled message type {} (discarded)",
                     message_type,
@@ -326,6 +463,376 @@ class FanslyWebSocket:
         except json.JSONDecodeError as e:
             logger.error("Failed to decode auth response: {}", e)
 
+    # region Event Monitor
+
+    def _monitor_event(self, message_type: int, message_data: Any) -> None:
+        """Log received WebSocket events for protocol discovery.
+
+        Categorizes known event types with structured output.
+        Dumps unknown types as decoded JSON for analysis.
+        Skips ping (type 2) and messaging ACK (serviceId 4) events.
+        """
+        if message_type == self.MSG_PING:
+            return
+
+        if message_type == self.MSG_ERROR:
+            error = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+            logger.info("[WS Monitor] Error | code={}", error.get("code"))
+            return
+
+        if message_type == self.MSG_SESSION:
+            session = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+            sess = session.get("session", {})
+            logger.info(
+                "[WS Monitor] Session | id={} wsId={} status={}",
+                sess.get("id"),
+                sess.get("websocketSessionId"),
+                sess.get("status"),
+            )
+            return
+
+        if message_type == self.MSG_SERVICE_EVENT:
+            self._monitor_service_event(message_data)
+            return
+
+        if message_type == self.MSG_BATCH:
+            batch = message_data if isinstance(message_data, list) else []
+            logger.debug("[WS Monitor] Batch of {} events", len(batch))
+            return
+
+        if message_type == self.MSG_CHAT_ROOM:
+            room = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+            logger.info("[WS Monitor] Chat Room Join | room={}", room.get("chatRoomId"))
+            return
+
+        # Unknown top-level message type — full dump
+        logger.info(
+            "[WS Monitor] Unknown t={}\n{}",
+            message_type,
+            json.dumps(message_data, indent=2) if message_data else "(empty)",
+        )
+
+    def _monitor_service_event(self, message_data: Any) -> None:
+        """Decode and categorize a ServiceEvent (type 10000).
+
+        Fully decodes the triple-JSON nesting
+        (envelope -> serviceId/event -> payload).
+        Known services get structured single-line output.
+        Unknown services dump the decoded payload as indented JSON.
+        """
+        try:
+            envelope = (
+                json.loads(message_data)
+                if isinstance(message_data, str)
+                else (message_data or {})
+            )
+        except json.JSONDecodeError:
+            logger.warning("[WS Monitor] ServiceEvent decode error: {}", message_data)
+            return
+
+        service_id = envelope.get("serviceId")
+        raw_event = envelope.get("event")
+
+        try:
+            event = (
+                json.loads(raw_event)
+                if isinstance(raw_event, str)
+                else (raw_event or {})
+            )
+        except json.JSONDecodeError:
+            logger.warning(
+                "[WS Monitor] ServiceEvent inner decode error | svc={}: {}",
+                service_id,
+                raw_event,
+            )
+            return
+
+        event_type = event.get("type")
+
+        # Skip messaging ACK/read-receipt events (serviceId=4)
+        if service_id == self.SVC_MESSAGING:
+            return
+
+        # Notifications — noise, only log at debug
+        if service_id == self.SVC_NOTIFICATIONS:
+            if "notification" in event:
+                notif = event["notification"]
+                ntype = notif.get("type")
+                nlabel = self.NOTIFICATION_TYPES.get(ntype, f"unknown({ntype})")
+                logger.debug(
+                    "[WS Monitor] Notification | {} corr={} | id={}",
+                    nlabel,
+                    notif.get("correlationId"),
+                    notif.get("id"),
+                )
+            elif "data" in event:
+                logger.debug(
+                    "[WS Monitor] Notification Read | beforeAnd={}",
+                    event["data"].get("beforeAnd"),
+                )
+            return
+
+        # Poll viewport subs are noise — only log at debug
+        if service_id == self.SVC_POLLS:
+            ps = event.get("pollSubscription", {})
+            action = "Sub" if event_type == 20 else "Unsub"
+            logger.debug(
+                "[WS Monitor] Poll {} | poll={} | id={}",
+                action,
+                ps.get("pollId"),
+                ps.get("id"),
+            )
+            return
+
+        # Dispatch to known service handlers
+        handlers = {
+            self.SVC_POST: lambda: self._monitor_post_event(event_type, event),
+            self.SVC_MEDIA: lambda: self._monitor_media_event(event_type, event),
+            self.SVC_FOLLOWS: lambda: self._monitor_follow_event(event),
+            self.SVC_MSG_INTERACT: lambda: self._monitor_message_event(
+                event_type, event
+            ),
+            self.SVC_WALLET: lambda: self._monitor_wallet_event(event),
+            self.SVC_SUBSCRIPTIONS: lambda: self._monitor_subscription_event(event),
+            self.SVC_PAYMENTS: lambda: self._monitor_payment_event(event),
+            self.SVC_CHAT: lambda: self._monitor_chat_event(event),
+        }
+
+        handler = handlers.get(service_id)
+        if handler:
+            handler()
+        else:
+            # Unknown service — full dump for discovery
+            logger.info(
+                "[WS Monitor] serviceId={} type={}\n{}",
+                service_id,
+                event_type,
+                json.dumps(event, indent=2),
+            )
+
+    def _monitor_post_event(self, event_type: int, event: dict) -> None:
+        """Categorize post service events (serviceId=1)."""
+        if "like" in event:
+            like = event["like"]
+            logger.info(
+                "[WS Monitor] Post Like | post={} account={} | id={}",
+                like.get("postId"),
+                like.get("accountId"),
+                like.get("id"),
+            )
+            return
+
+        # Unknown post event — dump for discovery
+        logger.info(
+            "[WS Monitor] Post svc=1 type={}\n{}",
+            event_type,
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_media_event(self, event_type: int, event: dict) -> None:
+        """Categorize media service events (serviceId=2)."""
+        if "like" in event:
+            like = event["like"]
+            logger.info(
+                "[WS Monitor] Media Like | media={} bundle={} access={} | id={} at={}",
+                like.get("accountMediaId"),
+                like.get("accountMediaBundleId"),
+                like.get("accountMediaAccess"),
+                like.get("id"),
+                like.get("createdAt"),
+            )
+            return
+
+        if "order" in event:
+            order = event["order"]
+            logger.info(
+                "[WS Monitor] Media Purchase | media={} from={} | order={}",
+                order.get("accountMediaId"),
+                order.get("correlationAccountId"),
+                order.get("orderId"),
+            )
+            return
+
+        # Unknown media event — dump for discovery
+        logger.info(
+            "[WS Monitor] Media svc=2 type={}\n{}",
+            event_type,
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_message_event(self, event_type: int, event: dict) -> None:
+        """Categorize message interaction events (serviceId=5)."""
+        # Typing indicators — extremely noisy, DEBUG-only so they only
+        # surface when the websocket logger is explicitly set to DEBUG.
+        if "typingAnnounceEvent" in event:
+            ta = event["typingAnnounceEvent"]
+            logger.debug(
+                "[WS Monitor] Typing | account={} group={}",
+                ta.get("accountId"),
+                ta.get("groupId"),
+            )
+            return
+
+        if "message" in event:
+            msg = event["message"]
+            content = msg.get("content", "")
+            preview = (content[:60] + "...") if len(content) > 60 else content
+            attachments = msg.get("attachments", [])
+            logger.info(
+                "[WS Monitor] New Message | from={} group={} attachments={} | id={}"
+                ' content="{}"',
+                msg.get("senderId"),
+                msg.get("groupId"),
+                len(attachments),
+                msg.get("id"),
+                preview,
+            )
+            return
+
+        if "like" in event:
+            like = event["like"]
+            logger.info(
+                "[WS Monitor] Message Like | msg={} group={} like_type={} | id={}",
+                like.get("messageId"),
+                like.get("groupId"),
+                like.get("type"),
+                like.get("id"),
+            )
+            return
+
+        # Unknown message event — dump for discovery
+        logger.info(
+            "[WS Monitor] Message svc=5 type={}\n{}",
+            event_type,
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_follow_event(self, event: dict) -> None:
+        """Categorize follow events (serviceId=3)."""
+        if "follow" in event:
+            follow = event["follow"]
+            logger.info(
+                "[WS Monitor] Follow | account={} follower={} | id={}",
+                follow.get("accountId"),
+                follow.get("followerId"),
+                follow.get("id"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Follow svc=3\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_wallet_event(self, event: dict) -> None:
+        """Categorize wallet events (serviceId=6)."""
+        if "wallet" in event:
+            w = event["wallet"]
+            logger.info(
+                "[WS Monitor] Wallet | balance={} version={} | id={}",
+                w.get("balance"),
+                w.get("walletVersion"),
+                w.get("id"),
+            )
+            return
+
+        if "transaction" in event:
+            tx = event["transaction"]
+            logger.info(
+                "[WS Monitor] Wallet Tx | type={} amount={} status={} | id={} corr={}",
+                tx.get("type"),
+                tx.get("amount"),
+                tx.get("status"),
+                tx.get("id"),
+                tx.get("correlationId"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Wallet svc=6\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_subscription_event(self, event: dict) -> None:
+        """Categorize subscription events (serviceId=15)."""
+        if "subscription" in event:
+            sub = event["subscription"]
+            tier = sub.get("subscriptionTierName", "")
+            label = f' "{tier}"' if tier else ""
+            logger.info(
+                "[WS Monitor] Subscription | account={} status={}{} price={} | id={}",
+                sub.get("accountId"),
+                sub.get("status"),
+                label,
+                sub.get("price"),
+                sub.get("id"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Subscription svc=15\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_payment_event(self, event: dict) -> None:
+        """Categorize payment events (serviceId=16)."""
+        if "transaction" in event:
+            tx = event["transaction"]
+            logger.info(
+                "[WS Monitor] Payment | type={} amount={} status={} 3ds={} | id={}",
+                tx.get("type"),
+                tx.get("amount"),
+                tx.get("status"),
+                tx.get("threeDSecure"),
+                tx.get("id"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Payment svc=16\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    def _monitor_chat_event(self, event: dict) -> None:
+        """Categorize chat room events (serviceId=46, chatws only)."""
+        if "chatRoomMessage" in event:
+            msg = event["chatRoomMessage"]
+            meta = msg.get("metadata", "{}")
+            if isinstance(meta, str):
+                meta = json.loads(meta) if meta else {}
+            creator = meta.get("senderIsCreator", False)
+            tag = " [creator]" if creator else ""
+            content = msg.get("content", "")
+            preview = (content[:60] + "...") if len(content) > 60 else content
+            logger.info(
+                '[WS Monitor] Chat{} | @{} ({}): "{}" | room={}',
+                tag,
+                msg.get("username"),
+                msg.get("displayname"),
+                preview,
+                msg.get("chatRoomId"),
+            )
+            return
+
+        logger.info(
+            "[WS Monitor] Chat svc=46\n{}",
+            json.dumps(event, indent=2),
+        )
+
+    # endregion
+
     async def connect(self) -> None:
         """Connect to Fansly WebSocket server.
 
@@ -374,6 +881,14 @@ class FanslyWebSocket:
             self._last_ping_response = (
                 asyncio.get_event_loop().time()
             )  # JS: lastPingResponse_ = Date.now()
+
+            # WS → HTTP cookie sync: absorb any Set-Cookie headers from
+            # the upgrade response back into the shared httpx jar so the
+            # API layer sees the latest values on its next HTTP request.
+            self._absorb_response_cookies(
+                getattr(self.websocket, "response_headers", None)
+            )
+
             logger.info("WebSocket connection established")
 
             # Send authentication message
@@ -429,6 +944,9 @@ class FanslyWebSocket:
         If no ping response within 1.2x the interval, resets the connection
         (JS: lastPingResponse_ > pingTimeout_ → resetWebsocket).
         """
+        # Clear stale ref if the previous worker self-exited on timeout.
+        if self._ping_task is not None and self._ping_task.done():
+            self._ping_task = None
         if self._ping_task is not None:
             logger.warning("Ping loop already running")
             return
@@ -468,8 +986,7 @@ class FanslyWebSocket:
 
                         await self.websocket.send("p")
 
-                        if self.enable_logging:
-                            logger.debug("Sent ping (next in {:.1f}s)", ping_interval)
+                        logger.trace("Sent ping (next in {:.1f}s)", ping_interval)
 
                     except WebSocketException as e:
                         logger.error("Error sending ping: {}", e)
@@ -483,8 +1000,7 @@ class FanslyWebSocket:
                 logger.debug("Ping loop cancelled")
 
         self._ping_task = asyncio.create_task(ping_worker())
-        if self.enable_logging:
-            logger.debug("Ping loop started")
+        logger.debug("Ping loop started")
 
     def _stop_ping_loop(self) -> None:
         """Stop the ping loop task."""
@@ -494,8 +1010,7 @@ class FanslyWebSocket:
         self._ping_task.cancel()
         self._ping_task = None
 
-        if self.enable_logging:
-            logger.debug("Ping loop stopped")
+        logger.debug("Ping loop stopped")
 
     async def _listen_loop(self) -> None:
         """Listen for incoming WebSocket messages.
@@ -513,8 +1028,7 @@ class FanslyWebSocket:
                     await self._handle_message(message)
                 except TimeoutError:
                     # Timeout is normal - just continue listening
-                    if self.enable_logging:
-                        logger.debug("WebSocket listen timeout - continuing")
+                    logger.debug("WebSocket listen timeout - continuing")
                     continue
                 except WebSocketException as e:
                     logger.error("WebSocket error in listen loop: {}", e)
@@ -638,8 +1152,7 @@ class FanslyWebSocket:
 
         await self.websocket.send(json.dumps(message))
 
-        if self.enable_logging:
-            logger.debug("Sent WebSocket message - type: {}", message_type)
+        logger.debug("Sent WebSocket message - type: {}", message_type)
 
     async def __aenter__(self) -> FanslyWebSocket:
         """Async context manager entry."""
