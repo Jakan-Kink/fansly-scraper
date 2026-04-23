@@ -87,7 +87,7 @@ types-setuptools = ">=75.6.0.20241126"
 types-pillow = ">=10.2.0"
 types-toml = ">=0.10.8.20240310"
 types-m3u8 = ">=6.0.0.20250708"
-types-psutil = ">=7.0.0.20250401"
+types-psutil = ">=7.2.2.20260408"
 types-tqdm = ">=4.67.0.20241221"
 
 [tool.poetry.group.test.dependencies]
